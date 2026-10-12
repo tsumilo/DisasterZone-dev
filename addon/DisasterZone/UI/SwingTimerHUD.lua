@@ -12,9 +12,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingTimerHUD.lua", ...) then r
 --   lane    the planner's next ~7 s: swings, twist windows and every GCD block it placed (fillers in blue)
 -- When auto attack is not running it rests: an empty bar and nothing else moves.
 -- Style (settings swing.style): "bar", "lane" or "both". Unlock with /dz swing unlock to drag it.
+-- The frame is a UI:CreateHudFrame (no look of its own: the ring is the face; locked by swing.locked, its place kept in
+-- swing.pos as before); while unlocked it shows the shared info notice. Texts are UI:Text on the type scale, the
+-- lane the HUD surface (ns.Style HUD_BG), its colours the tokens (D1: the deep gold for the swing ticks). The ring's
+-- 200 strokes and their colours are drawn here: no component draws a swing ring.
 local addonName, ns = ...
 
 local HUD = ns:NewModule("SwingTimerHUD")
+local UI = ns.UI
+local S = ns.Style
 
 local floor, max, min, sin = math.floor, math.max, math.min, math.sin
 local strformat = string.format
@@ -24,17 +30,11 @@ local BIG, SMALL, SIDE = 70, 28, 22
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"   -- white, alpha fading out from the center
 local LANE_W, LANE_H, LANE_SPAN, LANE_BACK = 500, 46, 7.5, 0.5
-local STATUSBAR = "Interface\\TargetingFrame\\UI-StatusBar"
-local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
-local HALO = "Interface\\Buttons\\UI-ActionButton-Border"
 local WHITE = "Interface\\Buttons\\WHITE8X8"
-local FRIZ = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-local NARROW = "Fonts\\ARIALN.TTF"
-local GOLD = { 0.95, 0.74, 0.30 }
+local NARROW = S.FONT_NUM
+local GOLD = S.C.GOLD_DEEP                 -- (D1: the swing ticks are fills)
 local ZONE = { 1.0, 0.56, 0.20 }
-local FILLER = { 0.45, 0.72, 1.0 }
-local KIND_COLOR = { twist = { 0.31, 0.83, 0.42 }, late = { 0.89, 0.70, 0.24 }, clip = { 0.88, 0.38, 0.31 },
-    plain = { 0.30, 0.30, 0.34 } }
+local FILLER = S.C.YOU                     -- (a filler's block: the blue of "you can fit this")
 local FILLERS = { exo = true, cons = true }
 
 local ST                         -- ns.SwingTimer
@@ -45,67 +45,12 @@ local rested, restWeapon, restSeal = false, nil, nil   -- (Rest's look is on, fo
 
 local function Get(path, default) return ST.Get(path, default) end
 
-local function Tex(parent, layer, path, r, g, b, a, sub)
+-- A texture of the ring (a path, white by default) tinted r, g, b, a (the ring's parts are coloured each frame).
+local function Part(parent, layer, path, r, g, b, a, sub)
     local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub)
     t:SetTexture(path or WHITE)
     if r then t:SetVertexColor(r, g, b, a or 1) end
     return t
-end
-
-local function Font(parent, font, size, r, g, b, flags)
-    local f = parent:CreateFontString(nil, "OVERLAY")
-    f:SetFont(font, size, flags or "")
-    f:SetTextColor(r or 1, g or 1, b or 1)
-    f:SetShadowColor(0, 0, 0, 1)
-    f:SetShadowOffset(1, -1)
-    return f
-end
-
--- A two-color gradient where the client has one (SetGradient with colors on newer clients, SetGradientAlpha on
--- older ones); the flat average color underneath either way, so it never comes out white.
-local function Gradient(t, orient, r1, g1, b1, a1, r2, g2, b2, a2)
-    t:SetVertexColor((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
-    if t.SetGradient and CreateColor then
-        pcall(t.SetGradient, t, orient, CreateColor(r1, g1, b1, a1), CreateColor(r2, g2, b2, a2))
-    elseif t.SetGradientAlpha then
-        pcall(t.SetGradientAlpha, t, orient, r1, g1, b1, a1, r2, g2, b2, a2)
-    end
-end
-
--- A flat panel: a 1 px dark edge around a translucent dark fill, nothing else.
-local function Panel(f, alpha)
-    local edge = Tex(f, "BACKGROUND", WHITE, 0, 0, 0, 0.9, -7)
-    edge:SetPoint("TOPLEFT", -1, 1)
-    edge:SetPoint("BOTTOMRIGHT", 1, -1)
-    local fill = Tex(f, "BACKGROUND", WHITE, 0.06, 0.06, 0.07, alpha or 0.75, -5)
-    fill:SetAllPoints()
-end
-
--- An icon with a black edge (the client's icons with their own border trimmed); gold = the gold frame of the next press.
-local function Icon(parent, size, gold)
-    local h = CreateFrame("Frame", nil, parent)
-    h:SetSize(size, size)
-    if gold then
-        h.halo = Tex(h, "BACKGROUND", HALO, 1, 0.72, 0.3, 0.9, -8)
-        h.halo:SetBlendMode("ADD")
-        h.halo:SetPoint("CENTER")
-        h.halo:SetSize(size * 1.7, size * 1.7)
-        local g = Tex(h, "BACKGROUND", WHITE, 1, 0.84, 0.42, 1, -7)
-        g:SetPoint("TOPLEFT", -2, 2)
-        g:SetPoint("BOTTOMRIGHT", 2, -2)
-        h.goldRim = g
-    end
-    local edge = Tex(h, "BACKGROUND", WHITE, 0, 0, 0, 1, -6)
-    edge:SetPoint("TOPLEFT", -1, 1)
-    edge:SetPoint("BOTTOMRIGHT", 1, -1)
-    h.icon = Tex(h, "ARTWORK")
-    h.icon:SetAllPoints()
-    h.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    h.text = Font(h, NARROW, max(11, floor(size * 0.36)), 0.81, 0.77, 0.65)
-    h.text:SetPoint("TOP", h, "BOTTOM", 0, -3)
-    h.center = Font(h, NARROW, max(13, floor(size * 0.4)), 1, 1, 1, "OUTLINE")
-    h.center:SetPoint("CENTER")
-    return h
 end
 
 -- Crops a texture to a circle where the client has mask textures.
@@ -117,40 +62,38 @@ local function Round(holder, tex)
     tex:AddMaskTexture(m)
 end
 
+-- (where it sits: swing.pos, as before)
 local function SavePos()
     local p, _, rp, x, y = frame:GetPoint()
     ns.DB:SetSetting("swing.pos", { p, rp, floor(x + 0.5), floor(y + 0.5) })
 end
 
 local function Build()
-    frame = CreateFrame("Frame", "DisasterZoneSwingTimer", UIParent)
-    frame:SetSize(LANE_W + 40, 260)
-    frame:SetFrameStrata("MEDIUM")
-    frame:SetClampedToScreen(true)
-    frame:SetMovable(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(f) if not Get("locked", true) then f:StartMoving() end end)
-    frame:SetScript("OnDragStop", function(f) f:StopMovingOrSizing(); SavePos() end)
+    frame = UI:CreateHudFrame("DisasterZoneSwingTimer", { width = LANE_W + 40, height = 260, look = "none",
+        position = false, strata = "MEDIUM", isLocked = function() return Get("locked", true) and true or false end,
+        onMoved = SavePos })
     local pos = Get("pos")
+    frame:ClearAllPoints()
     if type(pos) == "table" and pos[1] then frame:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
     else frame:SetPoint("CENTER", UIParent, "CENTER", 0, -170) end
 
-    frame.mover = Tex(frame, "BACKGROUND", WHITE, 0.2, 0.6, 1, 0.15, -8)
-    frame.mover:SetAllPoints()
-    frame.moverText = Font(frame, FRIZ, 12, 0.6, 0.85, 1)
-    frame.moverText:SetPoint("TOP", 0, -2)
-    frame.moverText:SetText("Swing timer: drag it, then /dz swing lock")
+    -- unlocked: a faint wash over its place and the shared notice saying how to lock it
+    local you = S.C.YOU
+    frame.mover = UI:Fill(frame, { you[1], you[2], you[3], 0.15 }, "BACKGROUND", -8)
+    frame.moverText = UI:CreateNotice(frame, "info", "Swing timer: drag it, then /dz swing lock")
+    frame.moverText:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    frame.moverText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
 
     -- the ring (kept as frame.bar so Layout's bar/lane switch still works)
     local ring = CreateFrame("Frame", nil, frame)
     ring:SetSize(RING, RING)
     ring:SetPoint("TOP", frame, "TOP", 0, -20)
     frame.bar = ring
-    ring.glow = Tex(ring, "BACKGROUND", SOFT, ZONE[1], ZONE[2], ZONE[3], 0, -8)
+    ring.glow = Part(ring, "BACKGROUND", SOFT, ZONE[1], ZONE[2], ZONE[3], 0, -8)
     ring.glow:SetBlendMode("ADD")
     ring.glow:SetPoint("CENTER")
     ring.glow:SetSize(RING * 1.9, RING * 1.9)
-    ring.well = Tex(ring, "BACKGROUND", DISC, 0, 0, 0, 0.55, -6)
+    ring.well = Part(ring, "BACKGROUND", DISC, 0, 0, 0, 0.55, -6)
     ring.well:SetPoint("CENTER")
     ring.well:SetSize(RING_R * 2 + 12, RING_R * 2 + 12)
     -- the band is 200 short radial strokes, not discs, so where one color meets the next the edge is cut flat
@@ -169,13 +112,13 @@ local function Build()
         d.f = f
         ring.dots[i] = d
     end
-    ring.head = Tex(ring, "OVERLAY", SOFT, 1, 0.92, 0.66, 0.9)
+    ring.head = Part(ring, "OVERLAY", SOFT, 1, 0.92, 0.66, 0.9)
     ring.head:SetBlendMode("ADD")
     ring.head:SetSize(DOT * 5, DOT * 5)
     ring.tip = ring:CreateLine(nil, "OVERLAY", nil, 1)   -- a flat bright edge where the fill ends
     ring.tip:SetColorTexture(1, 1, 1, 1)
     ring.tip:SetThickness(2)
-    ring.flash = Tex(ring, "BACKGROUND", SOFT, 1, 0.86, 0.5, 0, 2)
+    ring.flash = Part(ring, "BACKGROUND", SOFT, 1, 0.86, 0.5, 0, 2)
     ring.flash:SetBlendMode("ADD")
     ring.flash:SetPoint("CENTER")
     ring.flash:SetSize(RING * 1.9, RING * 1.9)
@@ -184,11 +127,11 @@ local function Build()
     local big = CreateFrame("Frame", nil, ring)
     big:SetSize(BIG, BIG)
     big:SetPoint("CENTER")
-    big.icon = Tex(big, "ARTWORK")
+    big.icon = Part(big, "ARTWORK")
     big.icon:SetAllPoints()
     big.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     Round(big, big.icon)
-    big.shade = Tex(big, "OVERLAY", DISC, 0, 0, 0, 0)
+    big.shade = Part(big, "OVERLAY", DISC, 0, 0, 0, 0)
     big.shade:SetAllPoints()
     frame.big = big
 
@@ -197,22 +140,21 @@ local function Build()
     seal:SetSize(SIDE, SIDE)
     seal:SetPoint("CENTER", ring, "CENTER", RING_R * 0.72, -RING_R * 0.72)
     seal:SetFrameLevel(ring:GetFrameLevel() + 3)
-    local sb = Tex(seal, "BACKGROUND", DISC, 0, 0, 0, 1)
+    local sb = Part(seal, "BACKGROUND", DISC, 0, 0, 0, 1)
     sb:SetPoint("CENTER")
     sb:SetSize(SIDE + 4, SIDE + 4)
-    seal.icon = Tex(seal, "ARTWORK")
+    seal.icon = Part(seal, "ARTWORK")
     seal.icon:SetAllPoints()
     seal.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     Round(seal, seal.icon)
-    seal.text = Font(seal, NARROW, 10, 1, 1, 1, "OUTLINE")
+    seal.text = UI:Text(seal, "small", { 1, 1, 1 }, { font = NARROW, flags = "OUTLINE", justify = "CENTER" })
     seal.text:SetPoint("CENTER", 0, 0)
     frame.seal = seal
 
     -- name and countdown to the right
-    big.name = Font(ring, FRIZ, 15, 1, 0.88, 0.54)
+    big.name = UI:Text(ring, "page", { 1, 0.88, 0.54 }, { shadow = true })
     big.name:SetPoint("LEFT", ring, "RIGHT", 6, 7)
-    big.name:SetJustifyH("LEFT")
-    big.hint = Font(ring, NARROW, 12, 0.75, 0.70, 0.58)
+    big.hint = UI:Text(ring, "emph", "SUB", { font = NARROW, shadow = true })
     big.hint:SetPoint("TOPLEFT", big.name, "BOTTOMLEFT", 0, -2)
     big.name:Hide()   -- the ring shows the time and the icon the spell: no text beside it
     big.hint:Hide()
@@ -223,11 +165,11 @@ local function Build()
         local s = CreateFrame("Frame", nil, ring)
         local size = i == 1 and SMALL or SMALL - 6
         s:SetSize(size, size)
-        s.icon = Tex(s, "ARTWORK")
+        s.icon = Part(s, "ARTWORK")
         s.icon:SetAllPoints()
         s.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         Round(s, s.icon)
-        s.text = Font(s, NARROW, 10)
+        s.text = UI:Text(s, "small", { 1, 1, 1 }, { font = NARROW, shadow = true })
         s:SetAlpha(i == 1 and 0.8 or 0.45)
         if i == 1 then s:SetPoint("RIGHT", ring, "LEFT", -4, 0)
         else s:SetPoint("RIGHT", frame.small[i - 1], "LEFT", -6, 0) end
@@ -235,53 +177,52 @@ local function Build()
     end
     frame.dots = {}
 
-    -- lane
+    -- lane: the HUD surface with a black edge, a hairline each second, the now line
     local lane = CreateFrame("Frame", nil, frame)
     lane:SetSize(LANE_W, LANE_H)
     lane:SetPoint("TOP", ring, "BOTTOM", 0, -14)
     frame.lane = lane
-    Panel(lane, 0.82)
+    lane.bg = UI:Fill(lane, "HUD_BG", "BACKGROUND", -5)
+    UI:AddEdges(lane, "BACKGROUND")
+    UI:SetEdgeColor(lane, 0, 0, 0, 0.9)
     for s = 1, 7 do
-        local g = Tex(lane, "BORDER", WHITE, 1, 1, 1, 0.05)
-        g:SetWidth(1)
-        g:SetPoint("TOP")
-        g:SetPoint("BOTTOM")
-        g:SetPoint("LEFT", lane, "LEFT", (s + LANE_BACK) / LANE_SPAN * LANE_W, 0)
+        local g = UI:Rule(lane, { vertical = true, color = "HOVER", layer = "BORDER",
+            left = (s + LANE_BACK) / LANE_SPAN * LANE_W })
+        lane["grid" .. s] = g
     end
-    lane.now = Tex(lane, "OVERLAY", WHITE, 1, 1, 1, 1)
+    lane.now = UI:Fill(lane, { 1, 1, 1, 1 }, "OVERLAY")
+    lane.now:ClearAllPoints()
     lane.now:SetWidth(2)
     lane.now:SetPoint("TOP", 0, 4)
     lane.now:SetPoint("BOTTOM", 0, -4)
     lane.now:SetPoint("LEFT", lane, "LEFT", LANE_BACK / LANE_SPAN * LANE_W, 0)
-    lane.gain = Font(lane, FRIZ, 11, 0.5, 0.88, 0.56)
+    lane.gain = UI:Text(lane, "body", "OK", { shadow = true })
     lane.gain:SetPoint("TOPRIGHT", lane, "BOTTOMRIGHT", 0, -6)
     lane.ticks, lane.windows, lane.blocks = {}, {}, {}
     for i = 1, 4 do
-        local w = Tex(lane, "BORDER", WHITE)
-        Gradient(w, "HORIZONTAL", ZONE[1], ZONE[2], ZONE[3], 0.04, ZONE[1], ZONE[2], ZONE[3], 0.38)
+        local w = lane:CreateTexture(nil, "BORDER")
+        UI:Gradient(w, "HORIZONTAL", { ZONE[1], ZONE[2], ZONE[3], 0.04 }, { ZONE[1], ZONE[2], ZONE[3], 0.38 })
         lane.windows[i] = w
-        local t = Tex(lane, "OVERLAY", WHITE, GOLD[1], GOLD[2], GOLD[3], 1)
+        local t = Part(lane, "OVERLAY", WHITE, GOLD[1], GOLD[2], GOLD[3], 1)
         t:SetWidth(2)
         lane.ticks[i] = t
     end
     for i = 1, 6 do
         local b = CreateFrame("Frame", nil, lane)
         b:SetHeight(LANE_H - 12)
-        b.bg = Tex(b, "BACKGROUND", WHITE, 1, 1, 1, 0.07)
+        b.bg = Part(b, "BACKGROUND")
         b.bg:SetAllPoints()
-        b.line = Tex(b, "BORDER", WHITE, 1, 1, 1, 0.16)
+        b.line = Part(b, "BORDER")
         b.line:SetPoint("TOPLEFT")
         b.line:SetPoint("TOPRIGHT")
         b.line:SetHeight(1)
-        b.icon = Tex(b, "ARTWORK")
+        b.icon = Part(b, "ARTWORK")
         b.icon:SetSize(LANE_H - 18, LANE_H - 18)
         b.icon:SetPoint("LEFT", 3, 0)
         b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        b.name = Font(b, NARROW, 12, 0.94, 0.89, 0.74)
+        b.name = UI:Text(b, "emph", "TEXT", { font = NARROW, shadow = true })
         b.name:SetPoint("LEFT", b.icon, "RIGHT", 5, 0)
         b.name:SetPoint("RIGHT", b, "RIGHT", -3, 0)
-        b.name:SetJustifyH("LEFT")
-        b.name:SetWordWrap(false)
         lane.blocks[i] = b
     end
 
@@ -524,11 +465,11 @@ function HUD:Update()
                     if FILLERS[st.key] then
                         b.bg:SetVertexColor(FILLER[1], FILLER[2], FILLER[3], 0.22)
                         b.line:SetVertexColor(FILLER[1], FILLER[2], FILLER[3], 0.7)
-                        b.name:SetTextColor(0.66, 0.84, 1)
+                        b.name:SetTextColor(S:Color("YOU"))
                     else
-                        b.bg:SetVertexColor(1, 1, 1, 0.07)
-                        b.line:SetVertexColor(1, 1, 1, 0.16)
-                        b.name:SetTextColor(0.94, 0.89, 0.74)
+                        b.bg:SetVertexColor(S:Color("HAIRLINE"))
+                        b.line:SetVertexColor(S:Color("EDGE"))
+                        b.name:SetTextColor(S:Color("TEXT"))
                     end
                     b:Show()
                     bi = bi + 1

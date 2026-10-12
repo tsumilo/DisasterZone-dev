@@ -1,34 +1,39 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingPracticeUI.lua", ...) then return end -- DisasterZone: twist practice UI.
 -- The screens of twist practice (Core/SwingPractice.lua):
---   window     banner (Karazhan art, your latency, stars earned), the lessons as rows (icon, title, goal, stars;
---              locked ones dim), your keys (click one, press a key to change it), Start
---   result     the same window after a lesson: stars popping in, % of a perfect run, tiles (twists, early, late,
---              missed, strikes, judgements), every Seal of Blood on the timing ruler, one tip, Try again / Next
---   overlay    around the swing ring while practice runs: a coach card over it (lesson, what to press now with
---              your key, a pip per swing), 3-2-1-Go in the ring, a big word beside it after each swing (Perfect,
---              Early 62 ms, ...), the timing ruler and the lesson's keys under it (they light up when it is their
---              turn, shade while cooling down, and can be clicked)
+--   window     a tool window (UI:CreateWindow + the "tool" layout): the tool banner (Karazhan art, the seal, stars
+--              earned as its pill, your latency as its kicker and tool), an info notice (nothing is cast), the tool
+--              row (the picked lesson, Start as the main action), the lessons as rows with the shared row looks
+--              (icon tile and number badge, title, goal, stars; locked ones dim with a lock) under a caps section
+--              header, your keys (click one, press a key to change it) under another
+--   result     the same window after a lesson: a card with stars popping in, % of a perfect run, tiles (twists,
+--              early, late, missed, strikes, judgements), every Seal of Blood on the timing ruler, one tip; the
+--              way back as a back link, Try again / Next lesson in the tool row
+--   overlay    around the swing ring while practice runs: a coach card over it (the pop-ups' card look: lesson, what
+--              to press now with your key, a pip per swing), 3-2-1-Go in the ring, a big word beside it after each
+--              swing (Perfect, Early 62 ms, ...), the timing ruler and the lesson's keys under it (they light up when
+--              it is their turn, shade while cooling down, and can be clicked)
 -- Open with /dz swing practice or Practice on the swing timer's card in Settings > Class tools.
+-- Drawn here, with no shared component for them: the timing ruler (a chart of its own), the key caps, the rating
+-- stars and the ring's action keys (the game's action-button look).
 local addonName, ns = ...
 
 local PUI = ns:NewModule("SwingPracticeUI")
+local S = ns.Style
 
-local floor, max, min, abs, sin = math.floor, math.max, math.min, math.abs, math.sin
+local floor, max, min, sin = math.floor, math.max, math.min, math.sin
 local strformat = string.format
 
 local W = 560
-local PAD, GAP = 10, 8
-local BANNER_H = 84
-local ROW_H, ROW_GAP = 52, 4
-local KEYS_H = 64
-local CONTENT_H = PAD + BANNER_H + GAP + 6 * ROW_H + 5 * ROW_GAP + GAP + KEYS_H + PAD
-local H = CONTENT_H + 26 + 6
-local CHIP_W, CHIP_ICON = 100, 30          -- 4 chips + Start = the content width (530)
-local GOLD = { 1, 0.82, 0 }
-local SOFTGOLD = { 0.95, 0.74, 0.30 }
-local GREY = { 0.62, 0.62, 0.64 }
-local DIM = { 0.47, 0.47, 0.5 }
-local WHITE8 = "Interface\\Buttons\\WHITE8X8"
+local LAYOUT_W = W - 10                    -- the window's content width
+local BODY_W = LAYOUT_W - 2 * S.PAD        -- the tool layout's body (530)
+local ROW_H = S.ROW.art
+local HEAD_H = 18                          -- a caps section header
+local LESSONS_Y = HEAD_H + 4               -- the first lesson row under its header
+local CHIP_H = 38
+local BODY_H = LESSONS_Y + 6 * ROW_H + S.GAP + HEAD_H + 6 + CHIP_H
+local H = (ns.UI.WIN_HEAD + 6) + S.PAD + S.BANNER.tool + S.GAP + 26 + S.GAP + 26 + S.GAP + BODY_H + S.PAD
+local CHIP_ICON = 30
+local GOLD = S.C.GOLD
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
 local STAR = "Interface\\COMMON\\ReputationStar"
@@ -37,6 +42,7 @@ local KIND_RGB = {
     perfect = { 1, 0.82, 0.25 }, twist = { 0.38, 0.86, 0.46 }, early = { 1, 0.56, 0.22 }, late = { 1, 0.56, 0.22 },
     miss = { 0.95, 0.34, 0.30 }, clip = { 0.95, 0.34, 0.30 }, nocmd = { 0.95, 0.34, 0.30 },
 }
+local ZONE = { 1, 0.56, 0.2 }              -- the twist window on the ruler (the ring's orange)
 -- (names come from the client: Seal of the Martyr for the Alliance)
 local function Label(spell) return ns.SwingPractice:Label(spell) end
 local function Say(text) return ns.SwingPractice:Say(text) end
@@ -46,44 +52,11 @@ local DMIN, DMAX = -0.9, 0.45
 local function UI() return ns.UI end
 local function SP() return ns.SwingPractice end
 local function ST() return ns.SwingTimer end
-local function EUI() return ns.EventUI end
 
 local frame, overlay
 
-local function Text(parent, size, color, layer, flags)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", "GameFontHighlight")
-    local path = fs:GetFont()
-    fs:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size or 12, flags or "")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if color then fs:SetTextColor(color[1], color[2], color[3]) end
-    fs:SetShadowOffset(1, -1)
-    fs:SetShadowColor(0, 0, 0, 1)
-    return fs
-end
-
-local function Fill(parent, layer, r, g, b, a, sub)
-    local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sub)
-    t:SetTexture(WHITE8)
-    t:SetVertexColor(r, g, b, a or 1)
-    return t
-end
-
-local function Edge(f, r, g, b, a)
-    if not f.edges then UI():AddEdges(f) end
-    UI():SetEdgeColor(f, r, g, b, a)
-end
-
-local function Tip(owner, title, lines)
-    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:SetText(title, 1, 0.82, 0)
-    for _, l in ipairs(lines or {}) do
-        if type(l) == "table" then GameTooltip:AddLine(l[1], l[2], l[3], l[4], true)
-        else GameTooltip:AddLine(l, 0.85, 0.85, 0.85, true) end
-    end
-    GameTooltip:Show()
-end
-
+-- A rating star (the game's reputation star): lit gold, or a grey one. TODO(refactor): move into a shared rating
+-- control (no component draws stars).
 local function Star(parent, size)
     local t = parent:CreateTexture(nil, "ARTWORK")
     t:SetTexture(STAR)
@@ -96,6 +69,25 @@ local function Star(parent, size)
     return t
 end
 
+-- A key cap ("2", "SHIFT-1"): the inset surface with a strong edge and a darker lip, the key in it. edge(r, g, b)
+-- recolours its edge (gold while a key is being caught, red when one is missing).
+-- TODO(refactor): move into a shared key cap (UI/Comp/Controls.lua has no keyboard key).
+local function KeyCap(parent, w, h)
+    local cap = CreateFrame("Frame", nil, parent)
+    cap:SetSize(w, h)
+    cap.bg = UI():Fill(cap, "INSET", "BACKGROUND")
+    UI():AddEdges(cap, "BORDER")
+    UI():SetEdgeColor(cap, S:Color("EDGE_STRONG"))
+    cap.lip = UI():Fill(cap, { 0, 0, 0, 0.5 }, "BORDER")
+    cap.lip:ClearAllPoints()
+    cap.lip:SetPoint("BOTTOMLEFT")
+    cap.lip:SetPoint("BOTTOMRIGHT")
+    cap.lip:SetHeight(3)
+    cap.key = UI():Text(cap, "body", { 1, 1, 1 }, { justify = "CENTER" })
+    cap.key:SetPoint("CENTER", 0, 1)
+    return cap
+end
+
 local function LessonIcon(L)
     if L.spell == "lust" then return SP().Lust().icon end
     if L.spell == "free" then return FREE_ICON end
@@ -103,7 +95,7 @@ local function LessonIcon(L)
 end
 
 local function KeyText(k)
-    if not k then return "|cffff6a5a?|r" end
+    if not k then return S:Wrap("BAD", "?") end
     return SP():Short(k)
 end
 
@@ -118,33 +110,32 @@ local function NewRuler(parent, rw, rh, labels)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(rw, rh)
     r.rw = rw
-    local track = Fill(r, "BACKGROUND", 0.06, 0.06, 0.07, 0.9)
-    track:SetAllPoints()
-    Edge(r, 0.2, 0.2, 0.22, 1)
+    UI():Fill(r, "INSET", "BACKGROUND")
+    UI():AddEdges(r, "BORDER")
+    UI():SetEdgeColor(r, S:Color("EDGE_QUIET"))
     local o = ST().OVERLAP
-    local win = Fill(r, "BORDER", 1, 0.56, 0.2, 0.32)
+    local win = UI():Fill(r, { ZONE[1], ZONE[2], ZONE[3], 0.32 }, "BORDER")
+    win:ClearAllPoints()
     win:SetPoint("TOPLEFT", r, "TOPLEFT", X(rw, -o), 0)
     win:SetPoint("BOTTOMRIGHT", r, "BOTTOMLEFT", X(rw, 0), 0)
-    local safe = Fill(r, "BORDER", 1, 0.62, 0.25, 0.5, 1)
+    local safe = UI():Fill(r, { ZONE[1], 0.62, 0.25, 0.5 }, "BORDER", 1)
+    safe:ClearAllPoints()
     safe:SetPoint("TOPLEFT", r, "TOPLEFT", X(rw, -o + 0.05), -3)
     safe:SetPoint("BOTTOMRIGHT", r, "BOTTOMLEFT", X(rw, -0.05), 3)
-    local swing = Fill(r, "ARTWORK", SOFTGOLD[1], SOFTGOLD[2], SOFTGOLD[3], 1)
+    local swing = UI():Fill(r, "GOLD_DEEP", "ARTWORK")
+    swing:ClearAllPoints()
     swing:SetWidth(2)
     swing:SetPoint("TOP", r, "TOPLEFT", X(rw, 0), 3)
     swing:SetPoint("BOTTOM", r, "BOTTOMLEFT", X(rw, 0), -3)
     if labels then
-        local e = Text(r, 9.5, DIM)
+        local e = UI():Text(r, "caps", "DIM", { text = "Too early" })
         e:SetPoint("TOPLEFT", r, "BOTTOMLEFT", 0, -3)
-        e:SetText("TOO EARLY")
-        local w = Text(r, 9.5, { 1, 0.66, 0.34 })
+        local w = UI():Text(r, "caps", { 1, 0.66, 0.34 }, { text = "Twist" })
         w:SetPoint("TOP", r, "BOTTOMLEFT", X(rw, -o / 2), -3)
-        w:SetText("TWIST")
-        local s = Text(r, 9.5, SOFTGOLD)
+        local s = UI():Text(r, "caps", "GOLD", { text = "Swing" })
         s:SetPoint("TOP", r, "BOTTOMLEFT", X(rw, 0) + 14, -3)
-        s:SetText("SWING")
-        local l = Text(r, 9.5, DIM)
+        local l = UI():Text(r, "caps", "DIM", { text = "Late" })
         l:SetPoint("TOPRIGHT", r, "BOTTOMRIGHT", 0, -3)
-        l:SetText("LATE")
     end
     r.dots = {}
     function r:SetMarks(list, keep)
@@ -159,7 +150,7 @@ local function NewRuler(parent, rw, rh, labels)
                 self.dots[n] = d
             end
             local m = list[i]
-            local c = KIND_RGB[m.kind] or GREY
+            local c = KIND_RGB[m.kind] or S.C.SUB
             local latest = i == #list
             local size = latest and min(rh - 2, 10) or min(rh - 6, 7)
             d:SetSize(size, size)
@@ -169,7 +160,7 @@ local function NewRuler(parent, rw, rh, labels)
             d:SetVertexColor(c[1], c[2], c[3], latest and 1 or fade)
             d:Show()
         end
-        for i = n + 1, #self.dots do self.dots[i]:Hide() end
+        UI():HideFrom(self.dots, n + 1)
     end
     return r
 end
@@ -179,90 +170,20 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 local selected
 
-local function BuildBanner(c)
-    local bn = CreateFrame("Frame", nil, c)
-    bn:SetPoint("TOPLEFT", c, "TOPLEFT", PAD, -PAD)
-    bn:SetPoint("TOPRIGHT", c, "TOPRIGHT", -PAD, -PAD)
-    bn:SetHeight(BANNER_H)
-    bn:SetClipsChildren(true)
-    bn.art = bn:CreateTexture(nil, "BACKGROUND")
-    bn.art:SetAllPoints()
-    bn.art:SetVertexColor(0.62, 0.62, 0.62)
-    local PlanUI = ns.RaidPlanUI
-    if PlanUI and PlanUI.RaidArt then
-        local path, l, r, t, b = PlanUI:RaidArt("kara", W - 10 - 2 * PAD, BANNER_H, 0.62)
-        bn.art:SetTexture(path)
-        bn.art:SetTexCoord(l, r, t, b)
-    end
-    if EUI() then EUI():AddShade(bn) end
-    Edge(bn, 0.16, 0.16, 0.18, 1)
-    bn.title = Text(bn, 19, GOLD)
-    bn.title:SetPoint("TOPLEFT", bn, "TOPLEFT", 14, -14)
-    bn.title:SetText("Twist practice")
-    bn.sub = Text(bn, 11, { 0.78, 0.78, 0.8 })
-    bn.sub:SetPoint("TOPLEFT", bn, "TOPLEFT", 14, -42)
-    bn.sub:SetText("Learn the seal twist one step at a time.")
-    bn.sub2 = Text(bn, 11, { 0.6, 0.6, 0.63 })
-    bn.sub2:SetPoint("TOPLEFT", bn.sub, "BOTTOMLEFT", 0, -3)
-    bn.sub2:SetText("Nothing is cast: your keys are caught while you practice.")
-    -- stars earned, latency
-    bn.starCount = Text(bn, 13, GOLD)
-    bn.starCount:SetPoint("TOPRIGHT", bn, "TOPRIGHT", -12, -14)
-    bn.starCount:SetJustifyH("RIGHT")
-    bn.star = Star(bn, 16)
-    bn.star:SetPoint("RIGHT", bn.starCount, "LEFT", -4, 0)
-    bn.star:SetLit(true)
-    bn.lat = Text(bn, 9.5, GREY)
-    bn.lat:SetPoint("TOPRIGHT", bn, "TOPRIGHT", -12, -36)
-    bn.lat:SetJustifyH("RIGHT")
-    local hit = CreateFrame("Frame", nil, bn)
-    hit:SetPoint("TOPLEFT", bn.lat, "TOPLEFT", -4, 4)
-    hit:SetPoint("BOTTOMRIGHT", bn.lat, "BOTTOMRIGHT", 4, -4)
-    hit:EnableMouse(true)
-    hit:SetScript("OnEnter", function(self)
-        Tip(self, "Your latency", { "Practice delays every press by it, the way the server hears you, so the "
-            .. "timing you learn here is the timing of a real fight. Settings > Class tools > Swing timer > Latency." })
-    end)
-    hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return bn
-end
-
-local function NewRow(c, i)
-    local row = CreateFrame("Button", nil, c)
+-- A lesson: the shared row looks (hover, the picked one's gold wash and bar, a hairline under it), the lesson's icon
+-- in an icon tile with its number as a count badge, title and goal, its stars and best on the right.
+local function NewRow(body, i)
+    local row = CreateFrame("Button", nil, body)
     row:SetHeight(ROW_H)
-    row:SetPoint("TOPLEFT", c, "TOPLEFT", PAD, -(PAD + BANNER_H + GAP + (i - 1) * (ROW_H + ROW_GAP)))
-    row:SetPoint("TOPRIGHT", c, "TOPRIGHT", -PAD, -(PAD + BANNER_H + GAP + (i - 1) * (ROW_H + ROW_GAP)))
-    row.bg = Fill(row, "BACKGROUND", 0.09, 0.09, 0.1, 0.92)
-    row.bg:SetAllPoints()
-    row.glow = Fill(row, "BACKGROUND", GOLD[1], GOLD[2], GOLD[3], 0, 1)
-    row.glow:SetAllPoints()
-    if row.glow.SetGradient and CreateColor then
-        row.glow:SetGradient("HORIZONTAL", CreateColor(1, 0.82, 0, 0.12), CreateColor(1, 0.82, 0, 0))
-    end
-    row.glow:Hide()
-    Edge(row, 0.17, 0.17, 0.19, 1)
-    row.iconBox = CreateFrame("Frame", nil, row)
-    row.iconBox:SetSize(36, 36)
-    row.iconBox:SetPoint("LEFT", row, "LEFT", 8, 0)
-    Edge(row.iconBox, 0, 0, 0, 1)
-    row.icon = row.iconBox:CreateTexture(nil, "ARTWORK")
-    row.icon:SetAllPoints()
-    row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    row.num = CreateFrame("Frame", nil, row.iconBox)
-    row.num:SetSize(16, 16)
+    row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -(LESSONS_Y + (i - 1) * ROW_H))
+    row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -(LESSONS_Y + (i - 1) * ROW_H))
+    UI():DecorateRow(row, { hover = true, selectable = true, rule = true })
+    row.iconBox = UI():CreateIconTile(row, 34)
+    row.iconBox:SetPoint("LEFT", row, "LEFT", 10, 0)
+    row.icon = row.iconBox.tex
+    row.num = UI():CreateCountBadge(row.iconBox, 14)
     row.num:SetPoint("CENTER", row.iconBox, "BOTTOMRIGHT", -2, 2)
     row.num:SetFrameLevel(row.iconBox:GetFrameLevel() + 2)
-    local nb = row.num:CreateTexture(nil, "ARTWORK")
-    nb:SetTexture(DISC)
-    nb:SetVertexColor(0.05, 0.05, 0.06, 1)
-    nb:SetAllPoints()
-    row.numRing = row.num:CreateTexture(nil, "BORDER")
-    row.numRing:SetTexture(DISC)
-    row.numRing:SetPoint("CENTER")
-    row.numRing:SetSize(18, 18)
-    row.numRing:SetVertexColor(SOFTGOLD[1], SOFTGOLD[2], SOFTGOLD[3], 1)
-    row.numText = Text(row.num, 9.5, GOLD)
-    row.numText:SetPoint("CENTER", 0, 0)
     row.lock = row:CreateTexture(nil, "OVERLAY")
     row.lock:SetSize(18, 18)
     row.lock:SetPoint("CENTER", row.iconBox, "CENTER")
@@ -270,10 +191,10 @@ local function NewRow(c, i)
     local lc = UI():IconCoords(UI().ICON.lock)
     row.lock:SetTexCoord(lc[1], lc[2], lc[3], lc[4])
     row.lock:Hide()
-    row.title = Text(row, 14, { 0.95, 0.95, 0.96 })
-    row.title:SetPoint("TOPLEFT", row.iconBox, "TOPRIGHT", 12, -2)
-    row.goal = Text(row, 11, GREY)
-    row.goal:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -4)
+    row.title = UI():Text(row, "title", "TEXT")
+    row.title:SetPoint("BOTTOMLEFT", row.iconBox, "RIGHT", 12, 1)
+    row.goal = UI():Text(row, "body", "SUB")
+    row.goal:SetPoint("TOPLEFT", row.iconBox, "RIGHT", 12, -3)
     row.goal:SetPoint("RIGHT", row, "RIGHT", -96, 0)
     row.stars = {}
     for s = 1, 3 do
@@ -281,25 +202,20 @@ local function NewRow(c, i)
         st:SetPoint("RIGHT", row, "RIGHT", -12 - (3 - s) * 19, 6)
         row.stars[s] = st
     end
-    row.best = Text(row, 9.5, DIM)
+    row.best = UI():Text(row, "small", "DIM", { justify = "RIGHT" })
     row.best:SetPoint("TOPRIGHT", row, "RIGHT", -12, -6)
-    row.best:SetJustifyH("RIGHT")
-    row:SetScript("OnEnter", function(self)
-        if not self.selected then Edge(self, 0.36, 0.33, 0.24, 1) end
+    UI():AttachTooltip(row, function(self, tt)
+        if not self.L then return false end
+        tt:AddLine(self.L.title, S:Color("GOLD"))
+        local sr, sg, sb = S:Color("SUB")
         if self.locked then
-            Tip(self, self.L.title, { strformat("Get a star in lesson %d first.", self.L.n - 1) })
-        elseif self.L then
-            local lines = { Say(self.L.intro) }
-            local b = SP():Best(self.L.key)
-            if b then lines[#lines + 1] = { strformat("Best: %d %% of a perfect run", floor((b.grade or 0) * 100 + 0.5)),
-                0.6, 0.6, 0.62 } end
-            lines[#lines + 1] = { "Click: pick · Double-click: start", 0.6, 0.6, 0.62 }
-            Tip(self, self.L.title, lines)
+            tt:AddLine(strformat("Get a star in lesson %d first.", self.L.n - 1), 1, 1, 1, true)
+            return
         end
-    end)
-    row:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
-        PUI:PaintRow(self)
+        tt:AddLine(Say(self.L.intro), 1, 1, 1, true)
+        local b = SP():Best(self.L.key)
+        if b then tt:AddLine(strformat("Best: %d %% of a perfect run", floor((b.grade or 0) * 100 + 0.5)), sr, sg, sb, true) end
+        tt:AddLine("Click: pick · Double-click: start", sr, sg, sb, true)
     end)
     row:SetScript("OnClick", function(self)
         if self.locked then return end
@@ -315,44 +231,28 @@ local function NewRow(c, i)
 end
 
 function PUI:PaintRow(row)
-    if row.selected then
-        Edge(row, GOLD[1], GOLD[2], GOLD[3], 0.85)
-        row.glow:Show()
-        row.title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-    else
-        Edge(row, 0.17, 0.17, 0.19, 1)
-        row.glow:Hide()
-        row.title:SetTextColor(0.95, 0.95, 0.96)
-    end
+    row:SetSelected(row.selected)
+    row.title:SetTextColor(S:Color(row.selected and "GOLD" or "TEXT"))
 end
 
-local function NewChip(parent, spell)
+-- A key of the lesson: the spell's icon, its key cap and short name; click, then press the key to change it.
+local function NewKeyBind(parent, spell, w)   -- (not a tag chip: a key binding control, icon + key cap)
     local chip = CreateFrame("Button", nil, parent)
-    chip:SetSize(CHIP_W, 38)
+    chip:SetSize(w, CHIP_H)
     chip.spell = spell
-    chip.bg = Fill(chip, "BACKGROUND", 0.09, 0.09, 0.1, 0.92)
-    chip.bg:SetAllPoints()
-    Edge(chip, 0.2, 0.2, 0.22, 1)
-    chip.icon = chip:CreateTexture(nil, "ARTWORK")
-    chip.icon:SetSize(CHIP_ICON, CHIP_ICON)
-    chip.icon:SetPoint("LEFT", chip, "LEFT", 4, 0)
-    chip.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    chip.bg = UI():Fill(chip, "INSET", "BACKGROUND")
+    UI():AddEdges(chip, "BORDER")
+    UI():SetEdgeColor(chip, S:Color("EDGE_QUIET"))
+    UI():DecorateRow(chip, { hover = true })
+    chip.tile = UI():CreateIconTile(chip, CHIP_ICON)
+    chip.tile:SetPoint("LEFT", chip, "LEFT", 4, 0)
+    chip.icon = chip.tile.tex
     -- the key cap, the spell's short name under it
-    chip.cap = CreateFrame("Frame", nil, chip)
-    chip.cap:SetSize(34, 18)
-    chip.cap:SetPoint("TOPLEFT", chip.icon, "TOPRIGHT", 7, 0)
-    chip.capBg = Fill(chip.cap, "BACKGROUND", 0.16, 0.16, 0.18, 1)
-    chip.capBg:SetAllPoints()
-    Edge(chip.cap, 0.36, 0.36, 0.4, 1)
-    chip.capLip = Fill(chip.cap, "BORDER", 0, 0, 0, 0.5)
-    chip.capLip:SetPoint("BOTTOMLEFT")
-    chip.capLip:SetPoint("BOTTOMRIGHT")
-    chip.capLip:SetHeight(3)
-    chip.key = Text(chip.cap, 11, { 1, 1, 1 })
-    chip.key:SetPoint("CENTER", 0, 1)
-    chip.key:SetJustifyH("CENTER")
-    chip.what = Text(chip, 9.5, DIM)
-    chip.what:SetPoint("BOTTOMLEFT", chip.icon, "BOTTOMRIGHT", 7, 0)
+    chip.cap = KeyCap(chip, 34, 18)
+    chip.cap:SetPoint("TOPLEFT", chip.tile, "TOPRIGHT", 7, 0)
+    chip.key = chip.cap.key
+    chip.what = UI():Text(chip, "caps", "DIM")
+    chip.what:SetPoint("BOTTOMLEFT", chip.tile, "BOTTOMRIGHT", 7, 0)
     chip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     chip:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
@@ -364,54 +264,54 @@ local function NewChip(parent, spell)
         SP():AssignKey(self.spell, function() PUI:Refresh() end)
         PUI:Refresh()
     end)
-    chip:SetScript("OnEnter", function(self)
-        Edge(self, 0.5, 0.46, 0.34, 1)
+    UI():AttachTooltip(chip, function(self, tt)
+        tt:AddLine(Label(self.spell), S:Color("GOLD"))
+        tt:AddLine("Click, then press the key you use for it in fights.", 1, 1, 1, true)
         local keys, auto = SP():Keys()
-        local lines = { "Click, then press the key you use for it in fights." }
+        local sr, sg, sb = S:Color("SUB")
         if auto[self.spell] and keys[self.spell] ~= auto[self.spell] then
-            lines[#lines + 1] = { "Your bars: " .. SP():Short(auto[self.spell]) .. " · Right-click: back to that", 0.6, 0.6, 0.62 }
+            tt:AddLine("Your bars: " .. SP():Short(auto[self.spell]) .. " · Right-click: back to that", sr, sg, sb, true)
         elseif auto[self.spell] then
-            lines[#lines + 1] = { "Found on your action bars.", 0.6, 0.6, 0.62 }
+            tt:AddLine("Found on your action bars.", sr, sg, sb, true)
         else
-            lines[#lines + 1] = { "Not found on your action bars: set it here. Mouse buttons can't be caught: pick a key.",
-                0.6, 0.6, 0.62 }
+            tt:AddLine("Not found on your action bars: set it here. Mouse buttons can't be caught: pick a key.",
+                sr, sg, sb, true)
         end
-        Tip(self, Label(self.spell), lines)
-    end)
-    chip:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
-        Edge(self, 0.2, 0.2, 0.22, 1)
     end)
     return chip
 end
 
-local function BuildKeys(c)
-    local k = CreateFrame("Frame", nil, c)
-    k:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", PAD, PAD)
-    k:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -PAD, PAD)
-    k:SetHeight(KEYS_H)
-    local rule = Fill(k, "ARTWORK", 1, 1, 1, 0.08)
-    rule:SetHeight(1)
-    rule:SetPoint("TOPLEFT")
-    rule:SetPoint("TOPRIGHT")
-    k.cap = Text(k, 9.5, GREY)
-    k.cap:SetPoint("TOPLEFT", k, "TOPLEFT", 0, -8)
-    k.cap:SetText("YOUR KEYS")
+-- Your keys: a caps section header (it says what to do), then a chip per spell.
+local function BuildKeys(body)
+    local k = CreateFrame("Frame", nil, body)
+    k:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -(LESSONS_Y + 6 * ROW_H + S.GAP))
+    k:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -(LESSONS_Y + 6 * ROW_H + S.GAP))
+    k:SetHeight(HEAD_H + 6 + CHIP_H)
+    k.head = UI():CreateSectionHeader(k, "Your keys", { style = "caps" })
+    k.head:SetPoint("TOPLEFT", k, "TOPLEFT", 0, 0)
+    k.head:SetPoint("TOPRIGHT", k, "TOPRIGHT", 0, 0)
+    k.cap = k.head.title
     k.chips = {}
+    local n = #SP().SPELLS
+    local cw = floor((BODY_W - (n - 1) * S.GAP) / n)
     for i, s in ipairs(SP().SPELLS) do
-        local chip = NewChip(k, s)
-        chip:SetPoint("BOTTOMLEFT", k, "BOTTOMLEFT", (i - 1) * (CHIP_W + 6), 0)
+        local chip = NewKeyBind(k, s, cw)
+        chip:SetPoint("BOTTOMLEFT", k, "BOTTOMLEFT", (i - 1) * (cw + S.GAP), 0)
         chip.icon:SetTexture(ST().ICONS[s])
         k.chips[i] = chip
     end
-    k.start = UI():CreateSleekButton(k, "Start", 104, 38, function() PUI:StartSelected() end, "primary")
-    k.start:HookScript("OnEnter", function(self)
-        Tip(self, "Start", { "The ring shows up where your swing timer sits. 3, 2, 1, then the swings start.",
-            { "Esc stops. Entering combat stops it too.", 0.6, 0.6, 0.62 } })
-    end)
-    k.start:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    k.start:SetPoint("BOTTOMRIGHT", k, "BOTTOMRIGHT", 0, 0)
     return k
+end
+
+-- The tool row's main action: Start (Play for free play) on the lessons; Next lesson / Play again on a result, with
+-- Try again beside it.
+local START_TIP = { "The ring shows up where your swing timer sits. 3, 2, 1, then the swings start.",
+    { "Esc stops. Entering combat stops it too.", "SUB" } }
+local function SetMain(text, onClick, kind, tip)
+    local bar = frame.layout.toolbar
+    local b = bar:SetPrimary({ text = text, onClick = onClick, kind = kind or "primary", tip = tip, tipTitle = text })
+    frame.keys.start = b
+    return b
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -419,80 +319,74 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 local TILE_W, TILE_H = 78, 50
 
-local function BuildResult(c)
-    local r = CreateFrame("Frame", nil, c)
-    r:SetPoint("TOPLEFT", c, "TOPLEFT", PAD, -(PAD + BANNER_H + GAP))
-    r:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -PAD, PAD)
+local function BuildResult(body)
+    local r = UI():CreateCard(body, { tone = "card" })
+    r:SetAllPoints(body)
     r:Hide()
-    local bg = Fill(r, "BACKGROUND", 0.07, 0.07, 0.08, 0.9)
-    bg:SetAllPoints()
-    Edge(r, 0.17, 0.17, 0.19, 1)
     r.glow = r:CreateTexture(nil, "BORDER")
     r.glow:SetTexture(SOFT)
     r.glow:SetBlendMode("ADD")
     r.glow:SetVertexColor(1, 0.75, 0.3, 0.22)
     r.glow:SetSize(360, 200)
     r.glow:SetPoint("CENTER", r, "TOP", 0, -64)
-    r.cap = Text(r, 9.5, GREY)
+    r.back = UI():CreateBackLink(r, "All lessons", function() PUI:ShowLessons() end)
+    r.back:SetPoint("TOPLEFT", r, "TOPLEFT", 12, -12)
+    r.lessons = r.back
+    r.cap = UI():Text(r, "caps", "SUB", { justify = "CENTER" })
     r.cap:SetPoint("TOP", r, "TOP", 0, -14)
-    r.cap:SetJustifyH("CENTER")
     r.stars = {}
     for s = 1, 3 do
         local st = Star(r, 44)
         st:SetPoint("CENTER", r, "TOP", (s - 2) * 54, -56 + (s == 2 and 6 or 0))
         r.stars[s] = st
     end
-    r.grade = Text(r, 28, { 1, 1, 1 })
+    r.grade = UI():Text(r, 28, { 1, 1, 1 }, { justify = "CENTER" })     -- (a display numeral, above the type scale)
     r.grade:SetPoint("TOP", r, "TOP", 0, -92)
-    r.grade:SetJustifyH("CENTER")
-    r.gradeSub = Text(r, 11, GREY)
+    r.gradeSub = UI():Text(r, "body", "SUB", { justify = "CENTER" })
     r.gradeSub:SetPoint("TOP", r.grade, "BOTTOM", 0, -3)
-    r.gradeSub:SetJustifyH("CENTER")
-    r.best = UI():CreateTagPill(r, 16)
+    r.best = UI():CreatePill(r, 16)
     r.best:SetPoint("TOPRIGHT", r, "TOPRIGHT", -10, -10)
     r.best:Hide()
     r.tiles = {}
     for i = 1, 6 do
-        local t = CreateFrame("Frame", nil, r)
-        t:SetSize(TILE_W, TILE_H)
-        local tb = Fill(t, "BACKGROUND", 0.11, 0.11, 0.12, 1)
-        tb:SetAllPoints()
-        Edge(t, 0.2, 0.2, 0.22, 1)
-        t.bar = Fill(t, "BORDER", 1, 1, 1, 1)
-        t.bar:SetPoint("TOPLEFT", 1, -1)
-        t.bar:SetPoint("TOPRIGHT", -1, -1)
-        t.bar:SetHeight(2)
-        t.num = Text(t, 17, { 1, 1, 1 })
+        local t = UI():CreateCard(r, { tone = "inset", width = TILE_W, height = TILE_H })
+        t.bar = UI():Rule(t, { color = { 1, 1, 1, 1 }, size = 2, left = 1, right = 1, top = 1, layer = "ARTWORK" })
+        t.num = UI():Text(t, "page", { 1, 1, 1 }, { justify = "CENTER" })
         t.num:SetPoint("TOP", t, "TOP", 0, -10)
-        t.num:SetJustifyH("CENTER")
-        t.label = Text(t, 9.5, GREY)
+        t.label = UI():Text(t, "caps", "SUB", { justify = "CENTER" })
         t.label:SetPoint("BOTTOM", t, "BOTTOM", 0, 8)
-        t.label:SetJustifyH("CENTER")
         r.tiles[i] = t
     end
-    r.rulerCap = Text(r, 9.5, GREY)
-    r.rulerCap:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -218)
-    r.ruler = NewRuler(r, W - 10 - 2 * PAD - 32, 20, true)
+    r.rulerHead = UI():CreateSectionHeader(r, "", { style = "caps" })
+    r.rulerHead:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -212)
+    r.rulerHead:SetPoint("TOPRIGHT", r, "TOPRIGHT", -16, -212)
+    r.rulerCap = r.rulerHead.title
+    r.ruler = NewRuler(r, BODY_W - 32, 20, true)
     r.ruler:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -234)
-    r.tipCap = Text(r, 9.5, GOLD)
-    r.tipCap:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -286)
-    r.tipCap:SetText("TRY THIS")
-    r.tip = Text(r, 12, { 0.92, 0.92, 0.94 })
-    r.tip:SetPoint("TOPLEFT", r.tipCap, "BOTTOMLEFT", 0, -5)
+    r.tipHead = UI():CreateSectionHeader(r, "Try this", { style = "caps" })
+    r.tipHead:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -280)
+    r.tipHead:SetPoint("TOPRIGHT", r, "TOPRIGHT", -16, -280)
+    r.tipHead.title:SetTextColor(S:Color("GOLD"))
+    r.tipCap = r.tipHead.title
+    r.tip = UI():Text(r, "emph", "TEXT", { wrap = true })
+    r.tip:SetPoint("TOPLEFT", r.tipHead, "BOTTOMLEFT", 0, -5)
     r.tip:SetPoint("RIGHT", r, "RIGHT", -16, 0)
-    r.tip:SetWordWrap(true)
-    r.lessons = UI():CreateSleekButton(r, "All lessons", 104, 30, function() PUI:ShowLessons() end)
-    r.lessons:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 14, 14)
-    r.next = UI():CreateSleekButton(r, "Next lesson", 124, 30, function()
-        if r.nextKey then selected = r.nextKey; PUI:StartSelected() end
-    end, "primary")
-    r.next:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -14, 14)
-    r.again = UI():CreateSleekButton(r, "Try again", 104, 30, function()
+    -- Try again: beside the main action in the tool row (a filter-slot button)
+    r.again = UI():CreateSleekButton(frame.layout.toolbar, "Try again", 104, S.BTN_H, function()
         if r.res then selected = r.res.lesson; PUI:StartSelected() end
     end)
-    r.again:SetPoint("RIGHT", r.next, "LEFT", -8, 0)
+    frame.layout.toolbar:SetFilters({ r.again })
+    r.again:Hide()
     r:SetScript("OnUpdate", function(self) PUI:AnimateResult(self) end)
     return r
+end
+
+-- The tool row's text: the picked lesson.
+local function SetRowText()
+    local L
+    for _, l in ipairs(SP().LESSONS) do if l.key == selected then L = l end end
+    if not L then frame.layout.toolbar:SetText("") return end
+    frame.layout.toolbar:SetText(L.key == "free" and "Free play" or strformat("Lesson %d · %s", L.n, L.title))
 end
 
 function PUI:ShowResult(res)
@@ -512,6 +406,7 @@ function PUI:ShowResult(res)
     -- tiles
     local c = res.counts
     local missed = (c.miss or 0) + (c.clip or 0) + (c.nocmd or 0)
+    local blue = S.C.YOU
     local tiles = {
         { strformat("%d/%d", c.twist or 0, max(res.expected or 0, c.twist or 0)), "Twists", KIND_RGB.twist },
         { tostring(c.perfect or 0), "Perfect", KIND_RGB.perfect },
@@ -520,10 +415,10 @@ function PUI:ShowResult(res)
         { tostring(missed), "Missed", KIND_RGB.miss },
     }
     if L and L.keys.cs then
-        tiles[#tiles + 1] = { strformat("%d/%d", c.cs or 0, max(res.ghostCs or 0, c.cs or 0)), "Strikes", { 0.45, 0.72, 1 } }
+        tiles[#tiles + 1] = { strformat("%d/%d", c.cs or 0, max(res.ghostCs or 0, c.cs or 0)), "Strikes", blue }
     end
     if L and L.keys.judge and #tiles < 6 then
-        tiles[#tiles + 1] = { strformat("%d/%d", c.judge or 0, max(res.ghostJudge or 0, c.judge or 0)), "Judgements", { 0.45, 0.72, 1 } }
+        tiles[#tiles + 1] = { strformat("%d/%d", c.judge or 0, max(res.ghostJudge or 0, c.judge or 0)), "Judgements", blue }
     end
     if #tiles > 6 then table.remove(tiles, 2) end
     local n = #tiles
@@ -537,33 +432,37 @@ function PUI:ShowResult(res)
             t.num:SetText(d[1])
             t.label:SetText(d[2]:upper())
             local zero = d[1] == "0"
-            local col = zero and DIM or d[3]
+            local col = zero and S.C.DIM or d[3]
             t.bar:SetVertexColor(col[1], col[2], col[3], zero and 0.4 or 1)
-            t.num:SetTextColor(zero and 0.5 or 1, zero and 0.5 or 1, zero and 0.52 or 1)
+            if zero then t.num:SetTextColor(S:Color("DIM")) else t.num:SetTextColor(1, 1, 1) end
             t:Show()
         else t:Hide() end
     end
     r.ruler:SetMarks(res.offsets or {})
     r.tip:SetText(SP():Tip(res))
-    r.rulerCap:SetText("WHERE YOUR " .. Label("sob"):upper() .. " LANDED")
-    -- the next lesson
+    r.rulerHead:SetTitle("Where your " .. Label("sob") .. " landed")
+    -- the next lesson: the tool row's main action (Try again beside it)
     local nextL = not res.free and SP().LESSONS[res.n + 1] or nil
     r.nextKey = nextL and SP():IsUnlocked(nextL) and nextL.key or nil
+    local function goNext() if r.nextKey then selected = r.nextKey; PUI:StartSelected() end end
     if res.free then
-        r.next:SetText("Play again")
         r.nextKey = "free"
-        r.next:Show()
+        r.next = SetMain("Play again", goNext)
         r.again:Hide()
-    else
-        r.next:SetText(nextL and (nextL.key == "free" and "Free play" or "Next lesson") or "Next lesson")
-        r.next:SetShown(r.nextKey ~= nil)
-        r.again:Show()
-        r.again:ClearAllPoints()
-        if r.nextKey then r.again:SetPoint("RIGHT", r.next, "LEFT", -8, 0)
-        else r.again:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -14, 14) end
+    elseif r.nextKey then
+        r.next = SetMain(nextL.key == "free" and "Free play" or "Next lesson", goNext)
         r.again:SetText(res.stars < 1 and "Try again" or "Again")
+        r.again:Show()
+    else
+        -- (no lesson open after it: Try again is the main action)
+        r.next = SetMain(res.stars < 1 and "Try again" or "Again", function()
+            if r.res then selected = r.res.lesson; PUI:StartSelected() end
+        end, "secondary")
+        r.again:Hide()
     end
+    frame.layout.toolbar:SetText(res.free and "Free play" or strformat("Lesson %d · %s", res.n, res.title))
     for _, row in ipairs(frame.rows) do row:Hide() end
+    frame.lessonsHead:Hide()
     frame.keys:Hide()
     r:Show()
     frame:Show()
@@ -600,7 +499,9 @@ end
 function PUI:ShowLessons()
     if not frame then return end
     frame.result:Hide()
+    frame.result.again:Hide()
     for _, st in ipairs(frame.result.stars) do st.played = nil end
+    frame.lessonsHead:Show()
     frame.keys:Show()
     self:Refresh()
 end
@@ -613,12 +514,29 @@ function PUI:Build()
     frame:Hide()
     frame:HookScript("OnShow", function() if not frame.result:IsShown() then PUI:Refresh() end end)
     frame:HookScript("OnHide", function() if SP():Assigning() then SP():CancelAssign() end end)
-    local c = frame.content
-    frame.banner = BuildBanner(c)
+    local L = UI():CreateLayout("tool", frame.content, { width = LAYOUT_W, toolbar = true, banner = {
+        size = "tool", art = "kara", icon = ST().ICONS.sob, title = "Twist practice",
+        sub = "Learn the seal twist one step at a time.",
+        tools = { { icon = "eye", title = "Your latency", text = "Practice delays every press by it, the way the "
+            .. "server hears you, so the timing you learn here is the timing of a real fight. Settings > Class "
+            .. "tools > Swing timer > Latency." } } } })
+    frame.layout = L
+    -- (the note that keys are only caught: the layout's info notice)
+    L:ShowNotice("info", "Nothing is cast: your keys are caught while you practice.")
+    local bn = L.banner
+    -- stars earned (the banner's pill) and your latency (its kicker; its tool explains it)
+    bn.starCount = { SetText = function(_, t) bn:SetPill("rank", t and (t .. " stars") or nil) end }
+    bn.lat = { SetText = function(_, t) bn:SetKicker(t) end }
+    frame.banner = bn
+    local body = L.body
+    frame.lessonsHead = UI():CreateSectionHeader(body, "Lessons", { style = "caps" })
+    frame.lessonsHead:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    frame.lessonsHead:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, 0)
     frame.rows = {}
-    for i in ipairs(SP().LESSONS) do frame.rows[i] = NewRow(c, i) end
-    frame.keys = BuildKeys(c)
-    frame.result = BuildResult(c)
+    for i in ipairs(SP().LESSONS) do frame.rows[i] = NewRow(body, i) end
+    frame.keys = BuildKeys(body)
+    frame.result = BuildResult(body)
+    SetMain("Start", function() PUI:StartSelected() end, "primary", START_TIP)
     ns:On("SWING_PRACTICE_KEYS", function() if frame:IsShown() then PUI:Refresh() end end)
 end
 
@@ -627,17 +545,19 @@ function PUI:Refresh()
     local sp = SP()
     if not selected or not sp:IsUnlocked(selected) then selected = sp:NextLesson().key end
     -- banner
-    local earned, total = 0, 0
+    local earned, total, open = 0, 0, 0
     for _, L in ipairs(sp.LESSONS) do
         if L.key ~= "free" then
             total = total + 3
             local b = sp:Best(L.key)
             earned = earned + (b and b.stars or 0)
         end
+        if sp:IsUnlocked(L) then open = open + 1 end
     end
     frame.banner.starCount:SetText(strformat("%d of %d", earned, total))
     local lat = ST():Latency() or 0
-    frame.banner.lat:SetText(strformat("YOUR LATENCY %d MS", floor(lat * 1000 + 0.5)))
+    frame.banner.lat:SetText(strformat("Your latency %d ms", floor(lat * 1000 + 0.5)))
+    frame.lessonsHead:SetCount(strformat("%d of %d open", open, #sp.LESSONS))
     -- rows
     for i, L in ipairs(sp.LESSONS) do
         local row = frame.rows[i]
@@ -649,8 +569,7 @@ function PUI:Refresh()
         row.icon:SetDesaturated(row.locked)
         row.icon:SetAlpha(row.locked and 0.35 or 1)
         row.lock:SetShown(row.locked)
-        row.num:SetShown(L.key ~= "free")
-        row.numText:SetText(i)
+        row.num:SetCount(L.key ~= "free" and i or 0)
         row.title:SetText(L.title)
         row.goal:SetText(row.locked and strformat("Get a star in lesson %d to open it.", i - 1) or Say(L.goal))
         row:SetAlpha(row.locked and 0.6 or 1)
@@ -683,26 +602,29 @@ function PUI:Refresh()
         local k = keys[chip.spell]
         if assigning == chip.spell then
             chip.key:SetText("...")
-            Edge(chip.cap, GOLD[1], GOLD[2], GOLD[3], 1)
+            UI():SetEdgeColor(chip.cap, S:Color("GOLD"))
             chip.what:SetText("Press a key")
-            chip.what:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+            chip.what:SetTextColor(S:Color("GOLD"))
         else
             chip.key:SetText(KeyText(k))
-            Edge(chip.cap, k and 0.36 or 0.7, k and 0.36 or 0.3, k and 0.4 or 0.26, 1)
+            UI():SetEdgeColor(chip.cap, S:Color(k and "EDGE_STRONG" or "BAD"))
             chip.what:SetText(SP():ShortLabel(chip.spell))
-            chip.what:SetTextColor(DIM[1], DIM[2], DIM[3])
+            chip.what:SetTextColor(S:Color("DIM"))
         end
-        local w = chip.key:GetStringWidth() or 0
+        local w = UI():TextWidth(chip.key)
         chip.cap:SetWidth(max(24, min(52, w + 12)))
         if inL and not k and not missing then missing = chip.spell end
     end
-    frame.keys.cap:SetText(assigning and ("PRESS THE KEY YOU USE FOR " .. Label(assigning):upper() .. " · ESC CANCELS")
-        or missing and ("SET A KEY FOR " .. Label(missing):upper() .. ": CLICK IT")
-        or "YOUR KEYS · CLICK ONE TO CHANGE IT")
-    if assigning then frame.keys.cap:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-    elseif missing then frame.keys.cap:SetTextColor(1, 0.5, 0.42)
-    else frame.keys.cap:SetTextColor(GREY[1], GREY[2], GREY[3]) end
-    frame.keys.start:SetText(L and L.key == "free" and "Play" or "Start")
+    frame.keys.head:SetTitle(assigning and ("Press the key you use for " .. Label(assigning) .. " · Esc cancels")
+        or missing and ("Set a key for " .. Label(missing) .. ": click it")
+        or "Your keys · click one to change it")
+    if assigning then frame.keys.cap:SetTextColor(S:Color("GOLD"))
+    elseif missing then frame.keys.cap:SetTextColor(S:Color("BAD"))
+    else frame.keys.cap:SetTextColor(S:Color("SUB")) end
+    if not frame.result:IsShown() then
+        SetMain(L and L.key == "free" and "Play" or "Start", function() PUI:StartSelected() end, "primary", START_TIP)
+        SetRowText()
+    end
     frame.missing = missing
 end
 
@@ -739,6 +661,8 @@ function PUI:Open()
     local ok, why = SP():CanPractice()
     if not ok and not (ST() and ST():IsRet()) then ns:Print(why) return end
     frame.result:Hide()
+    frame.result.again:Hide()
+    frame.lessonsHead:Show()
     frame.keys:Show()
     frame:Show()
     self:Refresh()
@@ -750,6 +674,7 @@ function PUI:Frame() return frame end
 -- ---------------------------------------------------------------------------------------------------------------
 -- The overlay around the ring while practice runs
 -- ---------------------------------------------------------------------------------------------------------------
+
 local CARD_W, CARD_H = 300, 60
 local RULER_W = 240
 
@@ -760,22 +685,17 @@ local function BuildOverlay(ring)
     o:SetFrameLevel(ring:GetFrameLevel() + 6)
     o.ring = ring
 
-    -- the coach card over the ring
-    local card = CreateFrame("Frame", nil, o)
-    card:SetSize(CARD_W, CARD_H)
-    local cb = Fill(card, "BACKGROUND", 0.04, 0.04, 0.05, 0.86)
-    cb:SetAllPoints()
-    Edge(card, 0.2, 0.2, 0.22, 1)
-    local accent = Fill(card, "BORDER", SOFTGOLD[1], SOFTGOLD[2], SOFTGOLD[3], 0.9)
-    accent:SetPoint("TOPLEFT", 1, -1)
-    accent:SetPoint("TOPRIGHT", -1, -1)
-    accent:SetHeight(2)
-    card.cap = Text(card, 9.5, SOFTGOLD)
+    -- the coach card over the ring: the pop-ups' card (UI:CreateHudFrame "card"), carried by the overlay
+    local card = UI():CreateHudFrame(nil, { width = CARD_W, height = CARD_H, look = "card", movable = false,
+        position = false })
+    card:SetParent(o)
+    card:SetFrameLevel(o:GetFrameLevel() + 1)
+    card:EnableMouse(false)
+    card.cap = UI():Text(card, "caps", "GOLD")
     card.cap:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -9)
-    card.count = Text(card, 9.5, GREY)
+    card.count = UI():Text(card, "caps", "SUB", { justify = "RIGHT" })
     card.count:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -9)
-    card.count:SetJustifyH("RIGHT")
-    card.line = Text(card, 13, { 1, 1, 1 })
+    card.line = UI():Text(card, "title", { 1, 1, 1 })
     card.line:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -24)
     card.line:SetPoint("RIGHT", card, "RIGHT", -10, 0)
     card.pips = {}
@@ -787,22 +707,19 @@ local function BuildOverlay(ring)
     toast.icon = toast:CreateTexture(nil, "ARTWORK")
     toast.icon:SetSize(22, 22)
     toast.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    toast.text = Text(toast, 13, { 1, 0.62, 0.42 }, nil, "OUTLINE")
+    toast.text = UI():Text(toast, "title", "WARN", { flags = "OUTLINE" })
     toast.text:SetPoint("CENTER", 13, 0)
     toast.icon:SetPoint("RIGHT", toast.text, "LEFT", -6, 0)
     toast:Hide()
     o.toast = toast
 
-    -- 3, 2, 1, Go in the ring
-    o.count = Text(o, 44, { 1, 0.9, 0.6 }, nil, "OUTLINE")
+    -- 3, 2, 1, Go in the ring (display numerals: above the type scale)
+    o.count = UI():Text(o, 44, { 1, 0.9, 0.6 }, { flags = "OUTLINE", justify = "CENTER" })
     o.count:SetPoint("CENTER", ring, "CENTER", 0, 0)
-    o.count:SetJustifyH("CENTER")
 
     -- the word after each swing, beside the ring
-    o.pop = Text(o, 24, { 1, 1, 1 }, nil, "OUTLINE")
-    o.pop:SetJustifyH("LEFT")
-    o.popSub = Text(o, 12, { 0.85, 0.85, 0.87 }, nil, "OUTLINE")
-    o.popSub:SetJustifyH("LEFT")
+    o.pop = UI():Text(o, 24, { 1, 1, 1 }, { flags = "OUTLINE" })
+    o.popSub = UI():Text(o, "emph", "TEXT", { flags = "OUTLINE" })
     o.burst = o:CreateTexture(nil, "BACKGROUND")
     o.burst:SetTexture(SOFT)
     o.burst:SetBlendMode("ADD")
@@ -814,10 +731,12 @@ local function BuildOverlay(ring)
     o.ruler:SetPoint("TOP", ring, "BOTTOM", 0, -12)
     o.chips = {}
     for i, s in ipairs(SP().SPELLS) do
+        -- (an action key: the game's action-button look, its icon on a black frame)
         local chip = CreateFrame("Button", nil, o)
         chip:SetSize(40, 40)
         chip.spell = s
-        local back = Fill(chip, "BACKGROUND", 0, 0, 0, 1)
+        local back = UI():Fill(chip, { 0, 0, 0, 1 }, "BACKGROUND")
+        back:ClearAllPoints()
         back:SetPoint("TOPLEFT", -1, 1)
         back:SetPoint("BOTTOMRIGHT", 1, -1)
         chip.glow = chip:CreateTexture(nil, "BACKGROUND", nil, -1)
@@ -831,39 +750,30 @@ local function BuildOverlay(ring)
         chip.icon:SetAllPoints()
         chip.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         chip.icon:SetTexture(ST().ICONS[s])
-        chip.shade = Fill(chip, "ARTWORK", 0, 0, 0, 0.62, 1)
+        chip.shade = UI():Fill(chip, { 0, 0, 0, 0.62 }, "ARTWORK", 1)
+        chip.shade:ClearAllPoints()
         chip.shade:SetPoint("TOPLEFT")
         chip.shade:SetPoint("TOPRIGHT")
         chip.shade:SetHeight(1)
-        chip.cd = Text(chip, 12, { 1, 1, 1 }, nil, "OUTLINE")
+        chip.cd = UI():Text(chip, "emph", { 1, 1, 1 }, { flags = "OUTLINE", justify = "CENTER" })
         chip.cd:SetPoint("CENTER", 0, 2)
-        chip.cd:SetJustifyH("CENTER")
-        chip.flash = Fill(chip, "OVERLAY", 1, 1, 1, 0)
-        chip.flash:SetAllPoints()
+        chip.flash = UI():Fill(chip, { 1, 1, 1, 0 }, "OVERLAY")
         chip.flash:SetBlendMode("ADD")
-        chip.cap = CreateFrame("Frame", nil, chip)
-        chip.cap:SetSize(24, 16)
+        chip.cap = KeyCap(chip, 24, 16)
         chip.cap:SetPoint("TOP", chip, "BOTTOM", 0, 6)
         chip.cap:SetFrameLevel(chip:GetFrameLevel() + 2)
-        local capBg = Fill(chip.cap, "BACKGROUND", 0.13, 0.13, 0.15, 1)
-        capBg:SetAllPoints()
-        Edge(chip.cap, 0.42, 0.42, 0.46, 1)
-        chip.key = Text(chip.cap, 11, { 1, 1, 1 })
-        chip.key:SetPoint("CENTER", 0, 0)
-        chip.key:SetJustifyH("CENTER")
-        chip.note = Text(chip, 10, { 1, 0.45, 0.4 }, nil, "OUTLINE")
+        chip.key = chip.cap.key
+        chip.note = UI():Text(chip, "small", "BAD", { flags = "OUTLINE", justify = "CENTER" })
         chip.note:SetPoint("BOTTOM", chip, "TOP", 0, 3)
-        chip.note:SetJustifyH("CENTER")
         chip:SetScript("OnClick", function(self) SP():Press(self.spell) end)
-        chip:SetScript("OnEnter", function(self)
-            Tip(self, Label(self.spell), { "Press " .. SP():Short(SP().run and SP().run.keyOf[self.spell] or "") ..
-                " (or click here)." })
+        UI():AttachTooltip(chip, function(self, tt)
+            tt:AddLine(Label(self.spell), S:Color("GOLD"))
+            tt:AddLine("Press " .. SP():Short(SP().run and SP().run.keyOf[self.spell] or "") .. " (or click here).",
+                1, 1, 1, true)
         end)
-        chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
         o.chips[i] = chip
     end
-    o.esc = Text(o, 9.5, DIM)
-    o.esc:SetText("ESC STOPS")
+    o.esc = UI():Text(o, "caps", "DIM", { text = "Esc stops" })
     o:SetScript("OnUpdate", function(self) PUI:UpdateOverlay(self) end)
     return o
 end
@@ -876,7 +786,8 @@ local function LayoutOverlay(o, L, keyOf)
         local p = card.pips[i]
         if i <= n then
             if not p then
-                p = Fill(card, "ARTWORK", 1, 1, 1, 1)
+                p = card:CreateTexture(nil, "ARTWORK")
+                p:SetTexture("Interface\\Buttons\\WHITE8X8")
                 card.pips[i] = p
             end
             local pw = min(18, floor((CARD_W - 20 - (n - 1) * 3) / max(1, n)))
@@ -884,7 +795,7 @@ local function LayoutOverlay(o, L, keyOf)
             p:ClearAllPoints()
             local total = n * pw + (n - 1) * 3
             p:SetPoint("BOTTOMLEFT", card, "BOTTOM", -total / 2 + (i - 1) * (pw + 3), 8)
-            p:SetVertexColor(0.2, 0.2, 0.22, 1)
+            p:SetVertexColor(S:Color("EDGE_QUIET"))
             p:Show()
         elseif p then
             p:Hide()
@@ -928,23 +839,23 @@ local function CoachLine(run, now)
     if now < run.go then return "Get ready", { 1, 0.9, 0.6 } end
     if run.L.key == "free" then
         local me = run.me
-        return strformat("Streak %d · best %d", me.streak, me.bestStreak), { 0.9, 0.9, 0.92 }
+        return strformat("Streak %d · best %d", me.streak, me.bestStreak), S.C.TEXT
     end
     local cur = ST():Current()
     local first = cur and cur.plan.steps[1]
-    if not first or first.key == "wait" then return "Wait for the next swing", { 0.75, 0.75, 0.78 } end
+    if not first or first.key == "wait" then return "Wait for the next swing", S.C.SUB end
     local k = run.keyOf[first.key]
-    local kt = k and ("|cffffd27a" .. SP():Short(k) .. "|r  ") or ""
+    local kt = k and (S:Wrap("GOLD", SP():Short(k)) .. "  ") or ""
     local dt = first.at - now
     if dt <= 0.05 then
         return "Now: " .. kt .. Label(first.key), { 1, 0.86, 0.45 }
     end
     if first.key == "sob" and first.twist then
-        return "Next: " .. kt .. Label("sob") .. " when the ring turns orange", { 0.9, 0.9, 0.92 }
+        return "Next: " .. kt .. Label("sob") .. " when the ring turns orange", S.C.TEXT
     end
-    if first.key == "soc" then return "Next: " .. kt .. "Seal of Command, after the swing", { 0.9, 0.9, 0.92 } end
-    if first.key == "judge" then return "Next: " .. kt .. "Judgement, right after the swing", { 0.9, 0.9, 0.92 } end
-    return "Next: " .. kt .. Label(first.key), { 0.9, 0.9, 0.92 }
+    if first.key == "soc" then return "Next: " .. kt .. "Seal of Command, after the swing", S.C.TEXT end
+    if first.key == "judge" then return "Next: " .. kt .. "Judgement, right after the swing", S.C.TEXT end
+    return "Next: " .. kt .. Label(first.key), S.C.TEXT
 end
 
 function PUI:UpdateOverlay(o)
@@ -981,10 +892,10 @@ function PUI:UpdateOverlay(o)
         for i, p in ipairs(o.card.pips) do
             local res = run.results[i]
             if res then
-                local c = KIND_RGB[res.kind] or GREY
+                local c = KIND_RGB[res.kind] or S.C.SUB
                 p:SetVertexColor(c[1], c[2], c[3], 1)
             elseif i <= run.L.swings then
-                p:SetVertexColor(0.2, 0.2, 0.22, 1)
+                p:SetVertexColor(S:Color("EDGE_QUIET"))
             end
         end
     else
@@ -1074,7 +985,7 @@ function PUI:OnPop(o, p, now)
         local c = KIND_RGB[p.kind]
         local text = p.text
         if (p.kind == "perfect" or p.kind == "twist") and (p.streak or 0) >= 2 then
-            text = text .. strformat("  |cffffd27ax%d|r", p.streak)
+            text = text .. "  " .. S:Wrap("GOLD", strformat("x%d", p.streak))
         end
         o.pop:SetText(text)
         o.pop:SetTextColor(c[1], c[2], c[3])
@@ -1087,14 +998,14 @@ function PUI:OnPop(o, p, now)
         end
     elseif p.kind == "buff" then
         o.toast.icon:SetTexture(p.icon)
-        o.toast.text:SetText(p.text .. "  |cffd8d8dc" .. (p.sub or "") .. "|r")
+        o.toast.text:SetText(p.text .. "  " .. S:Wrap("TEXT", p.sub or ""))
         o.toast:Show()
         o.toastAt = now
     elseif p.kind == "deny" or p.kind == "queued" then
         for _, chip in ipairs(o.chips) do
             if chip.spell == p.spell then
                 chip.note:SetText(p.text)
-                if p.kind == "queued" then chip.note:SetTextColor(0.6, 0.85, 1) else chip.note:SetTextColor(1, 0.45, 0.4) end
+                chip.note:SetTextColor(S:Color(p.kind == "queued" and "YOU" or "BAD"))
                 chip.noteAt = now
             end
         end
