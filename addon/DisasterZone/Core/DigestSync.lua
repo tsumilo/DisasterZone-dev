@@ -12,6 +12,9 @@ local addonName, ns = ...
 -- A digest is capped (maxItems): clients drop a bigger one whole, so the cap never goes down. Everything about the
 -- wire (types, fields, their order, the caps, the hashes) is the modules' own from before this engine; it only keeps
 -- one copy of the code.
+-- Also here: DigestSync.RevList, the rev handshake of a list a few writers keep whole (the raid blacklist, the guest
+-- book's notes), and DigestSync.BucketDigest / DiffBuckets, the per-bucket digests of the Ledger (days) and the raid
+-- log (weeks).
 --
 -- local sync = ns.DigestSync.New({
 --     module = Events, bucket = "events", kinds = { "D", "K", ... }, prefix = "EV",
@@ -43,7 +46,7 @@ ns.DigestSync = DigestSync
 
 local type, pairs, ipairs, tonumber = type, pairs, ipairs, tonumber
 local tsort = table.sort
-local max, min = math.max, math.min
+local floor, max, min = math.floor, math.max, math.min
 local strformat = string.format
 
 local ROUND_WINDOW = 20          -- seconds one client's round lasts (one answer, others keep quiet)
@@ -333,6 +336,83 @@ function Engine:Register(onUpdate, onGive)
             function() return M:GetDigestHash() end,
             function(sender, v) M:OnHelloDigest(sender, v) end)
     end
+end
+
+---------------------------------------------------------------------------
+-- Lists kept whole by a few writers, with one rev (the raid blacklist, the guest book's notes)
+---------------------------------------------------------------------------
+
+-- The rev rides in the HELLO (o.field, at o.order): a writer who holds a newer list than a member's sends it to them
+-- after a short random delay; a member who holds an older one than a writer's asks that writer for it (o.query, a
+-- whisper), and a writer answers that question with the list. One answer per member and o.limit seconds each way.
+-- o: field, order, query (message type), rev() (my list's rev), serve() (may I send the list), writer(key) (may that
+-- member write it), sendList(target), send(msg, dist, target, class), replyKey, askKey, queryKey (rate-limit key
+-- prefixes), limit (seconds). Returns { Seen(sender, rev), OnQuery(sender, msg, dist), Register() }.
+function DigestSync.RevList(o)
+    local rl = {}
+
+    -- Sync calls this for every HELLO (rev = the sender's rev; nil from clients without the field).
+    function rl.Seen(sender, rev)
+        if type(rev) ~= "number" or type(sender) ~= "string" then return end
+        local mine = o.rev()
+        if rev < mine and o.serve() then
+            if RateLimit(o.replyKey .. sender, o.limit) then
+                Util.RandomDelay(0.5, 3, function() o.sendList(sender) end)
+            end
+        elseif rev > mine and o.writer(sender) then
+            if RateLimit(o.askKey .. sender, o.limit) then
+                o.send({ t = o.query }, "WHISPER", sender, "ctrl")
+            end
+        end
+    end
+
+    -- o.query { }: a member asks me for the list.
+    function rl.OnQuery(sender, _, dist)
+        if dist ~= "WHISPER" or not o.serve() then return end
+        if not RateLimit(o.queryKey .. sender, o.limit) then return end
+        o.sendList(sender)
+    end
+
+    -- The question's handler and the HELLO field (from the module's OnInit).
+    function rl.Register()
+        local Comm = ns.Comm
+        if Comm and Comm.Register then Comm:Register(o.query, rl.OnQuery) end
+        local Sync = ns.Sync
+        if Sync and Sync.RegisterHelloField then Sync:RegisterHelloField(o.field, o.order, o.rev, rl.Seen) end
+    end
+
+    return rl
+end
+
+---------------------------------------------------------------------------
+-- Bucket digests (the Ledger's days, the raid log's weeks)
+---------------------------------------------------------------------------
+
+-- { [bucket] = hash(list) } of { [bucket] = { item string, ... } } (each list sorted first, in place).
+function DigestSync.BucketDigest(perBucket, hash)
+    local out = {}
+    for b, list in pairs(perBucket) do
+        tsort(list)
+        out[b] = hash(list)
+    end
+    return out
+end
+
+-- The buckets of a peer's digest whose hash differs from mine (in the order pairs gives them). Looks at o.maxSeen
+-- entries at most (an untrusted table); a bucket counts when it is a whole number from o.lo to o.hi and its hash
+-- passes o.hashOk(h); o.accept(bucket), when given, may still leave it out; stops after o.maxPick buckets.
+function DigestSync.DiffBuckets(theirs, mine, o)
+    local out, seen = {}, 0
+    for b, h in pairs(theirs) do
+        seen = seen + 1
+        if seen > o.maxSeen then break end
+        if type(b) == "number" and b == floor(b) and b >= o.lo and b <= o.hi and o.hashOk(h) and mine[b] ~= h
+            and (not o.accept or o.accept(b)) then
+            out[#out + 1] = b
+            if o.maxPick and #out >= o.maxPick then break end
+        end
+    end
+    return out
 end
 
 ---------------------------------------------------------------------------

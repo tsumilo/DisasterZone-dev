@@ -60,11 +60,6 @@ local function B() return ns.EventBlocks end
 local function Copy(v) return ns.EventBlocks.Copy(v) end
 local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
 
-local function GuildKey()
-    local G = Guild()
-    return G and G.GetGuildKey and G:GetGuildKey() or nil
-end
-
 local function WireKey(s)
     if type(s) ~= "string" or s == "" or #s > MAX_KEY_LEN or s:find("[%c|]") then return nil end
     return Util.NormalizeName(s)
@@ -789,19 +784,14 @@ end
 -- What changed between the ranked revision's pieces and now: kept by the reviewer's client as the def it last saw
 -- ranked (snap), so a changed event can show only its differences.
 function Events:RankedSnapshot(defId)
-    local db = ns.db
-    local g = GuildKey()
-    local snaps = db and db.eventSnaps and g and db.eventSnaps[g]
+    local snaps = ns.DB:GuildBucket("eventSnaps")
     return snaps and snaps[defId] or nil
 end
 
 function KeepSnapshot(d)
-    local db = ns.db
-    local g = GuildKey()
-    if not (db and g and d) or DemoOn() then return end
-    db.eventSnaps = db.eventSnaps or {}
-    db.eventSnaps[g] = db.eventSnaps[g] or {}
-    db.eventSnaps[g][d.id] = Copy(d)
+    if not d or DemoOn() then return end
+    local snaps = ns.DB:GuildBucket("eventSnaps", true)
+    if snaps then snaps[d.id] = Copy(d) end
 end
 
 ---------------------------------------------------------------------------
@@ -1363,8 +1353,7 @@ function Events:Prune(now)
     for id in pairs(root.K) do
         if not root.D[id] then root.K[id] = nil; changed = true end
     end
-    local db, g = ns.db, GuildKey()
-    local snaps = db and db.eventSnaps and g and db.eventSnaps[g]
+    local snaps = ns.DB:GuildBucket("eventSnaps")
     for id in pairs(snaps or {}) do
         local d = root.D[id]
         if not d or d.del then snaps[id] = nil end

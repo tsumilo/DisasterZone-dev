@@ -238,6 +238,33 @@ def live_both_ways():
     w.assert_no_errors()
 
 
+def ledger(cl):
+    return sorted(cl.eval_py("local out = {} for id in pairs(ns.db.ledger or {}) do out[#out + 1] = id end return out")
+                  or [])
+
+
+@case
+def ledger_days_both_ways():
+    """The award ledger's day digests (H ld, LW / LG) between the old and a new guild council member."""
+    w, c = world()
+    bob, gina = c["Bob"], c["Gina"]
+    gina.logout()
+    w.tick(2)
+    assert bob.eval_py("return ns.Ledger:Award(...)", 28477, K("Lee"), "", "council pick")
+    w.tick(40)
+    gina.login()
+    w.tick(60)
+    assert ledger(gina) == ledger(bob) and len(ledger(bob)) == 1, (ledger(gina), ledger(bob))
+    bob.logout()
+    w.tick(2)
+    assert gina.eval_py("return ns.Ledger:Award(...)", 28453, K("Rita"), "", None)
+    w.tick(40)
+    bob.login()
+    w.tick(60)
+    assert ledger(gina) == ledger(bob) and len(ledger(bob)) == 2, (ledger(gina), ledger(bob))
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     try:
         run_all()

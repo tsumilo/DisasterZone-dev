@@ -82,11 +82,6 @@ local function WireKey(s)
     return Util.NormalizeName(s)
 end
 
-local function GuildKey()
-    local G = ns.Guild
-    return G and G.GetGuildKey and G:GetGuildKey() or nil
-end
-
 local function RP() return ns.RaidPlan end
 
 local function IsManager(key)
@@ -120,12 +115,6 @@ local function Send(msg, dist, target, class)
     return (Comm and Comm.Send and Comm:Send(msg, dist, target, class)) and true or false
 end
 
-local function RateLimit(key, seconds)
-    local Comm = ns.Comm
-    if not (Comm and Comm.RateLimit) then return true end
-    return Comm:RateLimit(key, seconds)
-end
-
 local function CountTable(t)
     local n = 0
     for _ in pairs(t) do n = n + 1 end
@@ -153,18 +142,12 @@ end
 ---------------------------------------------------------------------------
 
 local function NotesRec(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.guestNotes) ~= "table" then
-        if not create then return nil end
-        db.guestNotes = {}
-    end
-    local rec = db.guestNotes[g]
-    if type(rec) ~= "table" or type(rec.l) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) then
+    local rec, g = ns.DB:GuildBucket("guestNotes", create)
+    if not rec then return nil end
+    if type(rec.l) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) then
         if not create then return nil end
         rec = { rev = 0, l = {} }
-        db.guestNotes[g] = rec
+        ns.db.guestNotes[g] = rec
     end
     return rec
 end
@@ -255,11 +238,16 @@ local function OnNotes(sender, msg, dist)
     Changed()
 end
 
-local function OnNotesQuery(sender, _, dist)
-    if dist ~= "WHISPER" or not AmManager() then return end
-    if not RateLimit("gnq:" .. sender, GNL_REPLY_LIMIT) then return end
-    SendNotes(sender)
-end
+-- The notes' rev rides in the HELLO (gnr): a roster manager who holds newer notes sends them, a member who holds older
+-- ones than a manager's asks them (GNQ). (Core/DigestSync.lua: RevList.)
+local notesSync = ns.DigestSync.RevList({
+    field = "gnr", order = 30, query = "GNQ", send = Send, limit = GNL_REPLY_LIMIT,
+    replyKey = "gnl-reply:", askKey = "gnq-ask:", queryKey = "gnq:",
+    rev = function() return GuestBook:GetNotesRev() end,
+    serve = function() return AmManager() end,
+    writer = function(key) return IsManager(key) end,
+    sendList = function(target) SendNotes(target) end,
+})
 
 function GuestBook:GetNotesRev()
     local rec = NotesRec(false)
@@ -268,17 +256,7 @@ end
 
 -- Sync calls this for every HELLO (gnr = the sender's notes rev; nil from clients before 1.3).
 function GuestBook:OnNotesRevSeen(sender, gnr)
-    if type(gnr) ~= "number" or type(sender) ~= "string" then return end
-    local mine = self:GetNotesRev()
-    if gnr < mine and AmManager() then
-        if RateLimit("gnl-reply:" .. sender, GNL_REPLY_LIMIT) then
-            Util.RandomDelay(0.5, 3, function() SendNotes(sender) end)
-        end
-    elseif gnr > mine and IsManager(sender) then
-        if RateLimit("gnq-ask:" .. sender, GNL_REPLY_LIMIT) then
-            Send({ t = "GNQ" }, "WHISPER", sender, "ctrl")
-        end
-    end
+    notesSync.Seen(sender, gnr)
 end
 
 -- { note, recruit, c, sp, by, at } of a player, or nil.
@@ -374,20 +352,7 @@ end
 ---------------------------------------------------------------------------
 
 local function SpecsRec(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.guestSpecs) ~= "table" then
-        if not create then return nil end
-        db.guestSpecs = {}
-    end
-    local t = db.guestSpecs[g]
-    if type(t) ~= "table" then
-        if not create then return nil end
-        t = {}
-        db.guestSpecs[g] = t
-    end
-    return t
+    return (ns.DB:GuildBucket("guestSpecs", create))
 end
 
 function LearnSpec(key, classFile, sp, at)
@@ -917,14 +882,8 @@ function GuestBook:OnInit()
     local Comm = ns.Comm
     if Comm and Comm.Register then
         Comm:Register("GNL", OnNotes)
-        Comm:Register("GNQ", OnNotesQuery)
     end
-    -- the notes' rev rides in the HELLO (gnr): a member behind asks a roster manager for them (GNQ)
-    local Sync = ns.Sync
-    if Sync and Sync.RegisterHelloField then
-        Sync:RegisterHelloField("gnr", 30, function() return GuestBook:GetNotesRev() end,
-            function(sender, gnr) GuestBook:OnNotesRevSeen(sender, gnr) end)
-    end
+    notesSync.Register()
     for _, msg in ipairs({ "RAIDLOG_CHANGED", "LEDGER_UPDATED", "RAID_BLACKLIST_CHANGED", "ROSTER_UPDATED",
                            "DEMO_TOGGLED", "CONFIG_UPDATED", "ACCOUNTS_UPDATED" }) do
         ns:On(msg, Changed)

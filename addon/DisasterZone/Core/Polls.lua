@@ -57,11 +57,6 @@ local function Guild() return ns.Guild end
 local function Me() return Util.PlayerKey() end
 local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
 
-local function GuildKey()
-    local G = Guild()
-    return G and G.GetGuildKey and G:GetGuildKey() or nil
-end
-
 local function WireKey(s)
     if type(s) ~= "string" or s == "" or #s > MAX_KEY_LEN or s:find("[%c|,]") then return nil end
     return Util.NormalizeName(s)
@@ -859,9 +854,8 @@ function Polls:Prune(now)
         local p = root.P[v.p]
         if not p or p.del then root.V[id] = nil; changed = true end
     end
-    local db, g = ns.db, GuildKey()
-    local seen = db and type(db.pollSeen) == "table" and g and db.pollSeen[g]
-    for id in pairs(type(seen) == "table" and seen or {}) do
+    local seen = ns.DB:GuildBucket("pollSeen")
+    for id in pairs(seen or {}) do
         if not root.P[id] then seen[id] = nil end
     end
     if changed then Changed() end
@@ -869,17 +863,14 @@ end
 
 -- The pop-up's memory: a poll pops up once (per character), unless its asker nudges.
 function Polls:WasShown(id)
-    local db, g = ns.db, GuildKey()
-    local seen = db and type(db.pollSeen) == "table" and g and db.pollSeen[g]
-    return type(seen) == "table" and seen[id] and true or false
+    local seen = ns.DB:GuildBucket("pollSeen")
+    return seen and seen[id] and true or false
 end
 
 function Polls:MarkShown(id)
-    local db, g = ns.db, GuildKey()
-    if not db or not g or DemoOn() then return end
-    if type(db.pollSeen) ~= "table" then db.pollSeen = {} end
-    if type(db.pollSeen[g]) ~= "table" then db.pollSeen[g] = {} end
-    db.pollSeen[g][id] = true
+    if DemoOn() then return end
+    local seen = ns.DB:GuildBucket("pollSeen", true)
+    if seen then seen[id] = true end
 end
 
 ---------------------------------------------------------------------------

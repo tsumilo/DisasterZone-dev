@@ -274,19 +274,8 @@ local function Send(msg, dist, target, class)
 end
 
 local function Root(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.strategy) ~= "table" then
-        if not create then return nil end
-        db.strategy = {}
-    end
-    local r = db.strategy[g]
-    if type(r) ~= "table" then
-        if not create then return nil end
-        r = {}
-        db.strategy[g] = r
-    end
+    local r = ns.DB:GuildBucket("strategy", create)
+    if not r then return nil end
     for _, k in ipairs({ "B", "F", "L" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
     end

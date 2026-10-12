@@ -1106,10 +1106,7 @@ function RaidLog:GetDigest(legacy)
             list[#list + 1] = id .. ":" .. RecordHash(rec, not legacy)
         end
     end
-    for wk, list in pairs(perWeek) do
-        tsort(list)
-        out[wk] = Util.Hash(list)
-    end
+    out = ns.DigestSync.BucketDigest(perWeek, Util.Hash)
     if not legacy then out.v = 2 end
     return out
 end
@@ -1482,15 +1479,10 @@ function RaidLog:SyncFromDigest(X, digest)
     local mine = self:GetDigest(digest.v ~= 2)   -- (a client before 1.3.5: compare without the attendance fields)
     local nowWeek = floor(GetServerTime() / WEEK)
     local minWeek = floor((GetServerTime() - SYNC_DAYS * DAY) / WEEK)
-    local weeks, seen = {}, 0
-    for wk, h in pairs(digest) do
-        seen = seen + 1
-        if seen > 40 then break end
-        if IsInt(wk, minWeek, nowWeek) and type(h) == "string" and #h <= 16 and mine[wk] ~= h then
-            weeks[#weeks + 1] = wk
-            if #weeks >= MAX_WEEKS_PER_RW then break end
-        end
-    end
+    local weeks = ns.DigestSync.DiffBuckets(digest, mine, {
+        maxSeen = 40, lo = minWeek, hi = nowWeek, maxPick = MAX_WEEKS_PER_RW,
+        hashOk = function(h) return type(h) == "string" and #h <= 16 end,
+    })
     if #weeks == 0 then return end
     tsort(weeks)
     SendTo({ t = "RLW", w = weeks }, X, "ctrl")

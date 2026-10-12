@@ -177,11 +177,6 @@ end
 
 local function Guild() return ns.Guild end
 
-local function GuildKey()
-    local G = Guild()
-    return G and G.GetGuildKey and G:GetGuildKey() or nil
-end
-
 -- Who may do what (§55, §62, user rules 2026-09-29):
 --   raids  (create / edit / cancel / delete): the GM and the raid leaders list
 --   teams  (members, specs, team groups):     the GM and the guild council
@@ -342,19 +337,8 @@ end
 
 -- db.raidplan[guildKey] (created on demand), or nil while the guild is unknown.
 local function Root(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.raidplan) ~= "table" then
-        if not create then return nil end
-        db.raidplan = {}
-    end
-    local r = db.raidplan[g]
-    if type(r) ~= "table" then
-        if not create then return nil end
-        r = {}
-        db.raidplan[g] = r
-    end
+    local r = ns.DB:GuildBucket("raidplan", create)
+    if not r then return nil end
     -- (G, 1.3.3: deletions Prune dropped, Merge.Bury)
     for _, k in ipairs({ "T", "S", "E", "U", "W", "OK", "G" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
@@ -1701,18 +1685,12 @@ function Merge.EntryRev(e)
 end
 
 local function BlacklistRec(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.raidBlacklist) ~= "table" then
-        if not create then return nil end
-        db.raidBlacklist = {}
-    end
-    local rec = db.raidBlacklist[g]
-    if type(rec) ~= "table" or type(rec.l) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) then
+    local rec, g = ns.DB:GuildBucket("raidBlacklist", create)
+    if not rec then return nil end
+    if type(rec.l) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) then
         if not create then return nil end
         rec = { rev = 0, l = {} }
-        db.raidBlacklist[g] = rec
+        ns.db.raidBlacklist[g] = rec
     end
     return rec
 end
@@ -1866,11 +1844,16 @@ local function OnBlacklist(sender, msg, dist)
     end
 end
 
-local function OnBlacklistQuery(sender, msg, dist)
-    if dist ~= "WHISPER" or not CanRoster(Util.PlayerKey()) then return end
-    if not RateLimit("blq:" .. sender, BLL_REPLY_LIMIT) then return end
-    SendBlacklist(sender)
-end
+-- The blacklist's rev rides in the HELLO (blr): a roster manager who holds a newer list sends it, a member who holds an
+-- older one than a roster manager's asks them for it (BLQ). (Core/DigestSync.lua: RevList.)
+local blacklistSync = ns.DigestSync.RevList({
+    field = "blr", order = 20, query = "BLQ", send = Send, limit = BLL_REPLY_LIMIT,
+    replyKey = "bll-reply:", askKey = "blq-ask:", queryKey = "blq:",
+    rev = function() return RaidPlan:GetBlacklistRev() end,
+    serve = function() return CanRoster(Util.PlayerKey()) end,
+    writer = function(key) return CanRoster(key) end,
+    sendList = function(target) SendBlacklist(target) end,
+})
 
 function RaidPlan:GetBlacklistRev()
     local rec = BlacklistRec(false)
@@ -1879,17 +1862,7 @@ end
 
 -- Sync calls this for every HELLO (blr = the sender's blacklist rev; nil from clients before 1.3).
 function RaidPlan:OnBlacklistRevSeen(sender, blr)
-    if type(blr) ~= "number" or type(sender) ~= "string" then return end
-    local mine = self:GetBlacklistRev()
-    if blr < mine and CanRoster(Util.PlayerKey()) then
-        if RateLimit("bll-reply:" .. sender, BLL_REPLY_LIMIT) then
-            Util.RandomDelay(0.5, 3, function() SendBlacklist(sender) end)
-        end
-    elseif blr > mine and CanRoster(sender) then
-        if RateLimit("blq-ask:" .. sender, BLL_REPLY_LIMIT) then
-            Send({ t = "BLQ" }, "WHISPER", sender, "ctrl")
-        end
-    end
+    blacklistSync.Seen(sender, blr)
 end
 
 -- May I keep the guest book and the blacklist? With a raid (a view or an id): may I (or that player) add its guests
@@ -4186,16 +4159,10 @@ function RaidPlan:OnInit()
         Comm:Register("RPS", OnSignups)
         Comm:Register("RPA", OnAltSignups)
         Comm:Register("BLL", OnBlacklist)
-        Comm:Register("BLQ", OnBlacklistQuery)
         Comm:Register("RTW", Lineup.OnLive)
     end
     sync:Register(OnUpdate, OnGive)
-    -- the raid blacklist's rev rides in the HELLO too (blr): a member behind asks for the list (BLQ)
-    local Sync = ns.Sync
-    if Sync and Sync.RegisterHelloField then
-        Sync:RegisterHelloField("blr", 20, function() return RaidPlan:GetBlacklistRev() end,
-            function(sender, blr) RaidPlan:OnBlacklistRevSeen(sender, blr) end)
-    end
+    blacklistSync.Register()
     ns:RegisterSlash("plan", SlashPlan, "list the planned raids and your sign-ups")
     -- The council list decides what is shown: repaint when it changes.
     ns:On("CONFIG_UPDATED", Changed)
