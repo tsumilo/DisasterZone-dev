@@ -7,17 +7,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/MeterDemo.lua", ...) then ret
 local addonName, ns = ...
 
 local MeterDemo = ns:NewModule("MeterDemo")
+local Util = ns.Util
 
 local floor, max, min, sin, pi = math.floor, math.max, math.min, math.sin, math.pi
 local pairs, ipairs = pairs, ipairs
 
 local cache
 
-local seed = 7
-local function Rand()
-    seed = (seed * 16807) % 2147483647
-    return seed / 2147483647
-end
+local rng = Util.NewRng(6)       -- (Park-Miller from 7: NewRng(n) starts at n + 1)
+local function Rand() return rng.Next() end
 local function Around(x, spread) return x * (1 + (Rand() * 2 - 1) * spread) end
 
 local ME = "Player-4467-0D0D0004"      -- Gina, the demo's "me"
@@ -225,8 +223,8 @@ local DISPELS = { Brightmend = { 4987, 31, 37135 }, Pugsyhealer = { 988, 22, 371
     Darkstalkerr = { 988, 4, 37135 } }
 
 local function Build()
-    seed = 7
-    local now = (GetServerTime and GetServerTime()) or time()
+    rng = Util.NewRng(6)
+    local now = Util.Now()
     local base = now - 120
     local segs = {}
     for fi, F in ipairs(FIGHTS) do

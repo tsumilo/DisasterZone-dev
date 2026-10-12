@@ -74,7 +74,7 @@ def check(res):
     assert res[0]["kill"] is True and res[1]["kill"] is False
     for r in res:
         a, ref = r["addon"], r["ref"]
-        assert ref["d"] == 2000 + 3100 + 1000 + 750, ref
+        assert ref["d"] == 2000 + 3100 + 1800 + 750, ref         # overkill counts in damage done (D5)
         assert ref["h"] == 1800 and ref["oh"] == 1200 and ref["t"] == 1700 + 900, ref
         for k in ("d", "h", "oh", "t"):
             assert a[k] == ref[k], (k, a, ref)

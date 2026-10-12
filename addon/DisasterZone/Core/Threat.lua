@@ -15,6 +15,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Threat.lua", ...) then return
 local addonName, ns = ...
 
 local Threat = ns:NewModule("Threat")
+local Util = ns.Util
 
 local pairs, ipairs, tonumber, type = pairs, ipairs, tonumber, type
 local floor, max, min = math.floor, math.max, math.min
@@ -37,7 +38,7 @@ end
 Threat.Setting = Setting
 
 function Threat:IsEnabled() return Setting("thr", false) and true or false end
-function Threat:IsDemo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and ns.MeterDemo ~= nil or false end
+function Threat:IsDemo() return Util.DemoOn() and ns.MeterDemo ~= nil end
 function Threat:OnChange(fn) listeners[#listeners + 1] = fn end
 local function Changed() for _, fn in ipairs(listeners) do pcall(fn, state) end end
 

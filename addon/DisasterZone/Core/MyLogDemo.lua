@@ -6,17 +6,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/MyLogDemo.lua", ...) then ret
 local addonName, ns = ...
 
 local MyLogDemo = ns:NewModule("MyLogDemo")
+local Util = ns.Util
 
 local floor, max, min, sin = math.floor, math.max, math.min, math.sin
 
 local cache
 
--- A small deterministic generator (Park-Miller), so the demo looks the same every time.
-local seed = 1
-local function Rand()
-    seed = (seed * 16807) % 2147483647
-    return seed / 2147483647
-end
+-- A small deterministic generator (Park-Miller, Util.NewRng), so the demo looks the same every time. (NewRng(n)
+-- starts at n + 1: the seeds below are one less than the numbers the demo was drawn from.)
+local rng = Util.NewRng(0)
+local function Rand() return rng.Next() end
 local function Around(x, spread) return x * (1 + (Rand() * 2 - 1) * spread) end
 
 local NAMES = {
@@ -52,11 +51,8 @@ local KILLERS = {
 }
 
 -- The extra deaths draw from their own generator, so the rest of the demo stays the same number for number.
-local dseed = 1
-local function DRand()
-    dseed = (dseed * 16807) % 2147483647
-    return dseed / 2147483647
-end
+local drng = Util.NewRng(0)
+local function DRand() return drng.Next() end
 
 local HP = 9200
 local HEALS = { { "33076", "Holyvee" }, { "25235", "Brightpaw" } }
@@ -352,19 +348,19 @@ local LEO_DEATH = {
 }
 
 local function Build()
-    seed = 20261007
-    dseed = 4242
+    rng = Util.NewRng(20261006)
+    drng = Util.NewRng(4241)
     local pulls = {}
-    local now = GetServerTime and GetServerTime() or 0
+    local now = Util.Now()
     local day = 86400
     local tonight = now - 2 * 3600
     local id = 0
     -- extra pulls drawn from a seed of their own, so the pulls after them stay the same number for number
     local function aside(fn)
-        local keep = seed
-        seed = 1 + floor(DRand() * 2147483000)
+        local keep = rng
+        rng = Util.NewRng(floor(DRand() * 2147483000))
         fn()
-        seed = keep
+        rng = keep
     end
     local function add(p)
         id = id + 1
@@ -429,7 +425,7 @@ local function Build()
 end
 
 function MyLogDemo:IsActive()
-    return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false
+    return Util.DemoOn()
 end
 
 function MyLogDemo:GetPulls()

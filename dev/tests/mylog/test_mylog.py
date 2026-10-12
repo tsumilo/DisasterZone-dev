@@ -1,7 +1,7 @@
 """My Log (Core/MyLog.lua): the opt-in personal combat log.
 
 Covers: off by default (nothing recorded, the combat log not even listened to); raids recorded once on, heroics only
-with the heroic switch, normal dungeons and the open world never; damage done counted as amount - overkill + absorbed
+with the heroic switch, normal dungeons and the open world never; damage done counted as amount + absorbed (overkill too)
 with crits, resists, blocks, glancing hits and misses; pets and totems (the MINE flag) apart from other players' pets;
 other players' events ignored; effective healing, overhealing and shields (both SPELL_ABSORBED forms); damage taken
 with avoidance, crushing blows and hits a shield took whole; healing received per healer; casts, interrupts, dispels,
@@ -144,7 +144,7 @@ def kill_totals_match_the_combat_log():
     dmg_spell(f, 27209, "Shadow Bolt", 1500, resisted=500)
     dmg_spell(f, 27216, "Corruption", 300, absorbed=100, sub="SPELL_PERIODIC_DAMAGE")
     f.mine("SPELL_MISSED", BOSS, "Hydross the Unstable", 27209, "Shadow Bolt", 32, "RESIST", False, 1700)
-    # the killing blow on an add: 800 overkill does not count
+    # the killing blow on an add: its 800 overkill counts too (D5, as Meters count it), kept apart as o
     dmg_spell(f, 27209, "Shadow Bolt", 1800, overkill=800, dst=ADD, dst_name="Tainted Spawn of Hydross")
     f.tick(1)
     # my pet and my totem count; someone else's pet and another raider do not
@@ -171,11 +171,11 @@ def kill_totals_match_the_combat_log():
     assert p["pet"]["p0"]["a"] == 400 and p["pet"]["p0"]["g"] == 1
     assert p["pet"]["p25530"]["a"] == 100
     assert p["names"]["p0"] == "Grimgor melee" and p["names"]["27209"] == "Shadow Bolt"
-    useful = (2000 + 3100 + 1500 + 1800 - 800) + (300 + 100) + 400 + 100
+    useful = (2000 + 3100 + 1500 + 1800) + (300 + 100) + 400 + 100
     assert p["s"]["d"] == useful, (p["s"], useful)
     assert abs(p["s"]["dps"] - useful / p["dur"]) < 0.1
     assert p["tgt"][21216]["a"] == 2000 + 3100 + 1500 + 400 + 400 + 100
-    assert p["tgt"][22036]["a"] == 1000 and p["tgt"][22036]["n"] == "Tainted Spawn of Hydross"
+    assert p["tgt"][22036]["a"] == 1800 and p["tgt"][22036]["n"] == "Tainted Spawn of Hydross"
     tl = p["tl"]["d"]
     assert sum(tl.values() if isinstance(tl, dict) else tl) == useful
     assert p["spec"] is not None and p["tal"].count("/") == 2

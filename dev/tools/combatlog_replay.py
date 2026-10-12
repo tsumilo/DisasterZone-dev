@@ -2,7 +2,8 @@
 
 For every boss pull in the file (ENCOUNTER_START .. ENCOUNTER_END) it feeds the chosen player's view of the fight to
 the real addon, then prints the addon's numbers next to a plain tally of the same lines, and the difference.
-Compare the "addon" column with Warcraft Logs for the same pull: the target is within 0.1 %.
+Compare the "addon" column with Warcraft Logs for the same pull: the target is within 0.1 %. (Damage done counts
+the killing blow's overkill since 1.4, as Meters and Details do: compare it with a meter that counts overkill.)
 
 Usage (from dev):
   luaenv\\Scripts\\python.exe tools\\combatlog_replay.py <WoWCombatLog.txt> <PlayerName> [--adv N] [--json out.json]
@@ -122,7 +123,8 @@ def pulls_in(lines):
 
 
 def reference(pull, me, adv):
-    """Plain tally with the addon's counting rules (amount - overkill + absorbed; healing - overhealing)."""
+    """Plain tally with the addon's counting rules (damage done: amount + absorbed, overkill included as Meters count
+    it; taken: amount - overkill + absorbed; healing - overhealing)."""
     d = h = oh = taken = 0
     for t, f in pull["lines"]:
         sub = f[0]
@@ -135,7 +137,7 @@ def reference(pull, me, adv):
             base = 0 if sub.startswith("SWING") else (1 if sub == "ENVIRONMENTAL_DAMAGE" else 3)
             amount, overkill, absorbed = p[base] or 0, p[base + 1] or 0, p[base + 5] or 0
             if mine and sub != "ENVIRONMENTAL_DAMAGE":
-                d += max(amount - max(overkill, 0) + absorbed, 0)
+                d += max(amount + absorbed, 0)
             if dst == me:
                 taken += amount - max(overkill, 0) + absorbed
         elif sub in HEAL and mine:

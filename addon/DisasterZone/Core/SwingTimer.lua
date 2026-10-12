@@ -22,6 +22,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/SwingTimer.lua", ...) then re
 local addonName, ns = ...
 
 local SwingTimer = ns:NewModule("SwingTimer")
+local CL = ns.CombatLog
 
 local floor, max, min, huge = math.floor, math.max, math.min, math.huge
 local pairs, ipairs, tonumber, type, select = pairs, ipairs, tonumber, type, select
@@ -355,10 +356,12 @@ end
 -- restart the timer; they only flash the ring (state.extraAt). Unused grants expire after a moment.
 local EXTRA_TTL = 0.04          -- the hits share the grant's log timestamp (WeakAuras uses the same window)
 local extraLeft, extraUntil = 0, 0
+local FILLERS = { "cs", "exo", "cons", "judge" }
 
-local function OnCombatLog()
-    local ts, sub, _, src, _, _, _, _, _, _, _, _, spellName, _, amount = CombatLogGetCurrentEventInfo()
-    if src ~= myGUID then return end
+-- One combat-log event (a Core/CombatLog.lua subscriber while the timer runs and practice does not: the event name,
+-- then the client's payload; while twist practice runs, practice owns the state).
+local function OnCombatLog(_, ts, sub, _, src, _, _, _, _, _, _, _, _, spellName, _, amount)
+    if src ~= myGUID or not SwingTimer.active or SwingTimer.practice then return end
     local now = GetTime()
     if sub == "SPELL_EXTRA_ATTACKS" then
         extraLeft, extraUntil = (tonumber(amount) or 1), ts + EXTRA_TTL
@@ -381,7 +384,7 @@ local function OnCombatLog()
             if spellName == NameOf("sob") then state.lastSobAt = now end
         end
     elseif sub == "SPELL_CAST_SUCCESS" and fight then
-        for _, k in ipairs({ "cs", "exo", "cons", "judge" }) do
+        for _, k in ipairs(FILLERS) do
             if spellName == NameOf(k) then fight.fillers[k] = (fight.fillers[k] or 0) + 1 end
         end
     end
@@ -417,10 +420,8 @@ function SwingTimer:OnLogin()
     myGUID = UnitGUID("player")
     state.speed = MainSpeed()
     ScanSeals()
-    -- (while twist practice runs, the real swings, seals and casts are ignored: practice owns the state)
-    ns:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED", function()
-        if SwingTimer.active and not SwingTimer.practice then OnCombatLog() end
-    end)
+    -- (while twist practice runs, the real swings, seals and casts are ignored: practice owns the state; the combat
+    -- log is read only while the timer runs, see Refresh)
     ns:RegisterEvent("UNIT_AURA", function(_, unit)
         if unit ~= "player" or not SwingTimer.active or SwingTimer.practice then return end
         local before = state.seal
@@ -501,6 +502,7 @@ function SwingTimer:IsDemo() return ns.ClassKit:IsDemo() end
 function SwingTimer:Refresh()
     self.active = self:IsRet() and (self:IsEnabled() or self.practice ~= nil)
     DemoSwings(self.active and self:IsDemo() and not self.practice)
+    CL:SetSubscribed("swing", OnCombatLog, self.active and not self.practice)
     ns:Fire("SWING_STATE", self.active)
 end
 
