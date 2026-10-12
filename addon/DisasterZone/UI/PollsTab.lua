@@ -58,7 +58,8 @@ local function UI() return ns.UI end
 local function EUI() return ns.EventUI end
 local function P() return ns.Polls end
 local function Me() return ns.Util.PlayerKey() end
-local function IsMe(key) return type(key) == "string" and ns.Util.IsMe(key) or false end
+-- (1.4.1: any of my characters, Polls:CanManage's asker rule; it only ever reads a poll's asker p.by)
+local function IsMe(key) return type(key) == "string" and P():IsAsker({ by = key }) or false end
 
 -- A word in white among grey ones (a pick, a count, a time).
 local function white(s) return "|cffffffff" .. tostring(s) .. "|r" end

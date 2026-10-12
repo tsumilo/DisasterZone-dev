@@ -122,11 +122,25 @@ end
 
 function Polls:AmIAsker() return self:CanAsk(Me()) end
 
--- The poll's asker, or the GM: close, extend, remove.
+-- (1.4.1) One player: the same character, or two characters of one account (Guild:SameAccount). The asker manages
+-- their poll from any of their characters.
+local function SamePlayer(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    if a == b then return true end
+    local G = Guild()
+    return (G and G.SameAccount and G:SameAccount(a, b)) and true or false
+end
+
+-- Did I (or that member) ask this poll, from any character of the account?
+function Polls:IsAsker(p, key)
+    return type(p) == "table" and SamePlayer(p.by, key or Me())
+end
+
+-- The poll's asker (any of their characters), or the GM: close, extend, remove.
 function Polls:CanManage(p, key)
     key = key or Me()
     if type(p) ~= "table" or type(key) ~= "string" then return false end
-    if p.by == key then return true end
+    if SamePlayer(p.by, key) then return true end
     local G = Guild()
     if DemoOn() and Util.IsMe(key) then return true end
     return (G and G.IsGM and G:IsGM(key)) and true or false
@@ -330,7 +344,7 @@ function Polls:AsksMe(p) return SlotOf(p, Me()) ~= nil end
 -- Shown to me: it asks me, or I asked it.
 function Polls:IsVisible(p)
     if type(p) ~= "table" or p.del then return false end
-    return p.by == Me() or Util.IsMe(p.by) or SlotOf(p, Me()) ~= nil
+    return p.by == Me() or SamePlayer(p.by, Me()) or SlotOf(p, Me()) ~= nil
 end
 
 -- Members the target covers right now (keys of guild members).
@@ -497,7 +511,7 @@ local function Merge(root, kind, rec, live)
         if rec.del then
             if cur and not cur.del and rec.by ~= cur.by and not Polls:CanManage(cur, rec.by) then return false end
         elseif cur then
-            if rec.by ~= cur.by then return false end                      -- only its asker edits it
+            if not SamePlayer(rec.by, cur.by) then return false end        -- only its asker edits it
             if rec.k ~= cur.k or #rec.o ~= #cur.o or rec.at ~= cur.at or (rec.mx or 0) ~= (cur.mx or 0) then
                 return false
             end
@@ -587,7 +601,7 @@ end
 function Polls:ResultsShown(p)
     if type(p) ~= "table" then return false end
     if p.rv == "live" or not self:IsOpen(p) then return true end
-    if p.by == Me() then return true end                     -- (the asker; the GM sees them when they show)
+    if SamePlayer(p.by, Me()) then return true end           -- (the asker; the GM sees them when they show)
     if p.rv == "vote" then return self:MyVote(p) ~= nil end
     return false
 end
@@ -728,9 +742,9 @@ end
 -- My poll with some fields changed: q, o (words only), cl, rv, ch, add = targets to add.
 function Polls:Edit(id, changes)
     local p = self:GetPoll(id)
-    if not p or not Util.IsMe(p.by) then return false end
+    if not p or not SamePlayer(p.by, Me()) then return false end
     local rec = Util.CopyTable(p)
-    rec.rev = nil
+    rec.rev, rec.by = nil, Me()      -- (the writer of a live change is its sender: an alt of the asker writes as itself)
     for _, k in ipairs({ "q", "cl", "rv" }) do
         if changes[k] ~= nil then rec[k] = changes[k] end
     end

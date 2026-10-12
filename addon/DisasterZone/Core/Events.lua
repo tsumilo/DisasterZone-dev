@@ -116,6 +116,15 @@ local function NewId(prefix) return sync:NewId(prefix) end
 -- Roles
 ---------------------------------------------------------------------------
 
+-- (1.4.1) One player: the same character, or two characters of one account (Guild:SameAccount). An event's creator
+-- edits and removes it from any of their characters, as in RaidPlan / Prized / Attendance.
+local function SamePlayer(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    if a == b then return true end
+    local G = Guild()
+    return (G and G.SameAccount and G:SameAccount(a, b)) and true or false
+end
+
 -- The GM and the officers: they set the season.
 function Events:CanModerate(key)
     local G = Guild()
@@ -553,8 +562,9 @@ local function Merge(root, kind, rec, live)
     local t = root[kind]
     local cur = t[rec.id]
     if kind == "D" then
-        if cur and not cur.del and cur.by ~= rec.by and not (rec.del and Events:CanRemove(rec.by)) then
-            return false   -- only its creator edits it; the GM, an officer or the guild council may remove it
+        -- only its creator (any of their characters) edits it; the GM, an officer or the guild council may remove it
+        if cur and not cur.del and not SamePlayer(cur.by, rec.by) and not (rec.del and Events:CanRemove(rec.by)) then
+            return false
         end
         if cur and cur.del and not rec.del then return false end   -- a deletion wins
         if not cur and not rec.del then
@@ -652,7 +662,8 @@ function Events:GetDef(id)
     return nil
 end
 
-function Events:IsMine(d) return d and d.by == Me() or false end
+-- (1.4.1) Mine: made by me or by another character of my account (SamePlayer).
+function Events:IsMine(d) return d and SamePlayer(d.by, Me()) or false end
 
 -- A new event, not saved yet: the starter (Friday duel cup) or an empty one.
 function Events:NewDef(starter)
@@ -680,7 +691,7 @@ function Events:SaveDef(d)
     if type(d) ~= "table" then return false end
     d.id = d.id or NewId("e")
     local cur = self:GetDef(d.id)
-    if cur and cur.by ~= Me() then return false end
+    if cur and not self:IsMine(cur) then return false end
     d.by = Me()
     d.at = Now()
     -- a pending review is for the revision it was sent with: an edit makes a new one, not reviewed
@@ -696,7 +707,7 @@ end
 
 function Events:DeleteDef(id)
     local d = self:GetDef(id)
-    if not d or not (d.by == Me() or self:CanRemove(Me())) then return false end
+    if not d or not (self:IsMine(d) or self:CanRemove(Me())) then return false end
     return Commit("D", { id = id, by = Me(), name = d.name, del = true })
 end
 
@@ -723,8 +734,9 @@ function Events:IsRanked(d) return self:ReviewState(d) == "ranked" end
 -- Sends my event in for review (with a note for the reviewers).
 function Events:SubmitForReview(id, note)
     local d = self:GetDef(id)
-    if not d or d.by ~= Me() then return false end
+    if not d or not self:IsMine(d) then return false end
     local rec = Copy(d)
+    rec.by = Me()      -- (the writer of a live change is its sender: an alt of the creator writes as itself)
     rec.review = { rev = true, at = Now(), note = Str(note) }   -- (Commit stamps the revision it makes)
     return Commit("D", rec)
 end
