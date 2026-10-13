@@ -321,5 +321,77 @@ def awards_outside_a_roll_are_refused_for_prized_items():
     r.w.assert_no_errors()
 
 
+MONGOOSE = 22559
+# A recipe item and a guild's professions, made up on a client: the item is an Enchanting formula; skills and known
+# recipes per character; Carol's alt Cara.
+RECIPE_STUB = """
+    local id, data = ...
+    local old = C_Item.GetItemInfoInstant
+    C_Item.GetItemInfoInstant = function(x, ...)
+        if tonumber(x) == id then return id, 'Recipe', 'Formula', '', 134327, 9, 8 end
+        if old then return old(x, ...) end
+    end
+    local oldName = ns.ItemDB.GetName
+    ns.ItemDB.GetName = function(self, x, ...)
+        if tonumber(x) == id then return 'Formula: Enchant Weapon - Mongoose' end
+        return oldName(self, x, ...)
+    end
+    local P = ns.Professions
+    P.HasData = function(_, k) return data.skill[k] ~= nil end
+    P.GetSkill = function(_, k, prof) local r = data.skill[k]; if r and r > 0 and prof == 333 then return r, 375 end end
+    P.KnowsRecipe = function(_, k, prof, name)
+        if name ~= 'enchant weapon - mongoose' then return nil end
+        return data.knows[k]
+    end
+    P.GetOtherCharacters = function(_, k) return data.alts[k] or {} end
+"""
+
+
+@R.case
+def a_recipe_gets_the_profession_rule_from_itself():
+    """1.4.1 (the user): prized recipes / formulas get a profession rule, set from the item by the Recipe template."""
+    w, c = guild_world()
+    data = {"skill": {key("Bob"): 375, key("Carol"): 360, "Cara-" + key("Carol").split("-", 1)[1]: 375,
+                      key("Dave"): 375},
+            "knows": {key("Bob"): False, key("Carol"): False, "Cara-" + key("Carol").split("-", 1)[1]: False,
+                      key("Dave"): True},
+            "alts": {key("Carol"): ["Cara-" + key("Carol").split("-", 1)[1]]}}
+    for n in ("Alice", "Dave"):
+        c[n].eval(RECIPE_STUB, MONGOOSE, data)
+    info = c["Alice"].eval_py("return ns.Prized:RecipeInfo(...)", MONGOOSE)
+    assert info == {"prof": 333, "skill": 375, "name": "enchant weapon - mongoose"}, info
+    assert c["Alice"].eval("return ns.Prized:RecipeInfo(...)", DST) is None, "not a recipe"
+    # the Recipe template: the profession rule from the item (alts count, not known yet), guild only, the council
+    rules = c["Alice"].eval_py("""
+        for _, t in ipairs(ns.Prized.TEMPLATES) do
+          if t.key == 'recipe' then return t.rules(1, { ... }) end
+        end""", MONGOOSE)
+    assert rules["prof"] == {"m": "r", "p": 333, "s": 375, "a": True, "n": True}, rules
+    assert rules["guild"] and rules["vote"], rules
+    assert add(c["Alice"], [MONGOOSE], rules) == str(MONGOOSE)
+    w.tick(3)
+    assert rules_of(c["Dave"], MONGOOSE)["prof"]["s"] == 375
+    text = c["Dave"].eval_py("return { ns.Prized:RuleText('prof', ns.Prized:ForItem(...).r.prof) }", MONGOOSE)
+    assert text == ["Enchanting 375 or higher", "on any of their characters, who doesn't know it yet"], text
+    assert check(c["Dave"], MONGOOSE, "Bob")["ok"] is True
+    # Carol herself is 360, her alt Cara is 375 and doesn't know it
+    assert check(c["Dave"], MONGOOSE, "Carol")["ok"] is True
+    value = c["Dave"].eval("local rec = ns.Prized:ForItem(...); return ns.Prized:Check(rec, select(2, ...)).by.prof.value",
+                           MONGOOSE, key("Carol"))
+    assert value.startswith("375 (Cara"), value
+    # Dave knows it already; Alice has no profession data (no DisasterZone record): unknown
+    assert check(c["Dave"], MONGOOSE, "Dave")["fail"] == "prof"
+    assert check(c["Dave"], MONGOOSE, "Alice")["ok"] == "unknown"
+    # alts not counting: Carol (360) breaks it
+    c["Alice"].eval("local r = ns.Prized:ForItem(...).r; local n = ns.Prized:CopyRules(r); n.prof.a = nil; "
+                    "ns.Prized:Save(tostring(...), n)", MONGOOSE)
+    w.tick(3)
+    assert check(c["Dave"], MONGOOSE, "Carol")["fail"] == "prof"
+    why = c["Dave"].eval("local rec = ns.Prized:ForItem(...); return ns.Prized:Check(rec, select(2, ...)).fail",
+                         MONGOOSE, key("Carol"))
+    assert why == "Enchanting 360", why
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     main(R)

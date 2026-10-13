@@ -50,6 +50,18 @@ ns.CHANGELOG = {
               "The icon in the middle now has a cooldown swipe, like your action bars.",
               "The dark part shrinks as the press comes closer; full colour means press it now.",
           } },
+          { heading = "Prized items: recipes and formulas", area = "loot", kind = "new", open = "lootrules",
+            lines = {
+              "New rule Profession: Enchanting 375 or higher (any profession, any skill).",
+              "Their alts can count, and someone who already knows the recipe can be left out.",
+              "Recipe / formula start: adding a recipe sets the profession and skill from the item.",
+          } },
+          { heading = "Polls: several questions in one", area = "guild", kind = "new", open = "polls", lines = {
+              { "A poll can ask up to five questions, each with its own kind and answers.", fb = { 7 }, by = { "Victhar" }, k = "idea" },
+              { "New poll: + Question adds one; who votes and when it closes are the whole poll's.", fb = { 7 }, by = { "Victhar" }, k = "idea" },
+              { "You answer question by question: it moves on to the next one by itself.", fb = { 7 }, by = { "Victhar" }, k = "idea" },
+              "Players still on an older version see each question as a poll of its own.",
+          } },
           { heading = "Your alts can change what you made", area = "guild", kind = "changed", lines = {
               "Strategies, polls and events you made: edit or remove them from any of your characters.",
               "(Members still on 1.4.0 see those changes once they update.)",

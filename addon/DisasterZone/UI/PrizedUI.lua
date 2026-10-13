@@ -54,7 +54,7 @@ local function short(key) return ns.Util.ShortName(key) or tostring(key) end
 
 -- An atlas icon (UI.ICON) on a texture; the prized-items icons (art pack 7) fall back to older ones without it.
 local FALLBACK = { prized = "trophy", person = "team", shield = "lock", pair = "infinity", ballot = "poll" }
-local EXTRA_ICON = { pencil = 16 }
+local EXTRA_ICON = { pencil = 16, prof = 22 }   -- (prof: the disenchant sparkle, for the Recipe template's tile)
 local function iconIndex(name)
     local I = UI().ICON
     if FALLBACK[name] and not (ns.HasAssets and ns:HasAssets(7)) then name = FALLBACK[name] end
@@ -67,10 +67,17 @@ local function atlasTex(tex, name, r, g, b, a)
     tex:SetVertexColor(r or 1, g or 1, b or 1, a or 1)
 end
 
--- A rule's icon (Prized.RULES icon names -> the atlas, or the BiS diamond).
+-- A rule's icon (Prized.RULES icon names -> the atlas, the BiS diamond, or the profession's own icon; v = the rule).
 local RULE_ICON = { att = "calendar", rank = "crown", main = "person", guild = "shield", cd = "stopwatch",
-                    order = "poll", queue = "team", pair = "pair", bis = "bis", vote = "ballot" }
-local function ruleTex(tex, key, r, g, b)
+                    order = "poll", queue = "team", pair = "pair", bis = "bis", vote = "ballot", prof = "prof" }
+local function ruleTex(tex, key, r, g, b, v)
+    local def = key == "prof" and v and ns.Professions and ns.Professions:GetProfession(v.p)
+    if def and def.icon then
+        tex:SetTexture(def.icon)
+        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        tex:SetVertexColor(1, 1, 1)
+        return
+    end
     if key == "bis" then
         tex:SetTexture(BIS_TEX)
         tex:SetTexCoord(0, 1, 0, 1)
@@ -454,7 +461,8 @@ local MODE_PILL = { r = { "Required", "warn" }, p = { "Priority", "alt" } }
 local function fillRule(r, rec, rkey, v, res, editing)
     local Pz = P()
     r.ruleKey = rkey
-    ruleTex(r.icon, rkey, S:Color("TEXT"))
+    local cr, cg, cb = S:Color("TEXT")
+    ruleTex(r.icon, rkey, cr, cg, cb, v)
     local text, sub = Pz:RuleText(rkey, v, rec)
     local rightW = editing and EDIT_W or ((res and (res.value or res.ok ~= nil)) and RIGHT_W or 0)
     local textW = (r.cdlW or (DETAIL_W - 16)) - RULE_X - rightW - 8
@@ -1195,7 +1203,7 @@ end
 
 function PrizedUI:AddRule(key)
     if not state.draft or state.draft[key] then return end
-    state.draft[key] = P():DefaultRule(key)
+    state.draft[key] = P():DefaultRule(key, state.sel and P():Get(state.sel))
     self:Refresh()
 end
 
@@ -1276,6 +1284,28 @@ function PrizedUI:OpenValueMenu(owner, key)
                 root:CreateRadio(w == 1 and "1 week" or (w .. " weeks"), function() return v.w == w end,
                     function() v.w = w refresh() end)
             end
+        elseif key == "prof" then
+            root:CreateTitle("Profession")
+            for _, p in ipairs(Pz:Professions()) do
+                root:CreateRadio(p.name, function() return v.p == p.id end, function() v.p = p.id refresh() end)
+            end
+            root:CreateDivider()
+            root:CreateTitle("Skill at least")
+            local skills, has = {}, false
+            for _, n in ipairs(Pz.PROF_SKILLS) do skills[#skills + 1] = n; has = has or n == v.s end
+            if not has and v.s then skills[#skills + 1] = v.s; tsort(skills) end
+            for _, n in ipairs(skills) do
+                root:CreateRadio(tostring(n), function() return v.s == n end, function() v.s = n refresh() end)
+            end
+            root:CreateDivider()
+            local alts = root:CreateCheckbox("Their alts count", function() return v.a == true end,
+                function() v.a = not v.a or nil refresh() end)
+            alts:SetTitleAndTextTooltip("Their alts count", "The winner qualifies when any of their characters has "
+                .. "the profession (the guild's enchanter is often an alt). Off: only the character who loots it.")
+            local known = root:CreateCheckbox("Not if they already know it", function() return v.n == true end,
+                function() v.n = not v.n or nil refresh() end)
+            known:SetTitleAndTextTooltip("Not if they already know it", "Checked against the recipes members share in "
+                .. "Guild > Members (a profession window opened once with DisasterZone). Unknown shows as ?.")
         elseif key == "vote" then
             root:CreateTitle("Of the council members in the raid")
             for _, s in ipairs(Pz.VOTE_SHARES) do
@@ -1393,6 +1423,8 @@ function PrizedUI:TogglePick(itemID)
     a.picked[#a.picked + 1] = itemID
     -- two items: the Legendary start (with Pair) is the likely one
     if #a.picked == 2 and a.tpl == "trinket" then a.tpl = "legendary" end
+    -- a recipe (Formula, Pattern, Plans...): the Recipe start, its profession and skill read from the item
+    if #a.picked == 1 and P():RecipeInfo(itemID) then a.tpl = "recipe" end
     self:RefreshAdd()
 end
 
@@ -1404,7 +1436,7 @@ function PrizedUI:ConfirmAdd()
     for _, t in ipairs(Pz.TEMPLATES) do
         if t.key == a.tpl then
             how = t.key ~= "blank" and t.key ~= "copy" and ("“" .. t.label .. "”") or nil
-            if t.rules then rules = t.rules(#a.picked) end
+            if t.rules then rules = t.rules(#a.picked, a.picked) end
         end
     end
     if a.tpl == "copy" then
@@ -1450,4 +1482,4 @@ PrizedUI.SetArt = function(_, tex, raidKey, w, h, fw) return setArt(tex, raidKey
 PrizedUI.Standing = function(_, rec) return standing(rec) end
 PrizedUI.RecName = function(_, rec) return recName(rec) end
 PrizedUI.SlotText = function(_, rec) return slotText(rec) end
-PrizedUI.RuleIcon = function(_, tex, key, r, g, b) return ruleTex(tex, key, r, g, b) end
+PrizedUI.RuleIcon = function(_, tex, key, r, g, b, v) return ruleTex(tex, key, r, g, b, v) end

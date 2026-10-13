@@ -542,13 +542,27 @@ def polls_seed(w, c):
     POLLS["loot"] = ask(g, "Loot: allow off-spec rolls on tier tokens?", "one",
                         ["Yes, after main spec", "No, main spec only", "The council decides"],
                         [["t", IDS["team"], False, "Main team"], ["r", "officer"]], 3 * 86400)
-    w.tick(3)
+    # (1.4.1) a poll of three questions (Victhar's idea, feedback #7)
+    POLLS["plan"] = k.eval("""
+        local days = ...
+        return (ns.Polls:Create({ qs = {
+            { q = "Would you like a second raid night for progression?", k = "yn" },
+            { q = "Which nights would suit you best?", k = "days", o = days },
+            { q = "What start time (realm time) suits you?", k = "one", o = { "19:00", "19:30", "20:00", "20:30" } },
+          }, a = { { "g" } }, cl = GetServerTime() + 5 * 86400, rv = "live", ch = true }))""", now_days[:4])
+    w.tick(12)                     # (ten polls queue behind the comm throttle)
+    plan = k.eval("local id = ...; local out = {}; for i, q in ipairs(ns.Polls:Questions(ns.Polls:GetPoll(id))) do "
+                  "out[i] = q and q.id or '' end; return table.concat(out, ',')", POLLS["plan"]).split(",")
+    POLLS["plan1"], POLLS["plan2"], POLLS["plan3"] = plan[0], plan[1], plan[2]
     votes = {
-        "Grumpykat": {"days": [1, 1, 1, 2, 1], "raid": [1], "night": [2], "loot": [1], "closed": [1], "yn": [1]},
-        "Victhar": {"days": [1, 0, 1, 1, 1], "raid": [2], "night": [2], "loot": [1], "closed": [2], "yn": [1]},
+        "Grumpykat": {"days": [1, 1, 1, 2, 1], "raid": [1], "night": [2], "loot": [1], "closed": [1], "yn": [1],
+                      "plan1": [1], "plan2": [1, 1, 0, 2], "plan3": [3]},
+        "Victhar": {"days": [1, 0, 1, 1, 1], "raid": [2], "night": [2], "loot": [1], "closed": [2], "yn": [1],
+                    "plan1": [1], "plan2": [1, 0, 1, 1], "plan3": [3]},
         "Shadowmelder": {"days": [1, 0, 1, 2, 1], "raid": [1], "night": [1], "loot": [2], "closed": [1]},
-        "Vaenyria": {"days": [1, 1, 1, 1, 1], "raid": [1], "night": [2], "loot": [1], "yn": [2]},
-        "Thunderhoofx": {"days": [1, 0, 1, 0, 1], "raid": [3], "night": [1], "yn": [1]},
+        "Vaenyria": {"days": [1, 1, 1, 1, 1], "raid": [1], "night": [2], "loot": [1], "yn": [2], "plan1": [2],
+                     "plan2": [0, 1, 1, 0], "plan3": [2]},
+        "Thunderhoofx": {"days": [1, 0, 1, 0, 1], "raid": [3], "night": [1], "yn": [1], "plan1": [1]},
         "Moonwhisper": {"days": [1, 2, 1, 1, 0], "raid": [1], "night": [3], "loot": [3]},
         "Lightbringer": {"days": [0, 1, 1, 2, 1], "night": [2]},
     }
@@ -559,9 +573,10 @@ def polls_seed(w, c):
     g.eval("ns.Polls:Vote(...)", POLLS["raid"], [1])
     g.eval("ns.Polls:Vote(...)", POLLS["loot"], [1])
     g.eval("ns.Polls:Vote(...)", POLLS["bank"], [1, 3])
+    g.eval("ns.Polls:Vote(...)", POLLS["plan1"], [1])
     w.tick(3)
     k.eval("ns.Polls:Close(...)", POLLS["closed"])
-    w.tick(3)
+    w.tick(8)
 
 
 def polls_view(lua=None, viewer="Gina"):
@@ -574,7 +589,8 @@ def polls_view(lua=None, viewer="Gina"):
         tab(cl, "polls")
         if lua:
             w.tick(0.3)
-            cl.eval(lua, *[POLLS.get(x) for x in ("days", "yn", "raid", "night", "bank", "closed", "loot")])
+            cl.eval(lua, *[POLLS.get(x) for x in ("days", "yn", "raid", "night", "bank", "closed", "loot", "plan1",
+                                                "plan2", "plan3")])
         return cl
     return fn
 
@@ -1656,6 +1672,17 @@ STATES = [
         "t = '20:00' } end; ns.PollsUI:SetDraft({ q = 'Which nights can you raid SSC next week?', k = 'days', rv = 'live', "
         "days = { d(3), d(5), d(6), d(8) }, a = { { 'r', 'leader' }, { 'r', 'officer' }, { 'p', 'Lightbringer-' .. ns.Util.GetPlayerRealm() } } })")),
     ("Polls - pop-up", polls_toast),
+    # (1.4.1) a poll of three questions: answering it (question 1 answered: it opens on question 2), the asker's
+    # results on question 3, the New poll sheet with three questions
+    ("Polls - several questions", polls_view("local p = select(8, ...); ns.PollsUI:OpenPoll(p); "
+                                             "ns.PollsUI:SetDays({ 1, 2, 1, 0 })")),
+    ("Polls - several questions, asker", polls_view("local p = select(10, ...); ns.PollsUI:OpenPoll(p, true)",
+                                                    viewer="Grumpykat")),
+    ("Polls - new poll, several questions", polls_view(
+        "ns.PollsUI:OpenNew(); ns.PollsUI:SetDraft({ cur = 3, a = { { 'g' } }, rv = 'live', qs = { "
+        "{ q = 'Would you like a second raid night for progression?', k = 'yn' }, "
+        "{ q = 'Which nights would suit you best?', k = 'days' }, "
+        "{ q = 'What start time (realm time) suits you?', k = 'one', o = { '19:00', '19:30', '20:00', '20:30' } } } })")),
     # Home with several polls waiting: one chip for them all
     ("Home - polls waiting", polls_view("ns.MainFrame:Open('home')")),
     # the Events tab (UI/EventsTab.lua) on demo mode's events: the live cup on the banner, the week and my season; a
@@ -1895,6 +1922,9 @@ STATES = [
     # 1.3.5 prized items (Council > Rules, UI/PrizedUI.lua in UI/CouncilRules.lua) on the demo guild's made-up items
     ("Demo - Loot rules", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('28830')", "council")),
     ("Demo - Loot rules - Warglaives", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('32837')", "council")),
+    ("Demo - Loot rules - recipe", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('22559')", "council")),
+    ("Demo - Loot rules - recipe editing", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('22559'); "
+                                                "ns.PrizedUI:StartEdit()", "council")),
     ("Demo - Loot rules - history", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('28830'); "
                                          "ns.PrizedUI:SetTab('history')", "council")),
     ("Demo - Loot rules - editing", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('28830'); "

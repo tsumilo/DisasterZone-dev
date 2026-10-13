@@ -154,12 +154,51 @@ Prized.RULES = {
     { key = "queue", label = "Queue", desc = "named players, in order", icon = "queue" },
     { key = "pair", label = "Pair", desc = "two items go to the same player", icon = "pair" },
     { key = "bis", label = "On BiS list", desc = "only players who listed it", icon = "bis" },
+    { key = "prof", label = "Profession", desc = "a recipe: who can learn it", icon = "prof" },
     { key = "vote", label = "Council vote", desc = "how many must agree; no rolls", icon = "vote" },
 }
 Prized.RULE = {}
 for i, d in ipairs(Prized.RULES) do
     d.order = i
     Prized.RULE[d.key] = d
+end
+
+-- The profession rule's skill choices; a recipe's own requirement is added when it is not one of them.
+Prized.PROF_SKILLS = { 300, 325, 350, 360, 365, 375 }
+
+-- A recipe item (Formula, Recipe, Pattern, Plans, Schematic, Design...): { prof = skill line id, skill = the skill it
+-- needs, name = what it teaches, lowercase (the item's name after "Formula: ") }, or nil for anything else. The
+-- profession from the item's subclass, the skill from its tooltip ("Requires Enchanting (375)"; 375 if unread).
+local RECIPE_PROF = { [1] = 165, [2] = 197, [3] = 202, [4] = 164, [5] = 185, [6] = 171, [7] = 129, [8] = 333,
+                      [9] = 356, [10] = 755 }
+local recipeTip
+function Prized:RecipeInfo(itemID)
+    itemID = tonumber(itemID)
+    if not itemID then return nil end
+    local classID, subID
+    if C_Item and C_Item.GetItemInfoInstant then
+        local _, _, _, _, _, c, s = C_Item.GetItemInfoInstant(itemID)
+        classID, subID = c, s
+    end
+    local prof = classID == 9 and RECIPE_PROF[subID or -1] or nil
+    if not prof then return nil end
+    local full = ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(itemID)
+    local name = type(full) == "string" and (full:match("^[^:]+:%s*(.+)$") or full) or nil
+    local skill
+    pcall(function()
+        recipeTip = recipeTip or CreateFrame("GameTooltip", "DisasterZonePrizedScanTooltip", nil, "GameTooltipTemplate")
+        recipeTip:SetOwner(UIParent, "ANCHOR_NONE")
+        recipeTip:ClearLines()
+        recipeTip:SetItemByID(itemID)
+        local fmt = type(ITEM_MIN_SKILL) == "string" and ITEM_MIN_SKILL or "Requires %s (%d)"
+        local pat = "^" .. fmt:gsub("([%(%)%.%-%+%[%]%?%*%^%$])", "%%%1"):gsub("%%%%s", ".+"):gsub("%%%%d", "(%%d+)") .. "$"
+        for i = 2, (recipeTip:NumLines() or 0) do
+            local fs = _G["DisasterZonePrizedScanTooltipTextLeft" .. i]
+            local n = fs and fs:GetText() and fs:GetText():match(pat)
+            if n then skill = tonumber(n) break end
+        end
+    end)
+    return { prof = prof, skill = skill or 375, name = name and name:lower() or nil }
 end
 
 Prized.ATT_PCT = { 50, 60, 70, 75, 80, 85, 90 }
@@ -249,11 +288,32 @@ function Prized:RuleText(key, v, rec)
         return "Both go to the same player", "the second one follows the first"
     elseif key == "bis" then
         return "Only players with it on their BiS list", "their main spec list"
+    elseif key == "prof" then
+        local subs = {}
+        subs[#subs + 1] = v.a and "on any of their characters" or "on the character who loots it"
+        if v.n then subs[#subs + 1] = "who doesn't know it yet" end
+        return strformat("%s %d or higher", self:ProfName(v.p), v.s or 375), tconcat(subs, ", ")
     elseif key == "vote" then
         local s = VOTE_SHARE[v.s or "all"] or VOTE_SHARE.all
         return "The Loot Council decides, no rolls", strformat("%s vote for the winner", s.long)
     end
     return tostring(key), nil
+end
+
+-- A profession's name on this client ("Enchanting").
+function Prized:ProfName(id)
+    local P = ns.Professions
+    return (P and P.GetName and P:GetProfession(id) and P:GetName(id)) or "Profession"
+end
+
+-- The professions the rule can name (the ones with recipes): { { id, name, icon }, ... } in the Members order.
+function Prized:Professions()
+    local P = ns.Professions
+    local out = {}
+    for _, def in ipairs(P and P.GetProfessions and P:GetProfessions() or {}) do
+        if def.crafts then out[#out + 1] = { id = def.id, name = P:GetName(def.id), icon = def.icon } end
+    end
+    return out
 end
 
 -- A short form of a rule's value for the history ("75% / 6 wk").
@@ -271,12 +331,20 @@ local function ShortValue(key, v)
         for _, k in ipairs(v.n or {}) do parts[#parts + 1] = Util.ShortName(k) end
         return #parts > 0 and tconcat(parts, ", ") or "empty"
     elseif key == "vote" then return (VOTE_SHARE[v.s or "all"] or VOTE_SHARE.all).label:lower()
+    elseif key == "prof" then
+        return strformat("%s %d%s%s", Prized:ProfName(v.p), v.s or 0, v.a and ", alts count" or "",
+            v.n and ", doesn't know it" or "")
     end
     return nil
 end
 
--- Default values of a rule just added.
-function Prized:DefaultRule(key)
+-- Default values of a rule just added (rec: the item it is for; a recipe sets the profession rule from itself).
+function Prized:DefaultRule(key, rec)
+    if key == "prof" then
+        local info = rec and rec.ids and self:RecipeInfo(rec.ids[1])
+        return { m = "r", p = info and info.prof or 333, s = info and info.skill or 375, a = true,
+                 n = info and info.name and true or nil }
+    end
     if key == "att" then return { m = "r", p = 75, w = 6 }
     elseif key == "rank" then
         local ranks = self:GetRanks()
@@ -305,6 +373,13 @@ Prized.TEMPLATES = {
       rules = function()
           return { att = { m = "r", p = 75, w = 6 }, rank = Prized:DefaultRule("rank"), main = { m = "r" },
                    guild = { m = "r" }, cd = { m = "r", w = 4 }, order = { m = "p", g = { {} } },
+                   vote = { m = "r", s = "all" } }
+      end },
+    -- a recipe (Formula, Pattern, Plans...): the profession and skill from the item; alts count; not known yet
+    { key = "recipe", label = "Recipe / formula", icon = "prof",
+      desc = "Profession · doesn't know it yet · Guild · Council",
+      rules = function(_, ids)
+          return { prof = Prized:DefaultRule("prof", { ids = ids or {} }), guild = { m = "r" },
                    vote = { m = "r", s = "all" } }
       end },
     { key = "copy", label = "Copy from…", icon = "notes", desc = "the rules of another prized item" },
@@ -375,6 +450,11 @@ local function CleanRule(key, v)
         return { m = Mode(v.m, true) }
     elseif key == "pair" then
         return { m = Mode(v.m, true) }
+    elseif key == "prof" then
+        local p, s = Int(v.p, 1, 999), Int(v.s, 1, 450)
+        local P = ns.Professions
+        if not p or not s or not (P and P.GetProfession and P:GetProfession(p)) then return nil end
+        return { m = Mode(v.m, true), p = p, s = s, a = v.a and true or nil, n = v.n and true or nil }
     elseif key == "cd" then
         local w = Int(v.w, 1, 26)
         if not w then return nil end
@@ -487,6 +567,13 @@ local function Merge(root, kind, rec, live)
         if cur and cur.del and not rec.del then return false end           -- a removal wins
         if not cur and not rec.del and CountLive(t) >= MAX_ITEMS then return false end
         if cur and not Newer(rec, cur) and not (rec.del and not cur.del) then return false end
+        -- (the same revision with rules missing is a copy from an older version that didn't know a rule (1.4.1's
+        -- profession rule): it never replaces the whole one)
+        if cur and not cur.del and not rec.del and rec.rev == cur.rev then
+            for k in pairs(cur.r or {}) do
+                if rec.r[k] == nil then return false end
+            end
+        end
     elseif kind == "G" then
         if cur then
             if cur.del then return false end
@@ -772,6 +859,54 @@ function Prized:PairHolder(rec)
     return last.to, last
 end
 
+-- The profession rule: the looter (or, alts counting, any of their characters) has the profession at the skill, and
+-- (v.n) doesn't know the recipe yet. Unknown (?) when nothing is known about their professions (no DisasterZone) or
+-- whether they know it (their recipes were never read). Fills res; value = the best character's skill.
+local function ProfRule(self, rec, v, key, res)
+    local P = ns.Professions
+    if not (P and P.GetSkill) then res.ok, res.value = nil, "?" return end
+    local chars = { key }
+    if v.a and P.GetOtherCharacters then
+        for _, k in ipairs(P:GetOtherCharacters(key)) do chars[#chars + 1] = k end
+    end
+    local recipe = v.n and self:RecipeInfo(rec.ids[1])
+    local lname = recipe and recipe.name
+    local anyData, best, bestRank, unsure, knowsIt = false, nil, nil, false, nil
+    for _, k in ipairs(chars) do
+        if P:HasData(k) then
+            anyData = true
+            local rank = P:GetSkill(k, v.p)
+            if rank and (not bestRank or rank > bestRank) then best, bestRank = k, rank end
+            if rank and rank >= v.s then
+                local knows = lname and P:KnowsRecipe(k, v.p, lname) or false
+                if knows == false then
+                    res.ok, res.value, res.who = true, strformat("%d", rank), k
+                    if k ~= key then res.value = strformat("%d (%s)", rank, Util.ShortName(k)) end
+                    res.prio = 0
+                    return
+                elseif knows == nil then unsure = true
+                else knowsIt = k end
+            end
+        end
+    end
+    res.prio = 1
+    if unsure or not anyData then
+        res.ok, res.value = nil, "?"
+        return
+    end
+    res.ok = false
+    if knowsIt then
+        res.value = "Knows it"
+        res.why = (knowsIt == key and "already knows it" or (Util.ShortName(knowsIt) .. " already knows it"))
+    elseif bestRank then
+        res.value = strformat("%d", bestRank)
+        res.why = strformat("%s %d", self:ProfName(v.p), bestRank)
+    else
+        res.value = "None"
+        res.why = "no " .. self:ProfName(v.p)
+    end
+end
+
 local function OneRule(self, rec, rkey, v, key, ctx)
     local res = { key = rkey, m = v.m or "r" }
     if rkey == "att" then
@@ -884,6 +1019,8 @@ local function OneRule(self, rec, rkey, v, key, ctx)
             res.why = not on and "not on their BiS list" or nil
         end
         res.prio = on and 0 or 1
+    elseif rkey == "prof" then
+        ProfRule(self, rec, v, key, res)
     elseif rkey == "vote" then
         res.ok = true
         res.info = true
@@ -944,11 +1081,13 @@ function Prized:Check(rec, key, ctx)
         end
         out.ok, out.fail, out.failKey, out.met = true, nil, nil, out.required
     end
-    -- the sort: the pair's holder, the queue, the spec order, then on the BiS list, then attendance (higher first)
+    -- the sort: the pair's holder, the queue, the spec order, then on the BiS list, then who can learn the recipe,
+    -- then attendance (higher first)
     local by = {}
     for _, res in ipairs(out.rules) do by[res.key] = res end
     out.prio = { by.pair and by.pair.prio or 1, by.queue and by.queue.prio or 1, by.order and by.order.prio or 1,
                  (by.bis and by.bis.m == "p") and by.bis.prio or 0,
+                 (by.prof and by.prof.m == "p") and by.prof.prio or 0,
                  (by.att and by.att.m == "p") and -(by.att.num or 0) or 0 }
     out.by = by
     return out
@@ -1232,6 +1371,8 @@ function Prized:BuildDemo()
     item({ 32505 }, trinket({ melee }))
     item({ 34334 }, { att = { m = "r", p = 80, w = 8 }, main = { m = "r" }, order = { m = "r", g = { { "HUNTER" } } },
                       queue = { m = "r", n = { K(6), K(8) } }, vote = { s = "3q" } })
+    -- (1.4.1: a formula with the profession rule, as the Recipe template makes it)
+    item({ 22559 }, { prof = { m = "r", p = 333, s = 375, a = true, n = true }, guild = { m = "r" }, vote = { s = "half" } })
     item({ 34427 }, { att = { m = "p", p = 60, w = 4 }, rank = { m = "r", i = 3 }, cd = { m = "r", w = 4 },
                       order = { m = "p", g = { { "WARRIOR:Protection", "PALADIN:Protection", "DRUID:Feral (Bear)" } } },
                       vote = { s = "2t" } })

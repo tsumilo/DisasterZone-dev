@@ -481,6 +481,9 @@ local function FailText(res, v)
         return "not on your BiS list"
     elseif res.key == "guild" then
         return "guild members only"
+    elseif res.key == "prof" and res.why then
+        -- ("Enchanting 350, needs 375"; "already knows it")
+        return res.value == "Knows it" and res.why or format("%s, needs %d", res.why, v.s or 0)
     end
     return res.why or res.label or res.key
 end

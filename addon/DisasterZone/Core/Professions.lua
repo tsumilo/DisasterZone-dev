@@ -1440,6 +1440,29 @@ function Prof:GetMemberRecipes(key, id)
     return out
 end
 
+-- Does the character know a recipe of a profession, by its name (lowercase, as the recipe index keeps them):
+-- true / false, or nil when we can't tell (no record, the profession missing, or its recipes never read or not all
+-- synced here).
+function Prof:KnowsRecipe(key, id, lowerName)
+    local rec = type(key) == "string" and GetRec(key)
+    local e = rec and rec.p[id]
+    local set = rec and rec.R[id]
+    if not (e and set and set.e == e.e and Visible(key)) then return nil end
+    if (e.n or 0) == 0 or (set.n or 0) < (e.n or 0) then return nil end
+    for _, r in ipairs(self:GetMemberRecipes(key, id)) do
+        if r.lower == lowerName then return true end
+    end
+    return false
+end
+
+-- A character's skill in a profession: rank, max; nil when it doesn't have it (or nothing is known: see HasData).
+function Prof:GetSkill(key, id)
+    local rec = type(key) == "string" and GetRec(key)
+    local e = rec and rec.rev ~= 0 and Visible(key) and rec.p[id]
+    if not e then return nil end
+    return e.r, e.m
+end
+
 function Prof:GetRecipeIcon(r)
     local icon
     if r.item > 0 then
