@@ -13,7 +13,11 @@ use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager};
 use twilight_gateway::{CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client;
+use crate::core::bridge;
+use twilight_model::application::command::CommandType;
+use twilight_model::application::interaction::application_command::CommandOptionValue;
 use twilight_model::application::interaction::{Interaction, InteractionData};
+use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 use twilight_model::channel::message::MessageFlags;
 use twilight_model::http::interaction::{InteractionResponse, InteractionResponseData, InteractionResponseType};
 use twilight_model::id::marker::{ApplicationMarker, GuildMarker};
@@ -117,18 +121,37 @@ pub fn restart(app: &AppHandle) {
 /// Runs until the connection ends for good; returns why.
 async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guild_id: Id<GuildMarker>) -> String {
     let http = Client::new(token.clone());
-    // guild commands show up at once (global ones can take an hour)
-    if let Err(e) = http
-        .interaction(app_id)
-        .create_guild_command(guild_id)
-        .chat_input("ping", "Check that the DisasterZone bot is online")
-        .await
-    {
+    // guild commands show up at once (global ones can take an hour); setting the whole list drops old ones
+    let commands = [
+        CommandBuilder::new("ping", "Check that the DisasterZone bot is online", CommandType::ChatInput).build(),
+        CommandBuilder::new("bridgetest", "Send a test line to the game (it shows at the host's next /reload)", CommandType::ChatInput)
+            .option(StringBuilder::new("text", "What the game should print").required(true).max_length(200))
+            .build(),
+    ];
+    if let Err(e) = http.interaction(app_id).set_guild_commands(guild_id, &commands).await {
         return explain_http(&e.to_string());
     }
     let mut shard = Shard::new(ShardId::ONE, token, Intents::GUILDS);
     let wanted = EventTypeFlags::READY | EventTypeFlags::INTERACTION_CREATE;
-    while let Some(item) = shard.next_event(wanted).await {
+    // the game's answer (SavedVariables) is looked at every few seconds; a new save clears what it took
+    let mut watch = tokio::time::interval(std::time::Duration::from_secs(5));
+    let mut seen: Option<SystemTime> = None;
+    loop {
+        let item = tokio::select! {
+            item = shard.next_event(wanted) => match item { Some(x) => x, None => break },
+            _ = watch.tick() => {
+                if let Some(dir) = state::load().flavor_dir() {
+                    let now = newest_saved_variables(&dir);
+                    if now != seen {
+                        seen = now;
+                        if let Err(e) = bridge::sync(&dir, unix_now()) {
+                            eprintln!("bot: bridge sync: {e}");
+                        }
+                    }
+                }
+                continue;
+            }
+        };
         match item {
             Ok(Event::Ready(r)) => set_status(app, BotStatus::Online { name: r.user.name.clone() }),
             Ok(Event::InteractionCreate(i)) => {
@@ -171,6 +194,18 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
     let Some(InteractionData::ApplicationCommand(cmd)) = &i.data else { return Ok(()) };
     let text = match cmd.name.as_str() {
         "ping" => ping_text(app),
+        "bridgetest" => {
+            let text = cmd
+                .options
+                .iter()
+                .find_map(|o| match (&o.name[..], &o.value) {
+                    ("text", CommandOptionValue::String(t)) => Some(t.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let who = i.author().map(|u| u.global_name.clone().unwrap_or_else(|| u.name.clone())).unwrap_or_default();
+            bridge_test(app, &who, &text, i.id.get())
+        }
         _ => "This command is not ready yet.".to_string(),
     };
     let resp = InteractionResponse {
@@ -186,6 +221,31 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
         .await
         .map_err(|e| crate::core::Error::Net(e.to_string()))?;
     Ok(())
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn bridge_test(app: &AppHandle, who: &str, text: &str, nonce: u64) -> String {
+    let Some(dir) = state::load().flavor_dir() else { return "The host has no game folder set.".into() };
+    let now = unix_now();
+    let r = bridge::Record {
+        id: format!("dc_{now}_{nonce}"),
+        kind: "test".into(),
+        at: now,
+        by: who.to_string(),
+        body: serde_json::json!({ "text": text }),
+    };
+    match bridge::push(&dir, r, now) {
+        Ok(q) => {
+            if crate::core::wow::running() {
+                crate::background::notify(app, "Discord update waiting", &format!("{} waiting: /reload in game to load them.", q.len()));
+            }
+            format!("Queued for the game ({} waiting). It shows up at the host's next /reload.", q.len())
+        }
+        Err(e) => format!("Could not queue it: {e}"),
+    }
 }
 
 fn ping_text(_app: &AppHandle) -> String {

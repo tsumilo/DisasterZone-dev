@@ -35,6 +35,7 @@ tokio = { version = "1.53.2", features = ["fs", "rt", "macros", "time", "sync"] 
 twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots", "zlib"] }
 twilight-http = { version = "0.17.1", default-features = false, features = ["native-tls", "decompression"] }
 twilight-model = "0.17.1"
+twilight-util = { version = "0.17", features = ["builder"] }
 walkdir = "2.5.0"
 
 [profile.release]

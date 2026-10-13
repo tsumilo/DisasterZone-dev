@@ -4,9 +4,9 @@
 ## Author: Casual Disaster
 ## Version: 1.4.1
 ## X-CDL-Protocol: 1
-## SavedVariables: DisasterZoneDB, DisasterZonePatchDB, DisasterZoneLogDB, DisasterZoneMeterDB, DisasterZoneBossLearnDB
+## SavedVariables: DisasterZoneDB, DisasterZonePatchDB, DisasterZoneLogDB, DisasterZoneMeterDB, DisasterZoneBossLearnDB, DisasterZoneBridgeDB
 ## LoadSavedVariablesFirst: 1
-## OptionalDeps: CDLoot
+## OptionalDeps: CDLoot, DisasterZone_Bridge
 ## IconTexture: Interface\AddOns\DisasterZone\Media\Launcher\seal
 ## Category: Raid
 
@@ -109,6 +109,7 @@ Sim\BuffPresets.lua
 Core\GuildMap.lua
 Core\OfficerNotes.lua
 Core\Feedback.lua
+Core\Bridge.lua
 Core\PatchKey.lua
 Core\Patch.lua
 Core\Ledger.lua
