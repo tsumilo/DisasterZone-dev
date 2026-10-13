@@ -416,15 +416,17 @@ pub fn raids_text_from(
                 format!("**{}** {st}", key.split('-').next().unwrap_or(key))
             })
         });
-        let link = posts
-            .get(id)
-            .map(|p| format!(" · [post](https://discord.com/channels/{guild}/{}/{})", p.channel, p.message))
-            .unwrap_or_default();
+        // (the name opens the raid's post, where the buttons are)
+        let title = match posts.get(id) {
+            Some(p) => format!("[**{name}**](https://discord.com/channels/{guild}/{}/{})", p.channel, p.message),
+            None => format!("**{name}**"),
+        };
+        let n = |k: usize, one: &str, many: &str| format!("{k} {}", if k == 1 { one } else { many });
         lines.push(format!(
-            "**{name}** · <t:{t}:f>{}\n{accepted} in ({} tanks, {} healers, {} dps) · {}{link}",
+            "{title} · <t:{t}:f>{}\n{accepted} in ({}, {}, {} dps) · {}",
             if team.is_empty() { String::new() } else { format!(" · {}", team.join(", ")) },
-            count("tank"),
-            count("healer"),
+            n(count("tank"), "tank", "tanks"),
+            n(count("healer"), "healer", "healers"),
             count("melee") + count("ranged"),
             me.unwrap_or_else(|| "you haven't answered".into()),
         ));
@@ -455,9 +457,9 @@ mod raids_tests {
         let mut posts = std::collections::BTreeMap::new();
         posts.insert("r1".to_string(), crate::posts::Post { channel: "c".into(), message: "m".into(), hash: String::new() });
         let t = raids_text_from(&snap, &p, &posts, "9", "g", 1060);
-        assert!(t.contains("**Karazhan** · <t:5000:f> · Main"), "{t}");
-        assert!(t.contains("2 in (1 tanks, 1 healers, 0 dps)") && t.contains("**Lee** accepted"), "{t}");
-        assert!(t.contains("discord.com/channels/g/c/m") && !t.contains("Gruul"), "{t}");
+        assert!(t.contains("[**Karazhan**](https://discord.com/channels/g/c/m) · <t:5000:f> · Main"), "{t}");
+        assert!(t.contains("2 in (1 tank, 1 healer, 0 dps)") && t.contains("**Lee** accepted"), "{t}");
+        assert!(!t.contains("Gruul"), "{t}");
         assert!(t.contains("1 min ago"), "{t}");
         assert!(raids_text_from(&snap, &p, &posts, "other", "g", 1060).contains("you haven't answered"));
     }
