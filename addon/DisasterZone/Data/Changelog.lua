@@ -41,7 +41,7 @@ ns.CHANGELOG = {
               "Where you had put them is kept.",
           } },
           { heading = "Swing and shot timers: rotation optional", area = "class", kind = "changed", lines = {
-              "Settings > Show rotation: turn off the next-press icons (and the plan lane) to keep only the timer.",
+              "Settings > Show rotation off hides the next presses and plan lane: just the timer.",
           } },
       } },
     { version = "1.4.1", date = "13 October 2026", title = "Council Bingo, made epic",
