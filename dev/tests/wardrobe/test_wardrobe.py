@@ -294,10 +294,13 @@ def full_swap_issues_every_move_in_one_frame():
     oid = add(c, "Prot", PROT)
     st = status(c, oid)
     assert st["n"]["swap"] == 14 and st["n"]["worn"] == 1, st     # (the second trinket is already worn)
-    # Wear and look before any time passes: every move is out in the same frame
+    # Wear and look before any time passes: every move is out in the same frame, but the off hand: the game still
+    # has the two-hander on, so the shield goes on once it is off (a moment later; both at once = internal bag error)
     res = c.eval("local r = ns.Wardrobe:Wear(...); return r, #__moves", oid)
-    assert res[1] == 14 and res[0] in ("done", "retry"), res
+    assert res[1] == 13 and res[0] == "retry", res
+    assert not any(m.endswith(">i17") for m in moves(c)), moves(c)
     settle(w, 1)
+    assert len(moves(c)) == 14 and moves(c)[-1].endswith(">i17"), moves(c)
     assert c.eval("return ns.Wardrobe:IsWorn(ns.Wardrobe:Get(...))", oid) is True
     mv = moves(c)
     assert mv.index("i17>0:16") < mv.index("0:13>i16") if "i17>0:16" in mv else True, mv
@@ -312,8 +315,9 @@ def in_combat_weapons_now_armour_after():
     oid = add(c, "Tank", d)
     c.set_combat(True)
     assert c.eval("return ns.Wardrobe:Wear(...)", oid) == "retry"      # (weapons out now, checked a moment later)
-    assert sorted(moves(c)) == sorted(["0:1>i16", "0:2>i17"]), moves(c)
+    assert moves(c) == ["0:1>i16"], moves(c)               # (the two-hander first; the shield once it is off)
     settle(w, 1)
+    assert sorted(moves(c)) == sorted(["0:1>i16", "0:2>i17"]), moves(c)
     assert c.eval("return ns.Wardrobe.queued ~= nil") is True
     assert any("Tank: armor goes on after combat" in x for x in printed(c)), printed(c)
     assert c.eval("return __MOCK.inv[1]") == P1[1]

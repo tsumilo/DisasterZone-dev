@@ -47,6 +47,7 @@ local ARTS = { "Karazhan", "GruulsLair", "SerpentshrineCavern", "nagrand", "Temp
 local POLES = { [6256] = true, [6365] = true, [6366] = true, [6367] = true, [12225] = true, [19022] = true,
     [19970] = true, [25978] = true }
 
+local job   -- the swap running now: { o, why, passes, failed = { [inv] = why }, moved = {}, pulled, next } (Wearing)
 local function Demo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
 W.IsDemo = Demo
 
@@ -136,13 +137,24 @@ end
 ---------------------------------------------------------------------------
 W.bankOpen = false
 
+-- A bag slot's item is locked (picked up, or a move the server has not answered yet). C_Container returns a table;
+-- the old GetContainerItemInfo returns the lock as its third value.
+local function BagLocked(bag, slot)
+    if C_Container and C_Container.GetContainerItemInfo then
+        local info = C_Container.GetContainerItemInfo(bag, slot)
+        if type(info) == "table" then return info.isLocked and true or false end
+    end
+    if GetContainerItemInfo then
+        local _, _, locked = GetContainerItemInfo(bag, slot)
+        return locked and true or false
+    end
+    return false
+end
+
 local function Entry(id, link, where, bag, slot)
     local e = { id = id, key = KeyOf(link) or (tostring(id) .. ":0:0:0:0:0:0"), link = link, where = where, bag = bag,
         slot = slot }
-    if bag and C_Container and C_Container.GetContainerItemInfo then
-        local info = C_Container.GetContainerItemInfo(bag, slot)
-        e.locked = type(info) == "table" and info.isLocked or nil
-    end
+    if bag then e.locked = BagLocked(bag, slot) or nil end
     return e
 end
 
@@ -303,7 +315,9 @@ end
 
 -- The first outfit I have on now (nil for none).
 function W:Wearing()
-    -- (the one worn last, when two outfits match what I wear)
+    -- the one on its way wins (the last click: the ring follows it at once); then the one worn last, when two
+    -- outfits match what I wear
+    if job then return job.next and job.next.o or job.o end
     local cur = W.current and self:Get(W.current)
     if cur and self:IsWorn(cur) then return cur end
     for _, o in ipairs(self:List()) do if self:IsWorn(o) then return o end end
@@ -503,9 +517,9 @@ end
 -- piece left (or a free slot booked for it). Only what could not be done now (a locked item, a piece just taken
 -- out of the bank) waits for a short retry pass, RETRIES at most; then it is reported. In combat the weapons, off
 -- hand and ranged / relic swap at once (the game allows it) and the rest waits for the fight to end.
-local job              -- the swap running now: { o, why, passes, failed = { [inv] = why }, moved = {}, pulled }
+-- (job: the swap running now, declared at the top of the file)
 W.queued = nil         -- an outfit (or its armour) waiting for the fight to end
-local RETRY, RETRIES, SETTLE = 0.1, 6, 0.3
+local RETRY, RETRIES, SETTLE, WAITS = 0.1, 6, 0.3, 40
 local IN_COMBAT = { [16] = true, [17] = true, [18] = true }   -- slots the game lets you change in a fight
 W.IN_COMBAT = IN_COMBAT
 
@@ -515,11 +529,17 @@ local function Pickup(loc)
 end
 
 -- Moves an item (src) onto dst: both { inv } or { bag, slot }. Onto a worn slot or a full bag slot the two swap.
+-- false = the game refused it (nothing picked up, or the item stayed on the cursor): the pass's model stays as it was.
 function W.Move(src, dst)
-    if ClearCursor then ClearCursor() end
-    Pickup(src)
-    Pickup(dst)
     if CursorHasItem and CursorHasItem() then ClearCursor() end
+    Pickup(src)
+    if CursorHasItem and not CursorHasItem() then return false end
+    Pickup(dst)
+    if CursorHasItem and CursorHasItem() then
+        ClearCursor()
+        return false
+    end
+    return true
 end
 
 local function PlaceKey(l) return l.inv and ("i" .. l.inv) or ("b" .. l.bag .. ":" .. l.slot) end
@@ -552,6 +572,34 @@ end
 
 function W:IsBusy() return job ~= nil or W.queued ~= nil end
 
+-- Every place the game shows locked now: { ["i16"] = true, ["b0:3"] = true, ... }.
+function W:LockedPlaces()
+    local out = {}
+    for _, inv in ipairs(W.SLOTS) do
+        if IsInventoryItemLocked and IsInventoryItemLocked(inv) then out["i" .. inv] = true end
+    end
+    local bags = {}
+    for bag = 0, NumBags() do bags[#bags + 1] = bag end
+    if self.bankOpen then for _, bag in ipairs(BankBags()) do bags[#bags + 1] = bag end end
+    for _, bag in ipairs(bags) do
+        for slot = 1, NumSlots(bag) do
+            if SlotID(bag, slot) and BagLocked(bag, slot) then out["b" .. bag .. ":" .. slot] = true end
+        end
+    end
+    return out
+end
+
+-- Something the game has not finished moving: a worn or bag item locked, or an item on the cursor. A pass only starts
+-- when nothing is, so what the client shows is what the server has (an empty bag slot being filled shows no lock).
+-- stale = places already locked when the swap began (an item the game left greyed out): those never hold it up.
+function W:AnyLocked(stale)
+    if CursorHasItem and CursorHasItem() then return true end
+    for k in pairs(self:LockedPlaces()) do
+        if not (stale and stale[k]) then return true end
+    end
+    return false
+end
+
 -- Wears an outfit (an id or an outfit table: a rule's way back). why = "rule" keeps it quiet unless something is
 -- left out. Returns "done" | "retry" (some moves wait for a short retry) | "queued" (all after the fight) |
 -- "demo" | "dead" | nil (no such outfit).
@@ -575,7 +623,13 @@ function W:Wear(o, why)
         return "queued"
     end
     W.queued = nil
-    job = { o = o, why = why, passes = 0, failed = {}, moved = {}, pulled = 0, combat = b == "combat" }
+    if job then
+        -- a swap is still running: this one goes next (the last click wins), never on top of it
+        job.next = { o = o, why = why }
+        return "busy"
+    end
+    job = { o = o, why = why, passes = 0, waits = 0, failed = {}, moved = {}, pulled = 0, combat = b == "combat",
+        stale = self:LockedPlaces() }
     return self:Pass()
 end
 
@@ -593,6 +647,17 @@ end
 function W:Pass()
     local j = job
     if not j then return end
+    -- the game is still moving something (an earlier pass, the player's own drag): wait, never move on top of it
+    if self:AnyLocked(j.stale) then
+        j.waits = j.waits + 1
+        if j.waits <= WAITS then
+            ns.Util.After(RETRY, function() if job == j then W:Pass() end end)
+            return "retry"
+        end
+        j.stuckLocks = true
+        return self:Finish(self:Resolve(j.o))
+    end
+    j.waits = 0
     j.passes = j.passes + 1
     local combat = InCombatLockdown and InCombatLockdown() or false
     local scan = self:Scan()
@@ -622,12 +687,16 @@ function W:Pass()
         local bag, slot = k:match("^b(%-?%d+):(%d+)$")
         return { bag = tonumber(bag), slot = tonumber(slot) }
     end
+    local waiting, later = false, false
     local function move(a, b)
-        W.Move(place(a), place(b))
+        if W.Move(place(a), place(b)) == false then
+            waiting = true                                           -- (refused: the next pass looks again)
+            return false
+        end
         cont[a], cont[b] = cont[b], cont[a]
         locked[a], locked[b] = true, true
+        return true
     end
-    local waiting, later = false, false
     local order = { 16, 17 }
     for _, inv in ipairs(W.SLOTS) do if inv ~= 16 and inv ~= 17 then order[#order + 1] = inv end end
     for _, inv in ipairs(order) do
@@ -667,23 +736,23 @@ function W:Pass()
                         j.pulled = j.pulled + 1
                         waiting = true
                     end
+                elseif inv == 16 and W.IsTwoHand(r.want.id) and cont.i17 then
+                    -- a two-hander coming in: this pass only takes the off hand off (to a free bag slot); the
+                    -- two-hander goes on in the next one. Both at once makes the game unequip the off hand a second
+                    -- time on its own ("Internal bag error", items left locked).
+                    local free = (not locked.i17) and self:FreeBagSlot(cont, booked)
+                    if locked.i17 then waiting = true
+                    elseif not free then j.failed[16] = "bags"
+                    else
+                        local fk = PlaceKey(free)
+                        booked[fk] = true
+                        move("i17", fk)
+                        waiting = true
+                    end
+                elseif inv == 17 and scan.worn[16] and W.IsTwoHand(scan.worn[16].id) then
+                    waiting = true                     -- (the game still has the two-hander on: after it is off)
                 else
-                    -- a two-hander coming in: the off hand to the bags first (it needs a free slot)
-                    local ok = true
-                    if inv == 16 and W.IsTwoHand(r.want.id) and cont.i17 then
-                        local free = (not locked.i17) and self:FreeBagSlot(cont, booked)
-                        if locked.i17 then ok, waiting = false, true
-                        elseif not free then ok = false; j.failed[16] = "bags"
-                        else
-                            local fk = PlaceKey(free)
-                            booked[fk] = true
-                            move("i17", fk)
-                        end
-                    end
-                    if ok then
-                        move(from, t)
-                        j.moved[inv] = true
-                    end
+                    if move(from, t) then j.moved[inv] = true end
                 end
             end
         end
@@ -704,11 +773,8 @@ function W:Settle()
     local j = job
     if not j then return end
     j.settle = j.settle + 1
-    local busy = false
-    for _, inv in ipairs(W.SLOTS) do
-        if IsInventoryItemLocked and IsInventoryItemLocked(inv) then busy = true end
-    end
-    if busy and j.settle < 20 then
+    -- (bag items too: a retry must not pick a bag slot the server is still filling)
+    if self:AnyLocked(j.stale) and j.settle < WAITS then
         ns.Util.After(RETRY, function() if job == j then W:Settle() end end)
         return
     end
@@ -753,12 +819,18 @@ function W:Finish(res)
         W.queued = { o = j.o, why = j.why }
         notes[#notes + 1] = "armor goes on after combat"
     end
+    if j.stuckLocks then notes[#notes + 1] = "the game still has items locked (log out and back in clears it)" end
     -- (a swap that worked says nothing: the bar's ring and the page show it)
     if #notes > 0 then Say(j.o.name .. ": " .. tconcat(notes, "; ") .. ".") end
     self.lastResult = { swapped = swapped, missing = #missing, bank = #bank, bagsFull = #bags > 0, later = j.later,
         stuck = #failed }
     W.current = j.o.id
     Changed()
+    -- clicked another outfit while this one was going on: that one now
+    if j.next then
+        local n = j.next
+        ns.Util.After(0, function() W:Wear(n.o, n.why) end)
+    end
     return j.later and "queued" or "done"
 end
 
