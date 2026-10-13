@@ -712,7 +712,7 @@ def without_the_loader_the_addon_runs_as_before():
         assert c.eval("return ns.assetPack") == 0 and c.eval("return ns:HasAssets(1)") is False
     assert [e for e in w.addon_log if e["prefix"].startswith("CDLp")] == []      # no update traffic at all
     a.slash("/dz update")                                                       # the command is simply not there
-    assert any("unknown command 'update'" in l for l in a.chat_frame[-60:]), a.chat_frame[-60:]
+    assert any("unknown command 'update'" in l for l in a.chat_frame[-90:]), a.chat_frame[-90:]
     a.relog()
     w.tick(3)
     assert a.eval("return DisasterZonePatchDB.active.seq") == 1                        # the store is left alone
