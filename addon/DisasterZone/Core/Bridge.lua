@@ -198,6 +198,7 @@ local ST_WORD = { A = "accept", T = "tentative", B = "bench", X = "absent" }
 
 -- What the bot needs, read by the launcher from SavedVariables (it can't run the addon's raid logic itself):
 -- { at, me, guild, dc = { host, guild, teams }, teams = { [id] = name }, roster = { { key, class }, ... },
+--   phase, bis = { [key] = { spec, slots = { { sid, slot, id, name, got }, ... } } } (the lists I hold, this phase),
 --   raids = { { id, t, name, title, note, size, teams = { id, ... }, locked, cancelled, leader,
 --               signups = { { key, st = "accept"|..., class, spec, role, guest }, ... } }, ... } }
 -- Private raids are left out: the bot posts in public channels.
@@ -214,6 +215,27 @@ function Bridge:Snapshot()
     for _, key in ipairs(G and G.GetMembers and G:GetMembers() or {}) do
         local class = G:GetClass(key)
         if class then out.roster[#out.roster + 1] = { key = key, class = class } end
+    end
+    -- the BiS lists I hold (mine; everyone's on the guild council), the guild's phase, main spec
+    local phase = G and G.GetGuildPhase and G:GetGuildPhase() or 1
+    out.phase, out.bis = phase, {}
+    local S, I = ns.Store, ns.ItemDB
+    for _, key in ipairs(S and S.GetAllKeys and S:GetAllKeys() or {}) do
+        local rec = S:Get(key)
+        local data = type(rec) == "table" and type(rec.data) == "table" and rec.data
+        local slots = data and type(data.ph) == "table" and data.ph[phase]
+        if type(slots) == "table" then
+            local list = {}
+            for sid = 1, ns.NUM_SLOTS do
+                local id = type(slots[sid]) == "table" and tonumber(slots[sid][1]) or 0
+                if id > 0 then
+                    list[#list + 1] = { sid = sid, slot = ns.SLOTS[sid].label, id = id,
+                                        name = I and I.GetName and I:GetName(id) or nil,
+                                        got = S.IsObtainedBy and S:IsObtainedBy(key, id) or nil }
+                end
+            end
+            out.bis[key] = { spec = data.sp ~= "" and data.sp or nil, slots = list }
+        end
     end
     for _, v in ipairs(RP:GetRaids(now - SNAP_BACK, now + SNAP_AHEAD, true)) do
         if not v.pv then

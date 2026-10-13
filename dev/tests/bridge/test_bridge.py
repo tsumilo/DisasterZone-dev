@@ -218,6 +218,20 @@ def a_name_outside_the_guild_joins_as_a_guest():
 
 
 @case
+def snapshot_carries_my_bis_list():
+    w, c = discord_world()
+    gina = c["Gina"]
+    gina.eval("ns.BiS:SetSlot(1, 1, 'main', 29068); ns.BiS:Commit()")
+    gina.eval("DZBridgeInbox = { records = {} }")
+    login(gina)
+    gina.fire("PLAYER_LOGOUT")
+    snap = gina.eval_py("return DisasterZoneBridgeDB.snap")
+    mine = snap["bis"][rp.K("Gina")]
+    assert mine["slots"][0]["id"] == 29068 and mine["slots"][0]["slot"] == "Head", mine
+    no_errors(w)
+
+
+@case
 def snapshot_carries_the_roster():
     w, c = discord_world()
     gina = c["Gina"]
@@ -227,6 +241,7 @@ def snapshot_carries_the_roster():
     roster = {r["key"]: r["class"] for r in gina.eval_py("return DisasterZoneBridgeDB.snap.roster")}
     assert roster[rp.K("Lee")] == "WARRIOR" and roster[rp.K("Rita")] == "PRIEST", roster
     assert gina.eval("return ns.Bridge:FindMember('LEE')") == rp.K("Lee")
+    assert gina.eval("return DisasterZoneBridgeDB.snap.phase") >= 1
     assert gina.eval("return ns.Bridge:FindMember('Nobody')") is None
     no_errors(w)
 

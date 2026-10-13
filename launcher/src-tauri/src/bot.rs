@@ -126,6 +126,9 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
     let commands = [
         CommandBuilder::new("ping", "Check that the DisasterZone bot is online", CommandType::ChatInput).build(),
         CommandBuilder::new("raids", "The coming raids, their sign-ups and your answer", CommandType::ChatInput).build(),
+        CommandBuilder::new("bis", "A BiS list for this phase (yours, or someone's)", CommandType::ChatInput)
+            .option(StringBuilder::new("character", "Whose list (default: your character)").required(false).max_length(40))
+            .build(),
         CommandBuilder::new("character", "Your characters for raid sign-ups: add, see or remove them", CommandType::ChatInput)
             .build(),
         CommandBuilder::new("bridgetest", "Send a test line to the game (it shows at the host's next /reload)", CommandType::ChatInput)
@@ -285,6 +288,13 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
     let Some(InteractionData::ApplicationCommand(cmd)) = &i.data else { return Ok(()) };
     let text = match cmd.name.as_str() {
         "ping" => ping_text(app),
+        "bis" => {
+            let who = cmd.options.iter().find_map(|o| match (&o.name[..], &o.value) {
+                ("character", CommandOptionValue::String(t)) => Some(t.clone()),
+                _ => None,
+            });
+            crate::signup::bis_text(&user, who.as_deref(), unix_now())
+        }
         "raids" => crate::signup::raids_text(&user, &i.guild_id.map(|g| g.get().to_string()).unwrap_or_default(), unix_now()),
         "bridgetest" => {
             let text = cmd

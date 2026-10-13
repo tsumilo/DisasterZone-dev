@@ -462,3 +462,71 @@ mod raids_tests {
         assert!(raids_text_from(&snap, &p, &posts, "other", "g", 1060).contains("you haven't answered"));
     }
 }
+
+// ------------------------------------------------------------------------------------------------------------------
+// /bis [character]: a BiS list, this phase (the lists the host's addon holds)
+// ------------------------------------------------------------------------------------------------------------------
+
+pub fn bis_text(user: &str, who: Option<&str>, now: u64) -> String {
+    bis_text_from(&snap(), &bridge::load_profiles(), user, who, now)
+}
+
+pub fn bis_text_from(snap: &Value, profiles: &bridge::Profiles, user: &str, who: Option<&str>, now: u64) -> String {
+    let name = match who.map(str::trim).filter(|w| !w.is_empty()) {
+        Some(w) => w.to_string(),
+        None => match profiles.get(user).and_then(|cs| cs.first()) {
+            Some(c) => c.name.clone(),
+            None => return "Whose list? `/bis character:Name`, or make your character with /character.".into(),
+        },
+    };
+    let want = name.to_lowercase();
+    let bis = snap.get("bis").and_then(|b| b.as_object());
+    let found = bis.and_then(|b| {
+        b.iter().find(|(k, _)| {
+            let k = k.to_lowercase();
+            k == want || k.split('-').next() == Some(want.as_str())
+        })
+    });
+    let Some((key, list)) = found else {
+        return format!("No BiS list for **{}** yet. Lists come from the addon: make one in My BiS.", bridge::tidy_name(&name));
+    };
+    let phase = snap.get("phase").and_then(|p| p.as_i64()).unwrap_or(1);
+    let spec = list.get("spec").and_then(|s| s.as_str()).map(|s| format!(" · {s}")).unwrap_or_default();
+    let mut lines = vec![format!("**{}**{spec} · Phase {phase}", key.split('-').next().unwrap_or(key))];
+    let slots = lua_list(list.get("slots"));
+    if slots.is_empty() {
+        lines.push("Nothing picked for this phase yet.".into());
+    }
+    for s in slots {
+        let id = s.get("id").and_then(|x| x.as_i64()).unwrap_or(0);
+        let item = s.get("name").and_then(|x| x.as_str()).map(str::to_string).unwrap_or_else(|| format!("Item {id}"));
+        let got = if s.get("got").and_then(|x| x.as_bool()) == Some(true) { " ✓" } else { "" };
+        lines.push(format!(
+            "{}: [{item}](https://www.wowhead.com/tbc/item={id}){got}",
+            s.get("slot").and_then(|x| x.as_str()).unwrap_or("?")
+        ));
+    }
+    let age = snap.get("at").and_then(|x| x.as_u64()).map(|a| crate::bot::fmt_age(now.saturating_sub(a))).unwrap_or_default();
+    lines.push(format!("-# ✓ = has it. As of the host's last reload, {age}."));
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod bis_tests {
+    use super::*;
+
+    #[test]
+    fn bis_shows_my_main_list() {
+        let snap = json!({ "at": 100, "phase": 2, "bis": { "Lee-X": { "spec": "Protection", "slots": {
+            "1": { "sid": 1, "slot": "Head", "id": 29011, "name": "Warbringer Greathelm", "got": true },
+            "2": { "sid": 2, "slot": "Neck", "id": 28244 } } } } });
+        let mut p = bridge::Profiles::new();
+        p.insert("9".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3, by: String::new() }]);
+        let t = bis_text_from(&snap, &p, "9", None, 160);
+        assert!(t.starts_with("**Lee** · Protection · Phase 2"), "{t}");
+        assert!(t.contains("Head: [Warbringer Greathelm](https://www.wowhead.com/tbc/item=29011) ✓"), "{t}");
+        assert!(t.contains("Neck: [Item 28244]"), "{t}");
+        assert!(bis_text_from(&snap, &p, "9", Some("rita"), 160).contains("No BiS list for **Rita**"));
+        assert!(bis_text_from(&snap, &p, "other", None, 160).contains("Whose list?"));
+    }
+}
