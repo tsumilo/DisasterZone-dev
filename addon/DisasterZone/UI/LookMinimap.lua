@@ -79,12 +79,13 @@ local function Build()
     -- the drawer: a small ··· that shows the addon buttons
     skin.knob = CreateFrame("Button", nil, skin)
     skin.knob:SetSize(18, 18)
-    skin.knob.bg = L.Tex(skin.knob, "BACKGROUND", 0)
-    skin.knob.bg:SetAllPoints()
+    skin.knob.panel = L:Panel(skin.knob)
     skin.knob.fs = L:Text(skin.knob, "small", "TEXT", { justify = "CENTER" })
     skin.knob.fs:SetPoint("CENTER", 0, 1)
     skin.knob.fs:SetText("\194\183\194\183\194\183")
     skin.knob:SetScript("OnClick", function() skin.open = not skin.open; MM:Buttons() end)
+    skin.knob:SetScript("OnEnter", function(self) self.fs:SetTextColor(1, 0.82, 0) end)
+    skin.knob:SetScript("OnLeave", function(self) self.fs:SetTextColor(0.92, 0.9, 0.84) end)
     -- the wheel zooms
     map:EnableMouseWheel(true)
     map:SetScript("OnMouseWheel", function(self, d)
@@ -124,29 +125,37 @@ function MM:Zone()
     skin.sub:SetText((on and look and look.key == "slate" and sub ~= (GetMinimapZoneText and GetMinimapZoneText())) and sub or "")
 end
 
--- The addon buttons on the map (LibDBIcon10_..., ...MinimapButton; not our own seal, it has its arc).
+-- The addon buttons on the map: any named button an addon put on it (LibDBIcon10_..., ...MinimapButton, others),
+-- not the game's own (zoom, tracking, mail, clock, queue ...) and not our own seal (it has its arc).
+local BLIZZ_BUTTON = { "^Minimap", "^MiniMap", "^GameTimeFrame", "^TimeManager", "^QueueStatus", "^HybridMinimap",
+    "^ExpansionLandingPage", "^AddonCompartment", "^GarrisonLandingPage", "^MinimapCluster", "^" .. addonName }
 local function IsAddonButton(ch)
-    local n = ch and ch.GetName and ch:GetName() or ""
-    if n:find("^" .. addonName) then return false end
-    return n:find("^LibDBIcon") ~= nil or n:find("MinimapButton") ~= nil
+    local n = ch and ch.GetName and ch:GetName()
+    if not n then return false end
+    if n:find("^LibDBIcon") then return not n:find(addonName, 1, true) end
+    if n:find("MinimapButton") and not n:find("^" .. addonName) then return true end
+    for _, pat in ipairs(BLIZZ_BUTTON) do if n:find(pat) then return false end end
+    if ch.IsProtected and ch:IsProtected() then return false end
+    if not (ch.IsObjectType and ch:IsObjectType("Button")) then return false end
+    local w, h = ch:GetWidth() or 0, ch:GetHeight() or 0
+    return w >= 14 and w <= 48 and h >= 14 and h <= 48
 end
 
--- The drawer: the addon buttons taken off the map's edge into a grid under the ··· knob.
--- taken[button] = { parent, points, drag }: what it had, given back when the drawer goes.
+-- The drawer: the addon buttons taken off the map's edge into a panel in the minimap's look, beside the map (on the
+-- side with room), sliding out from under the ··· knob.
+-- taken[button] = { parent, points, drag, strata, level }: what it had, given back when the drawer goes.
 local taken, laying = {}, false
-local DRAWER_COLS, CELL, GAP = 5, 32, 4
+local DRAWER_ROWS, CELL, GAP, PAD = 4, 30, 6, 8
 
 local function Drawer()
     if skin.drawer then return skin.drawer end
     local L = Look()
     local d = CreateFrame("Frame", "DisasterZoneMinimapDrawer", UIParent)
     d:SetFrameStrata("MEDIUM")
-    d:SetFrameLevel(20)
+    d:SetFrameLevel(30)
     d:SetClampedToScreen(true)
     d:EnableMouse(true)
-    d.bg = L.Tex(d, "BACKGROUND", 0)
-    d.bg:SetAllPoints()
-    d.edges = L.Edges(d, "BORDER", 1)
+    d.panel = L:Panel(d)
     d.empty = L:Text(d, "small", "SUB", { justify = "CENTER" })
     d.empty:SetPoint("CENTER")
     d.empty:SetText("No addon buttons")
@@ -155,37 +164,69 @@ local function Drawer()
     return d
 end
 
--- Lays the taken buttons out in rows (only the ones their addon shows).
+-- The side the drawer opens to: away from the screen's nearest edge (left of a map on the right half).
+local function Side()
+    local map = _G.Minimap
+    local cx = map and map.GetCenter and map:GetCenter()
+    local W = UIParent:GetWidth() or 1920
+    return (cx and cx * (map:GetEffectiveScale() / UIParent:GetEffectiveScale()) < W / 2) and 1 or -1
+end
+
+-- Lays the taken buttons out in columns of up to four (only the ones their addon shows), over the panel.
 function MM:LayDrawer()
     local d = skin and skin.drawer
     if not d then return end
     local list = {}
     for b in pairs(taken) do if b:IsShown() then list[#list + 1] = b end end
     table.sort(list, function(a, b) return (a:GetName() or "") < (b:GetName() or "") end)
+    local n = #list
+    local rows = math.max(1, math.min(DRAWER_ROWS, n))
+    local cols = math.max(1, math.ceil(n / DRAWER_ROWS))
     laying = true
     for i, b in ipairs(list) do
-        local col, row = (i - 1) % DRAWER_COLS, floor((i - 1) / DRAWER_COLS)
+        local row, col = (i - 1) % DRAWER_ROWS, floor((i - 1) / DRAWER_ROWS)
+        b:SetFrameStrata(d:GetFrameStrata())
+        b:SetFrameLevel(d:GetFrameLevel() + 5)
         b:ClearAllPoints()
-        b:SetPoint("CENTER", d, "TOPLEFT", GAP + col * (CELL + GAP) + CELL / 2, -(GAP + row * (CELL + GAP) + CELL / 2))
+        b:SetPoint("CENTER", d, "TOPLEFT", PAD + col * (CELL + GAP) + CELL / 2, -(PAD + row * (CELL + GAP) + CELL / 2))
         b:SetAlpha(1)
     end
     laying = false
-    local n = #list
-    local cols = math.max(1, math.min(DRAWER_COLS, n))
-    local rows = math.max(1, math.ceil(n / DRAWER_COLS))
-    d:SetSize(n == 0 and 120 or (GAP + cols * (CELL + GAP)), n == 0 and 28 or (GAP + rows * (CELL + GAP)))
+    d:SetSize(n == 0 and 120 or (2 * PAD + cols * CELL + (cols - 1) * GAP),
+        n == 0 and 30 or (2 * PAD + rows * CELL + (rows - 1) * GAP))
     d.empty:SetShown(n == 0)
-    local look = skin.look
-    Look().Color(d.bg, { 0.039, 0.039, 0.051, 0.9 })
-    d.edges:Place(d, 0)
-    d.edges:Paint((look and look.rim) or { 1, 0.82, 0, 0.5 })
+    if skin.look then d.panel:Apply(skin.look) end
 end
 
+-- Opens / closes the drawer: a short slide out from the map with a fade.
+function MM:ShowDrawer(open, instant)
+    local d = skin and skin.drawer
+    local map = _G.Minimap
+    if not d or not map then return end
+    local side = Side()
+    local function place(dx)
+        d:ClearAllPoints()
+        if side < 0 then d:SetPoint("TOPRIGHT", map, "TOPLEFT", -10 + dx, 0)
+        else d:SetPoint("TOPLEFT", map, "TOPRIGHT", 10 + dx, 0) end
+    end
+    if open == d.isOpen and not instant then return end
+    d.isOpen = open
+    UI:StopTween("dzMinimapDrawer")          -- (a closing slide still running hides it when stopped: before Show)
+    if not open and not d:IsShown() then return end
+    if open then d:Show() end
+    UI:Tween("dzMinimapDrawer", 0.18, function(p)
+        local k = open and p or (1 - p)
+        d:SetAlpha(k)
+        place((1 - k) * 14 * -side)
+        if not open and p >= 1 then d:Hide() end
+    end, instant)
+end
 local function Take(b, d)
     if taken[b] then return end
     local pts = {}
     for i = 1, (b:GetNumPoints() or 0) do pts[i] = { b:GetPoint(i) } end
-    taken[b] = { parent = b:GetParent(), points = pts, drag = b:GetScript("OnDragStart") }
+    taken[b] = { parent = b:GetParent(), points = pts, drag = b:GetScript("OnDragStart"),
+                 strata = b:GetFrameStrata(), level = b:GetFrameLevel() }
     b:SetParent(d)
     b:SetScript("OnDragStart", nil)            -- (dragging round the edge makes no sense in the drawer)
     if not b.dzDrawerHook then
@@ -202,6 +243,8 @@ local function GiveBack()
         taken[b] = nil
         b:SetParent(was.parent or _G.Minimap)
         if was.drag then b:SetScript("OnDragStart", was.drag) end
+        if was.strata then b:SetFrameStrata(was.strata) end
+        if was.level then b:SetFrameLevel(was.level) end
         laying = true
         b:ClearAllPoints()
         for _, p in ipairs(was.points) do pcall(b.SetPoint, b, unpack(p)) end
@@ -218,17 +261,19 @@ function MM:Buttons()
     skin.knob:SetShown(mode == "drawer")
     if mode == "drawer" then
         local d = Drawer()
-        for _, ch in ipairs({ map:GetChildren() }) do
-            if IsAddonButton(ch) then Take(ch, d) end
+        -- (addons put their buttons on the map, its backdrop or the cluster round it)
+        for _, holder in ipairs({ map, _G.MinimapBackdrop, _G.MinimapCluster }) do
+            for _, ch in ipairs({ holder:GetChildren() }) do
+                if IsAddonButton(ch) then Take(ch, d) end
+            end
         end
-        d:ClearAllPoints()
-        d:SetPoint("TOPRIGHT", skin.knob, "BOTTOMRIGHT", 0, -4)
         self:LayDrawer()
-        d:SetShown(skin.open and true or false)
+        self:ShowDrawer(skin.open and true or false)
         return
     end
     GiveBack()
-    if skin.drawer then skin.drawer:Hide() end
+    skin.open = false
+    if skin.drawer then skin.drawer.isOpen = false; skin.drawer:Hide() end
     local show = mode == "edge" or (mode == "hover" and map:IsMouseOver())
     for _, ch in ipairs({ map:GetChildren() }) do
         if IsAddonButton(ch) then ch:SetAlpha(show and 1 or 0) end
@@ -318,7 +363,7 @@ function MM:Apply()
     end
     s.knob:ClearAllPoints()
     s.knob:SetPoint("TOPRIGHT", map, "TOPRIGHT", -3, -3)
-    L.Color(s.knob.bg, { 0.039, 0.039, 0.051, 0.85 })
+    s.knob.panel:Apply(look)
     s:Show()
     self:Zone()
     self:Clock()

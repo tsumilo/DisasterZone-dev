@@ -253,11 +253,22 @@ def the_drawer_gathers_the_addon_buttons_and_gives_them_back():
     assert c.eval("return SomeMinimapButton:GetParent() == _G[...]", d) is True
     assert c.eval("return _G[...]:IsShown()", d) is False             # (closed until the knob is clicked)
     c.eval("ns.LookMinimap:Knob():Click()")
-    assert c.eval("return _G[...]:IsShown()", d) is True
+    w.tick(0.3)                                                          # (the slide in)
+    assert c.eval("return _G[...]:IsShown() and _G[...]:GetAlpha() > 0.99", d, d) is True
     # a grid: three buttons in one row, none on top of another
     xs = c.eval_py("local o = {} for _, n in ipairs({ 'LibDBIcon10_Alpha', 'LibDBIcon10_Beta', 'SomeMinimapButton' }) do "
-                   "local _, _, _, x, y = _G[n]:GetPoint(1); o[#o + 1] = x end return o")
-    assert len(set(round(x) for x in xs)) == 3, xs
+                   "local _, _, _, x, y = _G[n]:GetPoint(1); o[#o + 1] = y end return o")
+    assert len(set(round(x) for x in xs)) == 3, xs                      # (a column: one under another)
+    # over the panel, not under it (they keep their own level otherwise)
+    assert c.eval("return LibDBIcon10_Alpha:GetFrameLevel() > _G[...]:GetFrameLevel()", d) is True
+    # any addon's named button counts; the game's own stay on the map
+    c.eval("""
+        local e = CreateFrame('Button', 'EyeTrackerButton', Minimap); e:SetSize(32, 32); e:SetPoint('TOPLEFT')
+        local t = CreateFrame('Button', 'MiniMapTrackingButton', Minimap); t:SetSize(32, 32); t:SetPoint('TOPLEFT')
+    """)
+    w.tick(1.2)
+    assert c.eval("return EyeTrackerButton:GetParent() == _G[...]", d) is True
+    assert c.eval("return MiniMapTrackingButton:GetParent() == Minimap") is True
     assert c.eval("return LibDBIcon10_Beta:GetScript('OnDragStart') == nil") is True
     # a button that registers later joins on the next tick
     c.eval("local b = CreateFrame('Button', 'LibDBIcon10_Late', Minimap); b:SetSize(31, 31); b:SetPoint('CENTER')")
