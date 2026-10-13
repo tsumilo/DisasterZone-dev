@@ -38,7 +38,8 @@ local function NewBar(key, parent, sample)
     local L = Look()
     local def = BARS[key]
     local f = CreateFrame("Frame", (not sample) and ("DisasterZoneCast_" .. key) or nil, parent or UIParent)
-    f:SetFrameStrata("MEDIUM")
+    -- (a sample stays in its host's strata: Settings shows it inside the window, over the window's ground)
+    if not sample then f:SetFrameStrata("MEDIUM") end
     f.key, f.unit = key, def.unit
     f.panel = L:Panel(f)
     f.icon = L:Icon(f)

@@ -518,32 +518,44 @@ local SAMPLE = {
              small = { "Interface\\Icons\\Ability_ImpalingBolt", "Interface\\Icons\\Ability_Hunter_SteadyShot" },
              p = { frac = 0.22, z0 = 0.06, z1 = 0.62, s0 = 0.84, hot = true, inZone = true, pulse = 0.5, fade = true } },
 }
-local function PaintTile(prefix)
+-- A face at the mockup's moment (the window open, the next press due) in parent: face, and the room it takes (its
+-- size and, for faces whose queue sits outside their left, the queue's width).
+local function SampleFace(parent, key, prefix)
     local sm = SAMPLE[prefix] or SAMPLE.swing
+    local face = RF:BuildFace(parent, key)
+    local g = face.geo
+    face.big.icon:SetTexture(sm.big)
+    face.seal.icon:SetTexture(sm.badge)
+    for i, s2 in ipairs(face.small) do
+        if sm.small[i] then s2.icon:SetTexture(sm.small[i]); s2:Show() else s2:Hide() end
+    end
+    face.big.name:SetText(face.big.showName and (prefix == "shot" and "Steady Shot" or "Seal of Blood") or "")
+    RF:Paint(face, sm.p)
+    return face, g.W, g.H, g.queue == "left" and 56 or 0
+end
+
+-- (Settings > Interface > Looks > Timers: the part's tile and stage) root, w, h, the queue's width
+function RF:Sample(parent, key, prefix)
+    local face, w, h, qw = SampleFace(parent, key, prefix)
+    return face.root, w, h, qw
+end
+
+local function PaintTile(prefix)
     return function(tile, t)
         if not tile.face then
-            local face = RF:BuildFace(tile, t.key)
-            local g = face.geo
+            local face, w, h, qw = SampleFace(tile, t.key, prefix)
             -- the queue sits outside the left of round / square faces: fit the face and that
-            local qw = g.queue == "left" and 56 or 0
-            local s = min((TILE_W - 10) / (g.W + qw), (TILE_H - 26) / g.H)
+            local s = min((TILE_W - 10) / (w + qw), (TILE_H - 26) / h)
             face.root:SetScale(s)
             face.root:SetPoint("CENTER", tile, "TOPLEFT", (TILE_W / 2 + qw * s / 2) / s, -((TILE_H - 18) / 2 + 1) / s)
-            face.big.icon:SetTexture(sm.big)
-            face.seal.icon:SetTexture(sm.badge)
-            for i, s2 in ipairs(face.small) do
-                if sm.small[i] then s2.icon:SetTexture(sm.small[i]); s2:Show() else s2:Hide() end
-            end
-            face.big.name:SetText(face.big.showName and (prefix == "shot" and "Steady Shot" or "Seal of Blood") or "")
-            RF:Paint(face, sm.p)
             tile.face = face
         end
     end
 end
 
--- The timer's Theme row in its Settings card (this timer only).
-function RF:SettingsRow(S, sec, prefix)
-    ns.Themes:SettingsRow(S, sec, KindOf(prefix), "Theme", "The look of this timer.",
+-- The timer's theme row (Settings > Interface > Looks > Timers): label ("Theme" by default) and a tile per theme.
+function RF:SettingsRow(S, sec, prefix, label)
+    ns.Themes:SettingsRow(S, sec, KindOf(prefix), label or "Theme", "The look of this timer.",
         { tileW = TILE_W, tileH = TILE_H, gap = 8, nameY = 6, clip = true, paint = PaintTile(prefix),
           hint = "Your timer shows it while you point at it.",
           onPick = function()

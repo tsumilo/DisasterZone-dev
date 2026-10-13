@@ -215,7 +215,8 @@ function CB.SettingsHead(S, sec, prefix, label, desc)
         { value = "raid", text = "Raids only" }, { value = "always", text = "Always" }, { value = "off", text = "Off" } })
     S:DropdownSetting(sec, "Bar layout", "A column at the side or a row over your action bars: the same cells.",
         prefix .. ".layout", "vertical", CB.LAYOUTS)
-    if ns.BarFace then ns.BarFace:SettingsRow(S, sec) end
+    -- (the theme is picked in Settings > Interface > Looks > Class bars, with every other look)
+    if S.LookLinkRow then S:LookLinkRow(sec, "Theme", "The bar's look; every class tool bar shares it.", "classbars") end
 end
 
 -- Its place (Edit layout) and size, and the card's end.

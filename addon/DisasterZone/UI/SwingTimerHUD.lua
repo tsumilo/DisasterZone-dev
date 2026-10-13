@@ -404,7 +404,8 @@ ns.SwingRing = NewRing
 function ns.SwingRingSettings(S, sec, prefix, latencyHelp)
     S:DropdownSetting(sec, "Look", "The ring, the plan lane (the next 7 seconds) or both.", prefix .. ".style", "bar", {
         { value = "bar", text = "Ring" }, { value = "lane", text = "Plan lane" }, { value = "both", text = "Both" } })
-    ns.RingFace:SettingsRow(S, sec, prefix)
+    -- (the theme is picked in Settings > Interface > Looks > Timers, with every other look)
+    if S.LookLinkRow then S:LookLinkRow(sec, "Theme", "The look of this timer.", "timers") end
     S:SwitchSetting(sec, "Show rotation", "The next presses in the middle of the ring (and the plan lane). Off: only the timer.",
         prefix .. ".rotation", true)
     S:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", prefix .. ".idle", false)

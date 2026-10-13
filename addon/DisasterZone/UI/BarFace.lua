@@ -818,7 +818,9 @@ local function PaintTile(tile, t)
     tile.preview:SetPoint("TOPLEFT", tile, "TOPLEFT", ((TILE_W - pw) / 2) / s, -((TILE_H - 18 - t.H * s) / 2 + 2) / s)
 end
 
--- One row in a class tool's Settings card: "Theme" and a tile per theme under it.
+Face._FillPreview = FillPreview     -- (Settings > Interface > Looks > Class bars: the part's tile and stage)
+
+-- The theme row (Settings > Interface > Looks > Class bars): "Theme" and a tile per theme under it.
 function Face:SettingsRow(S, sec)
     local strip = ns.Themes:SettingsRow(S, sec, "classbar", "Theme",
         "One look for every class tool bar on this account; the rail and the strip share it.",

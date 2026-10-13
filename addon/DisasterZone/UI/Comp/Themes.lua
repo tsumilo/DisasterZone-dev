@@ -156,8 +156,9 @@ local function CreateThemeTiles(UI, parent, kind, opts)
     function strip:Layout()
         local n = #self.tiles
         local avail = self:GetWidth() or 0
-        -- (anchored to its section: before that resolves, the section's own width)
+        -- (anchored to its section: before that resolves, the section's own width, else the width it will have)
         if avail <= 0 and self:GetParent() then avail = self:GetParent():GetWidth() or 0 end
+        if avail <= 0 then avail = opts.fitWidth or 0 end
         local w = W
         if n > 0 and avail > 0 and n * W + (n - 1) * G > avail then w = math.floor((avail - (n - 1) * G) / n) end
         if w == self.tileW then return end
@@ -178,6 +179,9 @@ end
 -- The picker as a Settings row: label + desc, the tiles under it and a rule below like every row's. S = the Settings
 -- UI, sec = its section (sec.y moves down past the tiles). Returns strip, row.
 function Themes:SettingsRow(S, sec, kind, label, desc, opts)
+    -- (the row's width before it is laid out: the tiles fit into it, none runs past the page's edge)
+    opts = opts or {}
+    if not opts.fitWidth then opts.fitWidth = sec.fitW or (S.BodyWidth and S:BodyWidth()) or nil end
     local row = S:Row(sec, label, desc)
     row.line:Hide()
     local H = (opts and opts.tileH) or 74

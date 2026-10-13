@@ -322,10 +322,12 @@ local function PaintTile(tile, t)
     p.face:Set(ns.LookUnits.Fake("player"))
 end
 
+Look.PaintTile = PaintTile          -- (Settings > Interface > Looks: a part's own look tiles)
+
 function Look:Tiles(SU, sec)
     if not ns.Themes:Kind("uilook") then ns.Themes:Define("uilook", Look.LOOKS, "blizzard", { setting = "ui.look" }) end
     return ns.Themes:SettingsRow(SU, sec, "uilook", "Look for everything",
-        "Every part below that follows it. Blizzard leaves the game's frames as they are.",
+        "Every part that follows it. Blizzard leaves the game's frames as they are.",
         { tileW = 88, tileH = 64, gap = 5, clip = true, band = true, nameY = 5, previewAt = { 6, -10 },
           paint = PaintTile })
 end

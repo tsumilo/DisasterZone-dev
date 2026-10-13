@@ -310,8 +310,9 @@ def settings_turn_a_kinds_pop_up_off_and_its_chat_line_on():
     w.tick(0.3)
     texts = [strip_codes(x) for x in c.eval_py("""
       local out = {}
-      local sec = ns.SettingsUI.sections.notify
-      for _, r in ipairs(sec.rows) do out[#out + 1] = r.title:GetText() end
+      for _, key in ipairs({ "quiet", "reach" }) do        -- (Settings > Alerts: two cards)
+        for _, r in ipairs(ns.SettingsUI.sections[key].rows) do out[#out + 1] = r.title:GetText() end
+      end
       return out""")]
     assert "Test things" in texts and "Raid answers" in texts and "Quiet in combat" in texts, texts
     no_errors(w)

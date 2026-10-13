@@ -2561,7 +2561,7 @@ function MP:Toggle()
     end
     userHidden = false
     if not Meter:IsEnabled() and not Threat:IsEnabled() then
-        ns:Print("the meters are off: turn them on in Settings > Meters (or /dz meter on).")
+        ns:Print("the meters are off: turn them on in Settings > Combat (or /dz meter on).")
         return
     end
     self:EnsureViews()

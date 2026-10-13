@@ -8,6 +8,17 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.4.2", date = "13 October 2026", title = "Edit layout and the UI in our looks",
       sections = {
+          { heading = "Settings, sorted", area = "other", kind = "changed", hi = true, open = "settings/looks",
+            lead = "Six groups, a search, and every look in one place.", lines = {
+              "A rail of six groups, each with a line saying how it is set: General to Guild.",
+              "A group is one page of cards; the chips under its name jump between them.",
+              "Search finds any option, with a working switch; click its name to go there.",
+              "A gold dot marks what you changed; Back to defaults puts a card as it came.",
+              "Alerts: the BiS toast, its sound and chat line are now a row of the pop-up grid.",
+              "Interface > Looks: every look in one place, a page and a live sample per part.",
+              "Meter, class bar and timer themes moved there; their cards link to them.",
+              "Help, demo mode and About sit at the rail's foot; the GM's checklist is under Guild.",
+          } },
           { heading = "Wardrobe: outfits in one click", area = "gear", kind = "new", hi = true, open = "wardrobe",
             lead = "Outfits in one click: swaps everything at once; weapons even in combat.", lines = {
               "Gear > Wardrobe: save what you wear, or your BiS list, as an outfit.",
@@ -20,7 +31,7 @@ ns.CHANGELOG = {
           } },
           { heading = "The game's UI in DisasterZone's looks", area = "look", kind = "new", hi = true,
             open = "settings/ui", lead = "Flat, Halo, Sigil, Slate or Gilded for the frames you play with.", lines = {
-              "Settings > UI: one look for everything, or a look of its own for each part.",
+              "Settings > Interface > Looks: one look for everything, or one of its own per part.",
               "Unit frames: player, target, target of target, focus and pet, with combo points.",
               "Health numbers sit inside the health bar; a long name is cut short, never drawn over them.",
               "Party and raid frames in the same looks: range fade, and a light on what you can dispel.",
@@ -34,7 +45,7 @@ ns.CHANGELOG = {
           { heading = "Classic: our layouts in the game's own art", area = "look", kind = "new", hi = true,
             open = "settings/ui", lead = "A seventh look: the Dock, bags and frames dressed in the game's textures.",
             lines = {
-              "Settings > UI > Use Classic everywhere: frames, meters, class bars and timers at once.",
+              "Looks > Use Classic everywhere: frames, meters, class bars and timers at once.",
               "Bar art for the Dock: Ironforge stone, Stormwind marble and gold, or the Guild Vault.",
               "Stance and aura buttons stand on a step; at max level a band fills the experience slot.",
               "Gryphons or lions at its ends match the art, or pick your own (or none).",
@@ -48,7 +59,7 @@ ns.CHANGELOG = {
           } },
           { heading = "Combat text in every look", area = "look", kind = "new", hi = true, open = "settings/ui",
             lead = "Your hits, heals and procs as numbers on screen, each look with a move of its own.", lines = {
-              "Settings > UI > Combat text: off until you turn it on; numbers ride the mob's nameplate.",
+              "Looks > Combat text: off until you turn it on; numbers ride the mob's nameplate.",
               "Flat: hits that land together, Windfury and ticks, count up as one line.",
               "Halo: a crit fires a ring; Consecration's ticks circle the target like a clock.",
               "Sigil: numbers stamp down, a crit's tile shatters, tally pips count the ticks.",
@@ -100,7 +111,7 @@ ns.CHANGELOG = {
               "One plate behind it all in the look, with seams between the parts (Halo floats).",
               "Bars 4 and 5 stand at the right edge in the same size and look.",
               "Bar 1's page arrows get a slim strip beside the block, the page number between them.",
-              "Settings > UI > Action bars: button size from Compact to Large; move it in Edit layout.",
+              "Looks > Action bars: button size from Compact to Large; move it in Edit layout.",
               "Every look made over: Halo's rings, Sigil and Gilded's gold, Slate's table show the state.",
           } },
           { heading = "Bags, key ring and bank in your look", area = "look", kind = "new", hi = true,
@@ -116,7 +127,7 @@ ns.CHANGELOG = {
           { heading = "Themes for the swing and shot timers", area = "class", kind = "new", ["for"] = "PALADIN HUNTER",
             open = "settings/classtools", lines = {
               "Halo, Sigil, Slate, Gilded or Pips: the same looks as the Blessings and Totem bars.",
-              "Each timer picks its own in its card under Settings > Class tools.",
+              "Each timer picks its own in Settings > Interface > Looks > Timers.",
               "Point at a theme to see it on your timer; the plan lane comes in the same look.",
           } },
       } },

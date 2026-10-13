@@ -230,11 +230,12 @@ def without_art_pack_9_the_dock_keeps_the_plain_stone():
 @case
 def settings_offer_the_sets_only_while_classic_is_set():
     w, c = art("ironforge")
-    c.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('ui')")
+    # (Settings > Interface > Looks > Action bars: the part's own page)
+    c.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('look.bars')")
     w.tick(0.3)
     ROW = """
         local want = ...
-        for _, r in ipairs(ns.SettingsUI.sections.ui.rows) do
+        for _, r in ipairs(ns.SettingsUI.sections['look.bars'].rows) do
             if r.title and r.title:GetText() == want then
                 return { r.readOnly == true, r.control:IsShown(), r.value and r.value:IsShown() and r.value:GetText() or false }
             end

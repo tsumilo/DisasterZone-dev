@@ -10,10 +10,8 @@ from _common import (menu_pick, menu_labels, case, run_all, toc_version, solo, n
 
 CHECKS = [
     ("Boss drop panel", "alerts.councilPanel", False),
-    ('"On your BiS list!" toast', "alerts.personalToast", False),
-    ("Sound with drop alerts", "alerts.sound", False),
+    ("On your BiS list!", "alerts.personalToast", False),      # (the alerts grid's row: its first switch, Pop-up)
     ("Glow on BiS loot buttons", "alerts.glow", False),
-    ("Chat message for BiS drops", "alerts.chat", False),
     ("BiS badges on the loot window", "alerts.lootBadges", False),
     ("Off-spec items too", "alerts.offspec", False),
     ("Announce rolls and winners", "roll.announce", False),
@@ -119,10 +117,10 @@ def every_checkbox_writes_its_setting_and_follows_changes():
     w.tick(0.3)
     assert checked(c, cb) is False
     # persisted across relog
-    c.click(checkbox(c, "Sound with drop alerts"))
+    c.click(checkbox(c, "Glow on BiS loot buttons"))
     c.relog()
     w.tick(2)
-    assert c.eval("return DisasterZoneDB.settings.alerts.sound") is False
+    assert c.eval("return DisasterZoneDB.settings.alerts.glow") is False
     no_errors(w)
 
 
@@ -516,6 +514,146 @@ def settings_request_sync_when_not_in_guild_does_not_claim_success():
     said = printed_since(c, p0)
     assert [e for e in w.addon_log if e["sender"] == c.full_name] == []
     assert not any("Sync requested" in l for l in said), "guildless player told %r" % said
+    no_errors(w)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# 1.4.2: the groups in a rail, a group's cards, search, Back to defaults, the look pages (UI/Settings.lua)
+# ------------------------------------------------------------------------------------------------------------------
+@case
+def the_bis_alert_is_a_row_of_the_alerts_grid():
+    w, c = settings_client(guild_rank=3)
+    c.eval("ns.SettingsUI:SelectSection('reach')")
+    w.tick(0.2)
+    FIND = """local what = ...
+      for _, r in ipairs(ns.SettingsUI.sections.reach.rows) do
+        if r.switches and r.title:GetText() == 'On your BiS list!' then return r.switches[what] end
+      end"""
+    for what, path in (("popup", "alerts.personalToast"), ("sound", "alerts.sound"), ("chat", "alerts.chat")):
+        sw = c.eval(FIND, what)
+        assert sw is not None, what
+        before = c.eval("return ns.DB:GetSetting(...) ~= false", path)
+        c.click(sw)
+        w.tick(0.2)
+        assert (setting(c, path) is not False) == (not before), (what, path)
+        assert c.eval("return ns.SettingsUI:ChangedIn('reach')") == (1 if before else 0)
+        c.click(sw)
+        w.tick(0.2)
+    no_errors(w)
+
+
+@case
+def old_section_names_open_their_cards_and_groups_open_from_the_top():
+    w, c = settings_client(guild_rank=3, class_file="PALADIN")
+    for old, card, cat in (("alerts", "reach", "alerts"), ("notify", "reach", "alerts"), ("ui", "looks", "interface"),
+                           ("rules", "rules", "loot"), ("rolls", "rolls", "loot"), ("tooltips", "tooltips", "general"),
+                           ("window", "window", "general"), ("meters", "meters", "combat"), ("bless", "classtools", "combat"),
+                           ("tutorials", "tutorials", "help"), ("about", "about", "help")):
+        c.eval("ns.SettingsUI:SelectSection(...)", old)
+        w.tick(0.1)
+        assert c.eval("return ns.SettingsUI:GetSection()") == card, old
+        assert c.eval("return ns.SettingsUI.cat") == cat, old
+        assert c.eval("return ns.SettingsUI.cards[...]:IsVisible()", card) is True, old
+    # a group opens on its first card; the rail lights it and says how it is set
+    c.eval("ns.SettingsUI:OpenCategory('combat')")
+    w.tick(0.1)
+    assert c.eval("return ns.SettingsUI:GetSection()") == "meters"
+    assert c.eval("return ns.SettingsUI.rail.rows.combat:IsSelected()") is True
+    assert "Damage" in c.eval("return ns.SettingsUI.rail.rows.combat.line:GetText()")
+    # the chips jump between the open group's cards
+    chips = c.eval_py("local o = {} for _, ch in ipairs(ns.SettingsUI.head.chips) do "
+                      "if ch:IsShown() then o[#o + 1] = ch.cardKey end end return o")
+    assert chips == ["meters", "classtools", "strategy", "mylog"], chips
+    no_errors(w)
+
+
+@case
+def search_finds_options_with_working_controls_and_jumps_to_them():
+    w, c = settings_client(guild_rank=3, class_file="PALADIN")
+    c.eval("ns.SettingsUI.searchBox:SetText('warning sound'); ns.SettingsUI:Search('warning sound')")
+    w.tick(0.3)
+    assert c.eval("return ns.SettingsUI.mode") == "search"
+    assert c.eval("return ns.SettingsUI.results:IsVisible()") is True
+    hit = c.eval_py("""for _, e in ipairs(ns.SettingsUI.index) do
+        if e.title == 'Warning sound' then return { e.card, e.result and e.result:IsVisible() or false } end end""")
+    assert hit == ["meters", True], hit
+    # its switch in the results writes the setting
+    before = c.eval("return ns.DB:GetSetting('meters.sound') ~= false")
+    c.click(c.eval("for _, e in ipairs(ns.SettingsUI.index) do if e.title == 'Warning sound' then return e.result.control end end"))
+    w.tick(0.2)
+    assert (setting(c, "meters.sound") is not False) == (not before)
+    # a click on its name opens its card (the search box empties)
+    c.click(c.eval("for _, e in ipairs(ns.SettingsUI.index) do if e.title == 'Warning sound' then return e.result.jump end end"))
+    w.tick(0.3)
+    assert c.eval("return ns.SettingsUI.mode") == "cards"
+    assert c.eval("return ns.SettingsUI:GetSection()") == "meters"
+    assert c.eval("return ns.SettingsUI.searchBox:GetText()") == ""
+    # a class tool's option and a look page's option are found too; nothing matches says so
+    c.eval("ns.SettingsUI:Search('twist zone')")
+    w.tick(0.2)
+    assert c.eval_py("local o = {} for _, e in ipairs(ns.SettingsUI.index) do if e.result and e.result:IsShown() "
+                     "then o[#o + 1] = e.kit or '' end end return o") == ["swing"]
+    c.eval("ns.SettingsUI:Search('macro names')")
+    w.tick(0.2)
+    assert c.eval_py("local o = {} for _, e in ipairs(ns.SettingsUI.index) do if e.result and e.result:IsShown() "
+                     "then o[#o + 1] = e.part or '' end end return o") == ["bars"]
+    c.eval("ns.SettingsUI:Search('qqqzz')")
+    w.tick(0.2)
+    assert c.eval("return ns.SettingsUI.results.empty:IsShown()") is True
+    no_errors(w)
+
+
+@case
+def a_changed_option_has_a_dot_and_back_to_defaults_puts_the_card_back():
+    w, c = settings_client(guild_rank=3)
+    c.eval("ns.DB:SetSetting('tooltip.maxNames', 8); ns.DB:SetSetting('minimap.hide', true)")
+    w.tick(0.3)
+    c.eval("ns.SettingsUI:SelectSection('tooltips'); ns.SettingsUI:Refresh()")
+    assert c.eval("return ns.SettingsUI:ChangedIn('tooltips')") == 1
+    assert c.eval("return ns.SettingsUI:ChangedIn('window')") == 1
+    assert c.eval("return ns.SettingsUI.cards.tooltips.head.reset:IsShown()") is True
+    assert c.eval("""for _, r in ipairs(ns.SettingsUI.sections.tooltips.rows) do
+        if r.title:GetText() == 'Names shown' then return r.dot and r.dot:IsShown() end end""") is True
+    c.click(c.eval("return ns.SettingsUI.cards.tooltips.head.reset"))
+    w.tick(0.3)
+    assert setting(c, "tooltip.maxNames") in (5, None)
+    assert c.eval("return ns.SettingsUI:ChangedIn('tooltips')") == 0
+    assert c.eval("return ns.SettingsUI.cards.tooltips.head.reset:IsShown()") is False
+    # (the window card keeps its own change)
+    assert setting(c, "minimap.hide") is True
+    no_errors(w)
+
+
+@case
+def every_look_is_picked_in_interface_looks():
+    w, c = settings_client(guild_rank=3, class_file="PALADIN")
+    c.eval("ns.SettingsUI:SelectSection('looks')")
+    w.tick(0.2)
+    tiles = c.eval_py("local o = {} for _, t in ipairs(ns.SettingsUI.looksSec.partTiles) do "
+                      "if t:IsShown() then o[#o + 1] = t.part end end return o")
+    assert tiles == ["units", "group", "cast", "bars", "bags", "minimap", "sct", "meters", "classbars", "timers"], tiles
+    # a part's page: its sample stage, its look tiles, its options; its own look shows on its tile
+    c.eval("ns.SettingsUI:OpenPart('units')")
+    w.tick(0.2)
+    assert c.eval("return ns.SettingsUI.mode") == "part"
+    assert c.eval("return ns.SettingsUI.parts.units:IsVisible()") is True
+    c.eval("ns.DB:SetSetting('ui.units.look', 'halo'); if ns.Popup then ns.Popup:HideAll() end")
+    w.tick(0.3)
+    assert c.eval("return ns.SettingsUI:PartLookName('units')") == "Halo"
+    assert c.eval("return ns.SettingsUI:ChangedIn('part:units')") == 1
+    c.eval("ns.SettingsUI:ResetCard('part:units'); if ns.Popup then ns.Popup:HideAll() end")
+    w.tick(0.3)
+    assert setting(c, "ui.units.look") is None
+    # the meters' card links to their look page (their theme rows moved there)
+    c.eval("ns.SettingsUI:SelectSection('meters')")
+    w.tick(0.2)
+    link = c.eval("""for _, r in ipairs(ns.SettingsUI.sections.meters.rows) do
+        if r.title:GetText() == 'Look' then return r.control end end""")
+    assert link is not None
+    c.click(link)
+    w.tick(0.2)
+    assert c.eval("return ns.SettingsUI.mode") == "part" and c.eval("return ns.SettingsUI.part") == "meters"
+    assert c.eval("return ns.SettingsUI.sections['look.meters'] ~= nil") is True
     no_errors(w)
 
 

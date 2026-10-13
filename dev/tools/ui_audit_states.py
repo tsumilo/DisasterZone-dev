@@ -1884,8 +1884,8 @@ STATES = [
     ("Swing practice - result", opened("home", PRACTICE_RESULT)),
     ("Settings - Window", opened("settings", "ns.SettingsUI:SelectSection('window')")),
     ("Settings - Meters", opened("settings", "ns.SettingsUI:SelectSection('meters')")),
-    ("Settings - Meters look", opened("settings", "ns.DB:SetSetting('meters.dmg', true); ns.SettingsUI:SelectSection('meters'); "
-        "local sc = ns.SettingsUI.scroll; local ch = sc:GetScrollChild(); ch:ClearAllPoints(); ch:SetPoint('TOPLEFT', sc, 'TOPLEFT', 0, 560)")),
+    # (Settings 1.4.2: the meters' look is their page in Interface > Looks)
+    ("Settings - Meters look", opened("settings", "ns.DB:SetSetting('meters.dmg', true); ns.SettingsUI:OpenPart('meters')")),
     # meters (UI/MeterPanels.lua, UI/MeterDetail.lua) on the demo night
     ("Meters - panels", opened("home", "ns.MainFrame:Close(); " + MET +
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; "
@@ -1931,6 +1931,17 @@ STATES = [
         "ns.MeterDetail:OpenDeath('cur', ns.Meter:GetSegment('cur').deaths[1])")),
     ("Settings - Loot Council", opened("settings", "ns.SettingsUI:SelectSection('council')")),
     ("Settings - Attendance", opened("settings", "ns.SettingsUI:SelectSection('attendance')")),
+    # Settings 1.4.2 (the "Spotlight" makeover): the groups, Guild as the Guild Master (the set-up checklist card)
+    ("Settings - General", opened("settings", "ns.SettingsUI:SelectSection('general')")),
+    ("Settings - Loot", opened("settings", "ns.SettingsUI:SelectSection('loot')")),
+    ("Settings - Guild (GM)", opened("settings", "ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('guild')")),
+    ("Settings - Guild set-up (GM)", opened("settings", "ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('setup')")),
+    ("Settings - Help", opened("settings", "ns.SettingsUI:SelectSection('help')")),
+    ("Settings - Search", opened("settings", "ns.SettingsUI.searchBox:SetText('sound'); ns.SettingsUI:Search('sound')")),
+    ("Settings - Search (look)", opened("settings", "ns.SettingsUI.searchBox:SetText('look'); ns.SettingsUI:Search('look')")),
+    ("Settings - Search (nothing)", opened("settings", "ns.SettingsUI.searchBox:SetText('zzz'); ns.SettingsUI:Search('zzz')")),
+    ("Settings - Changed rows", opened("settings", "ns.DB:SetSetting('tooltip.maxNames', 8); ns.DB:SetSetting('minimap.hide', true); "
+        "ns.SettingsUI:SelectSection('general'); ns.SettingsUI:Refresh()")),
     ("Settings - Attendance (member)", opened("settings", "ns.Guild.IsGM = function() return false end; "
         "ns.SettingsUI:SelectSection('attendance'); ns.SettingsUI:Refresh()")),
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
@@ -3482,6 +3493,20 @@ STATES += [
     ("UI looks - classic", opened("home", CLASSIC_GALLERY)),
     ("UI looks - long names", opened("home", LOOK_LONG_NAMES)),
     ("Settings - UI", opened("settings", "ns.SettingsUI:SelectSection('ui')")),
+    # Interface > Looks in Halo and the parts' pages (a look set before the panel shows: no reload pop-up kept)
+    ("Settings - Looks (Halo)", opened("settings", "ns.DB:SetSetting('ui.look', 'halo'); ns.Popup:HideAll(); "
+        "ns.SettingsUI:SelectSection('looks'); ns.SettingsUI:Refresh()")),
+    ("Settings - Look page (unit frames)", opened("settings", "ns.DB:SetSetting('ui.look', 'halo'); ns.Popup:HideAll(); "
+        "ns.SettingsUI:OpenPart('units')")),
+    ("Settings - Look page (party and raid)", opened("settings", "ns.DB:SetSetting('ui.look', 'gilded'); ns.Popup:HideAll(); "
+        "ns.SettingsUI:OpenPart('group')")),
+    ("Settings - Look page (cast bars)", opened("settings", "ns.DB:SetSetting('ui.look', 'sigil'); ns.Popup:HideAll(); "
+        "ns.SettingsUI:OpenPart('cast')")),
+    ("Settings - Look page (action bars)", opened("settings", "ns.DB:SetSetting('ui.look', 'classic'); ns.Popup:HideAll(); "
+        "ns.SettingsUI:OpenPart('bars')")),
+    ("Settings - Look page (combat text)", opened("settings", "ns.DB:SetSetting('ui.look', nil); ns.Popup:HideAll(); ns.SettingsUI:OpenPart('sct')")),
+    ("Settings - Look page (timers, demo)", demo("ns.SettingsUI:OpenPart('timers')", key="settings")),
+    ("Settings - Look page (class bars, demo)", demo("ns.SettingsUI:OpenPart('classbars')", key="settings")),
 ]
 
 # Party and raid frames (UI/LookUnits.lua) in look LOOK: the made-up raid of 25 (as Edit layout shows it) and the

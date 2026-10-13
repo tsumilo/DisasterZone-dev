@@ -97,7 +97,7 @@ local everyone = {
     { title = "Welcome to DisasterZone",
       text = "Your guild's raids, loot council, BiS lists and more, in one window. This part shows where things are.\n\n"
           .. "Next and Back move through it, the bar at the foot jumps between parts, and Exit stops it: Settings > "
-          .. "Tutorials goes on from where you stopped.",
+          .. "Help goes on from where you stopped.",
       enter = function() go("home") end },
     { title = "Your next raid", side = "bottom",
       text = "The guild's next raids slide by here. Accept, Tentative, or the ··· button for Decline and a note: the "
@@ -133,16 +133,16 @@ local everyone = {
       anchor = spot(function() return panel("lootrules") end) },
     { title = "When a boss drops loot",
       text = "In a raid, the drop panel opens with the boss's items. Answer on the ones you want; the loot council "
-          .. "or a roll decides who gets each, and you see it there.\n\n" .. GREY .. "Settings > Rolls changes how "
+          .. "or a roll decides who gets each, and you see it there.\n\n" .. GREY .. "Settings > Loot changes how "
           .. "it looks.|r",
       enter = function() go("home") end },
     { title = "Notifications", side = "bottom",
       text = "The bell counts what needs you: raids to answer, polls, votes, reviews. Click it for the list; "
-          .. "Settings > Notifications chooses what pops up.",
+          .. "Settings > Alerts chooses what pops up.",
       anchor = function() return ns.NotifyUI and shown(ns.NotifyUI:GetBell()) end },
     { title = "Feedback, news and settings", side = "bottom",
       text = "Send the developer a bug or an idea (the speech bubble), read what's new (the page) and change your "
-          .. "settings (the cog). Settings > Tutorials has this tour and the strategy board's.",
+          .. "settings (the cog). Settings > Help has this tour and the strategy board's.",
       anchor = function() return navTab("feedback"), navTab("changelog"), navTab("settings") end },
 }
 
@@ -225,7 +225,7 @@ local council = {
     { title = "Voting on a drop",
       text = "In a raid with the loot council on, each drop shows on the drop panel with everyone who wants it, "
           .. "ranked by the guild's rules. Council members vote; the suggestion is on top, and the master looter "
-          .. "hands it out.\n\n" .. GREY .. "Settings > Demo mode > Demo a roll shows one.|r",
+          .. "hands it out.\n\n" .. GREY .. "Settings > Help > Demo a roll shows one.|r",
       enter = councilView("items") },
     { title = "The loot log", side = "left",
       text = "Everything handed out: who got what, as what (BiS, upgrade, off spec), and the votes.",
@@ -272,7 +272,7 @@ local gm = {
     { title = "Set up your guild", side = "left",
       text = function() return checklistText() end,
       enter = function()
-          go("settings/tutorials")
+          go("settings/setup")          -- (Settings > Guild > Guild set-up)
           if ns.SettingsUI and ns.SettingsUI.ShowSetupChecklist then ns.SettingsUI:ShowSetupChecklist() end
       end,
       anchor = function()

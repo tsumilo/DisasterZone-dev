@@ -1,10 +1,16 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Settings.lua", ...) then return end -- DisasterZone UI/Settings.lua
--- "Settings" tab: the sections in a nav on the left (Alerts, Group loot rules, Rolls, Strategy boards, Tooltips,
--- Window, Loot Council, Attendance, Demo mode, About), one section at a time on the right. Every option is a row: its name, a
--- one-line explanation and a switch (UI:CreateSwitch) or a dropdown. Group loot rules (ADDENDUM D §26/§27) that come
--- from someone else show their values as plain text under "Set by X"; the raid leader's "Lock BiS lists"
--- (ADDENDUM F §38); the read-only Loot Council summary with "Edit council..." (ADDENDUM E §30); a Blizzard Settings
--- entry (SPEC §12.10).
+-- "Settings" tab, 1.4.2 (mockup claude.ai/artifact/Fk8sCeKjVS2TuM1juxp2AC, the user's pick "Spotlight"): a rail of
+-- groups on the left (General, Alerts, Loot, Combat, Interface, Guild; Help small at its foot), each with a live line
+-- that says how it is set; the open group on the right as one scrolling page of cards, a card per topic, with chips
+-- under the group's name that jump between them. Every option is a row: its name, a one-line explanation and a switch
+-- (UI:CreateSwitch) or a dropdown; a gold dot after the name when it is not the default, and a card with such rows
+-- offers "Back to defaults". The search at the rail's top finds any option on any card (class tool cards and look
+-- pages too) with its path and a working control; a click on its name jumps there and lights the row.
+-- Interface > Looks holds every look: the look for everything, then a tile per part (the game's parts, the meters, the
+-- class bars, the timers) that opens the part's page: a sample of it in its look, the look tiles, its options.
+-- Group loot rules (ADDENDUM D §26/§27) that come from someone else show their values as plain text under "Set by X";
+-- the raid leader's "Lock BiS lists" (ADDENDUM F §38); the read-only Loot Council summary with "Edit council"
+-- (ADDENDUM E §30); a Blizzard Settings entry (SPEC §12.10).
 local addonName, ns = ...
 
 local SettingsUI = ns:NewModule("SettingsUI")
@@ -16,42 +22,94 @@ local floor, max = math.floor, math.max
 local ipairs, type, tonumber, tostring = ipairs, type, tonumber, tostring
 local UI, S = ns.UI, ns.Style
 
--- The page (S.PAGE_W x S.PAGE_H, 790 x 548) is a side menu layout (UI:CreateLayout "rail"): the nav on the left
--- (UI:CreateRailNav), the open section in the layout's scroll frame on the right (its bar in the right margin).
-local LG = UI.LAYOUT
-local BODY_X = S.PAD + LG.RAIL_W + LG.RAIL_GAP            -- 178
-local BODY_W = S.PAGE_W - S.PAD - BODY_X                  -- 602
-local BODY_H = S.PAGE_H - LG.RAIL_TOP - S.PAD             -- 530
-local TITLE_H = 28                             -- a section's title (lines up with its nav item)
-local SUB_H = 18                               -- the line under a title (who sets the rules, my council seat)
+-- The page (S.PAGE_W x S.PAGE_H, 790 x 548): the rail | a hairline | the head (the group's name and its chips) over
+-- the cards in a scroll frame (its bar in the right margin).
+local RAIL_W = 208                             -- the groups
+local RULE_X = S.PAD + RAIL_W + 8              -- the hairline (226)
+local BODY_X = RULE_X + 8                      -- the head and the cards (234)
+local PAGE_TOP = 8
+local HEAD_H = 56                              -- the group's name, the jump chips under it
+local CARDS_W = S.PAGE_W - S.PAD - BODY_X      -- 546
+local CARDS_H = S.PAGE_H - PAGE_TOP - HEAD_H - S.PAD     -- 474: the scroll frame's height
+local CARD_IN, CARD_HEAD_H, CARD_GAP, CARD_FOOT = 12, 34, 8, 6
+local BODY_W = CARDS_W - 2 * CARD_IN           -- 522: a card's rows
+local BODY_H = CARDS_H
+local GROUP_H, HELP_H, GROUP_GAP = 54, 40, 2   -- a group's row in the rail, the Help row
+local SEARCH_H = 22
+local SUB_H = 18                               -- the line under a card's head (who sets the rules, my council seat)
 local ROW_H = 44
 local DD_W, SWITCH_W = 196, 34
 local TEXT_GAP = 16                            -- between a row's text and its control
 local MEMBER_COLS, MEMBER_ROW_H = 3, 24
+local DOT = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\disc"
 
-local SECTIONS = {
-    { key = "alerts", label = "Alerts" },
-    { key = "notify", label = "Notifications" },
-    { key = "rules", label = "Group loot rules" },
-    { key = "rolls", label = "Rolls" },
-    { key = "strategy", label = "Strategy boards" },
-    { key = "tooltips", label = "Tooltips" },
-    { key = "mylog", label = "My Log" },
-    { key = "meters", label = "Meters" },
-    -- class tools (Core/ClassKit.lua): a collapsible card per tool of my class (every class's in demo mode)
-    { key = "classtools", label = "Class tools", visible = function() return SettingsUI:HasClassTools() end },
-    -- the game's frames in the addon's looks (UI/Look.lua) and where every on-screen frame goes (Core/Layout.lua)
-    { key = "ui", label = "UI" },
-    { key = "layout", label = "Layout" },
-    { key = "window", label = "Window" },
-    { key = "council", label = "Loot Council" },
-    -- the GM's attendance margins (Guild:SetAttendanceRules): everyone sees them, the GM changes them
-    { key = "attendance", label = "Attendance" },
-    -- the Welcome tour's parts, the strategy board's tutorial, the GM's set-up checklist (UI/WelcomeTour.lua)
-    { key = "tutorials", label = "Tutorials" },
-    { key = "demo", label = "Demo mode" },
-    { key = "about", label = "About" },
+-- The groups (the rail) and their cards, top to bottom. icon: UI.ICON_ATLAS index. small: the Help row at the rail's
+-- foot (tutorials, demo mode, about: help, not settings).
+local CATS = {
+    { key = "general", label = "General", icon = 13, cards = { "window", "tooltips", "phase" } },
+    { key = "alerts", label = "Alerts", icon = 56, cards = { "quiet", "reach" } },
+    { key = "loot", label = "Loot", icon = 40, cards = { "drops", "rolls", "rules" } },
+    { key = "combat", label = "Combat", icon = 62, cards = { "meters", "classtools", "strategy", "mylog" } },
+    { key = "interface", label = "Interface", icon = 31, cards = { "looks", "layout" } },
+    { key = "guild", label = "Guild", icon = 26, cards = { "council", "attendance", "setup" } },
+    { key = "help", label = "Help", icon = 11, small = true, cards = { "tutorials", "demo", "about" } },
 }
+local CAT = {}
+for _, c in ipairs(CATS) do CAT[c.key] = c end
+
+-- The cards: label, the method that fills it, scope ("group": the group's loot leader sets it, "guild": the Guild
+-- Master does; the card's head says so), visible() (shown only while it returns true).
+local CARDS = {
+    window = { label = "Window", build = "BuildWindow" },
+    tooltips = { label = "Item tooltips", build = "BuildTooltips" },
+    phase = { label = "Phase", build = "BuildPhase" },
+    quiet = { label = "When to stay quiet", build = "BuildQuiet" },
+    -- one grid: every kind of notification (Core/Notify.lua) and the BiS drop alert, each by pop-up, sound and chat
+    reach = { label = "What reaches you", build = "BuildNotify" },
+    drops = { label = "Drop panel", build = "BuildDrops" },
+    rolls = { label = "Rolls", build = "BuildRolls" },
+    rules = { label = "Group rules", build = "BuildGroupRules", scope = "group" },
+    meters = { label = "Meters", build = "BuildMeters" },
+    -- class tools (Core/ClassKit.lua): a collapsible card per tool of my class (every class's in demo mode)
+    classtools = { label = "Class tools", build = "BuildClassTools",
+                   visible = function() return SettingsUI:HasClassTools() end },
+    strategy = { label = "Strategy boards", build = "BuildStrategy" },
+    mylog = { label = "My Log", build = "BuildMyLog" },
+    -- the game's frames in the addon's looks (UI/Look.lua) and the addon's own themes, a page per part
+    looks = { label = "Looks", build = "BuildLooks" },
+    -- where every on-screen frame goes (Core/Layout.lua)
+    layout = { label = "Layout", build = "BuildLayout" },
+    council = { label = "Loot Council", build = "BuildCouncil", scope = "guild" },
+    -- the GM's attendance margins (Guild:SetAttendanceRules): everyone sees them, the GM changes them
+    attendance = { label = "Attendance", build = "BuildAttendance", scope = "guild" },
+    -- the GM's set-up checklist (UI/WelcomeTour.lua)
+    setup = { label = "Guild set-up", build = "BuildSetup", scope = "gm",
+              visible = function() return SettingsUI:IsGM() end },
+    -- the Welcome tour's parts and the strategy board's tutorial (UI/WelcomeTour.lua)
+    tutorials = { label = "Tutorials", build = "BuildTutorials" },
+    demo = { label = "Demo mode", build = "BuildDemo" },
+    about = { label = "About", build = "BuildAbout" },
+}
+local CARD_CAT = {}
+for _, c in ipairs(CATS) do for _, k in ipairs(c.cards) do CARD_CAT[k] = c.key end end
+
+-- The sections of 1.4.1 and before (links from other pages, tours, changelog entries) and where they are now.
+local OLD = { alerts = "reach", notify = "reach", ui = "looks" }
+
+-- Interface > Looks: a page per part. The game's parts (Look.PARTS) wear the looks; meters, class bars and timers
+-- have their own theme sets (ns.Themes kinds). kits: shown only for those class tools' classes (every one in demo).
+local PARTS = {
+    { key = "units", glyph = 61 }, { key = "group", glyph = 46 }, { key = "cast", glyph = 47 },
+    { key = "bars", glyph = 38 }, { key = "bags", glyph = 40 }, { key = "minimap", glyph = 7 },
+    { key = "sct", glyph = 8 },
+    { key = "meters", label = "Meters", tip = "The damage and threat panels.", glyph = 58, kind = "meters" },
+    { key = "classbars", label = "Class bars", tip = "The blessing and totem bars: every class tool bar shares it.",
+      glyph = 60, kind = "classbar", kits = { "bless", "totems" } },
+    { key = "timers", label = "Timers", tip = "The swing and shot timers: each has its own.", glyph = 59,
+      kits = { "swing", "shot" } },
+}
+local PART = {}
+for _, p in ipairs(PARTS) do PART[p.key] = p end
 
 -- GetCouncilSource(me) -> text for the status line.
 local SOURCE_TEXT = {
@@ -251,7 +309,7 @@ end
 function SettingsUI:OnInit()
     self.refreshers = {}
     self.ruleControls = {}
-    self.section = "alerts"
+    self.section = "window"
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("settings", "Settings", 4,
             function(parent) return SettingsUI:CreatePanel(parent) end,
@@ -261,17 +319,17 @@ function SettingsUI:OnInit()
     for _, msg in ipairs({ "SETTINGS_CHANGED", "CONFIG_UPDATED", "ROSTER_UPDATED", "PEERS_UPDATED",
                            "DEMO_TOGGLED", "SYNC_STATUS", "DUNGEON_MODE_CHANGED", "GROUP_UPDATED",
                            "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED", "MYLOG_CHANGED", "ATTENDANCE_RULES_CHANGED",
-                           "TOUR_CHANGED", "LOOT_RULES_CHANGED", "RAIDPLAN_CHANGED" }) do
+                           "TOUR_CHANGED", "LOOT_RULES_CHANGED", "RAIDPLAN_CHANGED", "UI_LOOK_CHANGED" }) do
         ns:On(msg, changed)
     end
 end
 
 function SettingsUI:OnLogin()
     self:RegisterBlizzardCategory()
-    -- a respec shows or hides class tool sections (Swing timer: Retribution only)
+    -- a respec shows or hides class tool cards (Swing timer: Retribution only)
     ns:On("CLASSKIT_CHANGED", function()
-        SettingsUI:LayoutNav()
         SettingsUI:LayoutClassTools()
+        SettingsUI:RequestRefresh()
     end)
 end
 
@@ -307,7 +365,7 @@ local CARD_TIPS = {
     events = "Guild events and cups.", polls = "Officers' questions.",
     games = "Bingo and guild games.", feedback = "Bugs, ideas and changes.",
     changelog = "What's new each release.", perf = "What DisasterZone costs.",
-    settings = "Alerts, minimap and more.", blessings = "Who blesses which class.",
+    settings = "Alerts, loot, looks and more.", blessings = "Who blesses which class.",
     totems = "Each shaman's totems.",
 }
 local HERO_H = 150
@@ -579,21 +637,56 @@ end
 -- Building blocks: the nav, a section, its rows
 ---------------------------------------------------------------------------
 
--- A section: its title (gold, as big as the nav item is tall), rows from sec.y down.
-function SettingsUI:NewSection(def)
-    local sec = CreateFrame("Frame", nil, self.child)
-    sec:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, 0)
-    sec:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, 0)
-    sec:SetHeight(BODY_H)
-    sec.key = def.key
+-- A card (UI:CreateCard): its head (the name in gold, a pill saying who sets it, Back to defaults while a row of it is
+-- not at its default, the card's own action) and under it the card's section: a frame its rows go into from sec.y
+-- down (sec.key = the card's key, sec.card = the card). The method named in CARDS fills it.
+function SettingsUI:NewCard(cat, key)
+    local def = CARDS[key]
+    local card = UI:CreateCard(self.child, { pad = 0 })
+    card.body:Hide()                   -- (the section takes its place, under the head)
+    card.key, card.cat, card.def = key, cat.key, def
+    local head = CreateFrame("Frame", nil, card)
+    head:SetPoint("TOPLEFT")
+    head:SetPoint("TOPRIGHT")
+    head:SetHeight(CARD_HEAD_H)
+    head.title = UI:Text(head, "emph", "GOLD")
+    head.title:SetPoint("LEFT", head, "LEFT", CARD_IN, 0)
+    head.title:SetText(def.label)
+    head.pill = UI:CreatePill(head, 16)
+    head.pill:SetPoint("LEFT", head.title, "RIGHT", 10, 0)
+    head.pill:Hide()
+    head.reset = ns.UI:CreateSleekButton(head, "", 120, 20, function() SettingsUI:ResetCard(key) end)
+    head.reset:SetPoint("RIGHT", head, "RIGHT", -CARD_IN, 0)
+    head.reset:Hide()
+    AddTooltip(head.reset, "Back to defaults", "Puts every option on this card back the way DisasterZone comes.")
+    head.rule = UI:Rule(head, { bottom = 0, alpha = 0.08, layer = "BORDER" })
+    card.head = head
+    local sec = CreateFrame("Frame", nil, card)
+    sec:SetPoint("TOPLEFT", head, "BOTTOMLEFT", CARD_IN, 0)
+    sec:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT", -CARD_IN, 0)
+    sec:SetHeight(1)
+    sec.key = key
     sec.rows = {}
-    sec.title = UI:Text(sec, "page")
-    sec.title:SetPoint("LEFT", sec, "TOPLEFT", 0, -TITLE_H / 2)
-    sec.title:SetText(def.label)
-    sec.y = -TITLE_H
-    sec:Hide()
-    self.sections[def.key] = sec
-    return sec
+    sec.y = 0
+    sec.card = card
+    card.sec = sec
+    self.sections[key] = sec
+    self.cards[key] = card
+    self.ctx = { cat = cat.key, card = key, path = { cat.label, def.label } }
+    self[def.build](self, sec)
+    self.ctx = nil
+    card:Hide()
+    return card
+end
+
+-- A button of the card's own in its head, left of Back to defaults (Edit council).
+function SettingsUI:CardAction(sec, button)
+    local head = sec.card and sec.card.head
+    if not head then return end
+    button:SetParent(head)
+    button:ClearAllPoints()
+    button:SetPoint("RIGHT", head, "RIGHT", -CARD_IN, 0)
+    head.action = button
 end
 
 -- The line under a section's title (who sets the rules, my council seat): white, its asides grey.
@@ -612,6 +705,7 @@ function SettingsUI:Notice(sec, kind)
     local n = UI:CreateNotice(sec, kind or "info", "")
     n:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 2)
     n:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 2)
+    n:SetWidth(sec.fitW or self:BodyWidth())        -- (its width before the layout resolves: the text fits it)
     sec.y = sec.y - NOTICE_SPACE
     return n
 end
@@ -625,8 +719,24 @@ end
 
 -- Places a row's texts left of a control ctrlW wide: name on top, the explanation under it (or the name alone,
 -- centred).
+-- A row's line wraps onto a second line when it is longer than its room (nothing is cut with "..."): the row grows by
+-- a line. Returns the row's height. (row.sec.fitW: the section's width when it isn't a card's, BODY_W otherwise.)
+local WRAP_H = 13
+local function FitDesc(row)
+    local w = ((row.sec and row.sec.fitW) or SettingsUI:BodyWidth()) - (((row.ctrlW or 0) > 0) and (row.ctrlW + TEXT_GAP) or 0)
+    local wrap = row.hasDesc and w > 40 and UI:TextWidth(row.desc) > w
+    if wrap ~= (row.wrapped or false) then
+        row.wrapped = wrap
+        row.desc:SetWordWrap(wrap)
+        if row.desc.SetMaxLines then row.desc:SetMaxLines(wrap and 2 or 1) end
+        row:SetHeight(ROW_H + (wrap and WRAP_H or 0))
+    end
+    return ROW_H + (wrap and WRAP_H or 0)
+end
+
 local function PlaceText(row, ctrlW)
     local right = -(((ctrlW or 0) > 0) and (ctrlW + TEXT_GAP) or 0)
+    row.ctrlW = ctrlW
     row.title:ClearAllPoints()
     row.desc:ClearAllPoints()
     if row.hasDesc then
@@ -638,6 +748,12 @@ local function PlaceText(row, ctrlW)
         row.title:SetPoint("LEFT", row, "LEFT", 0, 0)
         row.title:SetPoint("RIGHT", row, "RIGHT", right, 0)
     end
+    -- (the section's newest row: what comes after it moves down with it)
+    local was = row:GetHeight() or ROW_H
+    if was <= 0 then was = ROW_H end
+    local h = FitDesc(row)
+    local sec = row.sec
+    if h ~= was and sec and sec.rows and sec.rows[#sec.rows] == row and sec.y then sec.y = sec.y - (h - was) end
 end
 
 local function RowEnter(row)
@@ -659,6 +775,7 @@ function SettingsUI:Row(sec, title, desc, tip)
     row:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y)
     row:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y)
     row:SetHeight(ROW_H)
+    row.sec = sec
     row.title = UI:Text(row, "emph")
     row.title:SetText(title or "")
     row.desc = UI:Text(row, "small")
@@ -672,8 +789,59 @@ function SettingsUI:Row(sec, title, desc, tip)
     sec.y = sec.y - ROW_H
     sec.rows[#sec.rows + 1] = row
     PlaceText(row, 0)
+    self:IndexRow(row, title, desc)
     return row
 end
+
+-- The search's index: every row made while a card or a look page is built (self.ctx: its group, card, kit, part and
+-- path), with what makes it again in the results (entry.make(sec), set by Switch / Dropdown and the notification
+-- rows; a row without one shows its words and a way to it).
+function SettingsUI:IndexRow(row, title, desc)
+    local ctx = self.ctx
+    row.cardKey = ctx and (ctx.part and ("part:" .. ctx.part) or ctx.card) or nil
+    if not ctx or self.noIndex or type(title) ~= "string" or title == "" then return end
+    local e = { title = title, desc = type(desc) == "string" and desc or "", path = ctx.path, cat = ctx.cat,
+                card = ctx.card, kit = ctx.kit, part = ctx.part, row = row }
+    self.index[#self.index + 1] = e
+    row.entry = e
+end
+
+-- A row's default (the gold dot after its name while it differs; Back to defaults puts it back): the value its
+-- getter gives, compared to `default` (a switch's as true / false).
+function SettingsUI:SetDefault(row, default)
+    if not (row and row.getValue) then return end
+    row.setting = { default = default }
+    self.settingRows[#self.settingRows + 1] = row
+end
+
+local function RowChanged(row)
+    if row.isChanged then return row.isChanged() and true or false end
+    local s = row.setting
+    if not (s and row.getValue) then return false end
+    local v = row.getValue()
+    if type(s.default) == "boolean" then v = v and true or false end
+    return v ~= s.default
+end
+
+-- The gold dot after a row's name (not on rows someone else sets: those show the value as text).
+local function PaintDot(row)
+    local on = not row.readOnly and RowChanged(row)
+    if on and not row.dot then
+        row.dot = row:CreateTexture(nil, "OVERLAY")
+        row.dot:SetTexture(DOT)
+        row.dot:SetSize(5, 5)
+        row.dot:SetVertexColor(S:Color("GOLD"))
+    end
+    if row.dot then
+        if on then
+            row.dot:ClearAllPoints()
+            row.dot:SetPoint("LEFT", row.title, "LEFT", floor(UI:TextWidth(row.title) + 7), 0)
+        end
+        row.dot:SetShown(on)
+    end
+    return on
+end
+SettingsUI.RowChanged = RowChanged
 
 -- The plain-text value shown instead of a control while the option is set by someone else.
 local function AddValueText(row)
@@ -710,14 +878,20 @@ function SettingsUI:Switch(sec, title, desc, getter, setter, tip)
     row:SetScript("OnClick", function()
         if sw:IsShown() and sw:IsEnabled() then sw:Click() end
     end)
+    row.getValue, row.apply = getter, setter
+    if row.entry then
+        row.entry.make = function(rs) return select(2, SettingsUI:Switch(rs, title, desc, getter, setter, tip)) end
+    end
     self.refreshers[#self.refreshers + 1] = sw
     return sw, row
 end
 
 function SettingsUI:SwitchSetting(sec, title, desc, path, default, tip)
-    return self:Switch(sec, title, desc,
+    local sw, row = self:Switch(sec, title, desc,
         function() return Get(path, default) and true or false end,
         function(a, b) Set(path, Bool(a, b)) end, tip)
+    self:SetDefault(row, default and true or false)
+    return sw, row
 end
 
 function SettingsUI:Dropdown(sec, title, desc, getOptions, getSelected, onSelect, tip)
@@ -732,15 +906,23 @@ function SettingsUI:Dropdown(sec, title, desc, getOptions, getSelected, onSelect
     row.control = dd
     AddValueText(row)
     PlaceText(row, DD_W)
+    row.getValue, row.apply = getSelected, onSelect
+    if row.entry then
+        row.entry.make = function(rs)
+            return select(2, SettingsUI:Dropdown(rs, title, desc, getOptions, getSelected, onSelect, tip))
+        end
+    end
     self.refreshers[#self.refreshers + 1] = dd
     return dd, row
 end
 
 function SettingsUI:DropdownSetting(sec, title, desc, path, default, options, tip)
-    return self:Dropdown(sec, title, desc,
+    local dd, row = self:Dropdown(sec, title, desc,
         function() return options end,
         function() return Get(path, default) end,
         function(a, b) Set(path, Value(a, b)) end, tip)
+    self:SetDefault(row, default)
+    return dd, row
 end
 
 -- A group-rule dropdown (ADDENDUM D §26/§27): shows the value in effect, writes my own setting; read-only (its value
@@ -769,6 +951,44 @@ function SettingsUI:EditLayoutRow(sec, title, desc)
     return btn, row
 end
 
+-- The look a part wears, by name (Interface > Looks): the game's parts' look (combat text "Off" while it is off), the
+-- theme of the meters / class bars / my timer.
+function SettingsUI:PartLookName(part)
+    local Look, T = ns.Look, ns.Themes
+    if part == "sct" and not Get("ui.sct.on", false) then return "Off" end
+    if Look and Look.BY_KEY and not (PART[part] and (PART[part].kind or PART[part].kits)) then
+        local l = Look.BY_KEY[Look:Chosen(part)]
+        return l and l.name or "Blizzard"
+    end
+    local kind = PART[part] and PART[part].kind
+    if part == "timers" then
+        kind = "ring_swing"
+        local CK = ns.ClassKit
+        if CK and CK:Get("shot") and CK:MyClass() == CK:Get("shot").class then kind = "ring_shot" end
+    end
+    local t = T and kind and T:Kind(kind) and T:Get(kind, T:Saved(kind))
+    return t and t.name or "Default"
+end
+
+-- A row whose button shows a part's look and opens its page in Interface > Looks (where every look is picked): the
+-- meters' and the class tools' cards.
+function SettingsUI:LookLinkRow(sec, title, desc, part)
+    local row = self:Row(sec, title, desc)
+    local btn = ns.UI:CreateSleekButton(row, "", 120, 22, function() SettingsUI:OpenPart(part) end)
+    btn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    btn.chev = btn:CreateTexture(nil, "OVERLAY")
+    btn.chev:SetSize(10, 10)
+    btn.chev:SetPoint("RIGHT", btn, "RIGHT", -8, 0)
+    UI:SetChevron(btn.chev, true)
+    btn.chev:SetVertexColor(S:Color("GOLD"))
+    row.control = btn
+    PlaceText(row, 120)
+    AddTooltip(btn, "Interface > Looks", "Every look is picked there: this opens its page.")
+    self.refreshers[#self.refreshers + 1] = { Refresh = function() btn:SetText(SettingsUI:PartLookName(part)) end }
+    btn:SetText(self:PartLookName(part))
+    return btn, row
+end
+
 ---------------------------------------------------------------------------
 -- The panel
 ---------------------------------------------------------------------------
@@ -778,46 +998,42 @@ function SettingsUI:CreatePanel(parent)
     panel:SetAllPoints(parent)
     panel.dirty = true
     self.panel = panel
+    self.index, self.settingRows = {}, {}
 
-    -- the side menu layout: the nav (UI:CreateRailNav) | a hairline | the open section in a scroll frame
-    local layout = UI:CreateLayout("rail", panel, {
-        width = S.PAGE_W, scroll = true, selected = self.section,
-        onSelect = function(key) SettingsUI:SelectSection(key) end,
-    })
-    self.layout, self.rail = layout, layout.rail
-    -- self.nav[key]: a section's nav row (a hidden stand-in while the section is not in the nav)
-    self.nav = {}
-    self.navHidden = CreateFrame("Frame", nil, panel)
-    self.navHidden:Hide()
-    self:LayoutNav()
-
-    local scroll, child = layout.scroll, layout.body
-    child:SetSize(BODY_W, BODY_H)
+    -- the rail | a hairline | the head over the cards' scroll frame
+    self:BuildRail(panel)
+    local rule = UI:Rule(panel, { vertical = true, alpha = 0.08, layer = "BORDER" })
+    rule:ClearAllPoints()
+    rule:SetPoint("TOPLEFT", panel, "TOPLEFT", RULE_X, -PAGE_TOP)
+    rule:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", RULE_X, S.PAD)
+    rule:SetWidth(1)
+    self:BuildHead(panel)
+    local scroll = UI:CreateScrollFrame(panel)
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", BODY_X, -(PAGE_TOP + HEAD_H))
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -S.PAD, S.PAD)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(CARDS_W, CARDS_H)
+    scroll:SetScrollChild(child)
     self.scroll, self.child = scroll, child
-    -- the column's right edge is the page's minus PAD, whatever the page's real width (GetWidth is 0 until laid out)
+    -- the cards' right edge is the page's minus PAD, whatever the page's real width (GetWidth is 0 until laid out)
     scroll:HookScript("OnSizeChanged", function()
         if SettingsUI:SyncWidth() then SettingsUI:RequestRefresh() end
     end)
 
-    self.sections = {}
-    for _, def in ipairs(SECTIONS) do self:NewSection(def) end
-    self:BuildAlerts(self.sections.alerts)
-    self:BuildNotify(self.sections.notify)
-    self:BuildGroupRules(self.sections.rules)
-    self:BuildRolls(self.sections.rolls)
-    self:BuildStrategy(self.sections.strategy)
-    self:BuildTooltips(self.sections.tooltips)
-    self:BuildMyLog(self.sections.mylog)
-    self:BuildMeters(self.sections.meters)
-    self:BuildClassTools(self.sections.classtools)
-    self:BuildUI(self.sections.ui)
-    self:BuildLayout(self.sections.layout)
-    self:BuildWindow(self.sections.window)
-    self:BuildCouncil(self.sections.council)
-    self:BuildAttendance(self.sections.attendance)
-    self:BuildTutorials(self.sections.tutorials)
-    self:BuildDemo(self.sections.demo)
-    self:BuildAbout(self.sections.about)
+    -- every card of every group (made once; a group shows its own), the look pages, the search's results
+    self.sections, self.cards, self.parts = {}, {}, {}
+    for _, cat in ipairs(CATS) do
+        for _, key in ipairs(cat.cards) do self:NewCard(cat, key) end
+    end
+    for _, p in ipairs(PARTS) do self:NewPartPage(p) end
+    self:BuildResults()
+    -- (1.4.1's section names stay readable: sections.notify is the alerts grid, sections.ui the Looks card)
+    for old, new in pairs(OLD) do self.sections[old] = self.sections[old] or self.sections[new] end
+    -- (1.4.1's tests and links ask whether a section is in the nav: now whether its card shows for me)
+    self.nav = {}
+    for key in pairs(CARDS) do
+        self.nav[key] = { IsShown = function() return SettingsUI:CardVisible(key) end }
+    end
 
     panel:SetScript("OnShow", function(p)
         if p.dirty then SettingsUI:Refresh() end
@@ -825,9 +1041,413 @@ function SettingsUI:CreatePanel(parent)
     function panel:OnPanelShown()
         SettingsUI:Refresh()
     end
-    self:SelectSection(self.section or "alerts")
+    self:SelectSection(self.section or "window")
     self:Refresh()
     return panel
+end
+
+---------------------------------------------------------------------------
+-- The rail: the search, a row per group (its icon, name and a live line), Help at the foot
+---------------------------------------------------------------------------
+function SettingsUI:BuildRail(panel)
+    local rail = CreateFrame("Frame", nil, panel)
+    rail:SetPoint("TOPLEFT", panel, "TOPLEFT", S.PAD, -PAGE_TOP)
+    rail:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", S.PAD, S.PAD)
+    rail:SetWidth(RAIL_W)
+    self.rail = rail
+    self.searchBox = UI:CreateSearchBox(rail, RAIL_W, function(text) SettingsUI:Search(text) end, "Search settings")
+    self.searchBox:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, 0)
+    self.searchBox:SetHeight(SEARCH_H)
+    rail.rows = {}
+    local y = -(SEARCH_H + 8)
+    for _, cat in ipairs(CATS) do
+        local b = CreateFrame("Button", nil, rail)
+        b.cat = cat.key
+        local h, tile = cat.small and HELP_H or GROUP_H, cat.small and 22 or 30
+        b:SetHeight(h)
+        if cat.small then
+            b:SetPoint("BOTTOMLEFT", rail, "BOTTOMLEFT", 0, 0)
+            b:SetPoint("BOTTOMRIGHT", rail, "BOTTOMRIGHT", 0, 0)
+        else
+            b:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, y)
+            b:SetPoint("TOPRIGHT", rail, "TOPRIGHT", 0, y)
+            y = y - (h + GROUP_GAP)
+        end
+        UI:DecorateRow(b, { selectable = true })
+        -- the group's glyph on a dark tile (the Blizzard options panel's page cards)
+        b.tile = UI:CreateIconTile(b, tile)
+        b.tile:SetPoint("LEFT", b, "LEFT", 10, 0)
+        local co = UI:IconCoords(cat.icon)
+        b.tile.tex:SetTexture(UI.ICON_ATLAS)
+        b.tile.tex:SetTexCoord(co[1], co[2], co[3], co[4])
+        b.tile.tex:ClearAllPoints()
+        b.tile.tex:SetPoint("CENTER")
+        b.tile.tex:SetSize(floor(tile * 0.55), floor(tile * 0.55))
+        b.tile.outer:SetColorTexture(S:Color("INSET"))
+        b.name = UI:Text(b, cat.small and "body" or "emph", "TEXT")
+        b.line = UI:Text(b, "small", "SUB")
+        b.line:SetWordWrap(false)
+        local x = 10 + tile + 10
+        if cat.small then
+            b.name:SetPoint("LEFT", b, "LEFT", x, 0)
+        else
+            b.name:SetPoint("BOTTOMLEFT", b, "LEFT", x, 1)
+            b.line:SetPoint("TOPLEFT", b, "LEFT", x, -3)
+        end
+        b.name:SetText(cat.label)
+        b.lineW = RAIL_W - x - 8
+        b:SetScript("OnClick", function() SettingsUI:OpenCategory(cat.key) end)
+        rail.rows[cat.key] = b
+    end
+end
+
+-- One line per group in the rail: how it is set right now.
+local SUMMARY = {
+    general = function()
+        return format("Opens on %s · %s names", Get("openOn", "home") == "last" and "last tab" or "Home",
+            tostring(Get("tooltip.maxNames", 5)))
+    end,
+    alerts = function()
+        local N = ns.Notify
+        local s = N and N.Settings and N.Settings()
+        if s and (tonumber(s.dndUntil) or 0) > ns.Util.Now() then return "Paused for an hour" end
+        local pop = Get("alerts.personalToast", true) and 1 or 0
+        local snd = Get("alerts.sound", true) and 1 or 0
+        for _, def in ipairs(N and N:GetKinds() or {}) do
+            if N:Wants(def.kind, "popup") then pop = pop + 1 end
+            if N:Wants(def.kind, "sound") then snd = snd + 1 end
+        end
+        return format("%d pop up · %d with a sound", pop, snd)
+    end,
+    loot = function()
+        local status, from = SettingsUI:GroupRulesStatus()
+        local secs = tonumber(Effective("roll.duration", 30)) or 30
+        if status == "remote" then return format("%s's rules · %d s", from and NameOf(from) or "Leader", secs) end
+        return format("%s rules · %d s rolls", status == "mine" and "Group" or "Your", secs)
+    end,
+    combat = function()
+        return format("Damage %s · threat %s", Get("meters.dmg", false) and "on" or "off",
+            Get("meters.thr", false) and "on" or "off")
+    end,
+    interface = function()
+        local Look = ns.Look
+        if not (Look and Look.PARTS) then return "" end
+        local all, n = Get("ui.look", "blizzard"), 0
+        for _, p in ipairs(Look.PARTS) do
+            if Get("ui." .. p.key .. ".look", "inherit") == "inherit" and (p.key ~= "sct" or Get("ui.sct.on", false)) then
+                n = n + 1
+            end
+        end
+        local l = Look.BY_KEY[all]
+        if all == "blizzard" and n == #Look.PARTS - (Get("ui.sct.on", false) and 0 or 1) then return "The game's own frames" end
+        return format("%s on %d of %d parts", l and l.name or "Blizzard", n, #Look.PARTS)
+    end,
+    guild = function()
+        local G = ns.Guild
+        local r = (G and G.GetAttendanceRules and G:GetAttendanceRules()) or { o = 5, d = 10 }
+        local CU = ns.CouncilUI
+        local sum = CU and CU.GetCouncilSummary and CU:GetCouncilSummary()
+        local n = sum and sum.guildMembers and #sum.guildMembers or 0
+        return format("Council of %d · %d / %d min", n, tonumber(r.o) or 0, tonumber(r.d) or 0)
+    end,
+}
+SettingsUI.SUMMARY = SUMMARY
+
+function SettingsUI:LayoutRail()
+    local rail = self.rail
+    if not rail then return end
+    for key, b in pairs(rail.rows) do
+        local on = not self.query and self.cat == key
+        b:SetSelected(on)
+        b.name:SetTextColor(S:Color(on and "GOLD" or "TEXT"))
+        b.tile.tex:SetVertexColor(S:Color(on and "GOLD" or "SUB"))
+        local fn = SUMMARY[key]
+        if fn then
+            local ok, text = pcall(fn)
+            UI:FitText(b.line, ok and text or "", b.lineW)
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- The head: the group's name (or "Search"), the jump chips (a chip per card) under it
+---------------------------------------------------------------------------
+function SettingsUI:BuildHead(panel)
+    local head = CreateFrame("Frame", nil, panel)
+    head:SetPoint("TOPLEFT", panel, "TOPLEFT", BODY_X, -PAGE_TOP)
+    head:SetSize(CARDS_W, HEAD_H)
+    head.title = UI:Text(head, "page")
+    head.title:SetPoint("TOPLEFT", head, "TOPLEFT", 0, -2)
+    head.chips = {}
+    -- (while searching: how many options match, where the chips go)
+    head.sub = UI:Text(head, "body", "SUB")
+    head.sub:SetPoint("TOPLEFT", head, "TOPLEFT", 0, -34)
+    head.sub:Hide()
+    self.head = head
+end
+
+function SettingsUI:LayoutHead()
+    local head = self.head
+    if not head then return end
+    local cat = CAT[self.cat] or CATS[1]
+    head.title:SetText(self.query and "Search" or cat.label)
+    local list = {}
+    if self.mode == "cards" then
+        for _, key in ipairs(cat.cards) do
+            if self:CardVisible(key) then list[#list + 1] = key end
+        end
+    end
+    if #list < 2 then list = {} end
+    local x = 0
+    for i, key in ipairs(list) do
+        local c = head.chips[i]
+        if not c then
+            c = UI:CreateChip(head, { kind = "plain", onClick = function(self) SettingsUI:ScrollToCard(self.cardKey) end })
+            head.chips[i] = c
+        end
+        c.cardKey = key
+        c:Set(CARDS[key].label)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", head, "TOPLEFT", x, -30)
+        c:Show()
+        x = x + c:GetWidth() + 6
+    end
+    for i = #list + 1, #head.chips do head.chips[i]:Hide() end
+    head.sub:SetShown(self.query ~= nil)
+    head.sub:SetText(self.searchCount or "")
+end
+
+---------------------------------------------------------------------------
+-- The cards of the open group, a look page, or the search's results
+---------------------------------------------------------------------------
+
+-- Is that card there for me (class tools for my class, the set-up checklist for the Guild Master)?
+function SettingsUI:CardVisible(key)
+    local def = CARDS[key]
+    if not def then return false end
+    return not def.visible or def.visible() and true or false
+end
+
+function SettingsUI:IsGM()
+    local G = ns.Guild
+    return (G and G.IsGM and ns.Util and G:IsGM(ns.Util.PlayerKey())) and true or false
+end
+
+-- Who sets a card, on its head: the group's loot leader, the Guild Master (nil: just me, no pill).
+local function ScopePill(card)
+    local scope = card.def.scope
+    if scope == "group" then
+        local status, from = SettingsUI:GroupRulesStatus()
+        if status == "remote" then return "alt", "Your group · set by " .. (from and NameOf(from) or "the loot leader") end
+        if status == "mine" then return "alt", "Your group · you set these" end
+        return "alt", "Your group"
+    elseif scope == "guild" then
+        return "bis", SettingsUI:IsGM() and "Guild · you set these" or "Guild · set by the Guild Master"
+    elseif scope == "gm" then
+        return "bis", "Guild Master"
+    end
+end
+
+-- The looks picked away from the defaults: the look for everything, each part's own look.
+function SettingsUI:LooksChanged()
+    local n = Get("ui.look", "blizzard") ~= "blizzard" and 1 or 0
+    for _, p in ipairs(ns.Look and ns.Look.PARTS or {}) do
+        if Get("ui." .. p.key .. ".look", "inherit") ~= "inherit" then n = n + 1 end
+    end
+    return n
+end
+
+-- How many rows of a card (or a look page: "part:<key>") are not at their defaults.
+function SettingsUI:ChangedIn(key)
+    local n = 0
+    for _, row in ipairs(self.settingRows or {}) do
+        if row.cardKey == key and RowChanged(row) then n = n + 1 end
+    end
+    -- (a game part's page: its own look too)
+    local part = type(key) == "string" and key:match("^part:(%a+)$")
+    if part and not (PART[part] and (PART[part].kind or PART[part].kits))
+        and Get("ui." .. part .. ".look", "inherit") ~= "inherit" then
+        n = n + 1
+    end
+    return n
+end
+
+function SettingsUI:ResetCard(key)
+    for _, row in ipairs(self.settingRows or {}) do
+        if row.cardKey == key and RowChanged(row) then
+            if row.reset then
+                row.reset()
+            elseif row.apply and row.setting then
+                row.apply(row.setting.default)
+            end
+        end
+    end
+    -- (Interface > Looks: the look for everything and every part's own look go back too; a part's page: its look)
+    local part = type(key) == "string" and key:match("^part:(%a+)$")
+    if ns.DB and key == "looks" then
+        for _, p in ipairs(ns.Look and ns.Look.PARTS or {}) do
+            if Get("ui." .. p.key .. ".look", "inherit") ~= "inherit" then ns.DB:SetSetting("ui." .. p.key .. ".look", nil) end
+        end
+        if Get("ui.look", "blizzard") ~= "blizzard" then ns.DB:SetSetting("ui.look", nil) end
+    elseif ns.DB and part and Get("ui." .. part .. ".look", "inherit") ~= "inherit" then
+        ns.DB:SetSetting("ui." .. part .. ".look", nil)
+    end
+    self:Refresh()
+end
+
+-- The head of a card: its pill, Back to defaults with the count (and the card's action left of it).
+local function PaintCardHead(card)
+    local head = card.head
+    local kind, text = ScopePill(card)
+    if text then
+        head.pill:SetPill(kind, text)
+        head.pill:Show()
+    else
+        head.pill:Hide()
+    end
+    local n = SettingsUI:ChangedIn(card.key)
+    if card.key == "looks" then n = n + SettingsUI:LooksChanged() end
+    local r = head.reset
+    r:SetShown(n > 0)
+    if n > 0 then
+        r:SetText(UI:AtlasIconText(9, 11, S.C.GOLD) .. " Back to defaults · " .. n)
+        local fs = r:GetFontString()
+        r:SetWidth(floor((fs and UI:TextWidth(fs) or 110) + 22))
+    end
+    if head.action then
+        head.action:ClearAllPoints()
+        if n > 0 then
+            head.action:SetPoint("RIGHT", r, "LEFT", -6, 0)
+        else
+            head.action:SetPoint("RIGHT", head, "RIGHT", -CARD_IN, 0)
+        end
+    end
+end
+
+-- Stacks the open group's cards (each as tall as its rows), or shows the open look page, or the search's results;
+-- sizes the scroll child.
+function SettingsUI:LayoutCards()
+    if not self.child then return end
+    local mode = self.mode or "cards"
+    for _, c in pairs(self.cards) do
+        if c:IsShown() and (mode ~= "cards" or c.cat ~= self.cat) then c:Hide() end
+    end
+    for k, p in pairs(self.parts) do p:SetShown(mode == "part" and k == self.part) end
+    if self.results then self.results:SetShown(mode == "search") end
+    local h = 0
+    if mode == "cards" then
+        local y = 0
+        for _, key in ipairs((CAT[self.cat] or CATS[1]).cards) do
+            local card = self.cards[key]
+            if card and self:CardVisible(key) then
+                local sh = max(1, floor((card.sec.height or 0) + 0.5))
+                card.sec:SetHeight(sh)
+                card:ClearAllPoints()
+                card:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -y)
+                card:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, -y)
+                card:SetHeight(CARD_HEAD_H + sh + CARD_FOOT)
+                card.y = y
+                PaintCardHead(card)
+                card:Show()
+                y = y + CARD_HEAD_H + sh + CARD_FOOT + CARD_GAP
+            elseif card then
+                card:Hide()
+            end
+        end
+        h = y - CARD_GAP
+    elseif mode == "part" then
+        local page = self.parts[self.part]
+        h = page and page.height or 0
+    elseif mode == "search" and self.results then
+        h = self.results.height or 0
+    end
+    self.child:SetHeight(max(CARDS_H, floor(h + 0.5)))
+end
+SettingsUI.FitChild = SettingsUI.LayoutCards
+
+-- (the scroll, kept inside its range)
+local function ScrollTo(y)
+    local S2 = SettingsUI
+    if not S2.scroll then return end
+    local maxY = max(0, (S2.child:GetHeight() or 0) - CARDS_H)
+    S2.scroll:SetVerticalScroll(min(maxY, max(0, floor(y + 0.5))))
+end
+
+-- A short gold light on a frame (a row or a card's head a link or the search opened).
+local function Flash(f)
+    if not f then return end
+    if not f.dzFlash then
+        local t = f:CreateTexture(nil, "BACKGROUND", nil, 3)
+        t:SetAllPoints()
+        t:SetColorTexture(S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.2)
+        f.dzFlash = t
+        if t.CreateAnimationGroup then
+            local ag = t:CreateAnimationGroup()
+            local a = ag:CreateAnimation("Alpha")
+            a:SetFromAlpha(1)
+            a:SetToAlpha(0)
+            a:SetStartDelay(0.5)
+            a:SetDuration(1.3)
+            ag:SetScript("OnFinished", function() t:Hide() end)
+            f.dzFlashAnim = ag
+        end
+    end
+    f.dzFlash:SetAlpha(1)
+    f.dzFlash:Show()
+    if f.dzFlashAnim then
+        f.dzFlashAnim:Stop()
+        f.dzFlashAnim:Play()
+    elseif C_Timer then
+        C_Timer.After(1.8, function() f.dzFlash:Hide() end)
+    end
+end
+SettingsUI.Flash = Flash
+
+function SettingsUI:ScrollToCard(key)
+    local card = self.cards and self.cards[key]
+    if not (card and card:IsShown()) then return end
+    ScrollTo(card.y or 0)
+end
+
+-- Scrolls a row of the open page into the middle and lights it.
+function SettingsUI:ShowRow(row)
+    if not (row and self.child) then return end
+    local top, ct = row:GetTop(), self.child:GetTop()
+    if top and ct then
+        ScrollTo(ct - top - (CARDS_H - ROW_H) / 2)
+    end
+    Flash(row)
+end
+
+-- Opens a group: its cards from the top.
+function SettingsUI:OpenCategory(key)
+    local cat = CAT[key] or CATS[1]
+    local first
+    for _, k in ipairs(cat.cards) do
+        if self:CardVisible(k) then first = k break end
+    end
+    self:ClearSearch()
+    self.cat, self.section, self.part, self.mode = cat.key, first or cat.cards[1], nil, "cards"
+    self:LayoutView()
+    if self.scroll then self.scroll:SetVerticalScroll(0) end
+end
+
+-- Opens a part's page in Interface > Looks (its key in PARTS).
+function SettingsUI:OpenPart(key)
+    if not ns.MainFrame then return end
+    if ns.MainFrame.GetSelectedTab and ns.MainFrame:GetSelectedTab() ~= "settings" then ns.MainFrame:Open("settings") end
+    if not (self.parts and self.parts[key]) then return end
+    self:ClearSearch()
+    self.cat, self.section, self.part, self.mode = "interface", "looks", key, "part"
+    self:PreparePart(key)
+    self:LayoutView()
+    if self.scroll then self.scroll:SetVerticalScroll(0) end
+end
+
+function SettingsUI:LayoutView()
+    self:LayoutRail()
+    self:LayoutHead()
+    self:LayoutCards()
 end
 
 -- Class tools (Core/ClassKit.lua): one section, a card per tool of my class: its header (icon, name, who it is for,
@@ -907,7 +1527,14 @@ function SettingsUI:BuildClassTools(sec)
         body.rows = {}
         body.y = 0
         body.key = key
+        body.fitW = BODY_W - 2 * KIT_INSET
+        -- (its rows go into the search under Combat > Class tools > the tool)
+        local outer = self.ctx
+        if outer then
+            self.ctx = { cat = outer.cat, card = outer.card, kit = key, path = { outer.path[1], outer.path[2], kit.label } }
+        end
         if kit.settings then kit.settings(self, body) else body.height = 0 end
+        self.ctx = outer
         body:SetHeight(max(1, body.height or 0))
         card.body = body
         sec.cards[#sec.cards + 1] = card
@@ -951,26 +1578,28 @@ function SettingsUI:LayoutClassTools()
         end
     end
     sec.height = y
-    if self.section == "classtools" then self:FitChild() end
+    if self.cards and self.cards.classtools and self.cards.classtools:IsShown() then self:LayoutCards() end
 end
 
--- Opens a class tool's card (its key, e.g. "swing", "bless") in Class tools and scrolls to it.
+-- Opens a class tool's card (its key, e.g. "swing", "bless") in Combat > Class tools and scrolls to it.
 function SettingsUI:OpenKit(key)
     if not (self.sections and self.sections.classtools) then return end
     kitOpen[key] = true
     self:SelectSection("classtools")
     self:LayoutClassTools()
+    local outer = self.cards.classtools
     for _, card in ipairs(self.sections.classtools.cards) do
         if card.kit.key == key and card:IsShown() and self.scroll then
             local _, _, _, _, y = card:GetPoint(1)
-            self.scroll:SetVerticalScroll(max(0, -(tonumber(y) or 0) - 8))
+            ScrollTo((outer.y or 0) + CARD_HEAD_H - (tonumber(y) or 0) - 8)
+            Flash(card.head)
         end
     end
 end
 
--- Is that tool's card shown in Class tools (and the section in the nav)?
+-- Is that tool's card shown in Class tools (and Class tools there for me)?
 function SettingsUI:KitShown(key)
-    if not (self.nav and self.nav.classtools and self.nav.classtools:IsShown()) then return false end
+    if not self:CardVisible("classtools") then return false end
     for _, card in ipairs(self.sections.classtools.cards or {}) do
         if card.kit.key == key then return card:IsShown() end
     end
@@ -979,50 +1608,39 @@ end
 
 SettingsUI.PlaceText = PlaceText
 
--- A section with visible() shows only while it returns true (class tools: their class and spec); the nav closes up.
-local function SectionVisible(key)
-    for _, def in ipairs(SECTIONS) do
-        if def.key == key then return not def.visible or def.visible() and true or false end
-    end
-    return false
-end
-
-function SettingsUI:LayoutNav()
-    if not self.panel then return end
-    local items, sig = {}, ""
-    for _, def in ipairs(SECTIONS) do
-        if SectionVisible(def.key) then
-            items[#items + 1] = { key = def.key, label = def.label }
-            sig = sig .. def.key .. ","
-        end
-    end
-    if sig ~= self.navSig then
-        self.navSig = sig
-        self.rail:SetItems(items)
-    end
-    for _, def in ipairs(SECTIONS) do self.nav[def.key] = self.rail.byKey[def.key] or self.navHidden end
-    if self.section and not SectionVisible(self.section) then self:SelectSection("alerts") end
-end
-
--- Opens one section (key as in SECTIONS); the others hide. The page keeps its size: only the scroll range follows.
-function SettingsUI:SelectSection(key)
-    if ns.ClassKit and ns.ClassKit:Get(key) and self.sections and not self.sections[key] then
+-- Opens a place in Settings and shows it: a card (its group, scrolled to it, its head lit when it is not the first),
+-- a class tool ("bless", "swing": its card in Class tools, open), a group ("loot"), a part's look page ("look.units"),
+-- or a section of 1.4.1 and before (OLD). rowTitle (optional): the option of that card to scroll to and light.
+function SettingsUI:SelectSection(key, rowTitle)
+    if type(key) ~= "string" then key = "window" end
+    if ns.ClassKit and ns.ClassKit:Get(key) and not CARDS[key] then
         return self:OpenKit(key)
     end
-    if not (self.sections and self.sections[key]) or not SectionVisible(key) then key = "alerts" end
-    self.section = key
+    key = OLD[key] or key
+    local part = key:match("^look[.:](%a+)$")
+    if part and PART[part] then return self:OpenPart(part) end
+    if CAT[key] and not CARDS[key] then return self:OpenCategory(key) end
+    if not CARDS[key] or not self:CardVisible(key) then key = "window" end
+    self.section, self.cat, self.part, self.mode = key, CARD_CAT[key], nil, "cards"
     if not self.sections then return end
-    for k, sec in pairs(self.sections) do sec:SetShown(k == key) end
-    if self.rail then self.rail:Select(key) end
-    self:FitChild()
-    if self.scroll then self.scroll:SetVerticalScroll(0) end
+    self:ClearSearch()
+    self:LayoutView()
+    local card = self.cards[key]
+    local first = (card.y or 0) < 1
+    if self.scroll then ScrollTo(first and 0 or card.y) end
+    if rowTitle then
+        for _, row in ipairs(card.sec.rows) do
+            if row.title and row.title.GetText and row.title:GetText() == rowTitle then return self:ShowRow(row) end
+        end
+    end
+    if not first then Flash(card.head) end
 end
 
 function SettingsUI:GetSection()
     return self.section
 end
 
--- The section column's width: the scroll frame's, once it is laid out (BODY_W before).
+-- A card's rows' width: the scroll frame's, once it is laid out, less the card's margins (BODY_W before).
 function SettingsUI:BodyWidth()
     return self.bodyW or BODY_W
 end
@@ -1032,48 +1650,29 @@ function SettingsUI:SyncWidth()
     local w = self.scroll and tonumber(self.scroll:GetWidth())
     if not w or w <= 100 then return false end
     w = floor(w + 0.5)
-    if w == self.bodyW then return false end
-    self.bodyW = w
+    if w - 2 * CARD_IN == self.bodyW then return false end
+    self.bodyW = w - 2 * CARD_IN
     self.child:SetWidth(w)
     return true
-end
-
-function SettingsUI:FitChild()
-    local sec = self.sections and self.sections[self.section]
-    if sec and self.child then
-        self.child:SetHeight(max(BODY_H, sec.height or 0))
-        sec:SetHeight(max(BODY_H, sec.height or 0))
-    end
 end
 
 ---------------------------------------------------------------------------
 -- The sections
 ---------------------------------------------------------------------------
-function SettingsUI:BuildAlerts(sec)
+-- The drop panel and the loot window (the BiS toast, its sound and chat line are rows of the alerts grid now).
+function SettingsUI:BuildDrops(sec)
     sec.y = sec.y - 4
     self:SwitchSetting(sec, "Boss drop panel", "Opens on boss drops for the Loot Council and the master looter.",
         "alerts.councilPanel", true)
-    self:SwitchSetting(sec, "\"On your BiS list!\" toast", "A pop-up when something on your list drops.",
-        "alerts.personalToast", true)
-    self:SwitchSetting(sec, "Sound with drop alerts", "Plays with the toast and the drop panel.", "alerts.sound", true)
-    self:SwitchSetting(sec, "Glow on BiS loot buttons", "Your list's items glow in the loot window.",
-        "alerts.glow", true)
-    self:SwitchSetting(sec, "Chat message for BiS drops", "A line in your chat, for when the toast is missed.",
-        "alerts.chat", true)
-    self:SwitchSetting(sec, "BiS badges on the loot window",
-        "Marks your items; on the Loot Council also how many raiders need each one.", "alerts.lootBadges", true)
-    self:SwitchSetting(sec, "Off-spec items too", "The alerts above also fire for your off-spec list.",
-        "alerts.offspec", true)
     self:DropdownSetting(sec, "Drop panel position", "Next to the loot window, or where you left it.",
         "dropPanelMode", "auto", {
             { value = "auto", text = "Attach to the loot window" },
             { value = "floating", text = "Always floating" },
         })
-    self:DropdownSetting(sec, "Announce channel", "Where awards and rolls are announced in a raid.",
-        "announceChannel", "RAID", {
-            { value = "RAID", text = "Raid" },
-            { value = "RAID_WARNING", text = "Raid Warning" },
-        }, "Raid Warning needs raid lead or assist; without them announcements go to Raid.")
+    self:SwitchSetting(sec, "Glow on BiS loot buttons", "Your list's items glow in the loot window.",
+        "alerts.glow", true)
+    self:SwitchSetting(sec, "BiS badges on the loot window",
+        "Marks your items; on the Loot Council also how many raiders need each one.", "alerts.lootBadges", true)
     self:EndSection(sec)
 end
 
@@ -1082,7 +1681,73 @@ end
 local NOTIFY_COLS = { { what = "popup", label = "Pop-up" }, { what = "sound", label = "Sound" }, { what = "chat", label = "Chat" } }
 local NOTIFY_COL_W = 58
 
-function SettingsUI:BuildNotify(sec)
+-- The BiS drop alert in the grid: its toast, its sound (the drop panel plays it too) and its chat line are the
+-- alerts.* settings of 1.4.1 (Core reads them as before).
+local BIS_KIND = { kind = "bis", section = "Loot", label = "On your BiS list!",
+    desc = "Something on your list drops: a toast, a sound, a line in chat.",
+    paths = { popup = "alerts.personalToast", sound = "alerts.sound", chat = "alerts.chat" } }
+
+-- A notification kind's row: its name and line, a switch per way it reaches me. labels: the columns' names over the
+-- switches (a search result, away from the grid's head).
+function SettingsUI:NotifyRow(sec, def, labels)
+    local N = ns.Notify
+    local row = self:Row(sec, def.label, def.desc)
+    row.switches = {}
+    for i, col in ipairs(NOTIFY_COLS) do
+        local kind, what = def.kind, col.what
+        local getter, setter
+        if def.paths then
+            local path = def.paths[what]
+            getter = function() return Get(path, true) and true or false end
+            setter = function(a, b) Set(path, Bool(a, b)) end
+        else
+            getter = function() return N:Wants(kind, what) end
+            setter = function(a, b) N:SetWants(kind, what, Bool(a, b)) end
+        end
+        local sw = ns.UI:CreateSwitch(row, getter, setter)
+        sw:SetPoint("RIGHT", row, "RIGHT", -(#NOTIFY_COLS - i) * NOTIFY_COL_W, labels and -6 or 0)
+        sw.label = row.title
+        row.switches[what] = sw
+        if labels then
+            local fs = UI:Text(row, "small", "SUB", { justify = "CENTER", width = NOTIFY_COL_W })
+            fs:SetPoint("BOTTOM", sw, "TOP", 0, 1)
+            fs:SetText(col.label)
+        end
+        self.refreshers[#self.refreshers + 1] = sw
+    end
+    PlaceText(row, #NOTIFY_COLS * NOTIFY_COL_W - (NOTIFY_COL_W - SWITCH_W))
+    -- (a kind is changed while one of its ways differs from the kind's own default; Back to defaults forgets mine)
+    if def.paths then
+        row.isChanged = function()
+            for _, path in pairs(def.paths) do if not Get(path, true) then return true end end
+            return false
+        end
+        row.reset = function() for _, path in pairs(def.paths) do Set(path, true) end end
+    else
+        row.isChanged = function()
+            local s = N.Settings and N.Settings()
+            local mine = s and s.kinds and s.kinds[def.kind]
+            if type(mine) ~= "table" then return false end
+            for _, col in ipairs(NOTIFY_COLS) do
+                if mine[col.what] ~= nil and (mine[col.what] and true or false) ~= (def[col.what] and true or false) then
+                    return true
+                end
+            end
+            return false
+        end
+        row.reset = function()
+            local s = N.Settings and N.Settings(true)
+            if s and s.kinds then s.kinds[def.kind] = nil end
+            ns:Fire("SETTINGS_CHANGED", "notify")
+        end
+    end
+    self.settingRows[#self.settingRows + 1] = row
+    if row.entry then row.entry.make = function(rs) return SettingsUI:NotifyRow(rs, def, true) end end
+    return row
+end
+
+-- When to stay quiet: in combat, while the window is open, an hour's pause (Core/Notify.lua's settings).
+function SettingsUI:BuildQuiet(sec)
     local N = ns.Notify
     sec.y = sec.y - 4
     local function quiet(field)
@@ -1098,9 +1763,11 @@ function SettingsUI:BuildNotify(sec)
         end
     end
     local g, st = quiet("quietCombat")
-    self:Switch(sec, "Quiet in combat", "Pop-ups wait until the fight is over (boss fights too).", g, st)
+    local _, row = self:Switch(sec, "Quiet in combat", "Pop-ups wait until the fight is over (boss fights too).", g, st)
+    self:SetDefault(row, true)
     g, st = quiet("quietOpen")
-    self:Switch(sec, "Quiet while the window is open", "Only the bell counts up while DisasterZone is open.", g, st)
+    _, row = self:Switch(sec, "Quiet while the window is open", "Only the bell counts up while DisasterZone is open.", g, st)
+    self:SetDefault(row, false)
     self:Switch(sec, "Pause pop-ups for an hour", "Nothing pops up or plays a sound; the bell still collects.",
         function()
             local s = N and N.Settings()
@@ -1110,34 +1777,52 @@ function SettingsUI:BuildNotify(sec)
             local s = N and N.Settings(true)
             if s then s.dndUntil = Bool(a, b) and (ns.Util.Now() + 3600) or nil end
         end)
-    local kinds = N and N:GetKinds() or {}
-    if #kinds == 0 then
-        self:EndSection(sec)
-        return
-    end
+    self:EndSection(sec)
+end
+
+-- What reaches you: one grid for every kind of notification and the BiS drop alert, grouped by the part of the addon
+-- they come from (Loot first, with the BiS alert on top), then "Off-spec items too" for the BiS alert.
+local KIND_GROUPS = { "Loot", "Raids", "Dungeons", "Polls", "Games", "Feedback", "DisasterZone" }
+
+function SettingsUI:BuildNotify(sec)
+    local N = ns.Notify
+    sec.y = sec.y - 2
     -- the columns' names over the switches
     local head = CreateFrame("Frame", nil, sec)
-    head:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 10)
-    head:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 10)
+    head:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 8)
+    head:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 8)
     head:SetHeight(18)
     for i, col in ipairs(NOTIFY_COLS) do
         local fs = UI:Text(head, "small", nil, { justify = "CENTER", width = NOTIFY_COL_W })
         fs:SetPoint("RIGHT", head, "RIGHT", -(#NOTIFY_COLS - i) * NOTIFY_COL_W + (NOTIFY_COL_W - SWITCH_W) / 2 - 2, 0)
         fs:SetText(col.label)
     end
-    sec.y = sec.y - 28
-    for _, def in ipairs(kinds) do
-        local row = self:Row(sec, def.label, def.desc)
-        for i, col in ipairs(NOTIFY_COLS) do
-            local kind, what = def.kind, col.what
-            local sw = ns.UI:CreateSwitch(row, function() return N:Wants(kind, what) end,
-                function(a, b) N:SetWants(kind, what, Bool(a, b)) end)
-            sw:SetPoint("RIGHT", row, "RIGHT", -(#NOTIFY_COLS - i) * NOTIFY_COL_W, 0)
-            sw.label = row.title
-            self.refreshers[#self.refreshers + 1] = sw
+    sec.y = sec.y - 26
+    -- the kinds by group, in the groups' order (one not listed goes last)
+    local groups, order = {}, {}
+    local function add(def)
+        local g = def.section or "DisasterZone"
+        if not groups[g] then
+            groups[g] = {}
+            order[#order + 1] = g
         end
-        PlaceText(row, #NOTIFY_COLS * NOTIFY_COL_W - (NOTIFY_COL_W - SWITCH_W))
+        local list = groups[g]
+        list[#list + 1] = def
     end
+    add(BIS_KIND)
+    for _, def in ipairs(N and N:GetKinds() or {}) do add(def) end
+    local rank = {}
+    for i, g in ipairs(KIND_GROUPS) do rank[g] = i end
+    table.sort(order, function(a, b) return (rank[a] or 99) < (rank[b] or 99) end)
+    for gi, g in ipairs(order) do
+        local h = UI:CreateSectionHeader(sec, g, { style = "caps" })
+        h:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - (gi == 1 and 2 or 10))
+        h:SetPoint("TOPRIGHT", sec, "TOPRIGHT", -(#NOTIFY_COLS * NOTIFY_COL_W + 8), sec.y - (gi == 1 and 2 or 10))
+        sec.y = sec.y - (gi == 1 and 22 or 30)
+        for _, def in ipairs(groups[g]) do self:NotifyRow(sec, def) end
+    end
+    self:SwitchSetting(sec, "Off-spec items too", "Your BiS alerts also fire for items on your off-spec list.",
+        "alerts.offspec", true)
     self:EndSection(sec)
 end
 
@@ -1217,6 +1902,11 @@ function SettingsUI:BuildRolls(sec)
         "roll.announce", true)
     self:SwitchSetting(sec, "Roll / Pass popup", "Pops up when a roll starts, so you can roll or pass.",
         "roll.popup", true)
+    self:DropdownSetting(sec, "Announce channel", "Where awards and rolls are announced in a raid.",
+        "announceChannel", "RAID", {
+            { value = "RAID", text = "Raid" },
+            { value = "RAID_WARNING", text = "Raid Warning" },
+        }, "Raid Warning needs raid lead or assist; without them announcements go to Raid.")
     self:EndSection(sec)
     local note = UI:Text(sec, "small", nil, { wrap = true })
     note:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 14)
@@ -1250,171 +1940,593 @@ function SettingsUI:BuildTooltips(sec)
     self:EndSection(sec)
 end
 
--- UI: the game's frames in the addon's looks (UI/Look.lua): one look for everything, then each part's own look and
--- options. A part switched to or from Blizzard asks for a reload (UI/Look.lua).
-function SettingsUI:BuildUI(sec)
+---------------------------------------------------------------------------
+-- Interface > Looks (UI/Look.lua and the addon's own themes): the look for everything, Classic everywhere, a tile per
+-- part (a sample of it in the look it wears, its name, its look); a tile opens the part's page: the sample big on a
+-- stage, the look tiles (pointing at one shows it on the stage), the part's options. A part switched to or from
+-- Blizzard asks for a reload (UI/Look.lua).
+---------------------------------------------------------------------------
+
+-- The game parts' options (a part's page): { key, name, line, default, options (a dropdown; none: a switch), tip,
+-- classic = only while the part wears Classic }.
+local PART_OPTS = {
+    units = {
+        { "portrait", "Portrait", "Class icon for players; the game's portrait for the rest.", "class",
+          { { value = "class", text = "Class icon" }, { value = "portrait", text = "Portrait" }, { value = "none", text = "None" } } },
+        { "healthColor", "Health colour", "The look's: the game's green in Classic, class colours in the rest.", "theme",
+          { { value = "theme", text = "The look's" }, { value = "class", text = "Class" }, { value = "green", text = "Green" },
+            { value = "gradient", text = "By health" } } },
+        { "healthText", "Health text", "", "both",
+          { { value = "both", text = "14.2k  84%" }, { value = "pct", text = "84%" },
+            { value = "full", text = "14,212 / 16,840" }, { value = "none", text = "None" } } },
+        { "debuffs", "Auras on target", "Your own first, everyone's, or only yours.", "mine",
+          { { value = "mine", text = "Mine first" }, { value = "all", text = "All" }, { value = "onlymine", text = "Only mine" } } },
+        { "timers", "Aura timers", "Seconds left under each aura.", true },
+    },
+    group = {
+        { "healthColor", "Health colour", "The look's: the game's green in Classic, class colours in the rest.", "theme",
+          { { value = "theme", text = "The look's" }, { value = "class", text = "Class" }, { value = "green", text = "Green" },
+            { value = "gradient", text = "By health" } } },
+        { "player", "Me in my party", "Your own frame at the top of the party frames.", false },
+        { "range", "Fade out of range", "Party and raid members too far to heal.", true },
+        { "dispel", "Light what I can remove", "A debuff you can dispel colours the frame's edge.", true },
+    },
+    cast = {
+        { "latency", "Latency", "A soft red end on your own casts: from there the next cast can be queued.", true,
+          tip = "It is as long as the time your cast takes to reach the server (your world latency). When the "
+              .. "fill reaches it, pressing the next spell already queues it." },
+        { "time", "Time", "", "left",
+          { { value = "left", text = "0.6" }, { value = "both", text = "0.6 / 1.5" }, { value = "none", text = "None" } } },
+        { "icon", "Spell icon", "", true },
+        { "target", "Target's cast bar", "", true },
+        { "focus", "Focus's cast bar", "", true },
+    },
+    bars = {
+        { "dock", "Dock", "Every bottom bar on one grid: the bars, bags, menu, stance, pet and experience.", true,
+          tip = "Action bars 1 to 3 make one block (turn bars 2 and 3 on in the game's Options > Action Bars), "
+              .. "the bags and the menu stand beside it at its height, the stance and pet bars sit on top and "
+              .. "the experience bar runs under it. Bars 4 and 5 stand at the right edge. Move it in Edit "
+              .. "layout. Turning it off hands the bars back to the game after a reload." },
+        { "size", "Button size", "Every gap and edge of the Dock grows with it.", 36,
+          { { value = 30, text = "Compact (30)" }, { value = 33, text = "Small (33)" }, { value = 36, text = "Normal (36)" },
+            { value = 39, text = "Big (39)" }, { value = 42, text = "Large (42)" } } },
+        { "rail", "Bars 4 and 5 at the right edge", "In the Dock's look and size, two columns.", true },
+        { "art", "Bar art", "The plate behind the bars: stone and steel, marble and gold, or the guild vault.",
+          "ironforge", (function()
+              local out = {}
+              for _, s in ipairs(ns.DockArt and ns.DockArt.SETS or {}) do out[#out + 1] = { value = s.key, text = s.name } end
+              return out
+          end)(), classic = true,
+          tip = "Ironforge: the vanilla bar's stone, a riveted steel frame and carved wells. Stormwind: dark marble "
+              .. "set in gold with sapphires. Guild Vault: the guild bank's iron, crimson leather and brass slots." },
+        { "caps", "End caps", "At the Dock's ends: the art's own, gryphons or lions.", "match",
+          { { value = "match", text = "Match the art" }, { value = "gryphon", text = "Gryphons" },
+            { value = "lion", text = "Lions" }, { value = "none", text = "None" } }, classic = true },
+        { "keys", "Key binds", "", true },
+        { "macros", "Macro names", "", false },
+        { "cooldown", "Cooldowns", "", "theme",
+          { { value = "theme", text = "Sweep and number" }, { value = "sweep", text = "Sweep" },
+            { value = "numbers", text = "Number" } } },
+        { "range", "Out of range", "", "icon", { { value = "icon", text = "Red icon" }, { value = "key", text = "Red key bind" } } },
+        { "xp", "Experience bar", "Your experience and the reputation you watch, in the look.", true },
+    },
+    bags = {
+        { "layout", "Layout", "How the window lays out your items. Only the view changes: items stay in their slots.",
+          "one", { { value = "one", text = "One bag" }, { value = "shelves", text = "Shelves" },
+                   { value = "bags", text = "Bag by bag" } } },
+        { "newglow", "Glow on new items", "Until you have seen them once.", true },
+    },
+    minimap = {
+        { "shape", "Shape", "The look's own: round for Halo and Gilded, square for the rest.", "theme",
+          { { value = "theme", text = "The look's" }, { value = "round", text = "Round" }, { value = "square", text = "Square" } } },
+        { "buttons", "Addon buttons", "Minimap buttons of other addons.", "edge",
+          { { value = "edge", text = "Round the edge" }, { value = "drawer", text = "In a drawer" },
+            { value = "hover", text = "On mouse-over" } } },
+        { "clock", "Clock", "", true },
+        { "zone", "Zone", "", true },
+    },
+    sct = {
+        { "place", "Where numbers go", "On the nameplate of the mob you hit, or in fixed columns beside you.", "plate",
+          { { value = "plate", text = "On the nameplate" }, { value = "columns", text = "Columns" } },
+          tip = "Numbers ride the plate of the mob they hit (enemy nameplates on). A mob without a plate shown, or "
+              .. "Columns, uses the target spot. Move the spots in Edit layout." },
+        { "size", "Size", "", 1,
+          { { value = 0.7, text = "Small" }, { value = 0.85, text = "Medium" }, { value = 1, text = "Large" },
+            { value = 1.15, text = "Huge" } } },
+        { "hideGame", "Hide the game's numbers", "Its damage and healing numbers stay off while these are on.", true },
+        { "merge", "Merge hits", "Ticks and hits that land together count up as one.", "theme",
+          { { value = "theme", text = "The look's" }, { value = "on", text = "Always" }, { value = "off", text = "Never" } },
+          tip = "The look's: every look merges but Classic, which shows each number like the game." },
+        { "taken", "Hits taken", "", true },
+        { "heals", "Heals on me", "With the healer's name.", true },
+        { "procs", "Procs", "Buffs you gain in combat that last a minute or less.", true },
+        { "alerts", "Spells that light up", "Hammer of Wrath, Execute, Overpower, Revenge, Riposte ...", true },
+        { "lowHealth", "Low health and mana", "", true },
+        { "autoAttacks", "Auto attacks", "", true },
+        { "minHit", "Hide hits under", "Crits always show.", 0,
+          { { value = 0, text = "Show all" }, { value = 100, text = "100" }, { value = 250, text = "250" },
+            { value = 500, text = "500" }, { value = 1000, text = "1,000" } } },
+        { "minHeal", "Hide heals under", "", 0,
+          { { value = 0, text = "Show all" }, { value = 100, text = "100" }, { value = 250, text = "250" },
+            { value = 500, text = "500" }, { value = 1000, text = "1,000" } } },
+    },
+    -- (the meter panels' look, moved from Combat > Meters: { setting path, name, line, default, options })
+    meters = {
+        { "meters.barColor", "Bar colour", "What colours the bars.", "class",
+          { { value = "class", text = "Class colour" }, { value = "role", text = "Role colour" },
+            { value = "one", text = "One colour" } } },
+        { "meters.icons", "Icons", "The picture in front of each name.", "theme",
+          { { value = "theme", text = "Theme default" }, { value = "spec", text = "Spec" }, { value = "class", text = "Class" },
+            { value = "none", text = "None" } } },
+        { "meters.rowSize", "Rows", "Bar height; the theme sets its own.", "theme",
+          { { value = "compact", text = "Compact" }, { value = "theme", text = "Theme default" }, { value = "roomy", text = "Roomy" } } },
+        { "meters.numbers", "Numbers", "How amounts are written.", "short",
+          { { value = "short", text = "380.1k" }, { value = "full", text = "380,112" }, { value = "round", text = "380k" } } },
+        { "meters.bg", "Background", "How dark the panels are behind the bars.", "theme",
+          { { value = "theme", text = "Theme default" }, { value = 0, text = "None" }, { value = 25, text = "25%" },
+            { value = 50, text = "50%" }, { value = 75, text = "75%" }, { value = 90, text = "90%" } } },
+        { "meters.size", "Size", "Bar height and text size together.", "normal",
+          { { value = "small", text = "Small" }, { value = "normal", text = "Normal" }, { value = "large", text = "Large" } } },
+    },
+}
+
+local PART_COLS, PART_TILE_H, PART_GAP, PV_H = 5, 80, 6, 42
+local STAGE_Y, STAGE_H = 62, 150
+
+-- (a part's name and line: the game's parts from Look.PARTS, the themed ones from PARTS)
+local function PartInfo(key)
+    for _, p in ipairs(ns.Look and ns.Look.PARTS or {}) do
+        if p.key == key then return p.name, p.tip end
+    end
+    local p = PART[key]
+    return p and p.label or key, p and p.tip or ""
+end
+
+-- Is the part there for me (class bars and timers: their class tools are my class's, or demo mode)?
+function SettingsUI:PartShown(key)
+    local p = PART[key]
+    if not (p and p.kits) then return true end
+    local CK = ns.ClassKit
+    if not CK then return false end
+    for _, k in ipairs(p.kits) do
+        local kit = CK:Get(k)
+        if kit and (CK:IsDemo() or kit.class == CK:MyClass()) then return true end
+    end
+    return false
+end
+
+-- The look a part wears now (a game part's look key, a themed part's theme key).
+local function PartLook(key)
+    local p = PART[key]
+    local T = ns.Themes
+    if p and p.kind then
+        local t = T and T:Kind(p.kind) and T:Current(p.kind)
+        return t and t.key
+    elseif key == "timers" then
+        local kind = "ring_swing"
+        local CK = ns.ClassKit
+        if CK and CK:Get("shot") and CK:MyClass() == CK:Get("shot").class then kind = "ring_shot" end
+        local t = T and T:Kind(kind) and T:Current(kind)
+        return t and t.key, kind == "ring_shot" and "shot" or "swing"
+    end
+    local Look = ns.Look
+    if not Look then return "blizzard" end
+    local T2 = T and T:Kind("uilook." .. key) and T:Preview("uilook." .. key)
+    if T2 then return T2 == "inherit" and Look:Chosen(key) or T2 end
+    return Look:Chosen(key)
+end
+
+-- A made-up sample of a part in a look (the part's tile and its stage): units, group and cast from the parts' own
+-- faces, the action and bag buttons in the look, the meter, class bar and timer theme samples. Returns the frame and
+-- its size, or nil (Blizzard: the game's own frames; the minimap and combat text have none).
+local SAMPLE_ICONS = { 132340, 132355, 132363, 132326, 135358, 136105 }
+local function BuildSample(host, part, key, prefix)
+    local Look = ns.Look
+    local look = Look and Look.BY_KEY and Look.BY_KEY[key]
+    local f = CreateFrame("Frame", nil, host)
+    local w, h
+    if part == "units" or part == "group" then
+        local U = ns.LookUnits
+        if not (U and look) or key == "blizzard" then return nil end
+        local function face(kind, side, x, y, fake, fw)
+            local hf = CreateFrame("Frame", nil, f)
+            hf:SetPoint("TOPLEFT", f, "TOPLEFT", x, y)
+            hf:SetSize(fw or 214, 48)
+            local fc = U:NewFace(hf, kind, kind == "cell" and "group" or "units", side)
+            fc.width = fw
+            if fake.auras then fc.showAuras, fc.showCombo = true, true end
+            fc:Apply(look)
+            fc:Set(fake)
+        end
+        if part == "units" then
+            face("big", "left", 0, 0, U.Fake("player"))
+            face("big", "right", 0, -66, U.Fake("target"))
+            w, h = 214, 142
+        else
+            for j = 1, 6 do
+                face("cell", "left", ((j - 1) % 3) * 78, -floor((j - 1) / 3) * 42, U.Fake("member", j + 2), 72)
+            end
+            w, h = 228, 78
+        end
+    elseif part == "cast" then
+        local C = ns.LookCast
+        if not (C and look) or key == "blizzard" then return nil end
+        for i, k in ipairs({ "player", "target" }) do
+            local b = C:Sample(f, k, look)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -(i - 1) * 40)
+            w = max(w or 0, tonumber(b:GetWidth()) or 0)
+        end
+        w, h = (w and w > 20) and w or 220, 70
+    elseif part == "bars" then
+        local B = ns.LookBars
+        if not (B and look) or key == "blizzard" then return nil end
+        local list = {}
+        for j, ic in ipairs(SAMPLE_ICONS) do
+            local b = CreateFrame("Button", nil, f)
+            b:SetSize(32, 32)
+            b:SetPoint("TOPLEFT", f, "TOPLEFT", (j - 1) * 38, 0)
+            b.icon = b:CreateTexture(nil, "BACKGROUND")
+            b.icon:SetAllPoints()
+            b.icon:SetTexture(ic)
+            b.HotKey = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            b.HotKey:SetText(tostring(j))
+            b.NormalTexture = b:CreateTexture()
+            B:Apply(b, look)
+            list[j] = b
+        end
+        -- (the bars switched back to the game's look unstyle every button LookBars styled, these too: again on show)
+        f.restyle = function() for _, b in ipairs(list) do B:Apply(b, look) end end
+        w, h = #SAMPLE_ICONS * 38 - 6, 34
+    elseif part == "bags" then
+        local B = ns.LookBars
+        if not (B and look) or key == "blizzard" then return nil end
+        local kr = CreateFrame("Button", nil, f)
+        kr:SetSize(18, 36)
+        kr.dzName = "KeyRingButton"
+        kr:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+        B:Tile(kr, look)
+        local list = { kr }
+        for j, ic in ipairs({ 133628, 133633, 133640, 133639 }) do
+            local b = CreateFrame("Button", nil, f)
+            b:SetSize(30, 30)
+            b.dzName = "CharacterBag" .. (j - 1) .. "Slot"
+            b.Icon = b:CreateTexture()
+            b.Icon:SetTexture(ic)
+            b:SetPoint("TOPLEFT", f, "TOPLEFT", 24 + (j - 1) * 34, -3)
+            B:Tile(b, look)
+            list[#list + 1] = b
+        end
+        f.restyle = function() for _, b in ipairs(list) do B:Tile(b, look) end end
+        w, h = 24 + 4 * 34 - 4, 36
+    elseif part == "meters" then
+        local MT, T = ns.MeterTheme, ns.Themes
+        local t = T and T:Get("meters", key)
+        if not (MT and MT._FillPreview and t) then return nil end
+        local holder = CreateFrame("Frame", nil, f)
+        holder:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+        MT._FillPreview(holder, t)
+        holder:SetScale(1)
+        w, h = tonumber(holder:GetWidth()) or 150, tonumber(holder:GetHeight()) or 60
+    elseif part == "classbars" then
+        local BF, T = ns.BarFace, ns.Themes
+        local t = T and T:Get("classbar", key)
+        if not (BF and BF._FillPreview and t) then return nil end
+        local holder = CreateFrame("Frame", nil, f)
+        holder:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+        BF._FillPreview(holder, t)
+        holder:SetScale(1)
+        w, h = tonumber(holder:GetWidth()) or 120, tonumber(holder:GetHeight()) or 40
+    elseif part == "timers" then
+        local RF = ns.RingFace
+        if not (RF and RF.Sample) then return nil end
+        local root, rw, rh, qw = RF:Sample(f, key, prefix or "swing")
+        if not root then return nil end
+        root:ClearAllPoints()
+        root:SetPoint("TOPLEFT", f, "TOPLEFT", qw or 0, 0)
+        w, h = rw + (qw or 0), rh
+    else
+        return nil
+    end
+    f:SetSize(w, h)
+    return f, w, h
+end
+
+-- Shows a part's sample in look `key` inside `area` (made once per area and look, kept): scaled to fit (fit = true:
+-- whole, at most `most`) or to fill and cut at the area's edges (the part tiles). Returns whether there is one.
+local function ShowSample(area, part, key, aw, ah, fit, most, prefix)
+    area.samples = area.samples or {}
+    for k, s in pairs(area.samples) do if s and k ~= key then s.f:Hide() end end
+    if not key then return false end
+    local s = area.samples[key]
+    if s == nil then
+        local ok, f, w, h = pcall(BuildSample, area, part, key, prefix)
+        s = (ok and f) and { f = f, w = w, h = h } or false
+        if not ok and ns.Debug then ns:Debug("Settings sample %s/%s: %s", part, tostring(key), tostring(f)) end
+        area.samples[key] = s
+    end
+    if not s then return false end
+    if s.f.restyle then pcall(s.f.restyle) end
+    local sc
+    if fit then
+        sc = min(most or 1.6, (aw - 24) / s.w, (ah - 24) / s.h)
+    else
+        sc = min(0.75, max(aw / s.w, ah / s.h))
+    end
+    sc = max(0.2, sc)
+    local f = s.f
+    f:SetScale(sc)
+    local x = (s.w * sc <= aw) and floor((aw - s.w * sc) / 2) or 4
+    local y = (s.h * sc <= ah) and floor((ah - s.h * sc) / 2) or 3
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", area, "TOPLEFT", x / sc, -y / sc)
+    f:Show()
+    return true
+end
+
+-- A part's tile: the sample on a dark band (cut at its edges), the name, the look it wears; a click opens its page.
+local function NewPartTile(sec, p)
+    local t = CreateFrame("Button", nil, sec)
+    t.part = p.key
+    t:SetHeight(PART_TILE_H)
+    t.bg = UI:Fill(t, "CARD", "BACKGROUND", 0)
+    UI:AddEdges(t, "BORDER")
+    UI:SetEdgeColor(t, S:Color("EDGE"))
+    t.pv = CreateFrame("Frame", nil, t)
+    t.pv:SetPoint("TOPLEFT", 1, -1)
+    t.pv:SetPoint("TOPRIGHT", -1, -1)
+    t.pv:SetHeight(PV_H)
+    if t.pv.SetClipsChildren then t.pv:SetClipsChildren(true) end
+    t.pvbg = UI:Fill(t.pv, "INSET", "BACKGROUND", 0)
+    t.glyph = t.pv:CreateTexture(nil, "ARTWORK")
+    t.glyph:SetSize(20, 20)
+    t.glyph:SetPoint("CENTER")
+    local co = UI:IconCoords(p.glyph or 31)
+    t.glyph:SetTexture(UI.ICON_ATLAS)
+    t.glyph:SetTexCoord(co[1], co[2], co[3], co[4])
+    t.glyph:SetVertexColor(S:Color("DIM"))
+    t.name = UI:Text(t, "emph", "TEXT")
+    t.name:SetPoint("TOPLEFT", t, "TOPLEFT", 8, -(PV_H + 6))
+    t.look = UI:Text(t, "small", "SUB")
+    t.look:SetPoint("TOPLEFT", t.name, "BOTTOMLEFT", 0, -2)
+    local name, tip = PartInfo(p.key)
+    t.name:SetText(name)
+    UI:DecorateRow(t)
+    UI:AttachTooltip(t, name, { tip, "Click: its look and options" })
+    t:SetScript("OnClick", function() SettingsUI:OpenPart(p.key) end)
+    return t
+end
+
+function SettingsUI:BuildLooks(sec)
     sec.y = sec.y - 4
     local Look = ns.Look
     Look:Tiles(self, sec)
     -- one click puts Classic on every part and on the addon's own themed parts (meters, class bars, timers)
-    local row = self:Row(sec, "Classic everywhere", "The game frames, meters, class bars and swing timers in the game's own art.")
+    local row = self:Row(sec, "Classic everywhere", "Every part and the addon's own themes in the game's art.")
     local all = ns.UI:CreateSleekButton(row, "Use Classic everywhere", 160, 22, function()
         Look:UseEverywhere("classic")
         SettingsUI:Refresh()
     end)
     all:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    local function Head(text)
-        local h = UI:CreateSectionHeader(sec, text)
-        h:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 10)
-        h:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 10)
-        sec.y = sec.y - 38
+    row.control = all
+    PlaceText(row, 160)
+    row.line:Hide()
+    local h = UI:CreateSectionHeader(sec, "Every part", { style = "caps", right = "Open one for its look and options" })
+    h:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 10)
+    h:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 10)
+    sec.y = sec.y - 34
+    sec.gridTop = sec.y
+    sec.partTiles = {}
+    for _, p in ipairs(PARTS) do sec.partTiles[#sec.partTiles + 1] = NewPartTile(sec, p) end
+    self.looksSec = sec
+    self:LayoutPartTiles()
+end
+
+-- Places the part tiles (the ones there for me) PART_COLS to a row and sizes the Looks card; repaints their samples.
+function SettingsUI:LayoutPartTiles()
+    local sec = self.looksSec
+    if not sec then return end
+    local w = self:BodyWidth()
+    local tw = floor((w - (PART_COLS - 1) * PART_GAP) / PART_COLS)
+    local i = 0
+    for _, t in ipairs(sec.partTiles) do
+        if self:PartShown(t.part) then
+            local col, rowN = i % PART_COLS, floor(i / PART_COLS)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", sec, "TOPLEFT", col * (tw + PART_GAP), sec.gridTop - rowN * (PART_TILE_H + PART_GAP))
+            t:SetWidth(tw)
+            local key, prefix = PartLook(t.part)
+            local has = ShowSample(t.pv, t.part, key, tw - 2, PV_H, false, nil, prefix)
+            t.glyph:SetShown(not has)
+            t.look:SetText(self:PartLookName(t.part) .. ((PART[t.part] and not PART[t.part].kind and not PART[t.part].kits
+                and t.part ~= "sct" and Get("ui." .. t.part .. ".look", "inherit") ~= "inherit") and "  ·  own" or ""))
+            t:Show()
+            i = i + 1
+        else
+            t:Hide()
+        end
     end
-    local function LookOptions()
-        local out = { { value = "inherit", text = "Same as everything" } }
-        for _, l in ipairs(Look.LOOKS) do out[#out + 1] = { value = l.key, text = l.name } end
-        return out
+    local rows = max(1, math.ceil(i / PART_COLS))
+    sec.height = -sec.gridTop + rows * (PART_TILE_H + PART_GAP) - PART_GAP + 6
+end
+
+-- The look tiles of a game part's page: "Same as everything" first, then every look (Look's own tile sample).
+local function PaintLookTile(tile, t)
+    local Look = ns.Look
+    if not tile.word then
+        tile.word = UI:Text(tile, "small", "SUB", { justify = "CENTER" })
+        tile.word:SetPoint("TOP", tile, "TOP", 0, -12)
+        tile.word:SetWidth((tile:GetWidth() or 60) - 6)
+        tile.word:SetWordWrap(true)
     end
-    local OPTS = {
-        units = {
-            { "portrait", "Portrait", "Class icon for players; the game's portrait for the rest.", "class",
-              { { value = "class", text = "Class icon" }, { value = "portrait", text = "Portrait" }, { value = "none", text = "None" } } },
-            { "healthColor", "Health colour", "The look's: the game's green in Classic, class colours in the rest.", "theme",
-              { { value = "theme", text = "The look's" }, { value = "class", text = "Class" }, { value = "green", text = "Green" },
-                { value = "gradient", text = "By health" } } },
-            { "healthText", "Health text", "", "both",
-              { { value = "both", text = "14.2k  84%" }, { value = "pct", text = "84%" },
-                { value = "full", text = "14,212 / 16,840" }, { value = "none", text = "None" } } },
-            { "debuffs", "Auras on target", "Your own first, everyone's, or only yours.", "mine",
-              { { value = "mine", text = "Mine first" }, { value = "all", text = "All" }, { value = "onlymine", text = "Only mine" } } },
-            { "timers", "Aura timers", "Seconds left under each aura.", true },
-        },
-        group = {
-            { "healthColor", "Health colour", "The look's: the game's green in Classic, class colours in the rest.", "theme",
-              { { value = "theme", text = "The look's" }, { value = "class", text = "Class" }, { value = "green", text = "Green" },
-                { value = "gradient", text = "By health" } } },
-            { "player", "Me in my party", "Your own frame at the top of the party frames.", false },
-            { "range", "Fade out of range", "Party and raid members too far to heal.", true },
-            { "dispel", "Light what I can remove", "A debuff you can dispel colours the frame's edge.", true },
-        },
-        cast = {
-            { "latency", "Latency", "A soft red end on your own casts: from there the next cast can be queued.", true,
-              tip = "It is as long as the time your cast takes to reach the server (your world latency). When the "
-                  .. "fill reaches it, pressing the next spell already queues it." },
-            { "time", "Time", "", "left",
-              { { value = "left", text = "0.6" }, { value = "both", text = "0.6 / 1.5" }, { value = "none", text = "None" } } },
-            { "icon", "Spell icon", "", true },
-            { "target", "Target's cast bar", "", true },
-            { "focus", "Focus's cast bar", "", true },
-        },
-        bars = {
-            { "dock", "Dock", "Every bottom bar on one grid: the bars, bags, menu, stance, pet and experience.", true,
-              tip = "Action bars 1 to 3 make one block (turn bars 2 and 3 on in the game's Options > Action Bars), "
-                  .. "the bags and the menu stand beside it at its height, the stance and pet bars sit on top and "
-                  .. "the experience bar runs under it. Bars 4 and 5 stand at the right edge. Move it in Edit "
-                  .. "layout. Turning it off hands the bars back to the game after a reload." },
-            { "size", "Button size", "Every gap and edge of the Dock grows with it.", 36,
-              { { value = 30, text = "Compact (30)" }, { value = 33, text = "Small (33)" }, { value = 36, text = "Normal (36)" },
-                { value = 39, text = "Big (39)" }, { value = 42, text = "Large (42)" } } },
-            { "rail", "Bars 4 and 5 at the right edge", "In the Dock's look and size, two columns.", true },
-            { "art", "Bar art", "The plate behind the bars: stone and steel, marble and gold, or the guild vault.",
-              "ironforge", (function()
-                  local out = {}
-                  for _, s in ipairs(ns.DockArt and ns.DockArt.SETS or {}) do out[#out + 1] = { value = s.key, text = s.name } end
-                  return out
-              end)(), classic = true,
-              tip = "Ironforge: the vanilla bar's stone, a riveted steel frame and carved wells. Stormwind: dark marble "
-                  .. "set in gold with sapphires. Guild Vault: the guild bank's iron, crimson leather and brass slots." },
-            { "caps", "End caps", "At the Dock's ends: the art's own, gryphons or lions.", "match",
-              { { value = "match", text = "Match the art" }, { value = "gryphon", text = "Gryphons" },
-                { value = "lion", text = "Lions" }, { value = "none", text = "None" } }, classic = true },
-            { "keys", "Key binds", "", true },
-            { "macros", "Macro names", "", false },
-            { "cooldown", "Cooldowns", "", "theme",
-              { { value = "theme", text = "Sweep and number" }, { value = "sweep", text = "Sweep" },
-                { value = "numbers", text = "Number" } } },
-            { "range", "Out of range", "", "icon", { { value = "icon", text = "Red icon" }, { value = "key", text = "Red key bind" } } },
-            { "xp", "Experience bar", "Your experience and the reputation you watch, in the look.", true },
-        },
-        bags = {
-            { "layout", "Layout", "How the window lays out your items. Only the view changes: items stay in their slots.",
-              "one", { { value = "one", text = "One bag" }, { value = "shelves", text = "Shelves" },
-                       { value = "bags", text = "Bag by bag" } } },
-            { "newglow", "Glow on new items", "Until you have seen them once.", true },
-        },
-        minimap = {
-            { "shape", "Shape", "The look's own: round for Halo and Gilded, square for the rest.", "theme",
-              { { value = "theme", text = "The look's" }, { value = "round", text = "Round" }, { value = "square", text = "Square" } } },
-            { "buttons", "Addon buttons", "Minimap buttons of other addons.", "edge",
-              { { value = "edge", text = "Round the edge" }, { value = "drawer", text = "In a drawer" },
-                { value = "hover", text = "On mouse-over" } } },
-            { "clock", "Clock", "", true },
-            { "zone", "Zone", "", true },
-        },
-        sct = {
-            { "place", "Where numbers go", "On the nameplate of the mob you hit, or in fixed columns beside you.", "plate",
-              { { value = "plate", text = "On the nameplate" }, { value = "columns", text = "Columns" } },
-              tip = "Numbers ride the plate of the mob they hit (enemy nameplates on). A mob without a plate shown, or "
-                  .. "Columns, uses the target spot. Move the spots in Edit layout." },
-            { "size", "Size", "", 1,
-              { { value = 0.7, text = "Small" }, { value = 0.85, text = "Medium" }, { value = 1, text = "Large" },
-                { value = 1.15, text = "Huge" } } },
-            { "hideGame", "Hide the game's numbers", "Its damage and healing numbers stay off while these are on.", true },
-            { "merge", "Merge hits", "Ticks and hits that land together count up as one.", "theme",
-              { { value = "theme", text = "The look's" }, { value = "on", text = "Always" }, { value = "off", text = "Never" } },
-              tip = "The look's: every look merges but Classic, which shows each number like the game." },
-            { "taken", "Hits taken", "", true },
-            { "heals", "Heals on me", "With the healer's name.", true },
-            { "procs", "Procs", "Buffs you gain in combat that last a minute or less.", true },
-            { "alerts", "Spells that light up", "Hammer of Wrath, Execute, Overpower, Revenge, Riposte ...", true },
-            { "lowHealth", "Low health and mana", "", true },
-            { "autoAttacks", "Auto attacks", "", true },
-            { "minHit", "Hide hits under", "Crits always show.", 0,
-              { { value = 0, text = "Show all" }, { value = 100, text = "100" }, { value = 250, text = "250" },
-                { value = 500, text = "500" }, { value = 1000, text = "1,000" } } },
-            { "minHeal", "Hide heals under", "", 0,
-              { { value = 0, text = "Show all" }, { value = 100, text = "100" }, { value = 250, text = "250" },
-                { value = 500, text = "500" }, { value = 1000, text = "1,000" } } },
-        },
-    }
-    for _, p in ipairs(Look.PARTS) do
-        Head(p.name)
+    if t.key == "inherit" then
+        local all = Look and Look.BY_KEY[Get("ui.look", "blizzard")]
+        tile.word:SetText("Follows\n" .. (all and all.name or "Blizzard"))
+        tile.word:Show()
+        if tile.preview.host then tile.preview.host:Hide() end
+        return
+    end
+    tile.word:Hide()
+    if Look and Look.PaintTile then Look.PaintTile(tile, t) end
+end
+
+-- A part's page (made with the panel so the search finds its options; its samples are made when it opens).
+function SettingsUI:NewPartPage(p)
+    local page = CreateFrame("Frame", nil, self.child)
+    page:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, 0)
+    page:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, 0)
+    page:SetHeight(1)
+    page:Hide()
+    page.part = p.key
+    local name, tip = PartInfo(p.key)
+    page.back = UI:CreateBackLink(page, "Looks", function() SettingsUI:SelectSection("looks") end)
+    page.back:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -2)
+    page.title = UI:Text(page, "title", "GOLD")
+    page.title:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -22)
+    page.title:SetText(name)
+    page.tip = UI:Text(page, "small", "SUB")
+    page.tip:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -42)
+    page.tip:SetText(tip or "")
+    page.reset = ns.UI:CreateSleekButton(page, "", 120, 20, function() SettingsUI:ResetCard("part:" .. p.key) end)
+    page.reset:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, -22)
+    page.reset:Hide()
+    -- the stage: the sample of the part in the look it wears (or the look a tile points at)
+    local stage = CreateFrame("Frame", nil, page)
+    stage:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -STAGE_Y)
+    stage:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, -STAGE_Y)
+    stage:SetHeight(STAGE_H)
+    if stage.SetClipsChildren then stage:SetClipsChildren(true) end
+    stage.bg = UI:Fill(stage, "INSET", "BACKGROUND", 0)
+    UI:AddEdges(stage, "BORDER")
+    UI:SetEdgeColor(stage, S:Color("EDGE"))
+    stage.tag = UI:Text(stage, "small", "SUB", { justify = "RIGHT" })
+    stage.tag:SetPoint("TOPRIGHT", stage, "TOPRIGHT", -8, -7)
+    stage.note = UI:Text(stage, "body", "SUB", { justify = "CENTER" })
+    stage.note:SetPoint("CENTER", stage, "CENTER", 0, 0)
+    stage.note:SetWidth(360)
+    stage.note:SetWordWrap(true)
+    page.stage = stage
+    -- the look tiles and the options
+    local sec = CreateFrame("Frame", nil, page)
+    sec:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -(STAGE_Y + STAGE_H + 6))
+    sec:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, -(STAGE_Y + STAGE_H + 6))
+    sec:SetHeight(1)
+    sec.key = "look." .. p.key
+    sec.rows = {}
+    sec.y = 0
+    sec.page = page
+    sec.fitW = CARDS_W
+    page.sec = sec
+    self.sections[sec.key] = sec
+    self.parts[p.key] = page
+    self.ctx = { cat = "interface", card = "looks", part = p.key, path = { "Interface", "Looks", name } }
+    self:BuildPart(sec, p)
+    self.ctx = nil
+    sec:SetHeight(max(1, sec.height or 0))
+    page.height = STAGE_Y + STAGE_H + 6 + (sec.height or 0) + 8
+    page:SetHeight(page.height)
+    return page
+end
+
+-- A part's look tiles and options.
+function SettingsUI:BuildPart(sec, p)
+    local key, Look, T = p.key, ns.Look, ns.Themes
+    sec.y = sec.y - 2
+    local function repaint() SettingsUI:PaintStage(key) end
+    if key == "meters" then
+        if ns.MeterTheme then ns.MeterTheme:SettingsTiles(self, sec) end
+        for _, o in ipairs(PART_OPTS.meters) do self:DropdownSetting(sec, o[2], o[3], o[1], o[4], o[5]) end
+    elseif key == "classbars" then
+        if ns.BarFace then ns.BarFace:SettingsRow(self, sec) end
+    elseif key == "timers" then
+        local CK = ns.ClassKit
+        for _, prefix in ipairs({ "swing", "shot" }) do
+            local kit = CK and CK:Get(prefix)
+            if kit and ns.RingFace and (CK:IsDemo() or kit.class == CK:MyClass()) then
+                ns.RingFace:SettingsRow(self, sec, prefix, kit.label)
+            end
+        end
+    else
         -- (combat text has its own switch, off until turned on: no look for everything turns it on)
-        if p.key == "sct" then
+        if key == "sct" then
             self:SwitchSetting(sec, "Show combat text", "Off until you turn it on.", "ui.sct.on", false,
                 "Nothing else turns it on, not even a look for everything. With Blizzard as its look it wears Classic.")
         end
-        self:Dropdown(sec, "Look", p.tip, LookOptions,
-            function() return Get("ui." .. p.key .. ".look", "inherit") end,
-            function(a, b) Set("ui." .. p.key .. ".look", Value(a, b)) end)
-        for _, o in ipairs(OPTS[p.key] or {}) do
-            local path = "ui." .. p.key .. "." .. o[1]
+        local kind = "uilook." .. key
+        if T then
+            local list = { { key = "inherit", name = "Everything's", tip = "The look for everything (Interface > Looks)." } }
+            for _, l in ipairs(Look and Look.LOOKS or {}) do list[#list + 1] = l end
+            T:Define(kind, list, "inherit", { setting = "ui." .. key .. ".look", onPreview = repaint })
+            T:SettingsRow(self, sec, kind, "Look", "Pick one for this part, or let it follow the look for everything.",
+                { tileW = 63, tileH = 62, gap = 5, clip = true, band = true, nameY = 5, previewAt = { 3, -10 },
+                  paint = PaintLookTile, fitWidth = CARDS_W, onPick = function() SettingsUI:Refresh() end })
+        end
+        for _, o in ipairs(PART_OPTS[key] or {}) do
+            local path = "ui." .. key .. "." .. o[1]
             local row
             if type(o[4]) == "boolean" then _, row = self:SwitchSetting(sec, o[2], o[3], path, o[4], o.tip)
             else _, row = self:DropdownSetting(sec, o[2], o[3], path, o[4], o[5], o.tip) end
-            -- (Classic's own options: a choice only while the part wears Classic; a look picked anywhere refreshes)
+            -- (Classic's own options: a choice only while the part wears Classic)
             if o.classic then
-                if not self.lookWatch then
-                    self.lookWatch = true
-                    ns:On("UI_LOOK_CHANGED", function(_, changed)
-                        if changed == "ui.look" or (type(changed) == "string" and changed:find("%.look$")) then
-                            SettingsUI:RequestRefresh()
-                        end
-                    end)
-                end
-                local part = p.key
                 self.refreshers[#self.refreshers + 1] = { Refresh = function()
-                    SetReadOnly(row, not Look:For(part).game, "With Classic")
+                    SetReadOnly(row, not Look:For(key).game, "With Classic")
                 end }
             end
         end
-        if p.key == "sct" and ns.CombatTextUI then
+        if key == "sct" and ns.CombatTextUI then
             local row = self:Row(sec, "Try it", "A made-up pull plays on your screen. Nothing is cast or sent.")
             local try = ns.UI:CreateSleekButton(row, "Try it", 80, 22, function() ns.CombatTextUI:TryIt() end)
             try:SetPoint("RIGHT", row, "RIGHT", 0, 0)
             row.control = try
+            PlaceText(row, 80)
         end
     end
     self:EndSection(sec)
+end
+
+-- Readies a part's page before it shows (its stage, its Back to defaults).
+function SettingsUI:PreparePart(key)
+    local page = self.parts and self.parts[key]
+    if not page then return end
+    self:PaintStage(key)
+    local n = self:ChangedIn("part:" .. key)
+    page.reset:SetShown(n > 0)
+    if n > 0 then
+        page.reset:SetText(UI:AtlasIconText(9, 11, S.C.GOLD) .. " Back to defaults · " .. n)
+        local fs = page.reset:GetFontString()
+        page.reset:SetWidth(floor((fs and UI:TextWidth(fs) or 110) + 22))
+    end
+end
+
+-- The part's sample on its page's stage, in the look it wears (or the one a look tile is pointed at).
+function SettingsUI:PaintStage(key)
+    local page = self.parts and self.parts[key]
+    if not page then return end
+    local stage = page.stage
+    local look, prefix = PartLook(key)
+    local w = tonumber(stage:GetWidth()) or 0
+    if w < 100 then w = CARDS_W end
+    local name = self:PartLookName(key)
+    local L = ns.Look
+    if PART[key] and not PART[key].kind and not PART[key].kits and L and L.BY_KEY[look] then name = L.BY_KEY[look].name end
+    stage.tag:SetText("Sample  ·  " .. (name or ""))
+    local has = false
+    if key == "sct" and not Get("ui.sct.on", false) then
+        stage.note:SetText("Combat text is off.\nTurn it on below: nothing else turns it on.")
+    elseif look == "blizzard" and not (PART[key].kind or PART[key].kits) then
+        stage.note:SetText("The game's own " .. (PartInfo(key)):lower() .. ", as Blizzard made them.")
+    else
+        has = ShowSample(stage, key, look, w, STAGE_H, true, 1.4, prefix)
+        if not has then
+            stage.note:SetText((PartInfo(key)) .. " in " .. (name or "") .. ": see it on your screen.")
+        end
+    end
+    if has then
+        stage.note:Hide()
+    else
+        ShowSample(stage, key, nil)
+        stage.note:Show()
+    end
 end
 
 -- Layout: Edit layout, this character's profile, a new one and a share link.
@@ -1451,19 +2563,28 @@ function SettingsUI:BuildWindow(sec)
         { value = "home", text = "Home (dashboard)" },
         { value = "last", text = "The tab used last" },
     })
-    self:Dropdown(sec, "View phase", "The phase your council views, tooltips and drop alerts use.", ViewPhaseOptions,
-        function() return tonumber(Get("viewPhase", nil)) or 0 end,
-        function(a, b)
-            local v = tonumber(Value(a, b))
-            Set("viewPhase", (v and v >= 1 and v <= MaxPhase()) and v or nil)
-        end)
-    self:Switch(sec, "Minimap button", "Click opens this window, right-click Settings, Shift-click the boss drops.",
+    local _, row = self:Switch(sec, "Minimap button", "Click opens this window, right-click Settings, Shift-click the boss drops.",
         function() return not Get("minimap.hide", false) end,
         function(a, b)
             local shown = Bool(a, b)
             Set("minimap.hide", not shown)
             SetMinimapShown(shown)
         end)
+    self:SetDefault(row, true)
+    self:EndSection(sec)
+end
+
+-- The phase I look at (my council views, tooltips and drop alerts): beside the tooltips it decides.
+function SettingsUI:BuildPhase(sec)
+    sec.y = sec.y - 4
+    local _, row = self:Dropdown(sec, "View phase", "The phase your council views, tooltips and drop alerts use.",
+        ViewPhaseOptions,
+        function() return tonumber(Get("viewPhase", nil)) or 0 end,
+        function(a, b)
+            local v = tonumber(Value(a, b))
+            Set("viewPhase", (v and v >= 1 and v <= MaxPhase()) and v or nil)
+        end)
+    self:SetDefault(row, 0)
     self:EndSection(sec)
 end
 
@@ -1522,7 +2643,7 @@ end
 -- dimmed and locked while the window it belongs to is off (the shared ones while both are off).
 function SettingsUI:BuildMeters(sec)
     local sub = self:Subtitle(sec)
-    sub:SetText("Damage and threat in panels that dock together. Your own combat log only; nothing is shared or posted.")
+    sub:SetText("Damage and threat from your own combat log, in panels that dock together.")
     sub:SetTextColor(S:Color("SUB"))
     local groups = { dmg = {}, thr = {}, both = {} }
     -- a group of the section: a section header with the meter's icon
@@ -1579,30 +2700,9 @@ function SettingsUI:BuildMeters(sec)
         "meters.tankView", "auto", { { value = "auto", text = "While I tank" }, { value = "always", text = "Always" },
                                      { value = "never", text = "Never" } }))
 
-    -- the look (UI/MeterTheme.lua): a theme, then overrides on top of it
-    Head("Look", nil)
-    if ns.MeterTheme then
-        local strip, trow = ns.MeterTheme:SettingsTiles(self, sec)
-        Track("both", nil, trow)
-        Track("both", nil, strip)
-    end
-    Track("both", self:DropdownSetting(sec, "Bar colour", "What colours the bars.", "meters.barColor", "class",
-        { { value = "class", text = "Class colour" }, { value = "role", text = "Role colour" },
-          { value = "one", text = "One colour" } }))
-    Track("both", self:DropdownSetting(sec, "Icons", "The picture in front of each name.", "meters.icons", "theme",
-        { { value = "theme", text = "Theme default" }, { value = "spec", text = "Spec" }, { value = "class", text = "Class" },
-          { value = "none", text = "None" } }))
-    Track("both", self:DropdownSetting(sec, "Rows", "Bar height; the theme sets its own.", "meters.rowSize", "theme",
-        { { value = "compact", text = "Compact" }, { value = "theme", text = "Theme default" }, { value = "roomy", text = "Roomy" } }))
-    Track("both", self:DropdownSetting(sec, "Numbers", "How amounts are written.", "meters.numbers", "short",
-        { { value = "short", text = "380.1k" }, { value = "full", text = "380,112" }, { value = "round", text = "380k" } }))
-    Track("both", self:DropdownSetting(sec, "Background", "How dark the panels are behind the bars.", "meters.bg", "theme",
-        { { value = "theme", text = "Theme default" }, { value = 0, text = "None" }, { value = 25, text = "25%" },
-          { value = 50, text = "50%" }, { value = 75, text = "75%" }, { value = 90, text = "90%" } }))
-    Track("both", self:DropdownSetting(sec, "Size", "Bar height and text size together.", "meters.size", "normal",
-        { { value = "small", text = "Small" }, { value = "normal", text = "Normal" }, { value = "large", text = "Large" } }))
-
     Head("Panels", nil)
+    -- (their look: Interface > Looks > Meters, where every look is picked; open to a look with both meters off too)
+    self:LookLinkRow(sec, "Look", "Theme, bar colour, icons, rows, numbers, background and size.", "meters")
     Track("both", self:DropdownSetting(sec, "Show them", "When the panels appear on their own.", "meters.show", "group",
         { { value = "group", text = "In a group" }, { value = "instance", text = "In instances" },
           { value = "always", text = "Always" } }))
@@ -1648,7 +2748,9 @@ function SettingsUI:BuildTutorials(sec)
     local sub = self:Subtitle(sec)
     sub:SetText("Short tours on the real windows. Nothing you do in one is sent to the guild.")
     sec.top = sec.y
-    local t = { parts = {}, setup = {} }
+    -- (Guild > Guild set-up is built first and keeps its rows in the same table)
+    local t = self.tut or { setup = {} }
+    t.parts = {}
     self.tut = t
     local function rowWithButton(title, label, onClick)
         local row = self:Row(sec, title, " ")
@@ -1673,7 +2775,16 @@ function SettingsUI:BuildTutorials(sec)
         function() return ns.WelcomeTour and ns.WelcomeTour:RoleOffersOn() or false end,
         function(a, b) if ns.WelcomeTour then ns.WelcomeTour:SetRoleOffers(Bool(a, b)) end end)
     t.offers = offers
-    -- the GM's checklist
+    self:EndSection(sec)
+end
+
+-- Guild > Guild set-up (the Guild Master only): the checklist (each open item opens its page) and its chip on Home.
+-- The rows live in self.tut (setupHead, setup[i]) as before, for the Welcome tour's last GM step.
+function SettingsUI:BuildSetup(sec)
+    local t = self.tut or { parts = {}, setup = {} }
+    self.tut = t
+    sec.y = sec.y - 4
+    sec.top = sec.y
     t.setupHead = self:Row(sec, "Set up your guild", " ")
     t.setupHead.title:SetTextColor(S:Color("GOLD"))
     local hide = ns.UI:CreateSwitch(t.setupHead,
@@ -1685,21 +2796,26 @@ function SettingsUI:BuildTutorials(sec)
     PlaceText(t.setupHead, SWITCH_W)
     AddTooltip(hide, "On Home", "A chip on Home says how much is left, until it is all done.")
     for i = 1, 5 do
-        t.setup[i] = rowWithButton("", "Open", function(b)
-            local it = b:GetParent().item
+        local row = self:Row(sec, "", " ")
+        local b = ns.UI:CreateSleekButton(row, "Open", TUT_BTN_W, 22, function(btn)
+            local it = btn:GetParent().item
             if it and it.open then it.open() end
         end)
+        b:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.btn = b
+        PlaceText(row, TUT_BTN_W)
+        t.setup[i] = row
     end
+    self.setupSec = sec
     self:EndSection(sec)
 end
 
--- Scrolls Settings > Tutorials so the GM's checklist is in view (the Welcome tour's last GM step); returns the rows.
+-- Opens Guild > Guild set-up so the GM's checklist is in view (the Welcome tour's last GM step); returns the rows.
 function SettingsUI:ShowSetupChecklist()
-    self:SelectSection("tutorials")
+    self:SelectSection("setup")
     self:Refresh()
     local t = self.tut
-    if not (t and t.setupHead and t.setupHead:IsShown()) then return nil end
-    if self.scroll and t.setupHead.y then self.scroll:SetVerticalScroll(max(0, -t.setupHead.y - 8)) end
+    if not (t and t.setupHead and t.setupHead:IsVisible()) then return nil end
     return t.setupHead, t.setup
 end
 
@@ -1730,7 +2846,7 @@ function SettingsUI:RefreshTutorials()
         row:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, y)
         row.y = y
         if row.line then row.line:Show() end
-        y = y - ROW_H
+        y = y - FitDesc(row)
     end
     local mine, others = W:Roles(), 0
     for _, key in ipairs(W.ORDER) do
@@ -1761,12 +2877,16 @@ function SettingsUI:RefreshTutorials()
         .. " · %d done", total, done)))
     put(t.strategy, def ~= nil)
     put(t.offers, true)
+    sec.height = -y + 2
+    -- Guild > Guild set-up (its own card, the GM's)
+    sec = self.setupSec
+    if not (sec and t.setupHead) then return end
+    y = sec.top
     local gm = mine.gm == true
     local list = gm and W:Checklist() or {}
     local n = 0
     for _, it in ipairs(list) do if it.done then n = n + 1 end end
     t.setupHead.desc:SetText(Grey(format("%d of %d done · shown on Home until then", n, #list)))
-    y = y - 10
     put(t.setupHead, gm)
     for i, row in ipairs(t.setup) do
         local it = list[i]
@@ -2138,13 +3258,13 @@ function SettingsUI:BuildCouncil(sec)
     cs.members = {}
     cs.raidSummary = UI:Text(cs, "emph", nil, { width = BODY_W, wrap = true })
     cs.raidMembers = {}
-    cs.editBtn = ns.UI:CreateSleekButton(cs, "Edit council", 116, 22, function() SettingsUI:OpenCouncilEditor() end)
-    cs.editBtn:SetPoint("RIGHT", cs, "TOPRIGHT", 0, -TITLE_H / 2)
+    cs.editBtn = ns.UI:CreateSleekButton(cs, "Edit council", 116, 20, function() SettingsUI:OpenCouncilEditor() end)
+    self:CardAction(sec, cs.editBtn)        -- (in the card's head)
     AddTooltip(cs.editBtn, "Edit council",
         "Opens the Loot Council picker (Council tab). The Guild Master picks the guild council; "
         .. "the raid leader picks extra council members for their raid.")
     cs.info = UI:Text(cs, "small", nil, { width = BODY_W, wrap = true })
-    sec.height = BODY_H
+    sec.height = 120
 end
 
 -- What "Edit council…" opens for me: the lists of the Council tab's picker I can change, only while the Council tab
@@ -2326,7 +3446,7 @@ function SettingsUI:RefreshAttendance()
     if not _G.IsInGuild() then
         sec.status:SetText(Grey("Attendance needs a guild."))
     elseif gm then
-        sec.status:SetText("You set these as Guild Master." .. Grey(" They reach every member."))
+        sec.status:SetText("You set these as Guild Master." .. Grey(" Every member gets them."))
     else
         sec.status:SetText(Grey("Set by the Guild Master for the whole guild."))
     end
@@ -2359,7 +3479,6 @@ function SettingsUI:Refresh()
     local p = self.panel
     if not p then return end
     p.dirty = false
-    self:LayoutNav()
     self:SyncWidth()
     self:LayoutClassTools()
     for _, w in ipairs(self.refreshers) do
@@ -2371,5 +3490,245 @@ function SettingsUI:Refresh()
     self:RefreshCouncil()
     self:RefreshAttendance()
     self:RefreshTutorials()
-    self:FitChild()
+    for _, row in ipairs(self.settingRows) do PaintDot(row) end
+    self:LayoutPartTiles()
+    -- (a card that is no longer there for me: back to its group)
+    if self.mode == "cards" and self.section and not self:CardVisible(self.section) then
+        self.section = (CAT[self.cat] or CATS[1]).cards[1]
+    end
+    if self.mode == "part" and self.part then self:PreparePart(self.part) end
+    if self.mode == "search" then self:LayoutResults() end
+    self:LayoutView()
+end
+
+---------------------------------------------------------------------------
+-- Search: every indexed option whose name, line or place (its kit, its part) has the words; grouped by where they
+-- are (a path you can click), each with a working control (made again from the entry, once) and its name a link
+-- that opens its card and lights it. A group, card or part whose name matches is a chip that opens it.
+---------------------------------------------------------------------------
+local RESULTS_MAX = 40
+local GO_H = 26
+
+function SettingsUI:BuildResults()
+    local f = CreateFrame("Frame", nil, self.child)
+    f:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, 0)
+    f:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, 0)
+    f:SetHeight(1)
+    f:Hide()
+    f.key = "search"
+    f.fitW = CARDS_W
+    f.rows = {}
+    f.y = 0
+    f.count = UI:Text(f, "small", "SUB")
+    f.count:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -4)
+    f.crumbs, f.chips = {}, {}
+    f.empty = UI:Text(f, "body", "SUB", { justify = "CENTER" })
+    f.empty:SetPoint("TOP", f, "TOP", 0, -60)
+    f.empty:SetWidth(400)
+    f.empty:SetWordWrap(true)
+    self.results = f
+end
+
+local function Lower(s) return type(s) == "string" and s:lower() or "" end
+
+-- (the words in gold in a name or line; plain text otherwise)
+local function Marked(text, q)
+    if type(text) ~= "string" or text == "" then return text or "" end
+    local i, j = text:lower():find(q, 1, true)
+    if not i then return text end
+    return text:sub(1, i - 1) .. S:Wrap("GOLD", text:sub(i, j)) .. text:sub(j + 1)
+end
+
+function SettingsUI:Search(text)
+    text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local q = #text >= 2 and text:lower() or nil       -- (one letter would match almost everything)
+    if q == self.query then return end
+    self.query = q
+    if q then
+        self.mode = "search"
+        self:LayoutResults()
+        if self.scroll then self.scroll:SetVerticalScroll(0) end
+    else
+        self.mode = self.part and "part" or "cards"
+    end
+    self:LayoutView()
+end
+
+-- Leaves the search (a group, a card or a part opened from anywhere): the box empties.
+function SettingsUI:ClearSearch()
+    if not self.query then return end
+    self.query = nil
+    if self.searchBox then
+        self.searchBox:SetText("")
+        self.searchBox:ClearFocus()
+    end
+end
+
+-- (a crumb: the gold path of the results under it and a chevron after it; a click opens that place)
+local function Crumb(f, i)
+    local c = f.crumbs[i]
+    if not c then
+        c = CreateFrame("Button", nil, f)
+        c:SetHeight(16)
+        c.text = UI:Text(c, "small", "GOLD")
+        c.text:SetPoint("LEFT", c, "LEFT", 0, 0)
+        c.icon = c:CreateTexture(nil, "ARTWORK")
+        c.icon:SetSize(9, 9)
+        UI:SetChevron(c.icon, true)
+        c.icon:SetVertexColor(S:Color("GOLD"))
+        c:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 1, 1) end)
+        c:SetScript("OnLeave", function(self) self.text:SetTextColor(S:Color("GOLD")) end)
+        c:SetScript("OnClick", function(self) if self.go then self.go() end end)
+        function c:SetPath(text, go)
+            self.text:SetText(text)
+            local w = floor(UI:TextWidth(self.text) + 0.5)
+            self.icon:ClearAllPoints()
+            self.icon:SetPoint("LEFT", self, "LEFT", w + 5, 0)
+            self:SetWidth(w + 16)
+            self.go = go
+        end
+        f.crumbs[i] = c
+    end
+    return c
+end
+
+-- (a result row for an option without a control of its own to make again: its words and a way to it)
+local function PlainResult(f, e)
+    local SU = SettingsUI
+    SU.noIndex = true
+    local row = SU:Row(f, e.title, e.desc ~= "" and e.desc or nil)
+    SU.noIndex = nil
+    local b = ns.UI:CreateSleekButton(row, "Show", 70, 22, function() SU:Jump(e) end)
+    b:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.control = b
+    PlaceText(row, 70)
+    return row
+end
+
+function SettingsUI:LayoutResults()
+    local f, q = self.results, self.query
+    if not (f and q) then return end
+    -- the matches, in the order the cards come (the index's)
+    local hits = {}
+    for _, e in ipairs(self.index) do
+        local where = e.path[#e.path]
+        if (not e.kit or self:KitShown(e.kit) or (ns.ClassKit and ns.ClassKit:IsDemo()))
+            and (not e.part or self:PartShown(e.part)) and (not e.card or self:CardVisible(e.card))
+            and (Lower(e.title):find(q, 1, true) or Lower(e.desc):find(q, 1, true) or Lower(where):find(q, 1, true)) then
+            hits[#hits + 1] = e
+        end
+    end
+    -- places whose name matches: a chip each
+    local places = {}
+    for _, c in ipairs(CATS) do
+        if Lower(c.label):find(q, 1, true) then places[#places + 1] = { c.label, function() SettingsUI:OpenCategory(c.key) end } end
+        for _, k in ipairs(c.cards) do
+            if CARDS[k].label ~= c.label and self:CardVisible(k) and Lower(CARDS[k].label):find(q, 1, true) then
+                places[#places + 1] = { c.label .. " > " .. CARDS[k].label, function() SettingsUI:SelectSection(k) end }
+            end
+        end
+    end
+    for _, p in ipairs(PARTS) do
+        local name = PartInfo(p.key)
+        if self:PartShown(p.key) and Lower(name):find(q, 1, true) then
+            places[#places + 1] = { "Looks > " .. name, function() SettingsUI:OpenPart(p.key) end }
+        end
+    end
+    for _, r in ipairs(f.rows) do r:Hide() end
+    for _, c in ipairs(f.crumbs) do c:Hide() end
+    for _, c in ipairs(f.chips) do c:Hide() end
+    local y = -2
+    local n = min(#hits, RESULTS_MAX)
+    self.searchCount = #hits == 0 and "" or (#hits > RESULTS_MAX
+        and format("%d options match \"%s\": the first %d", #hits, q, RESULTS_MAX)
+        or format("%d option%s match%s \"%s\"", #hits, #hits == 1 and "" or "s", #hits == 1 and "es" or "", q))
+    f.count:Hide()
+    if #places > 0 then
+        local x = 0
+        for i, pl in ipairs(places) do
+            if i > 6 then break end
+            local c = f.chips[i]
+            if not c then
+                c = UI:CreateChip(f, { kind = "plain", onClick = function(self) if self.go then self.go() end end })
+                f.chips[i] = c
+            end
+            c.go = pl[2]
+            c:Set(pl[1])
+            c:ClearAllPoints()
+            c:SetPoint("TOPLEFT", f, "TOPLEFT", x, y - 2)
+            c:Show()
+            x = x + c:GetWidth() + 6
+        end
+        y = y - GO_H - 4
+    end
+    f.empty:SetShown(#hits == 0 and #places == 0)
+    f.empty:SetText(format("Nothing matches \"%s\".\nTry sound, phase, look or council.", q))
+    local last, nc = nil, 0
+    for i = 1, n do
+        local e = hits[i]
+        local key = table.concat(e.path, "  >  ")
+        if key ~= last then
+            nc = nc + 1
+            local c = Crumb(f, nc)
+            c:SetPath(key, function() SettingsUI:Jump(e, true) end)
+            c:ClearAllPoints()
+            local gap = nc == 1 and 2 or 12
+            c:SetPoint("TOPLEFT", f, "TOPLEFT", 0, y - gap)
+            c:Show()
+            y = y - gap - 18
+            last = key
+        end
+        if e.result == nil then
+            self.noIndex = true
+            local ok, row = pcall(function() return e.make and e.make(f) or PlainResult(f, e) end)
+            self.noIndex = nil
+            e.result = ok and row or false
+            if e.result then
+                local r = e.result
+                -- its name opens the option's own place and lights it
+                r.jump = CreateFrame("Button", nil, r)
+                r.jump:SetPoint("TOPLEFT", r.title, "TOPLEFT", -2, 2)
+                r.jump:SetHeight(16)
+                r.jump:SetScript("OnClick", function() SettingsUI:Jump(e) end)
+                r.jump:SetScript("OnEnter", function() r.title:SetTextColor(S:Color("GOLD")) end)
+                r.jump:SetScript("OnLeave", function() r.title:SetTextColor(S:Color("TEXT")) end)
+                AddTooltip(r.jump, e.title, "Click: show it in " .. table.concat(e.path, " > "))
+            end
+        end
+        local r = e.result
+        if r then
+            r.title:SetText(Marked(e.title, q))
+            if e.desc ~= "" then r.desc:SetText(Marked(e.desc, q)) end
+            r.jump:SetWidth(floor(UI:TextWidth(r.title) + 4))
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", f, "TOPLEFT", 0, y)
+            r:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, y)
+            if r.line then r.line:Show() end
+            if r.Refresh then r:Refresh() end
+            if r.control and r.control.Refresh then r.control:Refresh() end
+            r:Show()
+            y = y - (r:GetHeight() > 0 and r:GetHeight() or ROW_H)
+        end
+    end
+    f.height = -y + 8
+    f:SetHeight(max(1, f.height))
+end
+
+-- Opens where an entry lives (its card, its kit's card open, or its part's page) and lights its row; toCard: the
+-- crumb's click, the card (or page) itself.
+function SettingsUI:Jump(e, toCard)
+    if e.kit then kitOpen[e.kit] = true end
+    if e.part then
+        self:OpenPart(e.part)
+    else
+        self:SelectSection(e.card)
+        if e.kit then self:LayoutClassTools() end
+    end
+    if toCard then return end
+    local row = e.row
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function() SettingsUI:ShowRow(row) end)   -- (once the page is laid out)
+    else
+        self:ShowRow(row)
+    end
 end
