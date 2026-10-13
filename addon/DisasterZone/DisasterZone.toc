@@ -4,7 +4,7 @@
 ## Author: Casual Disaster
 ## Version: 1.4.1
 ## X-CDL-Protocol: 1
-## SavedVariables: DisasterZoneDB, DisasterZonePatchDB, DisasterZoneLogDB, DisasterZoneMeterDB
+## SavedVariables: DisasterZoneDB, DisasterZonePatchDB, DisasterZoneLogDB, DisasterZoneMeterDB, DisasterZoneBossLearnDB
 ## LoadSavedVariablesFirst: 1
 ## OptionalDeps: CDLoot
 ## IconTexture: Interface\AddOns\DisasterZone\Media\Launcher\seal
@@ -116,6 +116,8 @@ Core\RaidLog.lua
 Core\CombatLog.lua
 Core\CombatText.lua
 Core\BossMod.lua
+Core\BossLearnMath.lua
+Core\BossLearn.lua
 Core\MyLog.lua
 Core\MyLogDemo.lua
 Core\Meter.lua
@@ -288,6 +290,7 @@ UI\CombatText.lua
 UI\CombatTextLooks.lua
 UI\BossModLooks.lua
 UI\BossModUI.lua
+UI\BossLearnUI.lua
 UI\PatchUI.lua
 
 # Games (just for fun; never touch loot state)

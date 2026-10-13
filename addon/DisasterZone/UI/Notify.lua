@@ -699,6 +699,7 @@ local function ShowToast(it)
         icon = UI().ICON_ATLAS, iconSize = 14, iconCoords = UI():IconCoords(UI().ICON.notes),
         -- (the whole title over up to 4 lines, as before 1.4: a poll's question is read before Yes / No)
         kicker = kicker, title = it.title or "", titleLines = 4, text = (it.text or "") ~= "" and it.text or nil,
+        lines = def.lines,            -- (a kind may show more lines than 3: boss mods' "what we learned")
         buttons = buttons, buttonRow = true,
         duration = it.needsYou and 0 or NotifyUI.INFO_SECONDS,
         timeBar = not it.needsYou,

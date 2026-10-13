@@ -119,6 +119,7 @@ function SettingsUI:BuildBossMods(sec)
         { { value = "auto", text = "From my talents" }, { value = "tank", text = "Tank" }, { value = "healer", text = "Healer" },
           { value = "dps", text = "Damage" } }, "From my talents: the raid's main tank flag first, then the tree "
             .. "with the most points (Feral druids by form).")
+    if ns.BossLearnUI then ns.BossLearnUI:AddSettingsRows(self, sec) end     -- (learning: UI/BossLearnUI.lua)
     self:MoreOptions(sec)
     local sizes = {}
     for _, v in ipairs({ 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2 }) do sizes[#sizes + 1] = { value = v, text = floor(v * 100 + 0.5) .. "%" } end
@@ -234,6 +235,7 @@ local function Fill(card)
         end)
         try:SetPoint("RIGHT", head, "RIGHT", 0, 0)
         head.try = try
+        if ns.BossLearnUI then ns.BossLearnUI:DecorateBossHead(head, d) end     -- (its learning pill and page)
         card.tries = card.tries or {}
         card.tries[key] = try
         y = y + BOSS_H + 6

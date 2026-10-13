@@ -91,7 +91,7 @@ B["TempestKeep:Kaelthas"] = {
         { key = "phase4", kind = "warn", text = "Phase 4: Kael'thas joins", icon = 36091,
           on = "YELL Alas, sometimes one must take matters into one's own hands", setPhase = 4, once = true },
         -- Phoenix: DBM 50 at phase 4, 45 (CD) again; 137 at phase 5, 90 again; BW 45; CM DB spell list (hooks)
-        { key = "phoenix", kind = "bar", spell = 36723, phase = { 4, 5 }, cd = 45 },
+        { key = "phoenix", kind = "bar", learn = false, spell = 36723, phase = { 4, 5 }, cd = 45 },
         -- Shock Barrier: DBM 60 at phase 4 and 60 (CD) again, BW Pyroblast 60 at phase 4 -> 60
         { key = "barrier", kind = "bar", spell = 36815, phase = 4, start = 60, on = "AURA 36815", cd = 60 },
         { key = "barrierwarn", kind = "warn", spell = 36815, text = "Shock Barrier: break it",

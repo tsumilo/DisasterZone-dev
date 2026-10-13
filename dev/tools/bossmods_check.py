@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(DEV, "generators"))
 
 BOSS_FIELDS = {"enc", "npc", "alerts", "fn", "phases", "engage"}
 ALERT_FIELDS = {"key", "kind", "spell", "icon", "text", "sub", "role", "on", "start", "cd", "stop", "after", "dur", "yd",
-                "me", "meText", "phase", "setPhase", "count", "src", "once", "delay", "throttle", "loop"}
+                "me", "meText", "phase", "setPhase", "count", "src", "once", "delay", "throttle", "loop", "learn"}
 KINDS = {"bar", "warn", "you", "range"}
 WORDS = {"CAST": "ids", "SUCCESS": "ids", "AURA": "ids", "AURAGONE": "ids", "SUMMON": "ids", "HIT": "ids", "HEAL": "ids",
          "DIES": "ids", "WIDGET": "ids", "HP": "hp", "YELL": "text", "EMOTE": "text", "ENGAGE": "none", "PHASE": "num"}

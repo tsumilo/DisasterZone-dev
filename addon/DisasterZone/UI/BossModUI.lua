@@ -9,6 +9,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BossModUI.lua", ...) then retur
 -- Sounds (bossmods.sounds): the game's raid warning sound for warnings, an alarm when it's on you.
 -- Try it (Settings, demo mode, Edit layout's preview): a made-up Gruul pull through the real engine and data, the
 -- range frame with made-up raiders; nothing is read or sent.
+-- Learning (UI/BossLearnUI.lua): while a pull is recorded a line over the bars ("Recording pull 7"), and a bar on a
+-- learned window gets that window's striped teal band along its bottom edge (each look's L.track says where). Try it
+-- shows both, and ends with a made-up "what we learned" note.
 local addonName, ns = ...
 
 local UI = ns:NewModule("BossModUI")
@@ -307,6 +310,30 @@ end
 
 local function Soon(b) return b.kind == nil and (b.rem <= SOON or b.win ~= nil) end
 
+-- Learning (Core/BossLearn.lua, UI/BossLearnUI.lua): a bar running on a learned window gets the window's part as a
+-- thin striped teal band along its bottom edge (each look says where its track runs: L.track), and while a pull is
+-- recorded a small line sits over the bars.
+local TEAL, REC_RED, WHITE = Pen.C("#4fd6c8"), Pen.C("#ff3c32"), Pen.C("#ffffff")
+local REC_SUB, REC_NOTED = "|cff9a958a", "|cffffd866"     -- (the line's second part, in the same text: one measure)
+local function Band(c, L, b, x, y, w, h)
+    if not (L.track and b.learned and b.hi > b.lo) or b.win then return end
+    local tx, ty, tw, dir = L.track(x, y, w, h)
+    if not tx or tw <= 4 then return end
+    local k = (b.hi - b.lo) / max(0.5, b.lo - b.t0)
+    local bw = max(3, min(tw, tw * k))
+    local bx = (dir or 1) < 0 and (tx + tw - bw) or tx
+    c:Rect(bx, ty - 2, bw, 2, TEAL, 0.35)
+    for sx = 0, bw - 2, 4 do c:Rect(bx + sx, ty - 2, 2, 2, TEAL, 0.95) end
+end
+UI.Band = Band
+
+-- (the same in every look: a quiet status line, not part of the look)
+local function RecLine(c, rl, t)
+    c:Disc(6, 0, 3.5, REC_RED, 0.55 + 0.45 * abs(sin(t * 3)))
+    c:Text(rl.text .. (rl.noted and REC_NOTED or REC_SUB) .. "  \194\183  " .. rl.sub .. "|r", 14, 1, "Friz", 11, WHITE, 1,
+        "LEFT")
+end
+
 function UI:Draw(dt)
     local L = self:Look()
     local bm = BM()
@@ -342,6 +369,7 @@ function UI:Draw(dt)
             local c = Begin(Host("bars", stackI, 10), "bars", 0, cur)
             c.a = max(0, min(1, (t - b.t0) / 0.25 + (b.kind and 1 or 0)))
             L.bar(c, b, 2, 0, SPOTS.bars.w - 4, h, soon, t)
+            if b.learned then pcall(Band, c, L, b, 2, 0, SPOTS.bars.w - 4, h) end   -- (never in the bars' way)
             Pen:End()
             y = y + h + L.gap + ((soon and L.soonBelow) or 0)
         end
@@ -349,6 +377,21 @@ function UI:Draw(dt)
     end
     for i = stackI + 1, #hosts.bars do Blank(hosts.bars[i]) end
     for i = soonI + 1, #hosts.soon do Blank(hosts.soon[i]) end
+    -- the recording line over the bars (a pull being learned from; Try it's made-up one)
+    -- (its own pcall: nothing in it may keep the warnings, the countdown or the range frame below from drawing)
+    local rl
+    if ns.BossLearnUI and Get("bossmods.bars", true) then
+        local ok, v = pcall(ns.BossLearnUI.RecLine, ns.BossLearnUI, self.tryLearn)
+        rl = ok and type(v) == "table" and v or nil
+    end
+    if rl then
+        local c = Begin(Host("rec", nil, 12), "bars", 0, -12)
+        RecLine(c, rl, t)
+        Pen:End()
+        any = true
+    else
+        Blank(hosts.rec)
+    end
     -- the warning (the newest; an older one gives way)
     local w = warns[1]
     if w and t - w.t >= WARN_LIFE then
@@ -417,7 +460,7 @@ function UI:Sleep()
     driver:SetScript("OnUpdate", nil)
     for _, h in ipairs(hosts.bars) do Blank(h) end
     for _, h in ipairs(hosts.soon) do Blank(h) end
-    Blank(hosts.warn); Blank(hosts.count); Blank(hosts.range); Blank(hosts.fx)
+    Blank(hosts.warn); Blank(hosts.count); Blank(hosts.range); Blank(hosts.fx); Blank(hosts.rec)
 end
 
 function UI:IsAwake() return awake end
@@ -469,7 +512,7 @@ function UI:StopTry()
     if demoFight then bm:EndFight(demoFight); demoFight = nil end
     bm.preview = false
     bm:OnCountdownCancel()
-    UI.trying = nil
+    UI.trying, UI.tryLearn = nil, nil
     if overlay then overlay:SetFrameStrata("HIGH") end
 end
 
@@ -486,7 +529,7 @@ function UI:TryIt(loop)
     self:StopTry()
     looping = loop and true or false
     bm.preview = true
-    UI.trying = DEMO_BOSS
+    UI.trying, UI.tryLearn = DEMO_BOSS, true       -- (the learning's recording line too, and its note at the end)
     if not looping then Showing() end
     bm:OnCountdown(5, "Kaelor")
     self:Wake()
@@ -494,9 +537,15 @@ function UI:TryIt(loop)
         demoFight = bm:StartFight(def, { demo = true })
         local m = demoFight
         -- (the fight as the mockup shows it, a minute in: the bars a few seconds from their next cast)
-        for _, seed in ipairs({ { 36300, 3 }, { 33525, 6 }, { 33813, 4.5 }, { 36297, 9 } }) do
+        for _, seed in ipairs({ { 36300, 3 }, { 33525, 6, 8 }, { 33813, 4.5 }, { 36297, 9 } }) do
             local a = AlertBySpell(def, "bar", seed[1])
-            if a then m:Bar(a.key, seed[2]) end
+            if a then
+                m:Bar(a.key, seed[3] and { seed[2], seed[3] } or seed[2])
+                -- (Ground Slam as learning shows it: the window our pulls found, the striped end of its bar)
+                if seed[3] then
+                    for _, b in ipairs(bm:Bars()) do if b.m == m and b.key == a.key then b.learned = true end end
+                end
+            end
         end
         local steps = {
             { 3, "AURA 36300", { amount = 4 } }, { 4.5, "SUCCESS 33813" }, { 6, "CAST 33525" }, { 9, "SUCCESS 36297" },
@@ -506,6 +555,8 @@ function UI:TryIt(loop)
         for _, s in ipairs(steps) do After(s[1], function() bm:Inject(m, s[2], s[3]) end) end
         After(18, function()
             if demoFight then bm:EndFight(demoFight); demoFight = nil end
+            -- (a made-up "what we learned" note: nothing was recorded, nothing is saved or sent)
+            if not looping and ns.BossLearnUI then pcall(ns.BossLearnUI.DemoReport, ns.BossLearnUI) end
             if looping then UI:TryIt(true) else UI:StopTry() end
         end)
     end)

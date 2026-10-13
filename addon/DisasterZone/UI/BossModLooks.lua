@@ -722,6 +722,19 @@ function CLASSIC.range(c, R, a, cx, cy0)
     Arrow(c, cx, cy, C("#f8f8a0"))
 end
 
+-- Where each look's bar track runs, for a learned window's striped band along its bottom edge (UI/BossModUI.lua Band):
+-- track(x, y, w, h) -> the track's left, its bottom edge, its width, and the end it runs out at (1 = left; -1 = right:
+-- Classic's cast bar fills towards the right).
+function FLAT.track(x, y, w, h) return x + h, y + h, w - h, 1 end
+function HALO.track(x, y, w, h) return x + h, y + h - 3, w - h - 6, 1 end
+function SIGIL.track(x, y, w, h) return x + h + 6, y + h - 2, w - h - 8, 1 end
+function SLATE.track(x, y, w, h) return x, y + 25, w, 1 end
+function GILD.track(x, y, w, h) return x + h + 7, y + h - 3, w - h - 9, 1 end
+function CLASSIC.track(x, y, w, h)
+    local ih, k = h - 4, h / 34
+    return x + ih + 4 + 9 * k, y + 24 * k, w - ih - 4 - 19 * k, -1
+end
+
 BL.ORDER = { "flat", "halo", "sigil", "slate", "gilded", "classic" }
 BL.SIGNATURE = { flat = "The soon lane", halo = "Countdown rings", sigil = "Stamped warnings", slate = "Text first",
                  gilded = "The compass", classic = "Raid warnings" }
