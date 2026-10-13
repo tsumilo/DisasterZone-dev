@@ -236,7 +236,8 @@ def action_buttons_wear_the_action_button_frame_and_the_games_states():
 def the_dock_is_the_games_stride_with_room_for_the_gryphons_and_a_packed_menu():
     w, c = classic()
     T = c.eval_py("return ns.LookDock.Tokens('classic', 36)")
-    assert T["G"] == 6 and T["P"] == 10 and T["S"] + T["G"] == 42, T
+    # (P 12 and R 16 hold the Dock art's moulding and pillars, UI/DockArt.lua)
+    assert T["G"] == 6 and T["P"] == 12 and T["R"] == 16 and T["S"] + T["G"] == 42, T
     g = c.eval_py("""
         local T = ns.LookDock.Tokens('classic', 36)
         T.side, T.menuW, T.menuG = 14, 28, 4
@@ -244,7 +245,7 @@ def the_dock_is_the_games_stride_with_room_for_the_gryphons_and_a_packed_menu():
         local g0 = ns.LookDock.Grid(ns.LookDock.Tokens('classic', 36), { rows = 3, bags = 6, menu = 12, stance = 3, pet = 0, pager = true })
         return { g.bags[1][1], g.menu[2][1] - g.menu[1][1], g.w - g0.w, g.menuW }""")
     # (bags 14 px further in, the menu 32 px apart (28 + 4), the dock 28 + the narrower menu)
-    assert g[0] == 10 + 14 and g[1] == 32 and g[3] == 4 * 28 + 3 * 4, g
+    assert g[0] == 12 + 14 and g[1] == 32 and g[3] == 4 * 28 + 3 * 4, g
     w.assert_no_errors()
 
 

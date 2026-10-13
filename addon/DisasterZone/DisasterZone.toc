@@ -47,6 +47,7 @@ Data\Consumables.lua
 Data\Classes\Paladin.lua
 Data\Classes\Shaman.lua
 Data\Changelog.lua
+Data\ClassicArt.lua
 Data\BossPortraits.lua
 Data\BossJournal.lua
 Data\BossAbilities.lua
@@ -263,6 +264,7 @@ UI\Look.lua
 UI\LookUnits.lua
 UI\LookCast.lua
 UI\LookBars.lua
+UI\DockArt.lua
 UI\LookDock.lua
 UI\LookBags.lua
 UI\LookMinimap.lua

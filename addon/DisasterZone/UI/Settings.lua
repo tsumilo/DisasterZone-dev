@@ -1316,8 +1316,17 @@ function SettingsUI:BuildUI(sec)
               { { value = 30, text = "Compact (30)" }, { value = 33, text = "Small (33)" }, { value = 36, text = "Normal (36)" },
                 { value = 39, text = "Big (39)" }, { value = 42, text = "Large (42)" } } },
             { "rail", "Bars 4 and 5 at the right edge", "In the Dock's look and size, two columns.", true },
-            { "caps", "End caps", "Classic's Dock: the main bar's gryphons or lions at its ends.", "gryphon",
-              { { value = "gryphon", text = "Gryphons" }, { value = "lion", text = "Lions" }, { value = "none", text = "None" } } },
+            { "art", "Bar art", "The plate behind the bars: stone and steel, marble and gold, or the guild vault.",
+              "ironforge", (function()
+                  local out = {}
+                  for _, s in ipairs(ns.DockArt and ns.DockArt.SETS or {}) do out[#out + 1] = { value = s.key, text = s.name } end
+                  return out
+              end)(), classic = true,
+              tip = "Ironforge: the vanilla bar's stone, a riveted steel frame and carved wells. Stormwind: dark marble "
+                  .. "set in gold with sapphires. Guild Vault: the guild bank's iron, crimson leather and brass slots." },
+            { "caps", "End caps", "At the Dock's ends: the art's own, gryphons or lions.", "match",
+              { { value = "match", text = "Match the art" }, { value = "gryphon", text = "Gryphons" },
+                { value = "lion", text = "Lions" }, { value = "none", text = "None" } }, classic = true },
             { "keys", "Key binds", "", true },
             { "macros", "Macro names", "", false },
             { "cooldown", "Cooldowns", "", "theme",
@@ -1379,8 +1388,24 @@ function SettingsUI:BuildUI(sec)
             function(a, b) Set("ui." .. p.key .. ".look", Value(a, b)) end)
         for _, o in ipairs(OPTS[p.key] or {}) do
             local path = "ui." .. p.key .. "." .. o[1]
-            if type(o[4]) == "boolean" then self:SwitchSetting(sec, o[2], o[3], path, o[4], o.tip)
-            else self:DropdownSetting(sec, o[2], o[3], path, o[4], o[5]) end
+            local row
+            if type(o[4]) == "boolean" then _, row = self:SwitchSetting(sec, o[2], o[3], path, o[4], o.tip)
+            else _, row = self:DropdownSetting(sec, o[2], o[3], path, o[4], o[5], o.tip) end
+            -- (Classic's own options: a choice only while the part wears Classic; a look picked anywhere refreshes)
+            if o.classic then
+                if not self.lookWatch then
+                    self.lookWatch = true
+                    ns:On("UI_LOOK_CHANGED", function(_, changed)
+                        if changed == "ui.look" or (type(changed) == "string" and changed:find("%.look$")) then
+                            SettingsUI:RequestRefresh()
+                        end
+                    end)
+                end
+                local part = p.key
+                self.refreshers[#self.refreshers + 1] = { Refresh = function()
+                    SetReadOnly(row, not Look:For(part).game, "With Classic")
+                end }
+            end
         end
         if p.key == "sct" and ns.CombatTextUI then
             local row = self:Row(sec, "Try it", "A made-up pull plays on your screen. Nothing is cast or sent.")

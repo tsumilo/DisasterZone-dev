@@ -35,7 +35,9 @@ ns.CHANGELOG = {
             open = "settings/ui", lead = "A seventh look: the Dock, bags and frames dressed in the game's textures.",
             lines = {
               "Settings > UI > Use Classic everywhere: frames, meters, class bars and timers at once.",
-              "The Dock sits on the main bar's carved stone, gryphons at its ends (or lions, or none).",
+              "Bar art for the Dock: Ironforge stone, Stormwind marble and gold, or the Guild Vault.",
+              "Stance and aura buttons stand on a step; at max level a band fills the experience slot.",
+              "Gryphons or lions at its ends match the art, or pick your own (or none).",
               "Buttons wear the game's action button frame, its hover, pressed and proc glows.",
               "Bags: the backpack grown into one window, a carved slot for every item.",
               "Unit frames: the game's target frame, the gold dragon on bosses and elites.",

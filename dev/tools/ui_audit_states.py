@@ -1855,6 +1855,11 @@ STATES = [
     ("Dock - slate", opened("home", DOCK_STATE.replace("LOOK", "slate"))),
     ("Dock - gilded", opened("home", DOCK_STATE.replace("LOOK", "gilded"))),
     ("Dock - classic", opened("home", DOCK_STATE.replace("LOOK", "classic"))),
+    # Classic's Dock art (UI/DockArt.lua): the other two sets (Ironforge is the default above)
+    ("Dock - classic stormwind", opened("home", DOCK_STATE.replace("LOOK", "classic").replace(
+        "ns.DB:SetSetting('ui.bars.look'", "ns.DB:SetSetting('ui.bars.art', 'stormwind'); ns.DB:SetSetting('ui.bars.look'"))),
+    ("Dock - classic vault", opened("home", DOCK_STATE.replace("LOOK", "classic").replace(
+        "ns.DB:SetSetting('ui.bars.look'", "ns.DB:SetSetting('ui.bars.art', 'vault'); ns.DB:SetSetting('ui.bars.look'"))),
     ("Bags - flat one", opened("home", BAGS_STATE.replace("LOOK", "flat").replace("LAYOUT", "one"))),
     ("Bags - halo one", opened("home", BAGS_STATE.replace("LOOK", "halo").replace("LAYOUT", "one"))),
     ("Bags - sigil shelves", opened("home", BAGS_STATE.replace("LOOK", "sigil").replace("LAYOUT", "shelves"))),

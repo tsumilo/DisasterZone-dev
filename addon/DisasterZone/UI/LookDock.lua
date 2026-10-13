@@ -35,8 +35,9 @@ Dock.TOKENS = {
     sigil = { G = 3, P = 6, R = 14, xp = 6 },
     slate = { G = 2, P = 3, R = 14, xp = 3 },
     gilded = { G = 4, P = 9, R = 16, xp = 7 },
-    -- (Classic: the game's own 42 px stride, so the main bar's carved wells sit under the buttons)
-    classic = { G = 6, P = 10, R = 14, xp = 11 },
+    -- (Classic: the game's own 42 px stride, so the main bar's carved wells sit under the buttons; P and R hold the
+    -- art's moulding and pillars, UI/DockArt.lua)
+    classic = { G = 6, P = 12, R = 16, xp = 11 },
 }
 Dock.SIZES = { 30, 33, 36, 39, 42 }
 Dock.DEFAULT_SIZE = 36
@@ -381,6 +382,23 @@ local function ClassicOff(f)
     if f.caps then f.caps:Hide() end
 end
 
+-- Classic's art (UI/DockArt.lua draws it): no panel, seams or plain stone; the plate frame where the art is.
+local function ArtGround(f, y, w, h)
+    ClassicOff(f)
+    f.panel:Apply(nil)
+    for _, t in ipairs(f.seams) do t:Hide() end
+    f.plate:ClearAllPoints()
+    f.plate:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -y)
+    f.plate:SetSize(max(1, w), max(1, h))
+end
+
+-- Classic's art on a frame; false when it fails (the error reported, the art cleared): the Dock lays out anyway.
+local function DrawArt(target, specFn)
+    local ok = ns.SafeCall(function() ns.DockArt:Draw(target, specFn()) end)
+    if not ok then ns.DockArt:Clear(target) end
+    return ok and true or false
+end
+
 local function Ground(f, look, x, y, w, h, seams, seamTop, seamH)
     local L = Look()
     local k = look.key
@@ -431,19 +449,21 @@ local function Ground(f, look, x, y, w, h, seams, seamTop, seamH)
     end
 end
 
--- Classic: the main bar's carved wells under the block's buttons (one S + G piece per button, the button in its
--- middle) and the end caps (ui.bars.caps: the gryphons by default, the lions, none) standing at the plate's ends,
--- their feet on its foot, over its padding only.
+-- Classic without the art pack (UI/DockArt.lua draws the sets): the main bar's carved wells under the block's
+-- buttons (one S + G piece per button, the button in its middle) and the end caps.
 function Dock:Classic(f, look, box, cols, rows, T, caps, h)
     local L = Look()
     local cell = T.S + T.G
     f.wells = f.wells or L:GameTile(f.plate, "well", "BACKGROUND", -5)
     f.wells:Fill(f, box.x - T.G / 2, box.y - T.G / 2, cols * cell, rows * cell, cell, cell)
-    if not caps then
-        if f.caps then f.caps:Hide() end
-        return
-    end
-    local kind = L:Opt("bars", "caps", "gryphon")
+    if caps then self:Caps(f, T) elseif f.caps then f.caps:Hide() end
+end
+
+-- The end caps (ui.bars.caps: the set's own by default, the gryphons, the lions, none; UI/DockArt.lua Art:Caps)
+-- standing at the plate's ends, their feet on its foot, over its padding only.
+function Dock:Caps(f, T)
+    local L = Look()
+    local kind = ns.DockArt and ns.DockArt:Caps() or L:Opt("bars", "caps", "gryphon")
     if kind ~= "gryphon" and kind ~= "lion" then
         if f.caps then f.caps:Hide() end
         return
@@ -483,9 +503,11 @@ function Dock:Layout()
     local look = L:For("bars")
     local S = self:Size()
     local T = Dock.Tokens(look.key, S)
+    -- (Classic in one of the art sets, UI/DockArt.lua; without art pack 9 the plain stone)
+    local art = look.game and ns.DockArt and ns.DockArt:Ready() or false
     if look.game then
         local k = S / 36
-        local caps = L:Opt("bars", "caps", "gryphon")
+        local caps = ns.DockArt and ns.DockArt:Caps() or L:Opt("bars", "caps", "gryphon")
         if caps == "gryphon" or caps == "lion" then
             -- (the cap's body presses on the plate's side: it reaches 26 px over the end, its head may tuck under the
             -- bags' edge)
@@ -503,9 +525,20 @@ function Dock:Layout()
     self.grid, self.T = g, T
     f:SetSize(g.w, g.h)
     f:Show()
-    -- the plate from P over the block to the bottom, the whole width (the crown floats over it)
-    Ground(f, look, 0, g.plateTop, g.w, g.h - g.plateTop, g.seams, g.block.y, g.block.h)
-    if look.game then self:Classic(f, look, g.block, 12, #c.rows, T, true, g.h) end
+    -- the plate from P over the block to the bottom, the whole width (the crown floats over it; Classic's art gives
+    -- it a step under the crown)
+    local drawn = false
+    if art then
+        ArtGround(f, g.plateTop, g.w, g.h - g.plateTop)
+        drawn = DrawArt(f, function() return ns.DockArt:Spec(T, g, #c.rows) end)
+    end
+    if drawn then
+        self:Caps(f, T)
+    else
+        if ns.DockArt then ns.DockArt:Clear(f) end
+        Ground(f, look, 0, g.plateTop, g.w, g.h - g.plateTop, g.seams, g.block.y, g.block.h)
+        if look.game then self:Classic(f, look, g.block, 12, #c.rows, T, true, g.h) end
+    end
     for i, r in ipairs(c.rows) do
         -- (a bar showing fewer icons keeps its columns: icon j stays in column j)
         for j = 1, 12 do
@@ -525,8 +558,16 @@ function Dock:Layout()
         local rh = 12 * S + 11 * T.G
         rail:SetSize(rw + 2 * T.P, rh + 2 * T.P)
         rail:Show()
-        Ground(rail, look, 0, 0, rw + 2 * T.P, rh + 2 * T.P, nil, 0, 0)
-        if look.game then self:Classic(rail, look, { x = T.P, y = T.P }, #c.rail, 12, T, false) end
+        local railDrawn = false
+        if art then
+            ArtGround(rail, 0, rw + 2 * T.P, rh + 2 * T.P)
+            railDrawn = DrawArt(rail, function() return ns.DockArt:RailSpec(T, #c.rail) end)
+        end
+        if not railDrawn then
+            if ns.DockArt then ns.DockArt:Clear(rail) end
+            Ground(rail, look, 0, 0, rw + 2 * T.P, rh + 2 * T.P, nil, 0, 0)
+            if look.game then self:Classic(rail, look, { x = T.P, y = T.P }, #c.rail, 12, T, false) end
+        end
         for ci, r in ipairs(c.rail) do
             for j = 1, 12 do
                 local b = _G[r.prefix .. j]

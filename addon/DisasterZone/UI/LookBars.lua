@@ -791,12 +791,15 @@ function Bars:XPUpdate()
     end
     f.rep.f:SetShown(d.xp ~= nil and d.rep ~= nil)
     f:SetShown(any)
+    -- (Classic's Dock art lays a band in the empty slot: max level, nothing watched)
+    if ns.DockArt then ns.DockArt:XPShown(any) end
 end
 
 function Bars:XP()
     local L = Look()
     if not L:Opt("bars", "xp", true) then
         if self.xp then self.xp:Hide() end
+        if ns.DockArt then ns.DockArt:XPShown(false) end
         return
     end
     local look = L:For("bars")
@@ -847,8 +850,8 @@ function Bars:XP()
         f.rep.f:SetPoint("TOPLEFT", f.main.f, "BOTTOMLEFT", 0, -2)
         f.rep:SetWidthNow(dw)
         -- Classic: the main bar's metal rail over the bar (its joints are the game's experience segments), the fill
-        -- in its open middle
-        if look.game then
+        -- in its open middle; with the Dock's art (UI/DockArt.lua) the bar lies in the art's own sunk slot instead
+        if look.game and not (ns.DockArt and ns.DockArt:Drawn(dock)) then
             if not f.railFrame then
                 f.railFrame = CreateFrame("Frame", nil, f)
                 f.rail = L:GameTile(f.railFrame, "rail", "OVERLAY", 2)
