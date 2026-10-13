@@ -1753,7 +1753,33 @@ function EM:SnapBox(frame, x, y, w, h)
     return nl / r, nb / r + h
 end
 
+-- The game's Esc menu: "DisasterZone layout" right under the game's own Edit Mode (else at the end).
+function EM:HookGameMenu()
+    local gm = GameMenuFrame
+    if self.gameMenuHooked or not gm or not gm.InitButtons or not gm.AddButton or not hooksecurefunc then return end
+    self.gameMenuHooked = true
+    hooksecurefunc(gm, "InitButtons", function(menu)
+        local after
+        if menu.buttonPool and menu.buttonPool.EnumerateActive then
+            for btn in menu.buttonPool:EnumerateActive() do
+                if HUD_EDIT_MODE_MENU and btn:GetText() == HUD_EDIT_MODE_MENU then after = btn.layoutIndex end
+            end
+        end
+        local b = menu:AddButton("DisasterZone layout", function()
+            if PlaySound and SOUNDKIT then PlaySound(SOUNDKIT.IG_MAINMENU_OPTION) end
+            HideUIPanel(menu)
+            EM:Open()
+        end, InCombat(), "Opens after the fight.")
+        if after and b then
+            b.layoutIndex = after + 0.5
+            b.topPadding = nil
+            if menu.MarkDirty then menu:MarkDirty() elseif menu.Layout then menu:Layout() end
+        end
+    end)
+end
+
 function EM:OnLogin()
+    self:HookGameMenu()
     ns:RegisterEvent("PLAYER_REGEN_DISABLED", function()
         if active then
             reopenAfterCombat = true

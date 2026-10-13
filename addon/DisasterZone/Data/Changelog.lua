@@ -36,6 +36,7 @@ ns.CHANGELOG = {
               "Roll the mouse wheel over a picked frame: 5% a notch. Double-click a handle: 100%.",
               "Pick several and they grow together, gaps and all.",
               "The game's frames too, in the steps their own Edit Mode allows.",
+              "The game's Esc menu has a DisasterZone layout button, right under Edit Mode.",
           } },
           { heading = "Layout profiles", area = "look", kind = "new", open = "settings/layout", lines = {
               "Each character picks its own profile: Raid, Solo, Healing, whatever you make.",
