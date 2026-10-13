@@ -31,6 +31,31 @@ Pen.QUICK = "Interface\\Buttons\\UI-Quickslot2"
 Pen.ALERT = "Interface\\SpellActivationOverlay\\IconAlert"
 Pen.LOWHP = "Interface\\FullScreenTextures\\LowHealth"
 local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+-- Smooth shapes (art pack 10, dev/generators/gen_pen_media.py): a disc, rings of five strokes, a soft ring glow, a
+-- capsule and its outline, drawn anti-aliased. Without them (an older art set) discs, rings and pills are built
+-- from the old disc and line pieces.
+local PEN = MEDIA .. "Pen\\"
+Pen.PEN = PEN
+local RINGS = { { 0.015, PEN .. "ring1", 512 }, { 0.03, PEN .. "ring2", 256 }, { 0.05, PEN .. "ring3", 256 },
+                { 0.08, PEN .. "ring4", 256 }, { 0.12, PEN .. "ring5", 256 } }
+Pen.RINGS = RINGS
+local smooth
+local function Smooth()
+    if smooth == nil then smooth = (ns.HasAssets and ns:HasAssets(10)) and true or false end
+    return smooth
+end
+Pen.Smooth = Smooth
+-- The ring texture nearest a stroke w on a ring of radius r, and the size to draw it at.
+function Pen.RingTex(r, w)
+    local best, bestD
+    local S0 = 2 * (r + w / 2)
+    for _, t in ipairs(RINGS) do
+        local S = S0 * t[3] / (t[3] - 2)
+        local d = math.abs(t[1] * S - w)
+        if not bestD or d < bestD then best, bestD = t, d end
+    end
+    return best[2], S0 * best[3] / (best[3] - 2)
+end
 
 -- The mockup's faces. Skurri (the game's damage font) and Morpheus (its title font) have Latin letters only.
 local FRIZ = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
@@ -99,16 +124,25 @@ function Pen:Size()
     return w / s, h / s
 end
 
-local KINDS = { "fs", "tx", "ln", "ic", "gt" }
+local KINDS = { "fs", "tx", "ln", "ic", "gt", "cd" }
 
-function Pen:Host(level)
+-- A host draws in its parent's units from the parent's top left (default: the combat text overlay; the boss mods
+-- give their own spots, UI/BossModUI.lua).
+function Pen:Host(level, parent)
     local h = table.remove(free)
+    parent = parent or self:Overlay()
     if not h then
-        h = CreateFrame("Frame", nil, self:Overlay())
+        h = CreateFrame("Frame", nil, parent)
         h:SetSize(1, 1)
-        h:SetPoint("TOPLEFT", overlay, "TOPLEFT", 0, 0)
         h.shown = {}
         for _, k in ipairs(KINDS) do h[k] = {}; h.shown[k] = 0 end
+    elseif h:GetParent() ~= parent then
+        h:SetParent(parent)
+    end
+    if h.at ~= parent then
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+        h.at = parent
     end
     h:SetFrameLevel(level or 10)
     h:Show()
@@ -121,12 +155,19 @@ local function HideUnit(u)
     for _, r in ipairs(u.parts) do r:Hide() end
 end
 
-function Pen:Free(h)
-    for _, k in ipairs(KINDS) do
-        local list = h[k]
-        for i = 1, h.shown[k] do HideUnit(list[i]) end
-        h.shown[k] = 0
+local function Clear(h)
+    while h do
+        for _, k in ipairs(KINDS) do
+            local list = h[k]
+            for i = 1, h.shown[k] do HideUnit(list[i]) end
+            h.shown[k] = 0
+        end
+        h = h.over
     end
+end
+
+function Pen:Free(h)
+    Clear(h)
     h:Hide()
     free[#free + 1] = h
 end
@@ -155,14 +196,38 @@ function Pen:Begin(h, x, y)
     return c
 end
 
-function Pen:End()
-    local h = c.h
+-- Hides what this host showed last frame and didn't use this one.
+local function Finish(h)
     for _, k in ipairs(KINDS) do
         local list, used = h[k], c[k]
         for i = used + 1, h.shown[k] do HideUnit(list[i]) end
         h.shown[k] = used
     end
+end
+
+function Pen:End()
+    Finish(c.h)
+    Clear(c.h.over)                 -- (overflow hosts this frame didn't reach)
     c.h = nil
+end
+
+-- A host has 64 layer slots (4 layers x 16 sublevels): a drawing with more regions goes on in an overflow host, a
+-- child frame one level up at the same place, so later regions still cover earlier ones.
+local function Spill(self)
+    local h = self.h
+    Finish(h)
+    local o = h.over
+    if not o then
+        o = CreateFrame("Frame", nil, h)
+        o:SetSize(1, 1)
+        o:SetPoint("TOPLEFT", h, "TOPLEFT", 0, 0)
+        o.shown = {}
+        for _, k in ipairs(KINDS) do o[k] = {}; o.shown[k] = 0 end
+        h.over = o
+    end
+    if o:GetFrameLevel() <= h:GetFrameLevel() then o:SetFrameLevel(h:GetFrameLevel() + 3) end
+    self.h, self.n = o, 0
+    for _, k in ipairs(KINDS) do self[k] = 0 end
 end
 
 function c:Push()
@@ -190,6 +255,7 @@ end
 -- The next region of a kind on this frame's host (made the first time).
 local MAKE = {}
 local function Next(self, kind)
+    if self.n >= 64 then Spill(self) end
     local h = self.h
     local i = self[kind] + 1
     local r = h[kind][i]
@@ -214,6 +280,18 @@ MAKE.tx = function(h)
     local t = h:CreateTexture(nil, "ARTWORK")
     t.k = {}
     return t
+end
+MAKE.cd = function(h)
+    local cd = CreateFrame("Cooldown", nil, h, "CooldownFrameTemplate")
+    if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+    if cd.SetDrawBling then cd:SetDrawBling(false) end
+    if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+    if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
+    if cd.SetReverse then cd:SetReverse(false) end
+    if cd.EnableMouse then cd:EnableMouse(false) end
+    cd:SetFrameLevel(h:GetFrameLevel() + 1)
+    cd.k = {}
+    return cd
 end
 MAKE.ln = function(h)
     local l = h:CreateLine(nil, "ARTWORK")
@@ -243,10 +321,12 @@ local function Tex(self, file, r, g, b, a, l, rr, t, bb, grad)
     end
     if k.rot then tx:SetRotation(0); k.rot = nil end
     if not grad then
-        tx:SetVertexColor(r, g, b, a)
+        tx:SetVertexColor(r, g, b, 1)
         k.grad = nil
+        tx:SetAlpha(self.a * (a or 1))
+    else
+        tx:SetAlpha(self.a)
     end
-    tx:SetAlpha(self.a)
     Blend(tx, self.add)
     return tx
 end
@@ -303,7 +383,10 @@ function c:Img(file, cx, cy, w, h, col, a, l, r, t, b, rot)
     return tx
 end
 
-function c:Disc(cx, cy, r, col, a) self:Img(Pen.DISC, cx, cy, r * 2, r * 2, col, a) end
+function c:Disc(cx, cy, r, col, a)
+    if Smooth() then self:Img(PEN .. "disc", cx, cy, r * 2 * 256 / 254, r * 2 * 256 / 254, col, a) return end
+    self:Img(Pen.DISC, cx, cy, r * 2, r * 2, col, a)
+end
 
 -- A soft glow (radial, additive) w x h on (cx, cy).
 function c:Glow(cx, cy, w, h, col, a)
@@ -325,8 +408,8 @@ function c:Line(x1, y1, x2, y2, w, col, a)
     ln:SetStartPoint("TOPLEFT", self.h, ax, -ay)
     ln:SetEndPoint("TOPLEFT", self.h, bx, -by)
     ln:SetThickness(max(0.3, w * sc))
-    ln:SetVertexColor(col[1], col[2], col[3], a or 1)
-    ln:SetAlpha(self.a)
+    ln:SetVertexColor(col[1], col[2], col[3], 1)
+    ln:SetAlpha(self.a * (a or 1))
     Blend(ln, self.add)
 end
 
@@ -356,7 +439,78 @@ function c:Arc(cx, cy, rx, ry, a0, a1, w, col, a, glow)
         px, py = qx, qy
     end
 end
-function c:Ring(cx, cy, r, w, col, a, glow) self:Arc(cx, cy, r, r, 0, TAU, w, col, a, glow) end
+-- A full ring: one smooth texture (rx ~= ry: an ellipse); glow = the soft ring under it.
+function c:Ring(cx, cy, r, w, col, a, glow, ry)
+    if not Smooth() then
+        self:Arc(cx, cy, r, ry or r, 0, TAU, w, col, a, glow)
+        return
+    end
+    local tex, S = Pen.RingTex(r, w)
+    local k = (ry or r) / r
+    if glow then
+        local add = self.add
+        self.add = true
+        local G = r / 0.36
+        self:Img(PEN .. "ringglow", cx, cy, G, G * k, col, (a or 1) * 0.45)
+        self.add = add
+    end
+    self:Img(tex, cx, cy, S, S * k, col, a)
+end
+
+-- A capsule: left edge L, middle y, w x h (ends round), one texture in three slices; an outline with line = true.
+function c:Pill(L, y, w, h, col, a, line)
+    if not Smooth() then
+        local r = h / 2
+        if line then
+            self:Arc(L + r, y, r, r, pi / 2, pi * 1.5, 1.5, col, a)
+            self:Arc(L + w - r, y, r, r, -pi / 2, pi / 2, 1.5, col, a)
+            self:Line(L + r, y - r, L + w - r, y - r, 1.5, col, a)
+            self:Line(L + r, y + r, L + w - r, y + r, 1.5, col, a)
+            return
+        end
+        self:Disc(L + r, y, r, col, a)
+        self:Disc(L + w - r, y, r, col, a)
+        if w > h then self:Rect(L + r, y - r, w - h, h, col, a) end
+        return
+    end
+    local tex = PEN .. (line and "pillline" or "pill")
+    local e = math.min(h / 2, w / 2)
+    local u = 32 / 256 * (e / (h / 2))
+    self:Img(tex, L + e / 2, y, e, h, col, a, 0, u, 0, 1)
+    if w > 2 * e then self:Img(tex, L + w / 2, y, w - 2 * e, h, col, a, 32 / 256, 224 / 256, 0, 1) end
+    self:Img(tex, L + w - e / 2, y, e, h, col, a, 1 - u, 1, 0, 1)
+end
+
+-- A ring that runs out, drawn by the client (a Cooldown swipe with a ring texture): full at `start`, empty at
+-- start + dur, clockwise from the top. Smooth and animated by the game between our frames.
+function c:Sweep(cx, cy, r, w, col, a, start, dur, glow)
+    if not Smooth() or not start or not dur or dur <= 0 then
+        local left = (start and dur and dur > 0) and clamp(1 - (GetTime() - start) / dur) or 1
+        if left > 0.001 then self:Arc(cx, cy, r, r, -pi / 2, -pi / 2 + TAU * left, w, col, a, glow) end
+        return
+    end
+    local tex, S = Pen.RingTex(r, w)
+    for pass = glow and 1 or 2, 2 do
+        local cd = Next(self, "cd")
+        local k = cd.k
+        local sz = pass == 1 and (r / 0.36) or S
+        local px, py = self.ox + cx * self.sc, self.oy + cy * self.sc
+        sz = sz * self.sc
+        if k.x ~= px or k.y ~= py or k.s ~= sz then
+            cd:ClearAllPoints()
+            cd:SetPoint("CENTER", self.h, "TOPLEFT", px, -py)
+            cd:SetSize(sz, sz)
+            k.x, k.y, k.s = px, py, sz
+        end
+        local t = pass == 1 and (PEN .. "ringsoft") or tex
+        if k.t ~= t then cd:SetSwipeTexture(t); k.t = t end
+        local al = (a or 1) * (pass == 1 and 0.45 or 1)
+        cd:SetSwipeColor(col[1], col[2], col[3], 1)
+        cd:SetAlpha(self.a * al)
+        local s0 = math.floor(start * 100 + 0.5) / 100
+        if k.st ~= s0 or k.du ~= dur then cd:SetCooldown(s0, dur); k.st, k.du = s0, dur end
+    end
+end
 
 -- A filled triangle (the corners of one texture bent onto it).
 function c:Tri(x1, y1, x2, y2, x3, y3, col, a)
@@ -625,7 +779,9 @@ function c:GText(s, x, y, size, pal, face, align, shine, ow)
         u.base:SetFont(path, z, OW[ow or 2])
         u.base:SetShadowOffset(0, -2 * sc)
         u.base:SetShadowColor(0, 0, 0, 0.75)
-        for _, fs in ipairs({ u.t1, u.t2, u.t3, u.t4, u.t5 }) do fs:SetFont(path, z, ""); fs:SetShadowOffset(0, 0) end
+        -- (the bands in the base's own outline: an outlined face spaces its letters wider, so bands without it
+        -- drifted off the base letter by letter, the top of the number skewed against its foot)
+        for _, fs in ipairs({ u.t1, u.t2, u.t3, u.t4, u.t5 }) do fs:SetFont(path, z, OW[ow or 2]); fs:SetShadowOffset(0, 0) end
         for _, fs in ipairs({ u.base, u.t1, u.t2, u.t3, u.t4, u.t5 }) do fs:SetText(s) end
         k.s, k.z, k.p = s, z, path
     end

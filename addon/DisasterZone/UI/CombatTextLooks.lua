@@ -1133,3 +1133,8 @@ end
 L.ORDER = { "flat", "halo", "sigil", "slate", "gilded", "classic" }
 L.SIGNATURE = { flat = "Rolling totals", halo = "Crit rings", sigil = "Stamp and shatter",
                 slate = "Hairlines", gilded = "Gold and sparks", classic = "Reactive alerts" }
+
+-- The shared drawing helpers, for the boss mods' looks (UI/BossModLooks.lua): one copy of each.
+L.kit = { Edge = Edge, flatChip = flatChip, tile = tile, stamp = stamp, sigTag = sigTag, brackets = brackets,
+          trimH = trimH, corner = corner, cartouche = cartouche, easeOut = easeOut, easeIn = easeIn, fade = fade,
+          fin = fin, rnd = rnd }

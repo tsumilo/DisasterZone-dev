@@ -46,3 +46,4 @@ dev/ext/
 dev/tools/gearsim/logs/
 # The guild's feedback read from the saved variables (tools/feedback.py): members' words, not for git
 dev/feedback/
+dev/art/bossmod_src/

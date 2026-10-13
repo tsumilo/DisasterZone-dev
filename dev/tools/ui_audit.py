@@ -968,6 +968,8 @@ def main():
     import harness
     harness.LOAD_ROOMS = True                  # (the Teron 3D view needs its room)
     from ui_audit_states import STATES, build_world
+    import ui_audit_bossmods
+    STATES = STATES + ui_audit_bossmods.states()
     args = sys.argv[1:]
     only = None
     png = True

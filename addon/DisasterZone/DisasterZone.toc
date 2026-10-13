@@ -57,6 +57,15 @@ Data\StarterStrategies.lua
 Data\ModelIndex.lua
 Data\EncounterObjects.lua
 Data\EncounterSpawns.lua
+Data\BossMods\Karazhan.lua
+Data\BossMods\GruulsLair.lua
+Data\BossMods\MagtheridonsLair.lua
+Data\BossMods\SerpentshrineCavern.lua
+Data\BossMods\TempestKeep.lua
+Data\BossMods\HyjalSummit.lua
+Data\BossMods\BlackTemple.lua
+Data\BossMods\ZulAman.lua
+Data\BossMods\SunwellPlateau.lua
 Core\ItemDB.lua
 Core\DB.lua
 Core\Guild.lua
@@ -106,6 +115,7 @@ Core\Ledger.lua
 Core\RaidLog.lua
 Core\CombatLog.lua
 Core\CombatText.lua
+Core\BossMod.lua
 Core\MyLog.lua
 Core\MyLogDemo.lua
 Core\Meter.lua
@@ -233,6 +243,7 @@ UI\DropPanel.lua
 UI\RollFrame.lua
 UI\Tooltip.lua
 UI\Settings.lua
+UI\BossModSettings.lua
 UI\Changelog.lua
 UI\Feedback.lua
 UI\FeedbackSheet.lua
@@ -271,6 +282,8 @@ UI\LookMinimap.lua
 UI\CombatTextPen.lua
 UI\CombatText.lua
 UI\CombatTextLooks.lua
+UI\BossModLooks.lua
+UI\BossModUI.lua
 UI\PatchUI.lua
 
 # Games (just for fun; never touch loot state)

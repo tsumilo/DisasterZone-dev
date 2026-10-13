@@ -49,7 +49,7 @@ local CATS = {
     { key = "general", label = "General", icon = 13, cards = { "window", "tooltips", "phase" } },
     { key = "alerts", label = "Alerts", icon = 56, cards = { "quiet", "reach" } },
     { key = "loot", label = "Loot", icon = 40, cards = { "drops", "rolls", "rules" } },
-    { key = "combat", label = "Combat", icon = 62, cards = { "meters", "classtools", "strategy", "mylog" } },
+    { key = "combat", label = "Combat", icon = 62, cards = { "meters", "bossmods", "classtools", "strategy", "mylog" } },
     { key = "interface", label = "Interface", icon = 31, cards = { "looks", "layout" } },
     { key = "guild", label = "Guild", icon = 26, cards = { "council", "attendance", "setup" } },
     { key = "help", label = "Help", icon = 11, small = true, cards = { "tutorials", "demo", "about" } },
@@ -70,6 +70,8 @@ local CARDS = {
     rolls = { label = "Rolls", build = "BuildRolls" },
     rules = { label = "Group rules", build = "BuildGroupRules", scope = "group" },
     meters = { label = "Meters", build = "BuildMeters" },
+    -- timer bars, warnings and the range frame for the raid bosses (UI/BossModSettings.lua)
+    bossmods = { label = "Boss mods", build = "BuildBossMods" },
     -- class tools (Core/ClassKit.lua): a collapsible card per tool of my class (every class's in demo mode)
     classtools = { label = "Class tools", build = "BuildClassTools",
                    visible = function() return SettingsUI:HasClassTools() end },
@@ -101,7 +103,7 @@ local OLD = { alerts = "reach", notify = "reach", ui = "looks" }
 local PARTS = {
     { key = "units", glyph = 61 }, { key = "group", glyph = 46 }, { key = "cast", glyph = 47 },
     { key = "bars", glyph = 38 }, { key = "bags", glyph = 40 }, { key = "minimap", glyph = 7 },
-    { key = "sct", glyph = 8 },
+    { key = "sct", glyph = 8 }, { key = "bossmods", glyph = 37 },
     { key = "meters", label = "Meters", tip = "The damage and threat panels.", glyph = 58, kind = "meters" },
     { key = "classbars", label = "Class bars", tip = "The blessing and totem bars: every class tool bar shares it.",
       glyph = 60, kind = "classbar", kits = { "bless", "totems" } },
@@ -755,6 +757,8 @@ local function PlaceText(row, ctrlW)
     local sec = row.sec
     if h ~= was and sec and sec.rows and sec.rows[#sec.rows] == row and sec.y then sec.y = sec.y - (h - was) end
 end
+
+SettingsUI.PlaceText = PlaceText
 
 local function RowEnter(row)
     local c = row.control
@@ -2473,6 +2477,13 @@ function SettingsUI:BuildPart(sec, p)
                 end }
             end
         end
+        if key == "bossmods" and ns.BossModUI then
+            local row = self:Row(sec, "Try it", "A made-up Gruul pull plays on your screen. Nothing is read or sent.")
+            local try = ns.UI:CreateSleekButton(row, "Try it", 80, 22, function() ns.BossModUI:TryIt() end)
+            try:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+            row.control = try
+            PlaceText(row, 80)
+        end
         if key == "sct" and ns.CombatTextUI then
             local row = self:Row(sec, "Try it", "A made-up pull plays on your screen. Nothing is cast or sent.")
             local try = ns.UI:CreateSleekButton(row, "Try it", 80, 22, function() ns.CombatTextUI:TryIt() end)
@@ -2513,6 +2524,9 @@ function SettingsUI:PaintStage(key)
     local has = false
     if key == "sct" and not Get("ui.sct.on", false) then
         stage.note:SetText("Combat text is off.\nTurn it on below: nothing else turns it on.")
+    elseif key == "bossmods" and (not Get("bossmods.on", false) or look == "blizzard") then
+        stage.note:SetText(not Get("bossmods.on", false) and "Boss mods are off.\nTurn them on in Combat > Boss mods."
+            or "With Blizzard as their look, boss mods wear Classic.\nTry it below.")
     elseif look == "blizzard" and not (PART[key].kind or PART[key].kits) then
         stage.note:SetText("The game's own " .. (PartInfo(key)):lower() .. ", as Blizzard made them.")
     else

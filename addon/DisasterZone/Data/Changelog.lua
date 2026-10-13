@@ -8,6 +8,15 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.4.2", date = "13 October 2026", title = "Edit layout and the UI in our looks",
       sections = {
+          { heading = "Boss mods", area = "raids", kind = "new", hi = true, open = "settings/bossmods",
+            lead = "Timers and warnings for every TBC raid boss, off until you switch them on.", lines = {
+              "Settings > Combat > Boss mods: bars, warnings and sounds for what wipes raids.",
+              "Every alert has its own switch; tank and healer alerts go only to that role.",
+              "Timers where the sources disagree count to the earliest time, then say 'within n s'.",
+              "/dz pull 10 and /dz break 5 reach DBM and BigWigs users too, and theirs reach you.",
+              "Hyjal: the next wave and 'Wave 4 of 8'. A range frame where the game can measure.",
+              "They wear your UI look, or one of their own. Size them in Settings; Try it plays a pull.",
+          } },
           { heading = "Settings, sorted", area = "other", kind = "changed", hi = true, open = "settings/looks",
             lead = "Six groups, a search, and every look in one place.", lines = {
               "A rail of six groups, each with a line saying how it is set: General to Guild.",
