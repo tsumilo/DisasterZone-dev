@@ -696,18 +696,21 @@ def threat_polls_that_change_nothing_redraw_nothing():
 
 
 @case
-def the_settings_section_dims_what_is_off():
+def the_settings_page_hides_what_is_off():
+    """Settings > Combat > Meters: a meter's options are hidden (not greyed) while it is off; the rest of them sit
+    under More options."""
     r = Raid(dmg=False)
-    r.cl.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('meters')")
+    r.cl.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('meters'); "
+              "ns.SettingsUI:SetMoreOpen(ns.SettingsUI.sections.meters, true)")
     r.w.tick(0.5)
     assert r.cl.eval("return ns.SettingsUI.sections.meters:IsShown()") is True
     texts = r.cl.find_text("Show the damage meter")
     assert texts, "no damage meter switch"
-    a = r.cl.eval("for _, row in ipairs(ns.SettingsUI.sections.meters.rows) do if row.title:GetText() == 'Fights to keep' then return row:GetAlpha() end end")
-    assert a < 0.5, a
+    SHOWN = ("for _, row in ipairs(ns.SettingsUI.sections.meters.rows) do if row.title:GetText() == 'Fights to keep' "
+             "then return row:IsShown() and row:GetAlpha() end end")
+    assert r.cl.eval(SHOWN) is False
     r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.SettingsUI:Refresh()")
-    a = r.cl.eval("for _, row in ipairs(ns.SettingsUI.sections.meters.rows) do if row.title:GetText() == 'Fights to keep' then return row:GetAlpha() end end")
-    assert a == 1, a
+    assert r.cl.eval(SHOWN) == 1
 
 
 @case

@@ -231,12 +231,7 @@ time = function(t) if t ~= nil then return real(t) end return real() - 5 * 3600 
 SWITCH_HELPERS = r"""
 function T_settings() return ns.MainFrame:GetPanel("settings") end
 function T_show_section_of(f)
-  local p = f
-  while p do
-    local k = rawget(p, "key")
-    if k and ns.SettingsUI.sections[k] == p then ns.SettingsUI:SelectSection(k); return k end
-    p = p:GetParent()
-  end
+  return ns.SettingsUI:Reveal(f)
 end
 """
 

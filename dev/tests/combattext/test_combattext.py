@@ -395,12 +395,20 @@ def settings_ui_has_the_combat_text_card_with_try_it():
     c.eval("ns.DB:SetSetting('ui.sct.look', 'flat')")
     c.slash("/dz settings")
     w.tick(0.5)
+    VISIBLE = ("local o = {}; local function walk(f) for _, r in ipairs({ f:GetRegions() }) do "
+               "if r.GetText and r:IsVisible() and r:GetText() then o[#o + 1] = r:GetText() end end; "
+               "for _, k in ipairs({ f:GetChildren() }) do walk(k) end end; walk(UIParent); return o")
+    # off (as it comes): its page is one box with Switch on and Try it, its switch in the head
     c.eval("ns.SettingsUI:SelectSection('look.sct')")      # (Settings > Interface > Looks > Combat text)
     w.tick(0.5)
-    texts = c.eval_py("local o = {}; local function walk(f) for _, r in ipairs({ f:GetRegions() }) do "
-                      "if r.GetText and r:IsVisible() and r:GetText() then o[#o + 1] = r:GetText() end end; "
-                      "for _, k in ipairs({ f:GetChildren() }) do walk(k) end end; walk(UIParent); return o")
-    for t in ("Combat text", "Show combat text", "Where numbers go", "Hide the game's numbers", "Try it"):
+    texts = c.eval_py(VISIBLE)
+    for t in ("Combat text", "Combat text is off", "Switch on", "Try it"):
+        assert t in texts, t
+    assert "Where numbers go" not in texts
+    c.eval("ns.DB:SetSetting('ui.sct.on', true); if ns.Popup then ns.Popup:HideAll() end; ns.SettingsUI:Refresh()")
+    w.tick(0.5)
+    texts = c.eval_py(VISIBLE)
+    for t in ("Combat text", "Where numbers go", "Hide the game's numbers", "Try it", "More options"):
         assert t in texts, t
     for t in ("New bests", "Fight summary"):
         assert t not in texts, t
