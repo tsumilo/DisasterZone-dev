@@ -1617,6 +1617,22 @@ MinimapBackdrop = CreateFrame("Frame", "MinimapBackdrop", Minimap)
 -- GetMinimapShape is not defined by the default UI (minimap addons define it); LibDBIcon falls back to ROUND
 GameMenuFrame = CreateFrame("Frame", "GameMenuFrame", UIParent)
 GameMenuFrame:Hide()
+-- the game's Esc menu builds its buttons in InitButtons (each from AddButton, in a pool)
+do
+    local added = {}
+    GameMenuFrame.buttonPool = { EnumerateActive = function() local i = 0
+        return function() i = i + 1; return added[i] end end }
+    function GameMenuFrame:InitButtons() wipe(added) end
+    function GameMenuFrame:AddButton(text, onClick, disabled, tip)
+        local b = CreateFrame("Button", nil, self)
+        b:SetText(text)
+        b:SetScript("OnClick", onClick)
+        b.layoutIndex = #added + 1
+        added[#added + 1] = b
+        return b
+    end
+    function GameMenuFrame:MarkDirty() end
+end
 UISpecialFrames = {}
 UIPanelWindows = {}
 function ShowUIPanel(f) if f then f:Show() end end

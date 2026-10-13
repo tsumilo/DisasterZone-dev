@@ -44,7 +44,10 @@ ns.CHANGELOG = {
           { heading = "Settings, sorted", area = "other", kind = "changed", hi = true, open = "settings/looks",
             lead = "Six groups, a search, and every look in one place.", lines = {
               "A rail of six groups, each with a line saying how it is set: General to Guild.",
-              "A group is one page of cards; the chips under its name jump between them.",
+              "A group opens as tiles, one per feature: how it is set, and its on/off switch.",
+              "A tile opens the feature's page: main options first, the rest under More options.",
+              "A feature that is off shows one box with Switch on (and Try it), not greyed rows.",
+              "Options that need another switch on, like the threat warning, show only then.",
               "Search finds any option, with a working switch; click its name to go there.",
               "A gold dot marks what you changed; Back to defaults puts a card as it came.",
               "Alerts: the BiS toast, its sound and chat line are now a row of the pop-up grid.",
@@ -105,7 +108,9 @@ ns.CHANGELOG = {
           } },
           { heading = "Edit layout: everything on your screen, in one place", area = "look", kind = "new", hi = true,
             open = "settings/layout", lead = "Move, line up and mirror every frame at once: /dz edit.", lines = {
-              "Every DisasterZone frame gets a box to drag: meters, class tools, pop-ups, loot bars.",
+              "Every DisasterZone frame gets a faint dashed outline; the one you pick turns gold.",
+              "One slim bar at the top: what you picked, its tools, Grid, Snap, Names, Frames.",
+              "The bar fades back when the frame you picked is under it, and while you drag.",
               "The game's own frames too: player, target, cast bar, action bars, minimap, buffs.",
               "Frames snap to the middle of the screen (gold) and line up with each other (teal).",
               "Drop a frame between two others and it lands exactly halfway (pink gaps).",
