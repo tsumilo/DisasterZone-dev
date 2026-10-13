@@ -235,5 +235,40 @@ def settings_ui_has_every_part():
     w.assert_no_errors()
 
 
+@case
+def the_drawer_gathers_the_addon_buttons_and_gives_them_back():
+    w, c = with_look("flat")
+    c.eval("""
+        for i, n in ipairs({ 'LibDBIcon10_Alpha', 'LibDBIcon10_Beta', 'SomeMinimapButton' }) do
+            local b = CreateFrame('Button', n, Minimap)
+            b:SetSize(31, 31)
+            b:SetPoint('CENTER', Minimap, 'CENTER', 60 + i, -20)
+            b:SetScript('OnDragStart', function() end)
+        end
+    """)
+    c.eval("ns.DB:SetSetting('ui.minimap.buttons', 'drawer'); ns.LookMinimap:Buttons()")
+    d = "DisasterZoneMinimapDrawer"
+    assert c.eval("return _G[...] ~= nil", d) is True
+    assert c.eval("return LibDBIcon10_Alpha:GetParent() == _G[...]", d) is True
+    assert c.eval("return SomeMinimapButton:GetParent() == _G[...]", d) is True
+    assert c.eval("return _G[...]:IsShown()", d) is False             # (closed until the knob is clicked)
+    c.eval("ns.LookMinimap:Knob():Click()")
+    assert c.eval("return _G[...]:IsShown()", d) is True
+    # a grid: three buttons in one row, none on top of another
+    xs = c.eval_py("local o = {} for _, n in ipairs({ 'LibDBIcon10_Alpha', 'LibDBIcon10_Beta', 'SomeMinimapButton' }) do "
+                   "local _, _, _, x, y = _G[n]:GetPoint(1); o[#o + 1] = x end return o")
+    assert len(set(round(x) for x in xs)) == 3, xs
+    assert c.eval("return LibDBIcon10_Beta:GetScript('OnDragStart') == nil") is True
+    # a button that registers later joins on the next tick
+    c.eval("local b = CreateFrame('Button', 'LibDBIcon10_Late', Minimap); b:SetSize(31, 31); b:SetPoint('CENTER')")
+    w.tick(1.2)
+    assert c.eval("return LibDBIcon10_Late:GetParent() == _G[...]", d) is True
+    # back to the edge: every button on the map again, where it was, draggable
+    c.eval("ns.DB:SetSetting('ui.minimap.buttons', 'edge'); ns.LookMinimap:Buttons()")
+    assert c.eval("return LibDBIcon10_Alpha:GetParent() == Minimap") is True
+    assert c.eval("return LibDBIcon10_Beta:GetScript('OnDragStart') ~= nil") is True
+    assert c.eval("return _G[...]:IsShown()", d) is False
+    w.assert_no_errors()
+
 if __name__ == "__main__":
     run_all()

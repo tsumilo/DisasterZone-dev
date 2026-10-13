@@ -38,6 +38,7 @@ ns.CHANGELOG = {
               "The game's frames too, in the steps their own Edit Mode allows.",
               "The game's Esc menu has a DisasterZone layout button, right under Edit Mode.",
               "Fixed: the roll frame and the raid session bar went back to their default spot after a reload.",
+              "Fixed: Minimap > Addon buttons > In a drawer now gathers the buttons into a drawer under the ··· knob.",
           } },
           { heading = "Layout profiles", area = "look", kind = "new", open = "settings/layout", lines = {
               "Each character picks its own profile: Raid, Solo, Healing, whatever you make.",
@@ -51,6 +52,12 @@ ns.CHANGELOG = {
           } },
           { heading = "Swing and shot timers: rotation optional", area = "class", kind = "changed", lines = {
               "Settings > Show rotation off hides the next presses and plan lane: just the timer.",
+          } },
+          { heading = "Themes for the swing and shot timers", area = "class", kind = "new", ["for"] = "PALADIN HUNTER",
+            open = "settings/classtools", lines = {
+              "Halo, Sigil, Slate, Gilded or Pips: the same looks as the Blessings and Totem bars.",
+              "Each timer picks its own in its card under Settings > Class tools.",
+              "Point at a theme to see it on your timer; the plan lane comes in the same look.",
           } },
       } },
     { version = "1.4.1", date = "13 October 2026", title = "Council Bingo, made epic",

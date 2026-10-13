@@ -9,9 +9,10 @@ local addonName, ns = ...
 local MM = ns:NewModule("LookMinimap")
 local UI = ns.UI
 
-local pairs, ipairs, type, floor = pairs, ipairs, type, math.floor
+local pairs, ipairs, type, floor, unpack = pairs, ipairs, type, math.floor, unpack
 
 local function Look() return ns.Look end
+local BEZEL = "Interface\\AddOns\\" .. addonName .. "\\Media\\Blessings\\bezel"
 
 local HIDE = { "MinimapBorder", "MinimapCompassTexture", "MinimapNorthTag", "MinimapZoneTextButton",
     "MinimapToggleButton", "MinimapZoomIn", "MinimapZoomOut", "GameTimeFrame", "MiniMapWorldMapButton",
@@ -67,9 +68,13 @@ local function Build()
     skin.stud = L.Tex(skin, "OVERLAY", 5)
     skin.stud:SetSize(8, 8)
     if skin.stud.SetRotation then skin.stud:SetRotation(math.pi / 4) end
-    skin.zone = L:Text(skin, "body", "GOLD")
-    skin.sub = L:Text(skin, "small", "SUB")
-    skin.clock = L:Text(skin, "small", "TEXT", { justify = "RIGHT" })
+    -- the texts on their own layer over the plaque (a child frame draws over its parent's font strings)
+    skin.texts = CreateFrame("Frame", nil, skin)
+    skin.texts:SetAllPoints(skin)
+    skin.texts:SetFrameLevel(skin.plaque:GetFrameLevel() + 5)
+    skin.zone = L:Text(skin.texts, "body", "GOLD")
+    skin.sub = L:Text(skin.texts, "small", "SUB")
+    skin.clock = L:Text(skin.texts, "small", "TEXT", { justify = "RIGHT" })
     skin.clockBg = L.Tex(skin, "ARTWORK", 1)
     -- the drawer: a small ··· that shows the addon buttons
     skin.knob = CreateFrame("Button", nil, skin)
@@ -92,7 +97,8 @@ local function Build()
         if self.t < 1 then return end
         self.t = 0
         MM:Clock()
-        if Look():Opt("minimap", "buttons", "edge") == "hover" then MM:Buttons() end
+        local mode = Look():Opt("minimap", "buttons", "edge")
+        if mode == "hover" or mode == "drawer" then MM:Buttons() end
     end)
     return skin
 end
@@ -118,17 +124,114 @@ function MM:Zone()
     skin.sub:SetText((on and look and look.key == "slate" and sub ~= (GetMinimapZoneText and GetMinimapZoneText())) and sub or "")
 end
 
--- The minimap button libraries' buttons (children of the map named LibDBIcon...): on the edge as they are, in the
--- drawer (shown while it's open), or on mouse-over.
+-- The addon buttons on the map (LibDBIcon10_..., ...MinimapButton; not our own seal, it has its arc).
+local function IsAddonButton(ch)
+    local n = ch and ch.GetName and ch:GetName() or ""
+    if n:find("^" .. addonName) then return false end
+    return n:find("^LibDBIcon") ~= nil or n:find("MinimapButton") ~= nil
+end
+
+-- The drawer: the addon buttons taken off the map's edge into a grid under the ··· knob.
+-- taken[button] = { parent, points, drag }: what it had, given back when the drawer goes.
+local taken, laying = {}, false
+local DRAWER_COLS, CELL, GAP = 5, 32, 4
+
+local function Drawer()
+    if skin.drawer then return skin.drawer end
+    local L = Look()
+    local d = CreateFrame("Frame", "DisasterZoneMinimapDrawer", UIParent)
+    d:SetFrameStrata("MEDIUM")
+    d:SetFrameLevel(20)
+    d:SetClampedToScreen(true)
+    d:EnableMouse(true)
+    d.bg = L.Tex(d, "BACKGROUND", 0)
+    d.bg:SetAllPoints()
+    d.edges = L.Edges(d, "BORDER", 1)
+    d.empty = L:Text(d, "small", "SUB", { justify = "CENTER" })
+    d.empty:SetPoint("CENTER")
+    d.empty:SetText("No addon buttons")
+    d:Hide()
+    skin.drawer = d
+    return d
+end
+
+-- Lays the taken buttons out in rows (only the ones their addon shows).
+function MM:LayDrawer()
+    local d = skin and skin.drawer
+    if not d then return end
+    local list = {}
+    for b in pairs(taken) do if b:IsShown() then list[#list + 1] = b end end
+    table.sort(list, function(a, b) return (a:GetName() or "") < (b:GetName() or "") end)
+    laying = true
+    for i, b in ipairs(list) do
+        local col, row = (i - 1) % DRAWER_COLS, floor((i - 1) / DRAWER_COLS)
+        b:ClearAllPoints()
+        b:SetPoint("CENTER", d, "TOPLEFT", GAP + col * (CELL + GAP) + CELL / 2, -(GAP + row * (CELL + GAP) + CELL / 2))
+        b:SetAlpha(1)
+    end
+    laying = false
+    local n = #list
+    local cols = math.max(1, math.min(DRAWER_COLS, n))
+    local rows = math.max(1, math.ceil(n / DRAWER_COLS))
+    d:SetSize(n == 0 and 120 or (GAP + cols * (CELL + GAP)), n == 0 and 28 or (GAP + rows * (CELL + GAP)))
+    d.empty:SetShown(n == 0)
+    local look = skin.look
+    Look().Color(d.bg, { 0.039, 0.039, 0.051, 0.9 })
+    d.edges:Place(d, 0)
+    d.edges:Paint((look and look.rim) or { 1, 0.82, 0, 0.5 })
+end
+
+local function Take(b, d)
+    if taken[b] then return end
+    local pts = {}
+    for i = 1, (b:GetNumPoints() or 0) do pts[i] = { b:GetPoint(i) } end
+    taken[b] = { parent = b:GetParent(), points = pts, drag = b:GetScript("OnDragStart") }
+    b:SetParent(d)
+    b:SetScript("OnDragStart", nil)            -- (dragging round the edge makes no sense in the drawer)
+    if not b.dzDrawerHook then
+        b.dzDrawerHook = true
+        -- (the button library puts it back on the edge when the map changes: back into the grid)
+        hooksecurefunc(b, "SetPoint", function(self)
+            if taken[self] and not laying then MM:LayDrawer() end
+        end)
+    end
+end
+
+local function GiveBack()
+    for b, was in pairs(taken) do
+        taken[b] = nil
+        b:SetParent(was.parent or _G.Minimap)
+        if was.drag then b:SetScript("OnDragStart", was.drag) end
+        laying = true
+        b:ClearAllPoints()
+        for _, p in ipairs(was.points) do pcall(b.SetPoint, b, unpack(p)) end
+        laying = false
+    end
+end
+
+-- The addon buttons: on the edge as they are, in the drawer (a grid under the ··· knob while it's open), or on
+-- mouse-over.
 function MM:Buttons()
     local map = _G.Minimap
     if not map or not skin then return end
     local mode = Look():Opt("minimap", "buttons", "edge")
-    local show = mode == "edge" or (mode == "drawer" and skin.open) or (mode == "hover" and map:IsMouseOver())
     skin.knob:SetShown(mode == "drawer")
+    if mode == "drawer" then
+        local d = Drawer()
+        for _, ch in ipairs({ map:GetChildren() }) do
+            if IsAddonButton(ch) then Take(ch, d) end
+        end
+        d:ClearAllPoints()
+        d:SetPoint("TOPRIGHT", skin.knob, "BOTTOMRIGHT", 0, -4)
+        self:LayDrawer()
+        d:SetShown(skin.open and true or false)
+        return
+    end
+    GiveBack()
+    if skin.drawer then skin.drawer:Hide() end
+    local show = mode == "edge" or (mode == "hover" and map:IsMouseOver())
     for _, ch in ipairs({ map:GetChildren() }) do
-        local n = ch:GetName() or ""
-        if n:find("^LibDBIcon") or n:find("MinimapButton") then ch:SetAlpha(show and 1 or 0) end
+        if IsAddonButton(ch) then ch:SetAlpha(show and 1 or 0) end
     end
 end
 
@@ -153,10 +256,11 @@ function MM:Apply()
     local rw = (k == "gilded") and 5 or 3
     s.ring:SetPoint("TOPLEFT", map, "TOPLEFT", -rw, rw); s.ring:SetPoint("BOTTOMRIGHT", map, "BOTTOMRIGHT", rw, -rw)
     s.ringIn:SetPoint("TOPLEFT", map, "TOPLEFT", -1.5, 1.5); s.ringIn:SetPoint("BOTTOMRIGHT", map, "BOTTOMRIGHT", 1.5, -1.5)
-    s.ring:SetTexture(round and L.DISC or L.WHITE)
+    -- (Gilded: the worked gold bezel of the class bars, drawn in colour)
+    s.ring:SetTexture(round and (k == "gilded" and BEZEL or L.DISC) or L.WHITE)
     s.ringIn:SetTexture(round and L.DISC or L.WHITE)
     if round then
-        L.Color(s.ring, (k == "gilded") and look.rim or { 1, 0.82, 0, 0.75 })
+        L.Color(s.ring, (k == "gilded") and { 1, 1, 1, 1 } or { 1, 0.82, 0, 0.75 })
         L.Color(s.ringIn, { 0, 0, 0, 1 })
         s.edge:Paint(nil); s.inner:Paint(nil)
     else
@@ -246,6 +350,8 @@ function MM:OnLogin()
     end)
 end
 
+function MM:Knob() return skin and skin.knob end
+
 -- Back to the game's look without a reload.
 function MM:Off()
     local map = _G.Minimap
@@ -260,7 +366,8 @@ function MM:Off()
     local cl = _G.MinimapCluster
     if cl and cl.BorderTop then cl.BorderTop:SetAlpha(1) end
     if cl and cl.ZoneTextButton then cl.ZoneTextButton:SetAlpha(1) end
-    if skin then skin:Hide(); skin.ring:Hide(); skin.ringIn:Hide() end
+    GiveBack()
+    if skin then skin:Hide(); skin.ring:Hide(); skin.ringIn:Hide(); if skin.drawer then skin.drawer:Hide() end end
     MM.shape = "round"
     if map then
         for _, ch in ipairs({ map:GetChildren() }) do
