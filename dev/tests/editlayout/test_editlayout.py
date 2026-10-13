@@ -94,7 +94,7 @@ def every_frame_is_an_item_and_edit_layout_shows_the_ones_that_only_come_sometim
     assert c.eval("return ns.EditMode:GetPanel():IsShown()") is True
     rows = c.eval_py("local o = {} for _, r in ipairs(ns.EditMode:GetPanel().rows) do "
                      "if r:IsShown() then o[#o + 1] = r.fs:GetText() end end return o")
-    for want in ("Raid session bar", "Roll frame", "Pop-ups", "Strategy reminder"):
+    for want in ("Raid session crest", "Roll frame", "Pop-ups", "Strategy reminder"):
         assert any(want in (t or "") for t in rows), (want, rows)
     c.slash("/dz edit")
     w.tick(0.3)
@@ -769,7 +769,7 @@ def one_slim_bar_at_the_top_reads_out_the_pick_and_holds_its_tools():
     c.eval("ns.EditMode:Select({ 'session' })")
     l, b, bw, bh = box(c, "session")
     dx, dy = round(l + bw / 2 - W / 2), round(b + bh / 2 - H / 2)
-    assert readout(c) == "Raid session bar  \u00b7  centre %s, %s  \u00b7  100%%" % (signed(dx), signed(dy)), readout(c)
+    assert readout(c) == "Raid session crest  \u00b7  centre %s, %s  \u00b7  100%%" % (signed(dx), signed(dy)), readout(c)
     assert set(tools(c)) >= {"ch", "cv", "mirror1", "reset", "hide"}, tools(c)
     assert not set(tools(c)) & {"al", "dh", "mirror2", "unmirror"}, tools(c)
     assert c.eval("local B = %s; return B.b.ch:GetParent() == B and B.b.reset:GetParent() == B" % BAR) is True
@@ -875,7 +875,7 @@ def frames_opens_a_panel_under_the_bar_with_profiles_snaps_and_the_list():
                       "if r.GetText and r:GetText() and r:IsVisible() then o[#o + 1] = r:GetText() end end "
                       "for _, ch in ipairs({ f:GetChildren() }) do walk(ch) end end walk(%s) return o" % P)
     for want in ("Profile", "Default", "Screen centre and edges", "Other frames", "Equal gaps", "My character",
-                 "Everything", "Reset all\u2026", "Raid session bar", "Roll frame"):
+                 "Everything", "Reset all\u2026", "Raid session crest", "Roll frame"):
         assert any(want in plain(t) for t in texts), (want, texts)
     # not undo / redo / grid / done: those are in the bar
     assert not any(plain(t) in ("Undo", "Redo", "Done", "Grid") for t in texts), texts
