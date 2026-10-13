@@ -935,9 +935,88 @@ function GetRaidRosterInfo(i)
   local m = g.members[tonumber(i) or 0]
   if not m then return nil end
   return display_name(m), m.group_rank or 0, m.subgroup or 1, m.level or 70, LOCALIZED_CLASS_NAMES_MALE[m.class] or m.class,
-    m.class, m.zone or GetRealZoneText(), m.online ~= false, m.dead == true, m.role, m.isML == true, "NONE"
+    m.class, m.zone or GetRealZoneText(), m.online ~= false, m.dead == true, M.role_of(m), m.isML == true, "NONE"
 end
-function GetPartyAssignment() return false end
+-- Main tank / main assist flags (Core/Tanks.lua): per client, M.assign[kind][full name] = true; the roster's role
+-- (GetRaidRosterInfo's 10th value) reads them. Setting is the raid leader's or an assistant's, in a raid (the game
+-- also wants a secure click: tests call these directly or check the buttons' attributes).
+M.assign = { MAINTANK = {}, MAINASSIST = {} }
+local function assign_key(m) return m and (m.full or (m.name .. "-" .. norm_realm(m.realm or M.W.realm))) or nil end
+function M.role_of(m)
+  local k = assign_key(m)
+  if k and M.assign.MAINTANK[k] then return "MAINTANK" end
+  if k and M.assign.MAINASSIST[k] then return "MAINASSIST" end
+  return m.role
+end
+local function assign_kind(kind)
+  kind = type(kind) == "string" and kind:upper() or ""
+  return M.assign[kind] and kind or nil
+end
+function GetPartyAssignment(kind, unit)
+  local k, m = assign_kind(kind), unit_rec(unit)
+  if not k or not m or not IsInRaid() then return false end
+  return M.assign[k][assign_key(m)] == true
+end
+local function set_assignment(kind, unit, on)
+  local k, m = assign_kind(kind), unit_rec(unit)
+  if not k or not m or not IsInRaid() then return end
+  if not (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")) then return end
+  M.assign[k][assign_key(m)] = on or nil
+  M.fire("GROUP_ROSTER_UPDATE")
+end
+function SetPartyAssignment(kind, unit) set_assignment(kind, unit, true) end
+function ClearPartyAssignment(kind, unit) set_assignment(kind, unit, false) end
+-- State drivers (the game's SecureStateDriver.lua): RegisterAttributeDriver(frame, attribute, "[cond] value; value"),
+-- conditions group:raid, group:party / group, combat, nocombat. "state-visibility" shows / hides the frame, any other
+-- attribute is set to the value. Re-read when the group or combat changes (M.fire below), like the game's.
+M.drivers = {}
+local function driver_holds(cond)
+  if cond == "group:raid" then return IsInRaid() end
+  if cond == "group:party" or cond == "group" then return IsInGroup() end
+  if cond == "combat" then return M.combat == true end
+  if cond == "nocombat" then return M.combat ~= true end
+  return false
+end
+local function driver_pick(values)
+  for clause in string.gmatch((values or "") .. ";", "([^;]*);") do
+    local c, v = string.match(clause, "^%s*%[(.-)%]%s*(.-)%s*$")
+    if c then
+      if driver_holds(c) then return v end
+    else
+      local v2 = string.match(clause, "^%s*(.-)%s*$")
+      if v2 ~= "" then return v2 end
+    end
+  end
+  return nil
+end
+local function driver_apply(frame, attr, values)
+  local v = driver_pick(values)
+  if attr == "state-visibility" then
+    if v == "show" then frame:Show() elseif v == "hide" then frame:Hide() end
+  else
+    frame:SetAttribute(attr, v)
+  end
+end
+function RegisterAttributeDriver(frame, attr, values)
+  M.drivers[frame] = M.drivers[frame] or {}
+  M.drivers[frame][attr] = values
+  driver_apply(frame, attr, values)
+end
+function UnregisterAttributeDriver(frame, attr)
+  if M.drivers[frame] then M.drivers[frame][attr] = nil end
+end
+function M.update_drivers()
+  for f, list in pairs(M.drivers) do
+    for a, v in pairs(list) do driver_apply(f, a, v) end
+  end
+end
+local base_fire = M.fire
+function M.fire(event, ...)
+  if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+    M.update_drivers()
+  end
+  return base_fire(event, ...)
+end
 -- Raid marks live in the world (Python): SetRaidTarget goes through it (leader / assist in a raid, anyone in a party),
 -- and every group client gets RAID_TARGET_UPDATE with the new marks.
 M.npcs, M.nameplates, M.marks = {}, {}, {}

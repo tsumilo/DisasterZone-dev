@@ -48,7 +48,7 @@ local DOT = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\disc"
 local CATS = {
     { key = "general", label = "General", icon = 13, cards = { "window", "tooltips", "phase" } },
     { key = "alerts", label = "Alerts", icon = 56, cards = { "quiet", "reach" } },
-    { key = "loot", label = "Loot", icon = 40, cards = { "drops", "rolls", "rules" } },
+    { key = "loot", label = "Loot", icon = 40, cards = { "session", "drops", "rolls", "rules" } },
     { key = "combat", label = "Combat", icon = 62, cards = { "meters", "bossmods", "classtools", "strategy", "mylog" } },
     { key = "interface", label = "Interface", icon = 31, cards = { "looks", "layout" } },
     { key = "guild", label = "Guild", icon = 26, cards = { "council", "attendance", "setup" } },
@@ -66,6 +66,8 @@ local CARDS = {
     quiet = { label = "When to stay quiet", build = "BuildQuiet" },
     -- one grid: every kind of notification (Core/Notify.lua) and the BiS drop alert, each by pop-up, sound and chat
     reach = { label = "What reaches you", build = "BuildNotify" },
+    -- who sees the raid session crest (UI/SessionBar.lua)
+    session = { label = "Raid session", build = "BuildSession" },
     drops = { label = "Drop panel", build = "BuildDrops" },
     rolls = { label = "Rolls", build = "BuildRolls" },
     rules = { label = "Group rules", build = "BuildGroupRules", scope = "group" },
@@ -1663,6 +1665,11 @@ end
 ---------------------------------------------------------------------------
 -- The sections
 ---------------------------------------------------------------------------
+-- The raid session crest: who sees it (UI/SessionBar.lua builds the row).
+function SettingsUI:BuildSession(sec)
+    if ns.SessionBar and ns.SessionBar.BuildSettings then ns.SessionBar:BuildSettings(self, sec) end
+end
+
 -- The drop panel and the loot window (the BiS toast, its sound and chat line are rows of the alerts grid now).
 function SettingsUI:BuildDrops(sec)
     sec.y = sec.y - 4
@@ -1972,6 +1979,10 @@ local PART_OPTS = {
           { { value = "theme", text = "The look's" }, { value = "class", text = "Class" }, { value = "green", text = "Green" },
             { value = "gradient", text = "By health" } } },
         { "player", "Me in my party", "Your own frame at the top of the party frames.", false },
+        { "partyInRaid", "Party frames in a raid", "Off: your group is already in the raid frames.", false },
+        { "tanks", "Main tanks", "Each main tank and the mob they hold, by the raid frames.", true,
+          tip = "The raid leader or an assistant sets them: + under the rows, the plan's tanks in one click, or "
+              .. "/maintank. Drag a row to reorder; move the block in Edit layout." },
         { "range", "Fade out of range", "Party and raid members too far to heal.", true },
         { "dispel", "Light what I can remove", "A debuff you can dispel colours the frame's edge.", true },
     },

@@ -910,7 +910,28 @@ def st_settings_in_raid(section):
 
 
 def st_session_bar(w, c):
-    return raid_with_session(w, c, {"loot": False, "rolls": True, "lock": False})
+    """The session crest of a running raid (loot council off), hovered: the line beside the seal."""
+    g = raid_with_session(w, c, {"loot": False, "rolls": True, "lock": False})
+    g.eval("__MOCK.real_geometry = true; ns.SessionBar:Update(); ns.SessionBar:Peek(true)")
+    return g
+
+
+def st_session_crest(open_=False, idle=False):
+    """The session crest in Gina's raid: before the start (the line with the switches) or running, its drawer open."""
+    def fn(w, c):
+        g = raid_with_session(w, c, None if idle else {"loot": True, "rolls": True, "lock": True})
+        g.eval("__MOCK.real_geometry = true; ns.SessionBar:Update(); ns.SessionBar:Peek(true)")
+        if open_:
+            g.eval("ns.SessionBar:ToggleDrawer(true)")
+        return g
+    return fn
+
+
+def st_crest_demo(moment, open_=True):
+    """Demo mode's made-up night in Serpentshrine Cavern (/dz raid bar <moment>), its drawer open."""
+    lua = ("__MOCK.real_geometry = true; ns.SessionBar:Demo('%s'); ns.SessionBar:Peek(true)" % moment
+           + ("; ns.SessionBar:ToggleDrawer(true)" if open_ else ""))
+    return demo(lua)
 
 
 def st_raids_in_raid(lua):
@@ -2087,6 +2108,13 @@ STATES = [
     ("Raid - Settings - Group loot rules (raider)", st_settings_in_raid("rules")),
     ("Raid - Settings - Loot Council (raider)", st_settings_in_raid("council")),
     ("Raid - session bar", st_session_bar),
+    ("Raid - session crest (before the start)", st_session_crest(idle=True)),
+    ("Raid - session crest (drawer)", st_session_crest(open_=True)),
+    ("Raid - session crest (before the start, drawer)", st_session_crest(open_=True, idle=True)),
+    ("Demo - session crest (loot)", st_crest_demo("loot")),
+    ("Demo - session crest (after Vashj)", st_crest_demo("done")),
+    ("Demo - session crest (boss fight)", st_crest_demo("pull", open_=False)),
+    ("Demo - session crest (between bosses)", st_crest_demo("between", open_=False)),
     ("Raid - drop panel (council)", st_drop({"loot": True, "rolls": True, "lock": False})),
     ("Raid - drop panel (council, rolling)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True)),
     ("Raid - roll popup (raider)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
@@ -3570,6 +3598,81 @@ for i = 1, 29 do
 end
 """
 STATES += [("Group frames - " + k, opened("home", GROUP_STATE.replace("LOOK", k)))
+           for k in ("halo", "flat", "sigil", "slate", "gilded", "classic")]
+
+# The main tanks block (UI/LookTanks.lua) over the raid frames in look LOOK, drawn with the same faces and data the
+# live rows use: a mob on its tank (88%), one on a non-tank (red, "on Dreadhex"), one on another main tank (grey),
+# a tank without a target (the plan's job, greyed). Under it the raid frames with the shields, my target (Torvald) and
+# the cell under the mouse (Nyx). At the right: nobody set yet, the plan greyed with the leader's button.
+TANKS_STATE = r"""
+ns.MainFrame:Close(); __MOCK.real_geometry = true
+local st = DZTankStage or CreateFrame('Frame', 'DZTankStage', UIParent)
+st:SetSize(900, 470); st:ClearAllPoints(); st:SetPoint('CENTER'); st:Show()
+if not st.bg then
+  st.bg = st:CreateTexture(nil, 'BACKGROUND'); st.bg:SetAllPoints()
+  st.bg:SetTexture('Interface' .. string.char(92) .. 'Glues' .. string.char(92) .. 'LoadingScreens' .. string.char(92) .. 'LoadScreenOutland')
+  st.bg:SetTexCoord(0.05, 0.75, 0.25, 0.75)
+end
+for _, f in ipairs(st.parts or {}) do f:Hide() end
+st.parts = {}
+local U, LT, look = ns.LookUnits, ns.LookTanks, ns.Look.BY_KEY['LOOK']
+local cw, ch = U.CellSize(look)
+local gap = math.max(2, look.gap or 2)
+local function Cell(x, y)
+  local c = CreateFrame('Frame', nil, st)
+  c.face = U:NewFace(c, 'cell', 'group', 'left')
+  c.face:Apply(look)
+  c:ClearAllPoints(); c:SetPoint('TOPLEFT', st, 'TOPLEFT', x, -y)
+  st.parts[#st.parts + 1] = c
+  return c
+end
+local RED, GREY = { 1, 0.42, 0.36 }, { 0.62, 0.6, 0.55 }
+local rows = {
+  { 'Victhar', 'WARRIOR', 0.72, { name = 'Maulgar', raidIcon = 8, hp = 0.88, statusText = '88%' } },
+  { 'Ironbark', 'WARRIOR', 0.93, { name = 'Blindeye', raidIcon = 7, hp = 0.33, statusText = 'on Dreadhex', statusColor = RED, threat = 3 } },
+  { 'Moonwhisper', 'DRUID', 0.88, { name = 'Olm', raidIcon = 6, hp = 0.9, statusText = 'on Victhar', statusColor = GREY } },
+  { 'Brannoc', 'WARRIOR', 1, { name = 'Kiggler', raidIcon = 5, hp = 0, statusText = 'planned', statusColor = GREY, plan = true } },
+}
+for i, r in ipairs(rows) do
+  local y = 16 + (i - 1) * (ch + gap)
+  local t = Cell(16, y)
+  t.face:Set({ exists = true, name = r[1], class = r[2], isPlayer = true, hp = math.floor(16000 * r[3]), hpMax = 16000, mt = i })
+  local m = Cell(16 + cw + 2, y)
+  local d = r[4]
+  m.face:Set({ exists = true, name = d.name, isPlayer = false, reaction = 2, hp = d.hp * 1e6, hpMax = 1e6, raidIcon = d.raidIcon,
+               statusText = d.statusText, statusColor = d.statusColor, threat = d.threat, selected = (i == 1) })
+  if d.plan then m:SetAlpha(0.55) end
+end
+local top = 16 + #rows * (ch + gap) + 12
+for i = 1, 25 do
+  local col, row = math.floor((i - 1) / 5), (i - 1) % 5
+  local c = Cell(16 + col * (cw + gap), top + row * (ch + gap))
+  local d = U.Fake('member', i)
+  d.far = nil
+  if d.name == 'Victhar' then d.mt = 1 elseif d.name == 'Ironbark' then d.mt = 2 elseif d.name == 'Moonwhisper' then d.mt = 3 end
+  if d.name == 'Brannoc' then d.mt = 4 end
+  if d.name == 'Dreadhex' then d.threat = 3 end
+  if d.name == 'Torvald' then d.selected = true end
+  c.face:Set(d)
+  if d.name == 'Nyx' then c.face:SetHover(true) end
+end
+-- nobody set yet: the plan, greyed, and the leader's button
+local px = 520
+for i, p in ipairs({ { 'Victhar', 'WARRIOR', 'Maulgar', 8 }, { 'Ironbark', 'WARRIOR', 'Blindeye', 7 } }) do
+  local y = 16 + (i - 1) * (ch + gap)
+  local t = Cell(px, y); t:SetAlpha(0.55)
+  t.face:Set({ exists = true, name = p[1], class = p[2], isPlayer = true, hp = 0, hpMax = 1, statusText = '' })
+  local m = Cell(px + cw + 2, y); m:SetAlpha(0.55)
+  m.face:Set({ exists = true, name = p[3], isPlayer = false, reaction = 2, hp = 0, hpMax = 1, raidIcon = p[4],
+               statusText = 'planned', statusColor = GREY })
+end
+local b = ns.UI:CreateSleekButton(st, 'Set as main tanks', 130, 22, nil, 'primary')
+b:SetPoint('TOPLEFT', st, 'TOPLEFT', px, -(16 + 2 * (ch + gap)))
+st.parts[#st.parts + 1] = b
+local note = ns.UI:Text(st, 'small', 'SUB'); note:SetPoint('LEFT', b, 'RIGHT', 8, 0); note:SetText('From the plan')
+local nf = CreateFrame('Frame', nil, st); st.parts[#st.parts + 1] = nf
+"""
+STATES += [("Main tanks - " + k, opened("home", TANKS_STATE.replace("LOOK", k)))
            for k in ("halo", "flat", "sigil", "slate", "gilded", "classic")]
 
 

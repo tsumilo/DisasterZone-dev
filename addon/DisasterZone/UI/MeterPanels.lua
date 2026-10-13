@@ -48,6 +48,7 @@ local BAR_L, BAR_RES, NAME_L, VAL_R = 20, 0, 25, 6   -- a bar's left edge, the r
 local M                           -- the look in use (MeterTheme:Metrics)
 local BOSS_C = { 1, 0.71, 0.27 }   -- (a boss fight's name: the meters' amber)
 local HOT_C = { 1, 0.35, 0.24 }    -- (threat: the warning stretch and a bar past it)
+local MT_ICON = "|TInterface\\GroupFrame\\UI-Group-MainTankIcon:0|t "   -- (threat: before a main tank's name)
 local DEFAULT_W, MIN_W, MAX_W = 300, 170, 640
 local DEFAULT_ROWS, MAX_ROWS = 8, 40
 local NEAR, SIDE_Y = 40, 60      -- docking: how far past an edge a drop still joins; how far apart tops may be beside
@@ -1235,7 +1236,9 @@ local function DrawThreat(pf)
         ns.MeterTheme:SetIcon(row, r.cls, spec, M)
         ns.MeterTheme:Me(row, M, r.me)
         if M.t.rank then row.rank:SetText(i + (pf.offset or 0)) end
-        SetT(row.name, r.name or "?")
+        -- (a main tank: the game's shield before the name, Core/Tanks.lua)
+        local mtN = r.name and ns.Tanks and ns.Tanks:Number(ns.Util.NormalizeName(r.name))
+        SetT(row.name, (mtN and MT_ICON or "") .. (r.name or "?"))
         local nr, ng, nb = K.ClassColor(r.cls)
         if r.me then row.name:SetTextColor(S:Color("GOLD")) else row.name:SetTextColor(nr, ng, nb) end
         row.you:SetShown(r.me and true or false)

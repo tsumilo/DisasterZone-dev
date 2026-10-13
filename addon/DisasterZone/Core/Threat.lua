@@ -81,7 +81,8 @@ function Threat:TankView(me)
     local mode = Setting("tankView", "auto")
     if mode == "always" then return true end
     if mode == "never" then return false end
-    return (me and me.tank) or MyRole() == "TANK"
+    -- (a main tank: the raid's flag, Core/Tanks.lua)
+    return (me and me.tank) or MyRole() == "TANK" or (ns.Tanks and ns.Tanks:IsMe()) or false
 end
 
 -- Scans the group's threat on mob: state = { mob, name, combat, rows = { { unit, guid, name, cls, tank, raw, scaled,

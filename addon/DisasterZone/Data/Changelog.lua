@@ -8,6 +8,18 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.4.2", date = "13 October 2026", title = "Edit layout and the UI in our looks",
       sections = {
+          { heading = "The raid session crest", area = "raids", kind = "changed", hi = true, open = "settings/session",
+            lead = "The session bar is now a small crest showing what waits on the leader and the council.", lines = {
+              "A round seal: the raid art, a bead per boss and the time; gold counts what waits on you.",
+              "Hover it: drops waiting on your vote, loot still to trade, who left, an unlinked raid.",
+              "Click it for the drawer: bosses, loot, council, attendance, the planned raid, End raid.",
+              "Next boss: Strategy, plus Pull 10 / Break 5 for the leader (DBM and BigWigs see them).",
+              "Before the start: the planned raid, who is here, three switches; Start raid in one click.",
+              "The switches apply at once; turning the loot council off mid-raid asks first.",
+              "In a boss fight it shows only the boss and the fight time, dimmed.",
+              "Raiders don't get it, only a pop-up when the raid starts. Settings > Loot > Raid session.",
+              "Right-click: hide it for this raid, its settings, or move it in Edit layout.",
+          } },
           { heading = "Boss mods", area = "raids", kind = "new", hi = true, open = "settings/bossmods",
             lead = "Timers and warnings for every TBC raid boss, off until you switch them on.", lines = {
               "Settings > Combat > Boss mods: bars, warnings and sounds for what wipes raids.",

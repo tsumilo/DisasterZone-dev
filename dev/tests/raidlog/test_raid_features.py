@@ -205,9 +205,10 @@ def the_start_raid_window():
     w.tick(2)
     bar = "ns.SessionBar:GetFrame()"
     assert lee.eval("return %s:IsShown()" % bar) is True
-    assert lee.find_text("council and rolls are off until you start", True, True)
-    # the bar's Start raid asks first
-    lee.click(lee.eval("return %s.button" % bar))
+    # 1.4.2: the crest's line starts the raid itself (tests/raidlog/test_raidlog.py); the window is the Raids tab's and
+    # /dz raid options'
+    assert lee.eval("return %s.line.start:IsShown()" % bar) is True
+    lee.eval("ns.SessionBar:OpenStart()")
     w.tick(0.2)
     assert lee.eval("return %s:IsShown()" % WIN) is True and lee.eval("return ns.GroupRules:GetSession()") is None
     assert lee.find_text("Loot council", True, True) and lee.find_text("Lock everyone's BiS lists", True, True)
@@ -229,10 +230,9 @@ def the_start_raid_window():
     assert lee.eval("return %s:IsShown()" % WIN) is False
     for x in c.values():
         assert feats(x) == {"loot": True, "rolls": False, "lock": True}, (x.name, feats(x))
-    assert lee.find_text("rolls off", True, True) and rita.find_text("rolls off", True, True)
+    assert lee.eval("return ns.SessionBar:GetInfo().feats.rolls") is False
     # Options (the leader only): the window again, with what runs now; Apply changes it
-    assert lee.eval("return %s.options:IsShown()" % bar) is True and rita.eval("return %s.options:IsShown()" % bar) is False
-    lee.click(lee.eval("return %s.options" % bar))
+    lee.slash("/dz raid options")
     w.tick(0.2)
     assert lee.eval("return %s.startBtn:GetText()" % WIN) == "Apply"
     assert lee.eval("return %s.boxes.rolls:GetChecked()" % WIN) is False

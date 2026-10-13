@@ -182,7 +182,7 @@ function BM:MyRole()
     local t = Now()
     if roleCache and t - roleAt < 5 then return roleCache end
     roleAt = t
-    if GetPartyAssignment and IsInRaid and IsInRaid() and GetPartyAssignment("MAINTANK", "player") then
+    if ns.Tanks and ns.Tanks:IsMe() then
         roleCache = "tank"
         return roleCache
     end
