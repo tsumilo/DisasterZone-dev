@@ -28,10 +28,35 @@ local BARS = {
     { "MultiBarLeft", "MultiBarLeftButton", 12 }, { "StanceBar", "StanceButton", 10 },
     { "PetActionBar", "PetActionButton", 10 },
 }
--- the bags (reskinned like buttons) and the strips that get a plate
-local BAGS = { "MainMenuBarBackpackButton", "CharacterBag0Slot", "CharacterBag1Slot", "CharacterBag2Slot",
-    "CharacterBag3Slot" }
+-- the strips that get a plate in looks with plates
 local STRIPS = { "MicroMenuContainer", "BagsBar" }
+-- The menu and the bags: their art hidden, our tile drawn over each (the look's icon shape, the same as the action
+-- buttons'), the button itself the game's (its click, tooltip and menu). The menu's tiles show these icons; a bag
+-- slot shows its bag (read from the game's own icon); the rest keep their own art.
+local MICRO = { "CharacterMicroButton", "SpellbookMicroButton", "PlayerSpellsMicroButton", "TalentMicroButton",
+    "QuestLogMicroButton", "SocialsMicroButton", "GuildMicroButton", "WorldMapMicroButton", "LFGMicroButton",
+    "LFDMicroButton", "PVPMicroButton", "MainMenuMicroButton", "HelpMicroButton" }
+local TILED = { "KeyRingButton", "MainMenuBarBackpackButton", "CharacterBag0Slot", "CharacterBag1Slot",
+    "CharacterBag2Slot", "CharacterBag3Slot" }
+for _, n in ipairs(MICRO) do TILED[#TILED + 1] = n end
+local TILE_ICON = {
+    CharacterMicroButton = "portrait",
+    SpellbookMicroButton = "Interface\\Icons\\INV_Misc_Book_09",
+    PlayerSpellsMicroButton = "Interface\\Icons\\INV_Misc_Book_09",
+    TalentMicroButton = "Interface\\Icons\\Ability_Marksmanship",
+    QuestLogMicroButton = "Interface\\Icons\\INV_Misc_Note_01",
+    SocialsMicroButton = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
+    GuildMicroButton = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
+    WorldMapMicroButton = "Interface\\Icons\\INV_Misc_Map_01",
+    LFGMicroButton = "Interface\\Icons\\INV_Misc_Spyglass_02",
+    LFDMicroButton = "Interface\\Icons\\INV_Misc_Spyglass_02",
+    PVPMicroButton = "Interface\\Icons\\INV_BannerPVP_02",
+    MainMenuMicroButton = "Interface\\Icons\\INV_Gizmo_01",
+    HelpMicroButton = "Interface\\Icons\\INV_Misc_QuestionMark",
+    KeyRingButton = "Interface\\Icons\\INV_Misc_Key_14",
+    MainMenuBarBackpackButton = "Interface\\Buttons\\Button-Backpack-Up",
+}
+
 -- the stone art of the classic main bar
 local ART = { "MainMenuBarTexture0", "MainMenuBarTexture1", "MainMenuBarTexture2", "MainMenuBarTexture3",
     "MainMenuBarTextureExtender", "MainMenuBarLeftEndCap", "MainMenuBarRightEndCap", "MainMenuMaxLevelBar0",
@@ -194,6 +219,95 @@ function Bars:Range(b)
 end
 
 ---------------------------------------------------------------------------
+-- Tiles: the menu and the bags in the look
+---------------------------------------------------------------------------
+
+local tiles = {}          -- button -> tile
+Bars.tiles = tiles
+
+-- The texture the game shows on a button now: a bag's icon (the game sets button.Icon first), else its own art.
+local function GameTexture(b)
+    local icon = b.Icon or b.icon or _G[(b:GetName() or "") .. "IconTexture"]
+    if icon and icon.GetTexture and icon:GetTexture() then return icon:GetTexture() end
+    local nt = b.GetNormalTexture and b:GetNormalTexture()
+    return nt and nt.GetTexture and nt:GetTexture() or nil
+end
+
+-- Hides every texture of the game's on a button (they come back on state changes: done again on each tick).
+local function HideArt(b)
+    for _, r in ipairs({ b:GetRegions() }) do
+        if r.GetObjectType and r:GetObjectType() == "Texture" then r:SetAlpha(0) end
+    end
+    local port = _G.MicroButtonPortrait
+    if port and port.GetParent and port:GetParent() == b then port:SetAlpha(0) end
+end
+
+function Bars:Tile(b, look)
+    local L = Look()
+    local t = tiles[b]
+    if not t then
+        t = { b = b }
+        t.f = CreateFrame("Frame", nil, b)
+        t.f:SetFrameLevel(b:GetFrameLevel() + 2)
+        t.icon = L:Icon(t.f)
+        t.icon.f:SetAllPoints(t.f)
+        t.hl = L.Tex(t.f, "OVERLAY", 7)
+        t.hl:SetAllPoints(t.f)
+        t.hl:SetVertexColor(1, 1, 1, 0.14)
+        t.hl:Hide()
+        b:HookScript("OnEnter", function() if t.look then t.hl:Show() end end)
+        b:HookScript("OnLeave", function() t.hl:Hide() end)
+        -- the count (free bag slots) over our tile
+        local ct = b.Count or _G[(b:GetName() or "") .. "Count"]
+        if ct and ct.SetParent then ct:SetParent(t.f); ct:SetDrawLayer("OVERLAY", 7) end
+        tiles[b] = t
+    end
+    t.look = look
+    -- a square on the button (a menu button is tall: the square sits low on it; the key ring: at its middle)
+    local w, h = b:GetWidth() or 0, b:GetHeight() or 0
+    if w <= 0 then w = 32 end
+    if h <= 0 then h = 32 end
+    local name = b:GetName() or ""
+    local micro = name:find("MicroButton") ~= nil
+    local size = math.max(14, math.min(w, h) - ((look.key == "halo") and 2 or 0))
+    if micro then size = math.max(16, math.min(w - 2, h * 0.62)) end
+    t.f:ClearAllPoints()
+    t.f:SetSize(size, size)
+    t.f:SetPoint("CENTER", b, "CENTER", 0, micro and -h * 0.12 or 0)
+    t.icon:Apply(look, look.icon == "none" and "small" or look.icon)
+    t.shown = nil
+    t.f:Show()
+    self:TileIcon(b)
+end
+
+-- Our tile's picture: the menu's icon, the player's portrait, or the game's own texture (a bag).
+function Bars:TileIcon(b)
+    local t = tiles[b]
+    if not t or not t.look then return end
+    HideArt(b)
+    local want = TILE_ICON[b:GetName() or ""]
+    if want == "portrait" then
+        if t.shown ~= "portrait" then t.icon:SetPortrait("player"); t.shown = "portrait" end
+    else
+        local tex = want or GameTexture(b)
+        if tex and tex ~= t.shown then t.icon:SetTexture(tex); t.shown = tex end
+    end
+    local enabled = not b.IsEnabled or b:IsEnabled()
+    if t.icon.tex.SetDesaturated then t.icon.tex:SetDesaturated(not enabled) end
+    t.f:SetAlpha(enabled and 1 or 0.55)
+end
+
+-- (twice a second: a bag changed, a menu button came back with its art)
+local tileTick = CreateFrame("Frame")
+tileTick.t = 0
+tileTick:SetScript("OnUpdate", function(self, dt)
+    self.t = self.t + (dt or 0)
+    if self.t < 0.5 then return end
+    self.t = 0
+    for b in pairs(tiles) do Bars:TileIcon(b) end
+end)
+
+---------------------------------------------------------------------------
 -- Plates behind the bars
 ---------------------------------------------------------------------------
 
@@ -240,17 +354,16 @@ function Bars:Restyle()
             if b then self:Apply(b, look) end
         end
     end
-    for _, name in ipairs(BAGS) do
+    for _, name in ipairs(TILED) do
         local b = _G[name]
-        if b then self:Apply(b, look) end
+        if b then self:Tile(b, look) end
     end
     for _, name in ipairs(STRIPS) do
         local p = _G[name] and Plate(name)
         if p then
-            p.panel:Apply(look.panel and look or Look().BY_KEY.flat)
-            p:Show()
+            if look.plate then p.panel:Apply(look); p:Show() else p:Hide() end
             for _, t in ipairs(p.studs) do
-                if look.studs then Look().Color(t, look.panel.corners) else t:Hide() end
+                if look.studs and look.plate then Look().Color(t, look.panel.corners) else t:Hide() end
             end
         end
     end
@@ -423,6 +536,15 @@ function Bars:Off()
         end
     end
     for _, p in pairs(plates) do p:Hide() end
+    for b, t in pairs(tiles) do
+        t.look, t.shown = nil, nil
+        t.f:Hide()
+        for _, r in ipairs({ b:GetRegions() }) do
+            if r.GetObjectType and r:GetObjectType() == "Texture" then r:SetAlpha(1) end
+        end
+        local port = _G.MicroButtonPortrait
+        if port and port.GetParent and port:GetParent() == b then port:SetAlpha(1) end
+    end
     if Bars.xp then Bars.xp:Hide() end
     for _, name in ipairs(ART) do
         local t = _G[name]

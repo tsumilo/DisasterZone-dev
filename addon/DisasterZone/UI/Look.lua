@@ -462,7 +462,7 @@ function IconMethods:Refresh()
         if self.shape == "round" then t:SetTexCoord(0, 1, 0, 1) else t:SetTexCoord(0.14, 0.86, 0.14, 0.86) end
     elseif self.path then
         -- (a texture with coords is a cut of a sheet, already shaped: the class circles; else round looks round it)
-        if self.shape == "round" and SetPortraitToTexture and type(self.path) ~= "number" and not self.coords then
+        if self.shape == "round" and SetPortraitToTexture and not self.coords then
             if not pcall(SetPortraitToTexture, t, self.path) then t:SetTexture(self.path) end
             t:SetTexCoord(0, 1, 0, 1)
         else

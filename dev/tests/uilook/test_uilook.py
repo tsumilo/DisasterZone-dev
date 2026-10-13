@@ -173,6 +173,19 @@ def action_buttons_are_reskinned_not_replaced():
     assert c.eval("local p, rel, rp = ActionButton1.HotKey:GetPoint(1); return p .. '>' .. rp") == "BOTTOM>BOTTOM"
     # Halo cuts the icon round, again whenever the game sets a new one
     assert c.eval("return ns.LookBars.skinned[ActionButton1].round") is True
+    # the bags and the menu: their art hidden, a tile of the look over each (the button stays the game's)
+    c.eval("""
+        local bag = CreateFrame('Button', 'CharacterBag0Slot', UIParent); bag:SetSize(30, 30)
+        bag.Icon = bag:CreateTexture(); bag.Icon:SetTexture(133633)
+        bag.art = bag:CreateTexture(); bag.art:SetTexture('Interface/Buttons/UI-Quickslot2')
+        local mb = CreateFrame('Button', 'SpellbookMicroButton', UIParent); mb:SetSize(28, 36)
+        mb.art = mb:CreateTexture(); mb.art:SetTexture('Interface/Buttons/UI-MicroButton-Spellbook-Up')
+        ns.LookBars:Restyle()""")
+    assert c.eval("return CharacterBag0Slot.art:GetAlpha()") == 0
+    assert c.eval("return ns.LookBars.tiles[CharacterBag0Slot].shown") == 133633
+    assert c.eval("return ns.LookBars.tiles[CharacterBag0Slot].icon.shape") == "round"
+    assert "INV_Misc_Book_09" in c.eval("return ns.LookBars.tiles[SpellbookMicroButton].shown")
+    assert c.eval("return SpellbookMicroButton.art:GetAlpha()") == 0
     # the bag slots get the same face; the experience bar is ours
     assert c.eval("return DisasterZoneXPBar ~= nil") is True
     # back to Blizzard: after a reload (the game's status bars were retired)
