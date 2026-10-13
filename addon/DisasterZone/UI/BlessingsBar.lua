@@ -156,7 +156,7 @@ local function Build()
     local aura = HeaderIcon("DisasterZoneBlessAura")
     aura:HookScript("OnEnter", function(self)
         local ai = B():GetAura(B():Me())
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetOwner(self, UI():TowardMiddle(self, "x"))
         GameTooltip:AddLine(ai and B():AuraName(ai) or "No aura assigned")
         GameTooltip:AddLine(self.on and "On" or "Click to turn it on", 0.85, 0.85, 0.85)
         GameTooltip:Show()
@@ -166,7 +166,7 @@ local function Build()
 
     local rf = HeaderIcon("DisasterZoneBlessRF")
     rf:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetOwner(self, UI():TowardMiddle(self, "x"))
         GameTooltip:AddLine(GetSpellInfo(B().D.RIGHTEOUS_FURY) or "Righteous Fury")
         GameTooltip:AddLine(self.on and "On" or "Off: click to cast it", 0.85, 0.85, 0.85)
         GameTooltip:Show()
@@ -185,7 +185,7 @@ local function Build()
     sym.face = Face():New(sym)
     sym:SetScript("OnEnter", function(self)
         Face():Hover(self.face, true)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetOwner(self, UI():TowardMiddle(self, "x"))
         GameTooltip:AddLine(strformat("%s Symbols of Kings", self.count or 0))
         if not B().Setting("locked", true) then GameTooltip:AddLine("Drag the bar to move it.", 0.6, 0.6, 0.6) end
         GameTooltip:Show()
@@ -714,7 +714,8 @@ function Bar:FillPop(row)
     end
 end
 
--- Right-click: a class's players next to it (left of the rail, above the strip); again: closed.
+-- Right-click: a class's players next to it, toward the screen's middle (beside the rail, over/under the strip);
+-- again: closed.
 function Bar:TogglePop(row)
     if InCombatLockdown() or not row.data then return end
     if pop:IsShown() and pop.row == row and not pop.fadeT then
@@ -724,15 +725,9 @@ function Bar:TogglePop(row)
     pop.row = row
     pop.fadeT = nil
     -- it comes in like the addon's dropdowns (UI:DropIn: fades up while it moves the last few px): out of the
-    -- rail from the circle's side, up out of the strip
-    local fall = UI().DROP_FALL or 6
+    -- rail's / strip's side that faces the screen's middle
     local strip = Layout() == "horizontal"
-    pop.dx, pop.dy = strip and 0 or fall, strip and -fall or 0
-    pop.place = function(dx, dy)
-        pop:ClearAllPoints()
-        if strip then pop:SetPoint("BOTTOM", row, "TOP", dx, 18 + dy)
-        else pop:SetPoint("RIGHT", row, "LEFT", -14 + dx, dy) end
-    end
+    pop.place, pop.dx, pop.dy = UI():PlaceToward(pop, row, strip and "y" or "x", strip and 18 or 14, UI().DROP_FALL or 6)
     self:FillPop(row)
     pop:Show()
     if UI().DropIn then UI():DropIn(pop, pop.place, pop.dx, pop.dy) else pop.place(0, 0) end
@@ -773,7 +768,7 @@ function Bar:PopTip(p)
     local Bl = B()
     local me = Bl:Me()
     local sbi = Bl:GetSingle(me, p.ci, m.name)
-    GameTooltip:SetOwner(p, Layout() == "horizontal" and "ANCHOR_TOP" or "ANCHOR_LEFT")
+    GameTooltip:SetOwner(p, UI():TowardMiddle(p, Layout() == "horizontal" and "y" or "x"))
     GameTooltip:AddLine(m.name)
     if sbi then
         GameTooltip:AddLine(strformat("Gets %s from you instead of the class's", Bl:BlessingName(sbi)), GOLD[1], GOLD[2], GOLD[3], true)

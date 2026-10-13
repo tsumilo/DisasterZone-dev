@@ -333,11 +333,54 @@ function UI:FitText(fs, text, maxWidth)
 end
 
 -- The tooltip of a frame that has one (UI:AttachTooltip).
+-- Which half of the screen frame's middle sits in: "LEFT"/"RIGHT", "BOTTOM"/"TOP" (nil, nil before it has a place).
+function UI:ScreenHalf(frame)
+    local x, y
+    if frame and frame.GetCenter then x, y = frame:GetCenter() end
+    if not x or not y then return nil, nil end
+    local s = (frame:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1)
+    return x * s < UIParent:GetWidth() / 2 and "LEFT" or "RIGHT", y * s < UIParent:GetHeight() / 2 and "BOTTOM" or "TOP"
+end
+
+-- A GameTooltip anchor that opens toward the screen's middle: axis "x" beside frame (right of it on the left half,
+-- left of it on the right half), "y" over it on the bottom half, under it on the top half.
+function UI:TowardMiddle(frame, axis)
+    local h, v = self:ScreenHalf(frame)
+    if axis == "y" then return v == "TOP" and "ANCHOR_BOTTOM" or "ANCHOR_TOP" end
+    return h == "RIGHT" and "ANCHOR_LEFT" or "ANCHOR_RIGHT"
+end
+
+-- f next to owner toward the screen's middle (axis as UI:TowardMiddle), gap px off it. Returns place(x, y) and the
+-- dx, dy of fall px back toward owner (for UI:DropIn: it slides out of owner's side).
+function UI:PlaceToward(f, owner, axis, gap, fall)
+    local h, v = self:ScreenHalf(owner)
+    fall = fall or 0
+    if axis == "y" then
+        local down = v == "TOP"
+        return function(x, y)
+            f:ClearAllPoints()
+            if down then f:SetPoint("TOP", owner, "BOTTOM", x, -gap + y)
+            else f:SetPoint("BOTTOM", owner, "TOP", x, gap + y) end
+        end, 0, down and fall or -fall
+    end
+    local left = h == "RIGHT"
+    return function(x, y)
+        f:ClearAllPoints()
+        if left then f:SetPoint("RIGHT", owner, "LEFT", -gap + x, y)
+        else f:SetPoint("LEFT", owner, "RIGHT", gap + x, y) end
+    end, left and fall or -fall, 0
+end
+
+-- opts.anchor "AUTO_X" / "AUTO_Y": toward the screen's middle (UI:TowardMiddle)
+local AUTO_AXIS = { AUTO_X = "x", AUTO_Y = "y" }
+
 local function TipOnEnter(self)
     local d = self.cdlTip
     if not d then return end
     local opts = d.opts or {}
-    GameTooltip:SetOwner(opts.owner or self, opts.anchor or "ANCHOR_RIGHT")
+    local owner, anchor = opts.owner or self, opts.anchor or "ANCHOR_RIGHT"
+    if AUTO_AXIS[anchor] then anchor = UI:TowardMiddle(owner, AUTO_AXIS[anchor]) end
+    GameTooltip:SetOwner(owner, anchor)
     if type(d.title) == "function" then
         if d.title(self, GameTooltip) == false then
             GameTooltip:Hide()

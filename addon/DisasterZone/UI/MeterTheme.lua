@@ -203,24 +203,9 @@ function MT:SkinStack(f, m, locked)
     if type(o) == "number" then a = o / 100 end
     f.fill:SetVertexColor(t.bg[1], t.bg[2], t.bg[3], a)
     f.outer:SetAlpha(min(1, a + 0.25))
-    if not f.corners then
-        f.corners = {}
-        for i, c in ipairs({ { "TOPLEFT", 1, -1 }, { "TOPRIGHT", -1, -1 }, { "BOTTOMLEFT", 1, 1 }, { "BOTTOMRIGHT", -1, 1 } }) do
-            local h = Part(f, "OVERLAY", 6)
-            local v = Part(f, "OVERLAY", 6)
-            h:SetSize(9, 2)
-            v:SetSize(2, 9)
-            h:SetPoint(c[1], f, c[1], -2 * c[2], 2 * -c[3])
-            v:SetPoint(c[1], f, c[1], -2 * c[2], 2 * -c[3])
-            f.corners[i] = { h, v }
-        end
-    end
-    for _, c in ipairs(f.corners) do
-        for _, x in ipairs(c) do
-            Paint(x, C.GOLD_DEEP)                  -- (D1: the deep gold of fills and edges)
-            x:SetShown(t.corners and true or false)
-        end
-    end
+    -- (Gilded: the looks' worked gold moulding, filigree corners and grain, UI/Look.lua)
+    if t.corners and not f.gilt and ns.Look and ns.Look.Gilt then f.gilt = ns.Look:Gilt(f) end
+    if f.gilt then f.gilt:Show(t.corners and true or false) end
     MT:StackEdge(f, m, locked)
 end
 

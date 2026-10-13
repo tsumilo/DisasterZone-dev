@@ -861,7 +861,7 @@ local Look = {}
 -- A tooltip from textFn(button) (nil: none), also over a disabled button.
 function Look.Tip(btn, textFn)
     if btn.SetMotionScriptsWhileDisabled then btn:SetMotionScriptsWhileDisabled(true) end
-    UI:AttachTooltip(btn, nil, function(self) return { textFn(self) } end, { anchor = "ANCHOR_TOP" })
+    UI:AttachTooltip(btn, nil, function(self) return { textFn(self) } end, { anchor = "AUTO_Y" })
 end
 
 -- The raid of a boss key (drop.b): its name, a dungeon flag and the raid's instance id (nil for 5-mans / unknown).
@@ -1625,7 +1625,7 @@ end
 local function RowOnEnter(self)
     local tt = _G.GameTooltip
     local vp = ViewPhase()
-    tt:SetOwner(self, "ANCHOR_RIGHT")
+    tt:SetOwner(self, UI:TowardMiddle(self, "x"))
     if self.matOthers then
         Mat.MatOthersOnEnter(self)
         return
@@ -2480,7 +2480,7 @@ function Mat.MatHeadOnEnter(self)
     local use = self.use
     if type(use) ~= "table" then return end
     local tt = _G.GameTooltip
-    tt:SetOwner(self, "ANCHOR_RIGHT")
+    tt:SetOwner(self, UI:TowardMiddle(self, "x"))
     tt:SetItemByID(use.item)
     tt:AddLine(" ")
     tt:AddLine(format("Takes %d %s", use.count, ItemName(self.itemID)), 0.8, 0.8, 0.8)
@@ -2552,7 +2552,7 @@ function Mat.MatOthersOnEnter(self)
     local list = self.matOthers
     if type(list) ~= "table" then return end
     local tt = _G.GameTooltip
-    tt:SetOwner(self, "ANCHOR_RIGHT")
+    tt:SetOwner(self, UI:TowardMiddle(self, "x"))
     tt:AddLine(format("%d more crafts use %s", #list, ItemName(self.itemID)), S:RGB("GOLD"))
     local M = ns.Materials
     for _, use in ipairs(list) do
@@ -2571,7 +2571,7 @@ function Mat.MadeOnEnter(self)
     local use = m.use
     if type(use) ~= "table" then return end
     local tt = _G.GameTooltip
-    tt:SetOwner(self, "ANCHOR_RIGHT")
+    tt:SetOwner(self, UI:TowardMiddle(self, "x"))
     tt:SetItemByID(use.item)
     tt:AddLine(" ")
     Mat.AddCraftersTooltip(tt, use)

@@ -87,10 +87,21 @@ local function Skin(b)
     s.bezel:SetPoint("TOPLEFT", b, "TOPLEFT", -1, 1); s.bezel:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 1, -1)
     s.sheen:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2)
     s.sheen:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2)
+    s.bezelHot = L.Tex(b, "OVERLAY", 7, L.GILT .. "bezel")     -- (Gilded: the gold brightened on hover / active)
+    s.bezelHot:SetAllPoints(s.bezel)
+    s.bezelHot:SetBlendMode("ADD")
+    s.bezelHot:Hide()
+    s.pill = L.Tex(b, "OVERLAY", 1)                              -- (Halo: the key bind's pill under the ring)
+    s.pill:Hide()
+    s.under = L.Tex(b, "OVERLAY", 6)                             -- (Slate: the gold line under an active cell)
+    s.under:Hide()
     skinned[b] = s
-    -- after the game's own updates: our range colour, the hidden art
-    if b.UpdateUsable then hooksecurefunc(b, "UpdateUsable", function(self) Bars:Range(self) end) end
-    if b.Update then hooksecurefunc(b, "Update", function(self) Bars:Art(self) end) end
+    -- after the game's own updates: our range colour, the hidden art, the state in the look
+    if b.UpdateUsable then hooksecurefunc(b, "UpdateUsable", function(self) Bars:Status(self) end) end
+    if b.Update then hooksecurefunc(b, "Update", function(self) Bars:Art(self); Bars:Status(self) end) end
+    if b.UpdateState then hooksecurefunc(b, "UpdateState", function(self) Bars:Status(self) end) end
+    b:HookScript("OnEnter", function(self) s.hover = true; Bars:Status(self) end)
+    b:HookScript("OnLeave", function(self) s.hover = nil; Bars:Status(self) end)
     s.icon = b.icon or b.Icon or _G[(b:GetName() or "") .. "IconTexture"]
     return s
 end
@@ -156,8 +167,16 @@ function Bars:Apply(b, look)
         end
         icon:ClearAllPoints()
         local inset = (k == "sigil" or k == "gilded") and 2 or ((k == "flat") and 1 or 0)
-        icon:SetPoint("TOPLEFT", b, "TOPLEFT", inset, -inset)
-        icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -inset, inset)
+        if k == "slate" then
+            -- (a table's cell: the icon in its upper part, the key bind as its label underneath)
+            local w = b:GetWidth() or 36
+            if w <= 0 then w = 36 end
+            icon:SetPoint("TOPLEFT", b, "TOPLEFT", w * 0.14, -w * 0.11)
+            icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -w * 0.14, w * 0.33)
+        else
+            icon:SetPoint("TOPLEFT", b, "TOPLEFT", inset, -inset)
+            icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -inset, inset)
+        end
         s.round = k == "halo"
         if s.round then
             if not s.mask and b.CreateMaskTexture then
@@ -180,14 +199,31 @@ function Bars:Apply(b, look)
     s.ring:SetShown(round); s.ringIn:SetShown(round)
     if round then L.Color(s.ring, { 1, 1, 1, 0.14 }); L.Color(s.ringIn, { 0, 0, 0, 1 }) end
     if k == "flat" then s.edge:Paint({ 0, 0, 0, 1 }); s.edge2:Paint(nil)
-    elseif k == "sigil" then s.edge:Paint({ 0, 0, 0, 1 }); s.edge2:Paint({ 1, 1, 1, 0.2 })
-    elseif k == "gilded" then s.edge:Paint(nil); s.edge2:Paint(nil)
+    elseif k == "sigil" then s.edge:Paint({ 0, 0, 0, 1 }); s.edge2:Paint({ 0.91, 0.89, 0.82, 0.22 })
+    elseif k == "slate" then
+        -- (a hairline on the cell's right and bottom only)
+        s.edge:Paint(nil); s.edge2:Paint(nil)
+        L.Color(s.edge[2], { 1, 1, 1, 0.07 }); L.Color(s.edge[4], { 1, 1, 1, 0.07 })
     else s.edge:Paint(nil); s.edge2:Paint(nil) end
     s.bezel:SetShown(k == "gilded")
+    s.sheen:ClearAllPoints()
     if k == "sigil" then
+        s.sheen:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2); s.sheen:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2)
         s.sheen:SetHeight(b:GetHeight() > 0 and b:GetHeight() / 2 or 16)
         L.Gradient(s.sheen, { 1, 1, 1, 0 }, { 1, 1, 1, 0.18 })
+    elseif k == "flat" then
+        -- (cut glass: one line of light along the top)
+        s.sheen:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1); s.sheen:SetPoint("TOPRIGHT", b, "TOPRIGHT", -1, -1)
+        s.sheen:SetHeight(1)
+        L.Color(s.sheen, { 1, 1, 1, 0.16 })
     else s.sheen:Hide() end
+    s.under:ClearAllPoints()
+    s.under:SetPoint("TOPLEFT", icon or b, "BOTTOMLEFT", 0, -2)
+    s.under:SetPoint("TOPRIGHT", icon or b, "BOTTOMRIGHT", 0, -2)
+    s.under:SetHeight(2)
+    s.under:Hide()
+    s.pill:Hide()
+    s.bezelHot:Hide()
     -- the cooldown: round for Halo
     local cd = b.cooldown
     if cd then
@@ -213,6 +249,17 @@ function Bars:Apply(b, look)
             hk:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2); hk:SetJustifyH("RIGHT"); Font(hk, "small", 0.85, 0.85, 0.85)
         end
         hk:SetAlpha(L:Opt("bars", "keys", true) and 1 or 0)
+        if k == "halo" then
+            -- (the key bind in a small dark pill on the ring's foot)
+            hk:ClearAllPoints()
+            hk:SetPoint("CENTER", b, "BOTTOM", 0, 1)
+            s.pill:SetTexture(L.WHITE)
+            s.pill:ClearAllPoints()
+            s.pill:SetPoint("TOPLEFT", hk, "TOPLEFT", -3, 1)
+            s.pill:SetPoint("BOTTOMRIGHT", hk, "BOTTOMRIGHT", 3, -1)
+            s.pill:SetVertexColor(0.03, 0.03, 0.04, 0.92)
+            s.pill:SetShown(L:Opt("bars", "keys", true) and (hk:GetText() or "") ~= "" and true or false)
+        end
     end
     if ct then
         ct:ClearAllPoints()
@@ -222,7 +269,51 @@ function Bars:Apply(b, look)
     end
     if nm then nm:SetAlpha(L:Opt("bars", "macros", false) and 1 or 0) end
     self:Art(b)
+    self:Status(b)
+end
+
+-- The button's state in the look's own material: Halo recolours its ring, Sigil and Flat light the edge, Slate
+-- colours the key bind (and a gold line under an active cell), Gilded brightens its gold. Gold = active or hovered,
+-- red = out of range, blue = not enough mana.
+local GOLD, GOLD_HI = { 1, 0.82, 0, 1 }, { 1, 0.96, 0.86, 0.9 }
+local OOR_C, OOM_C = { 1, 0.35, 0.29, 1 }, { 0.35, 0.63, 1, 1 }
+local CALM_RING, CALM_FRAME, CALM_KEY = { 1, 1, 1, 0.14 }, { 0.91, 0.89, 0.82, 0.22 }, { 0.74, 0.72, 0.65, 1 }
+function Bars:Status(b)
+    local s = skinned[b]
+    if not s or not s.look then return end
     self:Range(b)
+    local k = s.look.key
+    local L = Look()
+    local action = b.action
+    local oor = (action and IsActionInRange and IsActionInRange(action) == false) and true or false
+    local oom = false
+    if action and IsUsableAction then
+        local _, noMana = IsUsableAction(action)
+        oom = noMana and true or false
+    end
+    local active = (b.GetChecked and b:GetChecked()) and true or false
+    local hover = s.hover and true or false
+    s.state = { oor = oor, oom = oom, active = active, hover = hover }
+    if k == "halo" then
+        L.Color(s.ring, hover and GOLD_HI or active and GOLD or oor and OOR_C or oom and OOM_C or CALM_RING)
+    elseif k == "sigil" then
+        s.edge2:Paint(active and GOLD or hover and { 1, 0.82, 0, 0.75 } or oor and { 1, 0.35, 0.29, 0.85 } or CALM_FRAME)
+    elseif k == "flat" then
+        s.edge2:Paint(active and GOLD or hover and { 1, 1, 1, 0.55 } or nil)
+    elseif k == "slate" then
+        local hk = b.HotKey
+        if hk then
+            local c = active and GOLD or oor and OOR_C or oom and OOM_C or CALM_KEY
+            hk:SetTextColor(c[1], c[2], c[3])
+        end
+        if active then L.Color(s.under, GOLD) else s.under:Hide() end
+    elseif k == "gilded" then
+        if active or hover then
+            s.bezelHot:SetVertexColor(1, 0.86, 0.45, active and 0.7 or 0.4)
+            s.bezelHot:Show()
+        else s.bezelHot:Hide() end
+        if oor then s.bezel:SetVertexColor(1, 0.55, 0.45, 1) else s.bezel:SetVertexColor(1, 1, 1, 1) end
+    end
 end
 
 -- Out of range: the icon red (or the key bind, the game's way).
@@ -290,6 +381,7 @@ local function PaintGlyphTile(t, hover)
     local gold = { 1, 0.82, 0, 1 }
     local c = hover and gold or GLYPH_C[k] or GLYPH_C.flat
     t.glyph:SetVertexColor(c[1], c[2], c[3], t.enabled and 1 or 0.35)
+    if t.text then t.glyph:SetAlpha(0); t.text:SetTextColor(c[1], c[2], c[3], t.enabled and 1 or 0.35) end
     if k == "halo" then
         L.Color(t.ring, hover and gold or { 1, 1, 1, 0.16 })
     elseif k == "sigil" then
@@ -304,7 +396,7 @@ end
 function Bars:Tile(b, look)
     local L = Look()
     local name = b.dzName or b:GetName() or ""   -- (dzName: a sample button standing for one of the game's)
-    local g = GLYPHS[name]
+    local g = GLYPHS[name] or (b.dzGlyph and { "dz" })
     local t = tiles[b]
     if not t then
         t = { b = b, g = g, enabled = true }
@@ -323,7 +415,17 @@ function Bars:Tile(b, look)
             t.edge2 = L.Edges(t.f, "BORDER", 2); t.edge2:Place(t.f, -1)
             t.glyph = t.f:CreateTexture(nil, "OVERLAY")
             t.glyph:SetPoint("CENTER")
-            SetGlyph(t.glyph, g)
+            if g[1] == "dz" then
+                -- (the DisasterZone tile: its letters, coloured like a glyph)
+                t.text = t.f:CreateFontString(nil, "OVERLAY")
+                t.text:SetFont(STANDARD_TEXT_FONT or "Fonts\FRIZQT__.TTF", 11, "")
+                t.text:SetPoint("CENTER", 0, 0)
+                t.text:SetText("DZ")
+                t.glyph:SetTexture(L.WHITE)
+                t.glyph:SetAlpha(0)
+            else
+                SetGlyph(t.glyph, g)
+            end
         else
             t.icon = L:Icon(t.f)
             t.icon.f:SetAllPoints(t.f)
@@ -372,6 +474,7 @@ function Bars:Tile(b, look)
             L.Gradient(t.sheen, { 1, 1, 1, 0 }, { 1, 1, 1, 0.14 })
         else t.sheen:Hide() end
         t.glyph:SetSize(size * ((k == "slate") and 0.78 or 0.58), size * ((k == "slate") and 0.78 or 0.58))
+        if t.text then t.text:SetFont(STANDARD_TEXT_FONT or "Fonts\FRIZQT__.TTF", math.max(8, math.floor(size * 0.36)), "") end
         PaintGlyphTile(t, false)
     else
         t.icon:Apply(look, look.icon == "none" and "small" or look.icon)
@@ -440,15 +543,16 @@ function Bars:Restyle()
     local L = Look()
     if not L:IsOn("bars") then return end
     local look = L:For("bars")
+    local docked = ns.LookDock and ns.LookDock:Wanted() or false     -- (the Dock draws one plate for them all)
     for _, def in ipairs(BARS) do
         local p = _G[def[1]] and Plate(def[1])
         if p then
-            if look.plate then
+            if look.plate and not docked then
                 p.panel:Apply(look)
                 p:Show()
             else p:Hide() end
             for _, t in ipairs(p.studs) do
-                if look.studs and look.plate then Look().Color(t, look.panel.corners) else t:Hide() end
+                if look.studs and look.plate and not docked then Look().Color(t, look.panel.corners) else t:Hide() end
             end
         end
         for i = 1, def[3] do
@@ -463,9 +567,9 @@ function Bars:Restyle()
     for _, name in ipairs(STRIPS) do
         local p = _G[name] and Plate(name)
         if p then
-            if look.plate then p.panel:Apply(look); p:Show() else p:Hide() end
+            if look.plate and not docked then p.panel:Apply(look); p:Show() else p:Hide() end
             for _, t in ipairs(p.studs) do
-                if look.studs and look.plate then Look().Color(t, look.panel.corners) else t:Hide() end
+                if look.studs and look.plate and not docked then Look().Color(t, look.panel.corners) else t:Hide() end
             end
         end
     end
@@ -571,17 +675,40 @@ function Bars:XP()
         end
         f:SetScript("OnEvent", function() Bars:XPUpdate() end)
         self.xp = f
-        if ns.Layout then
-            ns.Layout:Register("bars.xp", { name = "Experience bar", group = "Game frames", order = 12, noHide = true,
-                default = { "BOTTOM", 0, 4 }, frame = function() return Bars.xp end,
-                stretch = { x = { 200, 1800 }, apply = function() Bars:XP() end },
-                mine = function() return Bars.xp and Bars.xp:IsShown() or false end })
-            ns.Layout:Place("bars.xp")
-        end
     end
     local f = self.xp
     f.look = look
     local k = look.key
+    -- in the Dock (UI/LookDock.lua): the block's width, one gap under action bar 1, the look's height, no ground
+    local dock, dx, dy, dw, dh, drh = nil
+    if ns.LookDock then dock, dx, dy, dw, dh, drh = ns.LookDock:XPBox() end
+    if dock then
+        if ns.Layout and ns.Layout:Item("bars.xp") then ns.Layout:Unregister("bars.xp") end
+        f:SetParent(dock)
+        f:SetFrameStrata("LOW")
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", dock, "TOPLEFT", dx, -dy)
+        f:SetSize(dw, dh + (drh and drh + 2 or 0))
+        f.panel:Apply(nil)
+        f.main:Apply(look, nil, dh)
+        f.main.f:ClearAllPoints()
+        f.main.f:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+        f.main:SetWidthNow(dw)
+        f.rep:Apply(look, nil, drh or math.max(2, dh - 2))
+        f.rep.f:ClearAllPoints()
+        f.rep.f:SetPoint("TOPLEFT", f.main.f, "BOTTOMLEFT", 0, -2)
+        f.rep:SetWidthNow(dw)
+        self:XPUpdate()
+        return
+    end
+    if f:GetParent() ~= UIParent then f:SetParent(UIParent); f:SetFrameStrata("LOW") end
+    if ns.Layout and not ns.Layout:Item("bars.xp") then
+        ns.Layout:Register("bars.xp", { name = "Experience bar", group = "Game frames", order = 12, noHide = true,
+            default = { "BOTTOM", 0, 4 }, frame = function() return Bars.xp end,
+            stretch = { x = { 200, 1800 }, apply = function() Bars:XP() end },
+            mine = function() return Bars.xp and Bars.xp:IsShown() or false end })
+        ns.Layout:Place("bars.xp")
+    end
     local bar = _G.MainActionBar
     local w = (bar and bar:GetWidth() and bar:GetWidth() > 100) and bar:GetWidth() or 520
     w = (ns.Layout and ns.Layout:Size("bars.xp")) or w                     -- (stretched in Edit layout)
@@ -599,12 +726,18 @@ function Bars:XP()
     self:XPUpdate()
 end
 
+-- A reputation is watched and shown under the experience bar (the Dock leaves room for it).
+function Bars:WatchingRep()
+    local d = XPData()
+    return (d.xp ~= nil and d.rep ~= nil) and true or false
+end
+
 function Bars:OnLogin()
     local L = Look()
     L:SetApplied("bars", L:Key("bars"))
     self:Restyle()
     if ActionButton_UpdateRangeIndicator then
-        hooksecurefunc("ActionButton_UpdateRangeIndicator", function(b) if skinned[b] then Bars:Range(b) end end)
+        hooksecurefunc("ActionButton_UpdateRangeIndicator", function(b) if skinned[b] then Bars:Status(b) end end)
     end
     ns:On("UI_LOOK_CHANGED", function(part)
         if part ~= "bars" then return end
@@ -621,6 +754,7 @@ function Bars:Off()
             if s.mask and s.maskOn and s.icon then pcall(s.icon.RemoveMaskTexture, s.icon, s.mask); s.maskOn = false end
         end
         s.ring:Hide(); s.ringIn:Hide(); s.edge:Paint(nil); s.edge2:Paint(nil); s.sheen:Hide()
+        s.pill:Hide(); s.under:Hide(); s.bezelHot:Hide()
         if b.NormalTexture then b.NormalTexture:SetAlpha(1) end
         if b.SlotBackground then b.SlotBackground:SetAlpha(0.4) end
         if b.Border then b.Border:SetAlpha(1) end

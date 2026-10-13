@@ -498,17 +498,17 @@ function Bar:Hover(b, on)
     end
     local p = b.data
     if not p then return end
-    -- someone out of range: the party next to it (left of the rail, above the strip)
+    -- someone out of range: the party next to it, toward the screen's middle
     if p.el and b.state and #b.state.missing > 0 then
         pop.button = b
         self:FillPop(b)
         pop:ClearAllPoints()
-        if Layout() == "horizontal" then pop:SetPoint("BOTTOM", b, "TOP", 0, 34)
-        else pop:SetPoint("RIGHT", b, "LEFT", -14, 0) end
+        local strip = Layout() == "horizontal"
+        UI():PlaceToward(pop, b, strip and "y" or "x", strip and 34 or 14)(0, 0)
         pop:Show()
         return
     end
-    GameTooltip:SetOwner(b, Layout() == "horizontal" and "ANCHOR_TOP" or "ANCHOR_LEFT")
+    GameTooltip:SetOwner(b, UI():TowardMiddle(b, Layout() == "horizontal" and "y" or "x"))
     if p.el then
         GameTooltip:AddLine(Tm:TotemName(p.el, p.main) or "")
         if p.why == "twist" then
@@ -530,7 +530,7 @@ end
 
 function Bar:HeaderTip(b, which)
     local Tm = T()
-    GameTooltip:SetOwner(b, "ANCHOR_LEFT")
+    GameTooltip:SetOwner(b, UI():TowardMiddle(b, "x"))
     if which == "hero" then
         GameTooltip:AddLine(Tm:HeroName())
         local h = Tm:GetHero(Tm:Me())

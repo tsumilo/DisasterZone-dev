@@ -1298,6 +1298,15 @@ function SettingsUI:BuildUI(sec)
             { "focus", "Focus's cast bar", "", true },
         },
         bars = {
+            { "dock", "Dock", "Every bottom bar on one grid: the bars, bags, menu, stance, pet and experience.", true,
+              tip = "Action bars 1 to 3 make one block (turn bars 2 and 3 on in the game's Options > Action Bars), "
+                  .. "the bags and the menu stand beside it at its height, the stance and pet bars sit on top and "
+                  .. "the experience bar runs under it. Bars 4 and 5 stand at the right edge. Move it in Edit "
+                  .. "layout. Turning it off hands the bars back to the game after a reload." },
+            { "size", "Button size", "Every gap and edge of the Dock grows with it.", 36,
+              { { value = 30, text = "Compact (30)" }, { value = 33, text = "Small (33)" }, { value = 36, text = "Normal (36)" },
+                { value = 39, text = "Big (39)" }, { value = 42, text = "Large (42)" } } },
+            { "rail", "Bars 4 and 5 at the right edge", "In the Dock's look and size, two columns.", true },
             { "keys", "Key binds", "", true },
             { "macros", "Macro names", "", false },
             { "cooldown", "Cooldowns", "", "theme",

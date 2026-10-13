@@ -15,10 +15,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingTimerHUD.lua", ...) then r
 --   lane    the planner's next ~7 s: swings, twist windows and every GCD block it placed (fillers in blue)
 -- When auto attack is not running it rests: an empty bar and nothing else moves.
 -- Style (settings <prefix>.style): "bar", "lane" or "both". Moved in Edit layout (/dz edit).
+-- Themes: the face and the lane come in the class tool themes (UI/RingFace.lua builds them; each timer its own,
+-- <prefix>.theme; twist practice always Halo).
 -- The frame is a UI:CreateHudFrame (no look of its own: the ring is the face; placed by Core/Layout.lua, item <prefix>,
 -- which reads the old <prefix>.pos until it is moved; Edit layout shows it while editing). Texts are UI:Text on the type scale, the
 -- lane the HUD surface (ns.Style HUD_BG), its colours the tokens (D1: the deep gold for the swing ticks). The ring's
--- 200 strokes and their colours are drawn here: no component draws a swing ring.
+-- cells and their colours are drawn by UI/RingFace.lua.
 --
 -- A driver D tells the ring what to draw (fields and methods, all required unless marked optional):
 --   prefix, frameName, layoutName        settings prefix ("swing" = its layout item), the frame's global name, its name
@@ -48,33 +50,9 @@ local S = ns.Style
 local floor, max, min, sin = math.floor, math.max, math.min, math.sin
 local strformat = string.format
 
-local RING, RING_R, DOTS, DOT = 128, 54, 200, 6
-local BIG, SMALL, SIDE = 70, 28, 22
-local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"   -- white, alpha fading out from the center
-local LANE_W, LANE_H, LANE_SPAN, LANE_BACK = 500, 46, 7.5, 0.5
-local WHITE = "Interface\\Buttons\\WHITE8X8"
-local NARROW = S.FONT_NUM
+local LANE_W, LANE_SPAN, LANE_BACK = 500, 7.5, 0.5
 local GOLD = S.C.GOLD_DEEP                 -- (D1: the swing ticks are fills)
-local ZONE = { 1.0, 0.56, 0.20 }
 local FILLER = S.C.YOU                     -- (a filler's block: the blue of "you can fit this")
-
--- A texture of the ring (a path, white by default) tinted r, g, b, a (the ring's parts are coloured each frame).
-local function Part(parent, layer, path, r, g, b, a, sub)
-    local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub)
-    t:SetTexture(path or WHITE)
-    if r then t:SetVertexColor(r, g, b, a or 1) end
-    return t
-end
-
--- Crops a texture to a circle where the client has mask textures.
-local function Round(holder, tex)
-    if not holder.CreateMaskTexture then return end
-    local m = holder:CreateMaskTexture()
-    m:SetTexture(DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    m:SetAllPoints(tex)
-    tex:AddMaskTexture(m)
-end
 
 local function Ease(x) return 1 - (1 - x) * (1 - x) end
 
@@ -92,164 +70,34 @@ local function NewRing(D)
     local function Get(path, default) return D.Get(path, default) end
     local function Practicing() return D.Practicing and D:Practicing() or false end
 
+    -- The theme's face and lane (built once per theme, then swapped in: frame.bar / big / seal / small / lane point
+    -- at the one worn now; UI/RingFace.lua).
+    local faces, lanes = {}, {}
+    local function Wear(key)
+        if frame.themeKey == key then return end
+        if frame.face then frame.face.root:Hide(); frame.lane:Hide() end
+        if not faces[key] then
+            faces[key] = ns.RingFace:BuildFace(frame, key)
+            lanes[key] = ns.RingFace:BuildLane(frame, key, { span = LANE_SPAN, back = LANE_BACK, gold = GOLD, fade = D.FADE })
+        end
+        local face = faces[key]
+        frame.themeKey, frame.face = key, face
+        frame.bar, frame.big, frame.seal, frame.small, frame.lane = face.root, face.big, face.seal, face.small, lanes[key]
+        face.root:ClearAllPoints()
+        face.root:SetPoint("TOP", frame, "TOP", 0, -20)
+        face.root:Show()
+        frame.big.cdStart, swipeFrom, wasDue, shownKey, lastTo = nil, nil, false, nil, nil
+        rested = false
+    end
+    R.Wear = function(_, key) return Wear(key) end
+
     local function Build()
         -- (placed by the layout, Core/Layout.lua item D.prefix: moved in Edit layout)
         frame = UI:CreateHudFrame(D.frameName, { width = LANE_W + 40, height = 260, look = "none",
             position = false, strata = "MEDIUM", layout = D.prefix })
         frame:EnableMouse(false)
-
-        -- the ring (kept as frame.bar so Layout's bar/lane switch still works)
-        local ring = CreateFrame("Frame", nil, frame)
-        ring:SetSize(RING, RING)
-        ring:SetPoint("TOP", frame, "TOP", 0, -20)
-        frame.bar = ring
-        ring.glow = Part(ring, "BACKGROUND", SOFT, ZONE[1], ZONE[2], ZONE[3], 0, -8)
-        ring.glow:SetBlendMode("ADD")
-        ring.glow:SetPoint("CENTER")
-        ring.glow:SetSize(RING * 1.9, RING * 1.9)
-        ring.well = Part(ring, "BACKGROUND", DISC, 0, 0, 0, 0.55, -6)
-        ring.well:SetPoint("CENTER")
-        ring.well:SetSize(RING_R * 2 + 12, RING_R * 2 + 12)
-        -- the band is 200 short radial strokes, not discs, so where one color meets the next the edge is cut flat
-        -- (discs left a round cap at every color change and at the fill's end)
-        ring.dots = {}
-        local thick = 2 * math.pi * (RING_R + DOT / 2) / DOTS + 0.7   -- a little overlap: no gaps on the outer edge
-        for i = 1, DOTS do
-            local f = (i - 0.5) / DOTS
-            local a = math.pi / 2 - 2 * math.pi * f
-            local c, s = math.cos(a), math.sin(a)
-            local d = ring:CreateLine(nil, "ARTWORK")
-            d:SetColorTexture(1, 1, 1, 1)
-            d:SetThickness(thick)
-            d:SetStartPoint("CENTER", ring, (RING_R - DOT / 2) * c, (RING_R - DOT / 2) * s)
-            d:SetEndPoint("CENTER", ring, (RING_R + DOT / 2) * c, (RING_R + DOT / 2) * s)
-            d.f = f
-            ring.dots[i] = d
-        end
-        ring.head = Part(ring, "OVERLAY", SOFT, 1, 0.92, 0.66, 0.9)
-        ring.head:SetBlendMode("ADD")
-        ring.head:SetSize(DOT * 5, DOT * 5)
-        ring.tip = ring:CreateLine(nil, "OVERLAY", nil, 1)   -- a flat bright edge where the fill ends
-        ring.tip:SetColorTexture(1, 1, 1, 1)
-        ring.tip:SetThickness(2)
-        ring.flash = Part(ring, "BACKGROUND", SOFT, 1, 0.86, 0.5, 0, 2)
-        ring.flash:SetBlendMode("ADD")
-        ring.flash:SetPoint("CENTER")
-        ring.flash:SetSize(RING * 1.9, RING * 1.9)
-
-        -- the next press, round, in the middle
-        local big = CreateFrame("Frame", nil, ring)
-        big:SetSize(BIG, BIG)
-        big:SetPoint("CENTER")
-        big.icon = Part(big, "ARTWORK")
-        big.icon:SetAllPoints()
-        big.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        Round(big, big.icon)
-        big.shade = Part(big, "OVERLAY", DISC, 0, 0, 0, 0)
-        big.shade:SetAllPoints()
-        -- the time left until it is due: a round cooldown swipe, dark where time is left, like the action bars'
-        big.cd = CreateFrame("Cooldown", nil, big, "CooldownFrameTemplate")
-        big.cd:SetAllPoints(big.icon)
-        if big.cd.SetSwipeTexture then big.cd:SetSwipeTexture(DISC) end
-        if big.cd.SetSwipeColor then big.cd:SetSwipeColor(0, 0, 0, 0.66) end
-        if big.cd.SetDrawEdge then big.cd:SetDrawEdge(false) end
-        if big.cd.SetDrawBling then big.cd:SetDrawBling(false) end
-        if big.cd.SetHideCountdownNumbers then big.cd:SetHideCountdownNumbers(true) end
-        big.cd:EnableMouse(false)
-        big.cd:Hide()
-        frame.big = big
-
-        -- the badge (the seal, the aspect), small on the ring's lower right
-        local seal = CreateFrame("Frame", nil, ring)
-        seal:SetSize(SIDE, SIDE)
-        seal:SetPoint("CENTER", ring, "CENTER", RING_R * 0.72, -RING_R * 0.72)
-        seal:SetFrameLevel(ring:GetFrameLevel() + 3)
-        local sb = Part(seal, "BACKGROUND", DISC, 0, 0, 0, 1)
-        sb:SetPoint("CENTER")
-        sb:SetSize(SIDE + 4, SIDE + 4)
-        seal.icon = Part(seal, "ARTWORK")
-        seal.icon:SetAllPoints()
-        seal.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        Round(seal, seal.icon)
-        seal.text = UI:Text(seal, "small", { 1, 1, 1 }, { font = NARROW, flags = "OUTLINE", justify = "CENTER" })
-        seal.text:SetPoint("CENTER", 0, 0)
-        frame.seal = seal
-
-        -- name and countdown to the right
-        big.name = UI:Text(ring, "page", { 1, 0.88, 0.54 }, { shadow = true })
-        big.name:SetPoint("LEFT", ring, "RIGHT", 6, 7)
-        big.hint = UI:Text(ring, "emph", "SUB", { font = NARROW, shadow = true })
-        big.hint:SetPoint("TOPLEFT", big.name, "BOTTOMLEFT", 0, -2)
-        big.name:Hide()   -- the ring shows the time and the icon the spell: no text beside it
-        big.hint:Hide()
-
-        -- the presses after it, small and fading, to the left
-        frame.small = {}
-        for i = 1, 3 do
-            local s = CreateFrame("Frame", nil, ring)
-            local size = i == 1 and SMALL or SMALL - 6
-            s:SetSize(size, size)
-            s.icon = Part(s, "ARTWORK")
-            s.icon:SetAllPoints()
-            s.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            Round(s, s.icon)
-            s.text = UI:Text(s, "small", { 1, 1, 1 }, { font = NARROW, shadow = true })
-            s:SetAlpha(i == 1 and 0.8 or 0.45)
-            if i == 1 then s:SetPoint("RIGHT", ring, "LEFT", -4, 0)
-            else s:SetPoint("RIGHT", frame.small[i - 1], "LEFT", -6, 0) end
-            frame.small[i] = s
-        end
         frame.dots = {}
-
-        -- lane: the HUD surface with a black edge, a hairline each second, the now line
-        local lane = CreateFrame("Frame", nil, frame)
-        lane:SetSize(LANE_W, LANE_H)
-        lane:SetPoint("TOP", ring, "BOTTOM", 0, -14)
-        frame.lane = lane
-        lane.bg = UI:Fill(lane, "HUD_BG", "BACKGROUND", -5)
-        UI:AddEdges(lane, "BACKGROUND")
-        UI:SetEdgeColor(lane, 0, 0, 0, 0.9)
-        for s = 1, 7 do
-            local g = UI:Rule(lane, { vertical = true, color = "HOVER", layer = "BORDER",
-                left = (s + LANE_BACK) / LANE_SPAN * LANE_W })
-            lane["grid" .. s] = g
-        end
-        lane.now = UI:Fill(lane, { 1, 1, 1, 1 }, "OVERLAY")
-        lane.now:ClearAllPoints()
-        lane.now:SetWidth(2)
-        lane.now:SetPoint("TOP", 0, 4)
-        lane.now:SetPoint("BOTTOM", 0, -4)
-        lane.now:SetPoint("LEFT", lane, "LEFT", LANE_BACK / LANE_SPAN * LANE_W, 0)
-        lane.gain = UI:Text(lane, "body", "OK", { shadow = true })
-        lane.gain:SetPoint("TOPRIGHT", lane, "BOTTOMRIGHT", 0, -6)
-        lane.ticks, lane.windows, lane.blocks = {}, {}, {}
-        for i = 1, 4 do
-            local w = lane:CreateTexture(nil, "BORDER")
-            local dim, bright = { ZONE[1], ZONE[2], ZONE[3], 0.04 }, { ZONE[1], ZONE[2], ZONE[3], 0.38 }
-            if D.FADE then UI:Gradient(w, "HORIZONTAL", bright, dim) else UI:Gradient(w, "HORIZONTAL", dim, bright) end
-            lane.windows[i] = w
-            local t = Part(lane, "OVERLAY", WHITE, GOLD[1], GOLD[2], GOLD[3], 1)
-            t:SetWidth(2)
-            lane.ticks[i] = t
-        end
-        for i = 1, 6 do
-            local b = CreateFrame("Frame", nil, lane)
-            b:SetHeight(LANE_H - 12)
-            b.bg = Part(b, "BACKGROUND")
-            b.bg:SetAllPoints()
-            b.line = Part(b, "BORDER")
-            b.line:SetPoint("TOPLEFT")
-            b.line:SetPoint("TOPRIGHT")
-            b.line:SetHeight(1)
-            b.icon = Part(b, "ARTWORK")
-            b.icon:SetSize(LANE_H - 18, LANE_H - 18)
-            b.icon:SetPoint("LEFT", 3, 0)
-            b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            b.name = UI:Text(b, "emph", "TEXT", { font = NARROW, shadow = true })
-            b.name:SetPoint("LEFT", b.icon, "RIGHT", 5, 0)
-            b.name:SetPoint("RIGHT", b, "RIGHT", -3, 0)
-            lane.blocks[i] = b
-        end
+        Wear(ns.RingFace:Key(D.prefix, Practicing()))
 
         frame:SetScript("OnUpdate", function() R:Update() end)
     end
@@ -272,6 +120,8 @@ local function NewRing(D)
         rested = false
         Place()
         local practicing = Practicing()
+        Wear(ns.RingFace:Key(D.prefix, practicing))
+        local g = frame.face.geo
         local style = practicing and "bar" or Get("style", "bar")   -- practice puts its own parts under the ring
         frame:SetScale(tonumber(Get("scale", 1)) or 1)
         local showBar, showLane = style ~= "lane", style ~= "bar"
@@ -282,8 +132,8 @@ local function NewRing(D)
         else frame.lane:SetPoint("TOP", frame, "TOP", 0, -20) end
         frame.laneWanted = showLane
         -- (as big as what shows: Edit layout's box and its snapping go by the frame; practice keeps the room below)
-        if showLane or practicing then frame:SetSize(LANE_W + 40, 260)
-        else frame:SetSize(RING + 24, RING + 44) end
+        if showLane or practicing then frame:SetSize(max(frame.lane.W, g.W) + 40, max(260, g.H + frame.lane.H + 86))
+        else frame:SetSize(g.W + 24, g.H + 44) end
     end
 
     -- The ring's frame (twist practice puts its parts around it).
@@ -305,14 +155,8 @@ local function NewRing(D)
         local badge, badgeText = D:Badge()
         if rested and icon == restIcon and badge == restBadge then return end
         rested, restIcon, restBadge = true, icon, badge
-        local ring = frame.bar
         frame.lane:Hide()
-        ring:SetAlpha(0.35)
-        for _, d in ipairs(ring.dots) do d:SetVertexColor(0.13, 0.13, 0.14) end
-        ring.head:Hide()
-        ring.tip:Hide()
-        ring.glow:SetAlpha(0)
-        ring.flash:SetAlpha(0)
+        ns.RingFace:Rest(frame.face)
         frame.big:SetScale(1)
         frame.big:Show()
         frame.big.icon:SetTexture(icon)
@@ -366,41 +210,8 @@ local function NewRing(D)
         if zone0 then z0, z1 = (zone0 - from) / len, (zone1 - from) / len end
         local s0 = face.red0 and (face.red0 - from) / len or 2
         local pulse = 0.5 + 0.5 * sin(now * 9)
-        local fade, zw = D.FADE, max(0.001, z1 - z0)
-        for _, d in ipairs(ring.dots) do
-            local f = d.f
-            local inside = f >= z0 and f <= z1
-            -- (FADE: 1 at the window's start, 0.35 at its end)
-            local k = (inside and fade) and 1 - 0.65 * (f - z0) / zw or 1
-            if f <= frac then
-                -- opaque colors only: the dots overlap into one smooth band
-                if inside then d:SetVertexColor(0.30 + 0.70 * k, 0.19 + (0.43 + 0.2 * pulse) * k, 0.10 + 0.20 * k)
-                else d:SetVertexColor(0.62 + 0.36 * f, 0.46 + 0.36 * f, 0.18 + 0.30 * f) end
-            elseif inside then
-                if hot then d:SetVertexColor(0.30 + 0.32 * k, 0.19 + 0.13 * k, 0.10)
-                else d:SetVertexColor(0.30, 0.19, 0.10) end
-            elseif f >= s0 then
-                d:SetVertexColor(0.30, 0.09, 0.07)
-            else
-                d:SetVertexColor(0.13, 0.13, 0.14)
-            end
-        end
-        local a = math.pi / 2 - 2 * math.pi * frac
-        local hx, hy = RING_R * math.cos(a), RING_R * math.sin(a)
-        ring.head:ClearAllPoints()
-        ring.head:SetPoint("CENTER", ring, "CENTER", hx, hy)
-        local c, s = math.cos(a), math.sin(a)
-        ring.tip:SetStartPoint("CENTER", ring, (RING_R - DOT / 2) * c, (RING_R - DOT / 2) * s)
-        ring.tip:SetEndPoint("CENTER", ring, (RING_R + DOT / 2) * c, (RING_R + DOT / 2) * s)
-        ring.head:Show()
-        ring.tip:Show()
-        if inZone and hot then
-            ring.head:SetVertexColor(1, 0.6, 0.25, 1)
-            ring.glow:SetAlpha(0.25 + 0.25 * pulse)
-        else
-            ring.head:SetVertexColor(1, 0.92, 0.66, 0.9)
-            ring.glow:SetAlpha(0)
-        end
+        ns.RingFace:Paint(frame.face, { frac = frac, z0 = z0, z1 = z1, s0 = s0, hot = hot, inZone = inZone,
+            pulse = pulse, fade = D.FADE })
         local ft = flashAt and (now - flashAt) / 0.35 or 1
         ring.flash:SetAlpha(ft < 1 and 0.6 * (1 - Ease(ft)) or 0)
 
@@ -474,7 +285,7 @@ local function NewRing(D)
         -- lane
         local lane = frame.lane
         if lane:IsShown() then
-            local lw = LANE_W
+            local lw = lane.W
             local t0 = now - LANE_BACK
             local function X(t) return (t - t0) / LANE_SPAN * lw end
             local marks, windows = D:Lane(cur, now)
@@ -519,14 +330,16 @@ local function NewRing(D)
                         b:SetPoint("LEFT", lane, "LEFT", x0 + 1, 0)
                         b:SetWidth(x1 - x0 - 2)
                         b.icon:SetTexture(D.Icon(st.key))
-                        b.name:SetText(x1 - x0 > 70 and D.Short(st.key) or "")
+                        b.name:SetText((not lane.noNames and x1 - x0 > 70) and D.Short(st.key) or "")
                         if D.FILLERS[st.key] then
                             b.bg:SetVertexColor(FILLER[1], FILLER[2], FILLER[3], 0.22)
                             b.line:SetVertexColor(FILLER[1], FILLER[2], FILLER[3], 0.7)
                             b.name:SetTextColor(S:Color("YOU"))
                         else
                             b.bg:SetVertexColor(S:Color("HAIRLINE"))
-                            b.line:SetVertexColor(S:Color("EDGE"))
+                            local ln = lane.look.line
+                            if ln then b.line:SetVertexColor(ln[1], ln[2], ln[3], ln[4])
+                            else b.line:SetVertexColor(S:Color("EDGE")) end
                             b.name:SetTextColor(S:Color("TEXT"))
                         end
                         b:Show()
@@ -567,6 +380,7 @@ local function NewRing(D)
             scale = { get = function() return tonumber(Get("scale", 1)) or 1 end,
                       set = function(v) ns.DB:SetSetting(D.prefix .. ".scale", v) end },
             preview = function(on) R.preview = on and true or nil; R:Refresh() end })
+        ns.RingFace:Register(D.prefix, R)
         ns:On(stateEvent, function() R:Refresh() end)
         for _, e in ipairs(extraEvents or {}) do ns:On(e, function() R:Refresh() end) end
         ns:On("SETTINGS_CHANGED", function(path)
@@ -590,6 +404,7 @@ ns.SwingRing = NewRing
 function ns.SwingRingSettings(S, sec, prefix, latencyHelp)
     S:DropdownSetting(sec, "Look", "The ring, the plan lane (the next 7 seconds) or both.", prefix .. ".style", "bar", {
         { value = "bar", text = "Ring" }, { value = "lane", text = "Plan lane" }, { value = "both", text = "Both" } })
+    ns.RingFace:SettingsRow(S, sec, prefix)
     S:SwitchSetting(sec, "Show rotation", "The next presses in the middle of the ring (and the plan lane). Off: only the timer.",
         prefix .. ".rotation", true)
     S:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", prefix .. ".idle", false)

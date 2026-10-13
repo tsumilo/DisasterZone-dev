@@ -104,6 +104,37 @@ r = ret.eval_py("""
     return { idle = idle, afterSeal = n, sealIcon = sealIcon, live = live, rest = f.bar:GetAlpha() }
 """)
 assert r["idle"] == 0 and r["sealIcon"] is True and r["live"] == 1 and abs(r["rest"] - 0.35) < 0.01, r
+# themes (UI/RingFace.lua): each timer wears its own swing.theme; every theme builds, paints in every style, rests,
+# and the face / lane in use are the theme's (practice stays Halo); the Settings card's tiles pick and preview it
+r = ret.eval_py("""
+    local ST, HUD, RF = ns.SwingTimer, ns.SwingTimerHUD, ns.RingFace
+    local out = {}
+    for _, key in ipairs({ 'halo', 'sigil', 'slate', 'gilded', 'pips' }) do
+        ns.DB:SetSetting('swing.theme', key)
+        for _, style in ipairs({ 'bar', 'lane', 'both' }) do
+            ns.DB:SetSetting('swing.style', style)
+            ST.state.last = GetTime(); ST.state.seal = 'soc'; ST:MarkDirty()
+            for i = 1, 10 do HUD:Update() end
+        end
+        local f = DisasterZoneSwingTimer
+        ST.state.last = nil; HUD:Update()
+        out[key] = { worn = f.themeKey, cells = #f.bar.dots, n = RF.GEO[key].N, laneW = f.lane.W,
+                     rest = f.bar:GetAlpha() }
+    end
+    ns.DB:SetSetting('swing.theme', 'gilded')
+    ns.Themes:SetPreview('ring_swing', 'pips')
+    out.preview = DisasterZoneSwingTimer.themeKey
+    ns.Themes:SetPreview('ring_swing', nil)
+    out.back = DisasterZoneSwingTimer.themeKey
+    ns.DB:SetSetting('swing.theme', 'halo'); ns.DB:SetSetting('swing.style', 'bar')
+    return out
+""")
+for key in ("halo", "sigil", "slate", "gilded", "pips"):
+    t = r[key]
+    assert t["worn"] == key and t["cells"] == t["n"] and abs(t["rest"] - 0.35) < 0.01, (key, t)
+assert r["pips"]["laneW"] == 320 and r["halo"]["laneW"] == 500, r
+assert r["preview"] == "pips" and r["back"] == "gilded", r
+
 # swinging: there is a press to show
 assert ret.eval("local ST = ns.SwingTimer; ST.state.last = GetTime(); ST.state.seal = 'soc'; ST:MarkDirty(); "
                 "local c = ST:Current(); return c ~= nil and #c.plan.steps > 0") is True

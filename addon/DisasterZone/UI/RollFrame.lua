@@ -271,7 +271,7 @@ end
 -- text: a string, or a function returning one (read when the tooltip opens).
 local function ButtonTooltip(btn, text)
     UI:AttachTooltip(btn, nil, function() return { type(text) == "function" and text() or text } end,
-        { anchor = "ANCHOR_TOP" })
+        { anchor = "AUTO_Y" })
 end
 
 function RollFrame:GetFrame()
@@ -307,7 +307,7 @@ function RollFrame:GetFrame()
     f.forBtn = CreateFrame("Button", nil, f)
     f.forBtn:SetScript("OnClick", function(self) RollFrame:OpenCraftMenu(self) end)
     UI:AttachTooltip(f.forBtn, nil, { "Click: pick the craft you want it for (the council sees your pick)" },
-        { anchor = "ANCHOR_TOP" })
+        { anchor = "AUTO_Y" })
     f.forBtn:Hide()
     f.pips = {}
     for i = 1, PIP_MAX do

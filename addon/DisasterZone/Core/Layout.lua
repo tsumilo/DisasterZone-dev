@@ -851,7 +851,8 @@ function Layout:RegisterBlizzard()
     for _, t in ipairs(Layout.BLIZZARD) do
         local name = t[1]
         local f = _G[name]
-        if f and f.system ~= nil and not items["blizz:" .. name] then
+        -- (Layout.held: frames a part of ours holds itself, e.g. the action bars in the Dock: no box of their own)
+        if f and f.system ~= nil and not items["blizz:" .. name] and not (Layout.held and Layout.held[name]) then
             self:Register("blizz:" .. name, { name = t[2], group = "Game frames", order = t[3], kind = "blizzard",
                 frame = function() return _G[name] end, noHide = true })
         end

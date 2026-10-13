@@ -244,6 +244,7 @@ UI\MeterWindow.lua
 UI\MeterTheme.lua
 UI\MeterPanels.lua
 UI\MeterDetail.lua
+UI\RingFace.lua
 UI\SwingTimerHUD.lua
 UI\SwingPracticeUI.lua
 UI\ShotTimerHUD.lua
@@ -259,6 +260,7 @@ UI\Look.lua
 UI\LookUnits.lua
 UI\LookCast.lua
 UI\LookBars.lua
+UI\LookDock.lua
 UI\LookMinimap.lua
 UI\PatchUI.lua
 

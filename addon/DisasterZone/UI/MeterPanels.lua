@@ -265,7 +265,7 @@ local function NewTab(pf)
     UI:AttachTooltip(b, function(self, tt)
         if (self.text:GetText() or "") ~= "" then return false end
         tt:AddLine(self.label or "")
-    end, nil, { anchor = "ANCHOR_TOP" })
+    end, nil, { anchor = "AUTO_Y" })
     -- (a tab dragged out stays alive, invisible, until the drop: a hidden frame never gets its OnDragStop)
     b:SetScript("OnDragStart", function(self)
         self.dragging = true
@@ -345,7 +345,7 @@ local function NewPanel()
     pf.close:SetPoint("RIGHT", head, "RIGHT", -2, 0)
     UI:AttachTooltip(pf.close, function(_, tt)
         tt:AddLine(#AvailTabs(pf.layout or { tabs = {} }) > 1 and "Close this tab" or "Close this panel")
-    end, nil, { anchor = "ANCHOR_TOP" })
+    end, nil, { anchor = "AUTO_Y" })
     pf.plus = HeadButton(head, 20, 20)
     pf.plus:SetPoint("RIGHT", pf.close, "LEFT", 0, 0)
     pf.plus.icon = pf.plus:CreateTexture(nil, "ARTWORK")
@@ -355,7 +355,7 @@ local function NewPanel()
     pf.plus.icon:SetVertexColor(S:Color("SUB"))
     pf.plus:SetScript("OnClick", function(self) MP:SpawnMenu(pf, self) end)
     UI:AttachTooltip(pf.plus, "New panel", { "Pick what it shows. Drag its header onto this one to dock it." },
-        { anchor = "ANCHOR_TOP" })
+        { anchor = "AUTO_Y" })
     pf.tot = UI:Text(head, "emph", "SUB", { font = K.NARROW, justify = "RIGHT", shadow = true })
     pf.tot:SetPoint("RIGHT", pf.plus, "LEFT", -5, 0)
     pf.totV = UI:Text(head, "title", "TEXT", { font = K.NARROW, justify = "RIGHT", shadow = true })
@@ -373,7 +373,7 @@ local function NewPanel()
     fl:SetScript("OnMouseWheel", function(_, delta) MP:StepFight(pf, delta > 0 and 1 or -1) end)
     local function Arrow(right, dir, tipText)
         local a = UI:CreateArrowButton(fl, right, 22, FL_H, function() MP:StepFight(pf, dir) end)
-        UI:AttachTooltip(a, tipText, nil, { anchor = "ANCHOR_TOP" })
+        UI:AttachTooltip(a, tipText, nil, { anchor = "AUTO_Y" })
         return a
     end
     fl.prev = Arrow(false, -1, "Older fight")
@@ -2042,7 +2042,7 @@ local function NewDot(r)
         tt:AddDoubleLine(Meter:SegName(seg), K.Clock(Meter:Duration(seg)) .. (t and ("  \194\183  " .. t) or ""),
             1, 1, 1, sr, sg, sb)
         if seg.live then tt:AddLine("Live", S:RGB("BAD")) end
-    end, nil, { anchor = "ANCHOR_BOTTOM" })
+    end, nil, { anchor = "AUTO_Y" })
     d:SetScript("OnClick", function(self) if self.sel_key then MP:PickFromList(self.sel_key) end end)
     return d
 end

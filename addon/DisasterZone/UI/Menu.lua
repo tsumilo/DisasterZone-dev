@@ -751,11 +751,16 @@ OpenLevel = function(i, desc, row)
         if GetCursorPosition then cx, cy = GetCursorPosition() end
         local s = f:GetEffectiveScale() or 1
         cx, cy = (cx or 0) / s, (cy or 0) / s
+        -- it grows toward the screen's middle: left of the cursor on the right half, up from it on the bottom half
+        local ps = (UIParent:GetEffectiveScale() or 1) / s
+        local left, up = cx > UIParent:GetWidth() * ps / 2, cy < UIParent:GetHeight() * ps / 2
+        local pt = (up and "BOTTOM" or "TOP") .. (left and "RIGHT" or "LEFT")
+        local ox, oy = left and -2 or 2, up and 2 or -2
         place = function(x, y)
             f:ClearAllPoints()
-            f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx + 2 + x, cy - 2 + y)
+            f:SetPoint(pt, UIParent, "BOTTOMLEFT", cx + ox + x, cy + oy + y)
         end
-        dx, dy = 0, UI.DROP_FALL
+        dx, dy = 0, up and -UI.DROP_FALL or UI.DROP_FALL
     end
     f:Show()
     f:Raise()

@@ -17,9 +17,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Look.lua", ...) then return end
 -- This file: the looks' face data and the parts every face is drawn with, so every part draws them the same way:
 --   Look:Panel(f)  a frame's ground: fill, edges, inner line, gilded corners      panel:Apply(look)
 --   Look:Bar(parent)  a bar: flat | pill | lit | hair | gilt                      bar:Apply(look, kind), :SetValue
+--   Look:Gilt(f, opts)  Gilded's worked gold round a frame: moulding, corners, grain  gilt:Show(on, opts)
 --   Look:Icon(parent)  an icon or portrait: square | round | framed | gilt | small icon:Apply(look), :SetTexture ...
--- No new art: the round parts are the game's portrait disc (masks stripe on this client), the gilded bars its
--- status bar texture.
+-- The round parts are the game's portrait disc (masks stripe on this client), the gilded bars its status bar
+-- texture; Gilded's trim, corners, bezel and grain are art of our own (Media/Gilt).
 local addonName, ns = ...
 
 local Look = ns:NewModule("Look")
@@ -32,6 +33,9 @@ local WHITE = "Interface\\Buttons\\WHITE8X8"
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SBAR = "Interface\\TargetingFrame\\UI-StatusBar"
 Look.WHITE, Look.DISC, Look.SBAR = WHITE, DISC, SBAR
+-- Gilded's worked gold (dev/generators/gen_gilt_media.py): moulding, filigree corners, a square bezel, damask grain
+local GILT = "Interface\\AddOns\\" .. addonName .. "\\Media\\Gilt\\"
+Look.GILT = GILT
 
 Look.PARTS = {
     { key = "units", name = "Unit frames", tip = "Player, target, target of target, focus and pet.", replaced = true },
@@ -69,10 +73,10 @@ Look.LOOKS = {
       nameC = { 1, 1, 1 }, nameClass = true, gap = 1, plate = false, buttonSize = 32 },
     { key = "gilded", name = "Gilded", tip = "Gold trim and corner studs, textured bars. The most 'WoW' of the looks.",
       panel = { bg = { 0.086, 0.063, 0.027, 0.9 }, bg2 = { 0.039, 0.031, 0.02, 0.9 }, edge = { 0.43, 0.33, 0.13, 1 },
-                outer = { 0, 0, 0, 1 }, corners = { 0.89, 0.73, 0.33, 1 } },
+                outer = { 0, 0, 0, 1 }, corners = { 0.89, 0.73, 0.33, 1 }, gilt = true },
       head = { top = { 0.231, 0.169, 0.059, 1 }, bottom = { 0.106, 0.078, 0.031, 1 }, line = { 0.54, 0.42, 0.15, 1 } },
       bar = "gilt", track = { 0, 0, 0, 0.45 }, fillA = 1, icon = "gilt", rim = { 0.66, 0.51, 0.17, 1 },
-      nameC = { 1, 0.84, 0.42 }, gap = 3, plate = true, studs = true, buttonSize = 34 },
+      nameC = { 1, 0.84, 0.42 }, gap = 3, plate = true, buttonSize = 34 },
 }
 local BY_KEY = {}
 for _, l in ipairs(Look.LOOKS) do BY_KEY[l.key] = l end
@@ -253,14 +257,18 @@ function PanelMethods:Apply(look)
     if not p then
         self.bg:Hide(); self.edge:Paint(nil); self.outer:Paint(nil); self.inner:Paint(nil)
         for _, c in ipairs(self.corners) do c:Hide() end
+        if self.gilt then self.gilt:Show(false) end
         return
     end
     if p.bg2 then Gradient(self.bg, p.bg2, p.bg) else Color(self.bg, p.bg) end
-    self.edge:Paint(p.edge)
-    self.outer:Paint(p.outer)
+    -- (Gilded: the moulding and corners stand in for the edge, the outer line and the L's)
+    if p.gilt and not self.gilt then self.gilt = Look:Gilt(self.f) end
+    if self.gilt then self.gilt:Show(p.gilt and true or false) end
+    self.edge:Paint(not p.gilt and p.edge or nil)
+    self.outer:Paint(not p.gilt and p.outer or nil)
     self.inner:Paint(p.inner)
     for _, c in ipairs(self.corners) do
-        if p.corners then Color(c, p.corners) else c:Hide() end
+        if p.corners and not p.gilt then Color(c, p.corners) else c:Hide() end
     end
 end
 
@@ -282,6 +290,87 @@ function Look:Panel(f)
         p.corners[#p.corners + 1] = v
     end
     return p
+end
+
+---------------------------------------------------------------------------
+-- Gilded's worked gold: a moulding round a frame (just outside its edge), a filigree piece on each corner and a
+-- faint damask grain over its ground. opts: trim (px, 3; 0 = corners only), corner (px, 13), grain (alpha, 0.07;
+-- false = none), layer (the trim's draw layer, "BORDER").
+---------------------------------------------------------------------------
+
+local GiltMethods = {}
+-- (the textures' periods: trim_h is 64 x 16, so a t px high moulding repeats every 4t px; grain every 64 px)
+function GiltMethods:Layout()
+    local f, t = self.f, self.t
+    local w, h = f:GetWidth() or 0, f:GetHeight() or 0
+    if w <= 0 or h <= 0 then return end
+    if t > 0 then
+        local u = (w + 2 * t) / (4 * t)
+        local v = (h + 2 * t) / (4 * t)
+        self.top:SetTexCoord(0, u, 0, 1)
+        self.bottom:SetTexCoord(0, u, 1, 0)
+        self.left:SetTexCoord(0, 1, 0, v)
+        self.right:SetTexCoord(1, 0, 0, v)
+    end
+    self.grain:SetTexCoord(0, w / 64, 0, h / 64)
+end
+
+function GiltMethods:Show(on, opts)
+    if opts then
+        self.t = opts.trim or self.t
+        self.c = opts.corner or self.c
+        if opts.grain ~= nil then self.ga = opts.grain end
+    end
+    local t, c = self.t, self.c
+    local f = self.f
+    for _, x in ipairs({ self.top, self.bottom, self.left, self.right }) do x:SetShown(on and t > 0) end
+    for _, x in ipairs(self.cornerTex) do x:SetShown(on and c > 0) end
+    self.grain:SetShown(on and self.ga and true or false)
+    if not on then return end
+    self.top:ClearAllPoints(); self.top:SetPoint("BOTTOMLEFT", f, "TOPLEFT", -t, 0)
+    self.top:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", t, 0); self.top:SetHeight(t)
+    self.bottom:ClearAllPoints(); self.bottom:SetPoint("TOPLEFT", f, "BOTTOMLEFT", -t, 0)
+    self.bottom:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", t, 0); self.bottom:SetHeight(t)
+    self.left:ClearAllPoints(); self.left:SetPoint("TOPRIGHT", f, "TOPLEFT", 0, 0)
+    self.left:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", 0, 0); self.left:SetWidth(t)
+    self.right:ClearAllPoints(); self.right:SetPoint("TOPLEFT", f, "TOPRIGHT", 0, 0)
+    self.right:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", 0, 0); self.right:SetWidth(t)
+    local o = t + 1           -- (the corner's stud sits on the moulding's corner)
+    for i, pt in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
+        local x = self.cornerTex[i]
+        local sx = (i == 1 or i == 3) and -o or o
+        local sy = (i <= 2) and o or -o
+        x:ClearAllPoints(); x:SetSize(c, c); x:SetPoint(pt, f, pt, sx, sy)
+    end
+    if self.ga then self.grain:SetVertexColor(1, 0.82, 0.4, self.ga) end
+    self:Layout()
+end
+
+function Look:Gilt(f, opts)
+    local g = { f = f, t = 3, c = 13, ga = 0.07, cornerTex = {} }
+    for k, fn in pairs(GiltMethods) do g[k] = fn end
+    local layer = opts and opts.layer or "BORDER"
+    local function Trim(name)
+        local x = f:CreateTexture(nil, layer, nil, 3)
+        x:SetTexture(GILT .. name, "REPEAT", "REPEAT")
+        return x
+    end
+    g.top, g.bottom = Trim("trim_h"), Trim("trim_h")
+    g.left, g.right = Trim("trim_v"), Trim("trim_v")
+    -- the corners mirrored from the top left's art
+    local CO = { { 0, 1, 0, 1 }, { 1, 0, 0, 1 }, { 0, 1, 1, 0 }, { 1, 0, 1, 0 } }
+    for i = 1, 4 do
+        local x = f:CreateTexture(nil, "OVERLAY", nil, 6)
+        x:SetTexture(GILT .. "corner")
+        x:SetTexCoord(CO[i][1], CO[i][2], CO[i][3], CO[i][4])
+        g.cornerTex[i] = x
+    end
+    g.grain = f:CreateTexture(nil, "BACKGROUND", nil, -5)
+    g.grain:SetTexture(GILT .. "grain", "REPEAT", "REPEAT")
+    g.grain:SetAllPoints(f)
+    f:HookScript("OnSizeChanged", function() g:Layout() end)
+    g:Show(false, opts)
+    return g
 end
 
 ---------------------------------------------------------------------------
@@ -441,10 +530,18 @@ function IconMethods:Apply(look, shape)
     elseif self.shape == "framed" then
         self.edge:Paint({ 0, 0, 0, 1 }); self.edge2:Paint(rim)
     elseif self.shape == "gilt" then
-        self.edge:Paint({ 0, 0, 0, 1 }); self.edge2:Paint(rim)
+        self.edge:Paint(nil); self.edge2:Paint(nil)
     else
         self.edge:Paint(self.shape == "small" and nil or rim); self.edge2:Paint(nil)
     end
+    -- Gilded: the worked square bezel, a pixel over the icon's edge
+    if self.shape == "gilt" and not self.bezel then
+        self.bezel = f:CreateTexture(nil, "OVERLAY", nil, 3)
+        self.bezel:SetTexture(GILT .. "bezel")
+        self.bezel:SetPoint("TOPLEFT", f, "TOPLEFT", -1, 1)
+        self.bezel:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 1, -1)
+    end
+    if self.bezel then self.bezel:SetShown(self.shape == "gilt") end
     self:Refresh()
 end
 
