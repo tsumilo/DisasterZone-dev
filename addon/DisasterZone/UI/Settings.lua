@@ -4245,6 +4245,14 @@ CARDS.bossmods.summary = function()
     local role = Get("bossmods.role", "auto")
     local names = { tank = "tank", healer = "healer", dps = "damage" }
     local mine = role == "auto" and ns.BossMod and ns.BossMod.MyRole and ns.BossMod:MyRole() or role
+    -- (learning on: how many pulls the timers come from, the guild's included)
+    local L = ns.BossLearn
+    if L and L.Enabled and L:Enabled() and L.Store then
+        local n = 0
+        for _, l in next, L.Store().pulls do if type(l) == "table" then n = n + #l end end
+        if n > 0 then return format("On · learned from %d pull%s", n, n == 1 and "" or "s") end
+        return "On · learning from our pulls"
+    end
     return format("On · %s%s", role == "auto" and "auto: " or "", names[mine] or "damage")
 end
 CARDS.classtools.summary = function()

@@ -516,11 +516,12 @@ function BL:Finish(m)
     local clean = wasOn and m.ended == "encounter" and not r.stop
     local rec = Freeze(r, dur, m.kill, clean)
     local before = m.lw or {}
-    if C_Timer and C_Timer.After then
-        C_Timer.After(0, function() BL:AfterPull(r.boss, rec, before) end)
-    else
-        self:AfterPull(r.boss, rec, before)
+    -- (after the pull, and guarded: a fault in storing or learning is logged, never thrown)
+    local function after()
+        local ok, err = pcall(BL.AfterPull, BL, r.boss, rec, before)
+        if not ok then Log("%s: after the pull: %s", tostring(r.boss), tostring(err)) end
     end
+    if C_Timer and C_Timer.After then C_Timer.After(0, after) else after() end
     return rec
 end
 
@@ -770,8 +771,13 @@ end
 -- After a pull
 ---------------------------------------------------------------------------
 
+-- Runs fn later, guarded: anything learning does after a pull logs its faults instead of throwing them.
 local function Later(sec, fn)
-    if C_Timer and C_Timer.After then C_Timer.After(sec, fn) else fn() end
+    local function run()
+        local ok, err = pcall(fn)
+        if not ok then Log("later: %s", tostring(err)) end
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(sec, run) else run() end
 end
 
 function BL:AfterPull(boss, rec, before)
@@ -1024,10 +1030,15 @@ local function Drain()
     local touched = {}
     while #inbox > 0 do
         local e = tremove(inbox, 1)
-        local ok, boss = BL:Accept(e[1], e[2])
-        if ok then touched[boss] = true end
+        -- (one odd summary is dropped and logged; the rest still count)
+        local ran, ok, boss = pcall(BL.Accept, BL, e[1], e[2])
+        if not ran then Log("dropped a pull from %s: %s", tostring(e[1]), tostring(ok))
+        elseif ok then touched[boss] = true end
     end
-    for boss in pairs(touched) do BL:Relearn(boss) end
+    for boss in pairs(touched) do
+        local ran, err = pcall(BL.Relearn, BL, boss)
+        if not ran then Log("%s: relearning: %s", tostring(boss), tostring(err)) end
+    end
 end
 BL.Drain = Drain
 

@@ -711,7 +711,12 @@ def a_tiles_master_switch_flips_the_feature_in_place():
     w.tick(0.3)
     assert setting(c, "bossmods.on") is True
     assert c.eval("return ns.SettingsUI.mode") == "tiles", "the switch flips it, the tile does not open"
+    # (learning is on by default: the line says where the timers come from)
+    assert c.eval("return ns.SettingsUI.tiles.bossmods.sum:GetText()") == "On · learning from our pulls"
+    c.eval("ns.DB:SetSetting('bossmods.learn', false); ns.SettingsUI:SelectSection('combat')")
+    w.tick(0.2)
     assert c.eval("return ns.SettingsUI.tiles.bossmods.sum:GetText()").startswith("On · auto: ")
+    c.eval("ns.DB:SetSetting('bossmods.learn', true)")
     # the card's head switch follows; switched off there, the tile follows back
     c.eval("ns.SettingsUI:SelectSection('bossmods')")
     head = c.eval("return ns.SettingsUI.cards.bossmods.head.master")

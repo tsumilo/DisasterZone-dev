@@ -41,6 +41,17 @@ ns.CHANGELOG = {
               "Hyjal: the next wave and 'Wave 4 of 8'. A range frame where the game can measure.",
               "Your UI look or one of their own, a size of your choice, and a Try it for every fight.",
           } },
+          { heading = "Boss mods that learn", area = "raids", kind = "new", hi = true, open = "settings/bossmods",
+            lead = "Timers tighten from our own pulls, and never change in the middle of one.", lines = {
+              "A timer moves only when 3 clean pulls agree on when the boss really casts.",
+              "Never more than a quarter away from DBM's and BigWigs' numbers.",
+              "A pull always runs on the timers it started with; bars follow the real casts.",
+              "A small line over the bars says a pull is recorded; a striped end shows the window.",
+              "After a pull that changed something, one note says what we learned.",
+              "Your pulls and the guild's fill each other's gaps: shared after the pull, checked first.",
+              "Settings > Boss mods > Bosses: each boss's page shows what every timer learned.",
+              "Turn off 'Learn from our pulls' to keep DBM's and BigWigs' numbers.",
+          } },
           { heading = "Settings, sorted", area = "other", kind = "changed", hi = true, open = "settings/looks",
             lead = "Six groups, a search, and every look in one place.", lines = {
               "A rail of six groups, each with a line saying how it is set: General to Guild.",

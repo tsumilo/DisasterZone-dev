@@ -587,11 +587,34 @@ def odd_or_old_summaries_are_dropped_whole():
     cl.eval("local m = ...; ns.BossLearn:OnMessage('Bob-Thunderstrike', m, 'RAID')", cl._to_lua(base))
     w.tick(0.2)
     assert pulls(cl) == []
+    # a summary that makes the code itself fail (here: the merge throws) is logged and dropped, never thrown; the
+    # summaries after it still count, and so does learning from the time after a pull
+    log0 = cl.eval("return #ns.BossLearn.Store().log")
+    cl.eval("__realAccept = ns.BossLearn.Accept; ns.BossLearn.Accept = function(self, s, m) "
+            "if m.l == 'Boom-Thunderstrike' then error('merge broke') end return __realAccept(self, s, m) end")
+    boom = dict(base)
+    boom["l"] = "Boom-Thunderstrike"
+    cl.eval("local a, b = ...; ns.BossLearn:OnMessage('Bob-Thunderstrike', a, 'GUILD'); "
+            "ns.BossLearn:OnMessage('Bob-Thunderstrike', b, 'GUILD')", cl._to_lua(boom), cl._to_lua(base))
+    w.tick(0.2)
+    cl.eval("ns.BossLearn.Accept = __realAccept")
+    assert len(pulls(cl)) == 1, pulls(cl)
+    logs = cl.eval_py("local o = {}; for i, l in ipairs(ns.BossLearn.Store().log) do if i > %d then o[#o + 1] = l end end "
+                      "return o" % log0)
+    assert any("merge broke" in str(l) for l in logs), logs
+    cl.eval("__realAfter = ns.BossLearn.AfterPull; ns.BossLearn.AfterPull = function() error('after broke') end")
+    f = Fight(w, [cl], boss).start()
+    f.to(25)
+    f.end(1)
+    w.tick(0.5)
+    cl.eval("ns.BossLearn.AfterPull = __realAfter")
+    assert any("after broke" in str(l) for l in cl.eval_py("return ns.BossLearn.Store().log")), "logged, not thrown"
     # sharing off: nothing taken
     cl.eval("ns.DB:SetSetting('bossmods.learnShare', false)")
+    n = len(pulls(cl))
     cl.eval("local m = ...; ns.BossLearn:OnMessage('Bob-Thunderstrike', m, 'GUILD')", cl._to_lua(base))
     w.tick(0.2)
-    assert pulls(cl) == []
+    assert len(pulls(cl)) == n
     w.assert_no_errors()
 
 
