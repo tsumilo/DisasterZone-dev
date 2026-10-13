@@ -99,6 +99,36 @@ def every_look_lays_every_kind_out():
 
 
 @case
+def halo_raid_cells_are_capsules_whose_ring_lights():
+    w, c = with_look("halo")
+    # the raid's buttons are made in Halo's cell size (wider than the other looks')
+    cfg = c.eval("return ns.LookUnits:Header('raid'):GetAttribute('initialConfigFunction')")
+    assert "SetWidth(84)" in cfg and "SetHeight(32)" in cfg, cfg
+    c.eval("""
+        _G.__H = CreateFrame('Frame', nil, UIParent)
+        _G.__F = ns.LookUnits:NewFace(__H, 'cell', 'group', 'left')
+        __F:Apply(ns.Look.BY_KEY.halo)
+        __F:Set(ns.LookUnits.Fake('member', 5))""")
+    # one capsule as tall as the cell, the name and the deficit inside it
+    assert c.eval_py("return { __H:GetWidth(), __H:GetHeight(), __F.hp.h }") == [84, 32, 32]
+    assert c.eval("return __F.status:GetText()") == "-3908"
+    # resting: a dark rim; a debuff I can remove: the ring in its colour and a glow, no square edges
+    assert c.eval("return __F.ring.l:IsShown() and not __F.glow.l:IsShown()") is True
+    c.eval("local d = ns.LookUnits.Fake('member', 5); d.dispel = 'Magic'; __F:Set(d)")
+    assert c.eval_py("local r, g, b = __F.ring.l:GetVertexColor(); return { r, g, b }") == [0.2, 0.6, 1]
+    assert c.eval("return __F.glow.l:IsShown() and not __F.light[1]:IsShown()") is True
+    # dead: greyed name, Dead under it
+    c.eval("__F:Set(ns.LookUnits.Fake('member', 12))")
+    assert c.eval("return __F.status:GetText()") == "Dead"
+    assert c.eval("local r = __F.name:GetTextColor(); return r") == 0.5
+    # the other looks keep their own cell and the square light
+    c.eval("__F:Apply(ns.Look.BY_KEY.flat); local d = ns.LookUnits.Fake('member', 5); d.dispel = 'Magic'; __F:Set(d)")
+    assert c.eval_py("return { __H:GetWidth(), __H:GetHeight() }") == [72, 34]
+    assert c.eval("return __F.light[1]:IsShown() and not __F.ring.l:IsShown()") is True
+    w.assert_no_errors()
+
+
+@case
 def changing_the_look_restyles_and_blizzard_asks_for_a_reload():
     w, c = with_look("flat")
     c.eval("ns.DB:SetSetting('ui.look', 'halo')")

@@ -39,6 +39,17 @@ local ORDER = { "player", "target", "tot", "focus", "pet" }
 
 -- sizes per kind: big (player, target, focus, party), small (target of target, pet), cell (raid)
 local W = { big = 214, small = 104, party = 184, cell = 72 }
+-- a raid cell's width and height per look (Halo's capsules are wider: a full name and the deficit fit inside)
+local CELL = { halo = { 84, 32 }, slate = { 72, 30 } }
+local function CellSize(look)
+    local c = CELL[look and look.key]
+    if c then return c[1], c[2] end
+    return W.cell, 34
+end
+Units.CellSize = CellSize
+-- Halo's cell: a near-opaque track (the ring round it shows only at its rim), the ring's resting colour
+local HALO_TRACK = { 0.035, 0.035, 0.047, 0.9 }
+local HALO_RIM = { 0, 0, 0, 0.85 }
 
 ---------------------------------------------------------------------------
 -- Numbers and colours
@@ -234,6 +245,9 @@ function Units:NewFace(host, kind, part, side)
     F.pp = L:Bar(host)
     F.heal = L.Tex(F.hp.f, "ARTWORK", 0)
     F.heal:SetVertexColor(0.3, 1, 0.4, 0.35)
+    F.healCap = L.Tex(F.hp.f, "ARTWORK", 0, L.DISC)  -- (a pill's heal ends round, past the fill's round end)
+    F.healCap:SetTexCoord(0.5, 1, 0, 1)
+    F.healCap:SetVertexColor(0.3, 1, 0.4, 0.35)
     local over = CreateFrame("Frame", nil, host)
     over:SetAllPoints(host)
     over:SetFrameLevel(host:GetFrameLevel() + 6)
@@ -253,6 +267,8 @@ function Units:NewFace(host, kind, part, side)
     F.skull:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
     F.light = L.Edges(over, "OVERLAY", 4)           -- a debuff I can remove / aggro: the frame's edge lights
     F.light:Place(host, 1)
+    F.ring = L.PillRing(host, "BACKGROUND", -7)     -- (Halo's cell: a ring round the capsule lights instead)
+    F.glow = L.PillRing(host, "BACKGROUND", -8)
     F.auras = {}
     F.pips = {}
     return F
@@ -265,6 +281,8 @@ function Face:Apply(look)
     local host, kind, k = self.host, self.kind, look.key
     local left = self.side ~= "right"
     local w = self.width or W[kind] or 214
+    local cellH
+    if kind == "cell" then w, cellH = CellSize(look) end
     local portOn = kind == "big" and look.icon ~= "none" and L:Opt(self.part, "portrait", "class") ~= "none"
     self.portOn = portOn
     self.panel:Apply(look)
@@ -273,8 +291,7 @@ function Face:Apply(look)
     -- per look and kind: frame height h, portrait size ph, the bars' heights and the name row
     local h
     if kind == "cell" then
-        h = 34
-        if k == "slate" then h = 30 end
+        h = cellH
     elseif kind == "small" then
         h = (k == "slate") and 24 or ((k == "flat") and 20 or 24)
     elseif k == "flat" then h, ph, hpH, ppH, nameIn = 42, 40, 28, 12, true
@@ -303,6 +320,9 @@ function Face:Apply(look)
     local overlap = (k == "halo") and 14 or 0
     bx = (ph > 0) and (ph + 2 - overlap) or 0
     bw = w - bx
+    self.hp.trackC, self.hp.fadeFrom = nil, nil
+    self.ringOn, self.lit, self.marks = false, nil, nil
+    self.ring:Paint(nil); self.glow:Paint(nil)
     local function Bars(x, w2, yHp, yPp)
         self.hp.fixedW = true
         self.pp.fixedW = true
@@ -327,22 +347,31 @@ function Face:Apply(look)
     UI:SetTextSize(value, (k == "slate" and kind == "big") and "emph" or "small")
     if kind == "cell" then
         ppH = 0
+        self.nameW = w - 10
         if k == "slate" then
             hpH = 3
             Bars(4, w - 8, -h + 7, 0)
             name:SetPoint("TOPLEFT", host, "TOPLEFT", 5, -5)
         elseif k == "halo" then
-            hpH = h - 10
-            Bars(2, w - 4, -5, 0)
-            name:SetPoint("TOPLEFT", self.hp.f, "TOPLEFT", 9, -3)
+            -- one capsule as tall as the cell: the name and under it the deficit (or Dead) over the fill's dark,
+            -- faded start, readable on any class colour; the ring round it lights (Set)
+            hpH = h
+            self.hp.trackC, self.hp.fadeFrom = HALO_TRACK, 0.3
+            Bars(0, w, 0, 0)
+            name:SetPoint("TOPLEFT", host, "TOPLEFT", 10, -5)
+            self.nameW = w - 20
+            self.ringOn = true
+            self.ring:Place(self.hp.f, w, h, 1)
+            self.ring:Paint(HALO_RIM)
         else
             hpH = h - ((k == "flat") and 2 or 6)
             local inset = (k == "flat") and 1 or 3
             Bars(inset, w - 2 * inset, -inset, 0)
             name:SetPoint("TOPLEFT", self.hp.f, "TOPLEFT", 4, -4)
         end
-        name:SetWidth(w - 10)
-        self.status:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -4, 4)
+        name:SetWidth(self.nameW)
+        if k == "halo" then self.status:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 10, 5)
+        else self.status:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -4, 4) end
         value:Hide()
         level:Hide()
     elseif kind == "small" then
@@ -422,10 +451,18 @@ function Face:Apply(look)
     if look.upper and kind == "big" then UI:SetTextSize(name, "caps") end
     self.name:SetTextColor(look.nameC[1], look.nameC[2], look.nameC[3])
     -- the marks: raid icon on the top edge, the leader crown at the top left
+    -- (Halo's cell: both on the name's row, clear of the cell above: the crown before the name, the icon after it)
     self.icon:ClearAllPoints()
-    self.icon:SetPoint("CENTER", host, "TOP", 0, 0)
     self.leader:ClearAllPoints()
-    self.leader:SetPoint("CENTER", host, "TOPLEFT", (kind == "cell") and 4 or (left and (ph > 0 and ph - 4 or 6) or 8), 0)
+    if self.ringOn then
+        self.icon:SetSize(12, 12)
+        self.icon:SetPoint("TOPRIGHT", host, "TOPRIGHT", -9, -4)
+        self.leader:SetPoint("CENTER", host, "TOPLEFT", 15, -10)
+    else
+        self.icon:SetSize(14, 14)
+        self.icon:SetPoint("CENTER", host, "TOP", 0, 0)
+        self.leader:SetPoint("CENTER", host, "TOPLEFT", (kind == "cell") and 4 or (left and (ph > 0 and ph - 4 or 6) or 8), 0)
+    end
     if self.d then self:Set(self.d) end
 end
 
@@ -447,13 +484,22 @@ function Face:Set(d)
     end
     -- incoming heals: a faint stretch after the fill
     local heal = d.heal and d.hpMax and d.hpMax > 0 and d.heal / d.hpMax or 0
-    if heal > 0 and not d.dead and self.hp.w then
-        local fw = self.hp.w * frac
+    local x0, span = self.hp:Span()
+    self.healCap:Hide()
+    if heal > 0 and not d.dead and span > 0 and frac < 1 then
+        local fw = span * frac
+        local hw = max(0.01, min(span - fw, span * heal))
         self.heal:ClearAllPoints()
-        self.heal:SetPoint("TOPLEFT", self.hp.f, "TOPLEFT", fw, 0)
-        self.heal:SetPoint("BOTTOMLEFT", self.hp.f, "BOTTOMLEFT", fw, 0)
-        self.heal:SetWidth(max(0.01, min(self.hp.w - fw, self.hp.w * heal)))
+        self.heal:SetPoint("TOPLEFT", self.hp.f, "TOPLEFT", x0 + fw, 0)
+        self.heal:SetPoint("BOTTOMLEFT", self.hp.f, "BOTTOMLEFT", x0 + fw, 0)
+        self.heal:SetWidth(hw)
         self.heal:Show()
+        if x0 > 0 then
+            self.healCap:ClearAllPoints()
+            self.healCap:SetSize(x0, self.hp.h or 0)
+            self.healCap:SetPoint("LEFT", self.heal, "RIGHT", 0, 0)
+            self.healCap:Show()
+        end
     else
         self.heal:Hide()
     end
@@ -466,6 +512,16 @@ function Face:Set(d)
         local r, g, b = HealthColor(part, d)
         self.name:SetTextColor(r, g, b)
     else self.name:SetTextColor(look.nameC[1], look.nameC[2], look.nameC[3]) end
+    if self.kind == "cell" and (d.dead or d.offline) then self.name:SetTextColor(0.5, 0.5, 0.5) end
+    -- (Halo's cell: the crown and the raid icon share the name's row)
+    local marks = (d.leader and 1 or 0) + (d.raidIcon and 2 or 0)
+    if self.ringOn and marks ~= self.marks then
+        self.marks = marks
+        local lead = d.leader and true or false
+        self.name:ClearAllPoints()
+        self.name:SetPoint("TOPLEFT", self.host, "TOPLEFT", lead and 23 or 10, -5)
+        self.name:SetWidth(self.nameW - (lead and 13 or 0) - (d.raidIcon and 14 or 0))
+    end
     local boss = d.classif == "worldboss" or (d.level or 0) < 0
     self.skull:ClearAllPoints()
     if self.kind == "big" then
@@ -537,7 +593,28 @@ function Face:Set(d)
     local lc
     if d.dispel and L:Opt("group", "dispel", true) then lc = DEBUFF_COLOR[d.dispel]
     elseif d.threat and d.threat >= 2 and self.kind ~= "big" then lc = { 1, 0.25, 0.2 } end
-    if lc and self.kind ~= "small" then self.light:Paint({ lc[1], lc[2], lc[3], 1 }) else self.light:Paint(nil) end
+    if self.kind == "small" then lc = nil end
+    if self.ringOn then
+        -- Halo's cell: the ring round the capsule takes the colour, thicker, with a soft glow beyond it
+        self.light:Paint(nil)
+        local key = lc and (lc[1] .. "," .. lc[2] .. "," .. lc[3]) or false
+        if key ~= self.lit then
+            self.lit = key
+            local w, h = self.hp.w or 0, self.h or 0
+            self.ring:Place(self.hp.f, w, h, lc and 2 or 1)
+            self.ring:Paint(lc and { lc[1], lc[2], lc[3], 1 } or HALO_RIM)
+            if lc then self.glow:Place(self.hp.f, w, h, 5) end
+            self.glow:Paint(lc and { lc[1], lc[2], lc[3], 0.28 } or nil)
+        end
+    elseif lc and self.portOn and self.portrait.shape == "round" then
+        -- Halo's portrait frames: the portrait's ring lights
+        self.light:Paint(nil)
+        self.portrait:SetRing(lc[1], lc[2], lc[3])
+    elseif lc then
+        self.light:Paint({ lc[1], lc[2], lc[3], 1 })
+    else
+        self.light:Paint(nil)
+    end
     -- out of range (party / raid)
     if self.kind == "cell" or self.width == W.party then
         self.host:SetAlpha((d.far and L:Opt("group", "range", true)) and 0.45 or 1)
@@ -706,7 +783,7 @@ local function GroupSize(which, look)
     if which == "party" then
         return W.party, ({ flat = 42, halo = 46, sigil = 46, slate = 38, gilded = 48 })[look.key] or 42
     end
-    return W.cell, (look.key == "slate") and 30 or 34
+    return CellSize(look)
 end
 
 local function NewHeader(which, look)

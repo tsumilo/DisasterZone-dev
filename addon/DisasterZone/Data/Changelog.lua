@@ -23,6 +23,7 @@ ns.CHANGELOG = {
               "Settings > UI: one look for everything, or a look of its own for each part.",
               "Unit frames: player, target, target of target, focus and pet, with combo points.",
               "Party and raid frames in the same looks: range fade, and a light on what you can dispel.",
+              "Halo's raid frames are capsules: name and missing health inside, a ring lit by dispels or aggro.",
               "Cast bars: your latency at the end of your casts, a lock on casts you can't interrupt.",
               "Action bars keep the game's buttons, in the look's frame, keys and range colour.",
               "Minimap: round or square, the look's edge, zone and clock; addon buttons tidied away.",

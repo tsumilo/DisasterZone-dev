@@ -252,6 +252,32 @@ local function Edges(parent, layer, sub)
 end
 Look.Edges = Edges
 
+-- Halo's edges: a pill `out` px bigger than a w x h pill round frame f, drawn under it (its middle shows as a ring
+-- round an opaque pill; a wide one at a low alpha is a glow). Paint(nil) hides it.
+local function PillRing(parent, layer, sub)
+    local p = { mid = Tex(parent, layer or "BACKGROUND", sub), l = Tex(parent, layer or "BACKGROUND", sub, DISC),
+                r = Tex(parent, layer or "BACKGROUND", sub, DISC) }
+    p.l:SetTexCoord(0, 0.5, 0, 1)
+    p.r:SetTexCoord(0.5, 1, 0, 1)
+    function p:Place(f, w, h, out)
+        local H = h + 2 * out
+        local R = H / 2
+        self.l:ClearAllPoints(); self.l:SetSize(R, H); self.l:SetPoint("TOPLEFT", f, "TOPLEFT", -out, out)
+        self.r:ClearAllPoints(); self.r:SetSize(R, H); self.r:SetPoint("TOPRIGHT", f, "TOPRIGHT", out, out)
+        self.mid:ClearAllPoints()
+        self.mid:SetPoint("TOPLEFT", f, "TOPLEFT", R - out, out)
+        self.mid:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", out - R, -out)
+        self.wide = w > h
+        if not self.wide then self.mid:Hide() end
+    end
+    function p:Paint(c)
+        Color(self.l, c); Color(self.r, c)
+        if c and self.wide ~= false then Color(self.mid, c) else self.mid:Hide() end
+    end
+    return p
+end
+Look.PillRing = PillRing
+
 local PanelMethods = {}
 
 -- Paints a frame's ground in a look (nil or Blizzard: nothing).
@@ -390,7 +416,7 @@ function BarMethods:Apply(look, kind, h)
     self.kind = kind or (look and look.bar) or "flat"
     self.h = h or self.h or 10
     if self.kind == "hair" then self.f:SetHeight(max(1, self.h)) else self.f:SetHeight(self.h) end
-    local tr = look and look.track or { 1, 1, 1, 0.05 }
+    local tr = self.trackC or (look and look.track) or { 1, 1, 1, 0.05 }
     local pill = self.kind == "pill"
     Color(self.track, tr)
     for _, c in ipairs({ self.tcapL, self.tcapR }) do if pill then Color(c, tr) else c:Hide() end end
@@ -415,17 +441,25 @@ function BarMethods:Paint()
             min(1, b * 1.12 + 0.08), a })
         self.lit:SetVertexColor(1, 1, 1, 0.35)
     elseif self.kind == "pill" and self.look and self.look.fade then
+        local from = self.fadeFrom or 0.45
         Gradient(self.fill, { r, g, b, a }, { r, g, b, a })
         if self.fill.SetGradient and CreateColor then
-            pcall(self.fill.SetGradient, self.fill, "HORIZONTAL", CreateColor(r, g, b, a * 0.45), CreateColor(r, g, b, a))
+            pcall(self.fill.SetGradient, self.fill, "HORIZONTAL", CreateColor(r, g, b, a * from), CreateColor(r, g, b, a))
         end
-        self.capL:SetVertexColor(r, g, b, a * 0.45)
+        self.capL:SetVertexColor(r, g, b, a * from)
         self.capR:SetVertexColor(r, g, b, a)
     else
         self.fill:SetVertexColor(r, g, b, a)
         self.capL:SetVertexColor(r, g, b, a)
         self.capR:SetVertexColor(r, g, b, a)
     end
+end
+
+-- The fill's span: its left offset and the width a full bar fills (a pill's round ends are outside it).
+function BarMethods:Span()
+    local w = self.w or self.f:GetWidth() or 0
+    local r = (self.kind == "pill") and floor((self.h or 0) / 2) or 0
+    return r, max(0, w - 2 * r)
 end
 
 function BarMethods:SetValue(v)

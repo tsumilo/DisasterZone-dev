@@ -161,7 +161,7 @@ def close_all(cl):
                               'DisasterZoneTotems', 'DisasterZoneTotemBar', 'DisasterZoneTotemRange',
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
-                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZAuditFull',
+                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZAuditFull', 'DZGroupStage',
                               'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
@@ -3383,6 +3383,54 @@ STATES += [
     ("UI looks - gallery", opened("home", LOOK_GALLERY)),
     ("Settings - UI", opened("settings", "ns.SettingsUI:SelectSection('ui')")),
 ]
+
+# Party and raid frames (UI/LookUnits.lua) in look LOOK: the made-up raid of 25 (as Edit layout shows it) and the
+# party of 4 over a loading screen (the world behind them), laid out as the live headers lay them out.
+GROUP_STATE = r"""
+ns.MainFrame:Close(); __MOCK.real_geometry = true
+local st = DZGroupStage or CreateFrame('Frame', 'DZGroupStage', UIParent)
+st:SetSize(900, 430); st:ClearAllPoints(); st:SetPoint('CENTER'); st:Show()
+if not st.bg then
+  st.bg = st:CreateTexture(nil, 'BACKGROUND'); st.bg:SetAllPoints()
+  st.bg:SetTexture('Interface' .. string.char(92) .. 'Glues' .. string.char(92) .. 'LoadingScreens' .. string.char(92) .. 'LoadScreenOutland')
+  st.bg:SetTexCoord(0.05, 0.75, 0.25, 0.75)
+end
+for _, c in ipairs(st.cells or {}) do c:Hide() end
+st.cells = st.cells or {}
+local U, look = ns.LookUnits, ns.Look.BY_KEY['LOOK']
+local gap = math.max(2, look.gap or 2)
+for i = 1, 29 do
+  local raid = i <= 25
+  local c = st.cells[i]
+  if not c then
+    c = CreateFrame('Frame', nil, st)
+    c.face = U:NewFace(c, raid and 'cell' or 'big', 'group', 'left')
+    c.face.width = raid and 72 or 184
+    st.cells[i] = c
+  end
+  c.face:Apply(look)
+  local w, h = c:GetWidth(), c:GetHeight()
+  c:ClearAllPoints()
+  if raid then
+    local col, row = math.floor((i - 1) / 5), (i - 1) % 5
+    c:SetPoint('TOPLEFT', st, 'TOPLEFT', 16 + col * (w + gap), -16 - row * (h + gap))
+  else
+    c:SetPoint('TOPLEFT', st, 'TOPLEFT', 690, -16 - (i - 26) * (h + 10))
+  end
+  local d = U.Fake('member', raid and (i + 4) or (i - 25))
+  if i == 1 then d.leader = true end
+  if i == 9 then d.offline = true end
+  if i == 19 then d.heal = d.hpMax * 0.2 end
+  if i == 12 then d.dispel = 'Magic' end
+  if i == 23 then d.dispel = 'Curse' end
+  if i == 21 then d.raidIcon = 8 end
+  if i == 17 then d.threat = 3 end
+  c.face:Set(d)
+  c:Show()
+end
+"""
+STATES += [("Group frames - " + k, opened("home", GROUP_STATE.replace("LOOK", k)))
+           for k in ("halo", "flat", "sigil", "slate", "gilded")]
 
 
 # ---------------------------------------------------------------------------------------------------------------
