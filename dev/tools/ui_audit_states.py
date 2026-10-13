@@ -3336,19 +3336,34 @@ STATES += [
     ("Gallery - layouts", gallery("layouts")),
 ]
 
-# Edit layout (UI/EditMode.lua, /dz edit) over the demo night: the boxes, a picked frame's toolbar, a drag's guides
-EDIT = ("ns.MainFrame:Close(); __MOCK.real_geometry = true; ns.EditMode:Open(); "
+# Edit layout (UI/EditMode.lua, /dz edit) over the demo night, the quiet look: dashed outlines, the slim bar at the
+# top with the picked frames' tools, Names, the Frames panel, the bar stepping back (a picked frame under it, a drag).
+# (each state starts fresh: closed first, the session bar back at its own place, Names and the grid off)
+EDIT = ("ns.MainFrame:Close(); __MOCK.real_geometry = true; ns.EditMode:Close(); ns.Layout:Reset('session'); "
+        "ns.DB:SetSetting('editlayout.names', false); ns.DB:SetSetting('editlayout.grid', 0); ns.EditMode:Open(); "
         # (ui_look crops to named windows under 1900 wide: an invisible one nearly the whole screen)
         "local fb = DZAuditFull or CreateFrame('Frame', 'DZAuditFull', UIParent); fb:SetSize(1898, 1078); "
         "fb:SetPoint('CENTER'); fb:Show(); ")
-EDIT_DRAG = (EDIT + "local l, b, w, h = ns.Layout:Rect('session'); __MOCK.cursor = { l + w / 2, b + h / 2 }; "
+# (the grid on: it shows while something is dragged)
+EDIT_DRAG = (EDIT + "ns.EditMode:CycleGrid(); ns.EditMode:CycleGrid(); "
+             "local l, b, w, h = ns.Layout:Rect('session'); __MOCK.cursor = { l + w / 2, b + h / 2 }; "
              "ns.EditMode:OnMoverDown('session', 'LeftButton'); __MOCK.cursor = { l + w / 2 - 3, b + h / 2 - 260 }; "
              "ns.EditMode:StepDrag()")
+EDIT_UNDER = (EDIT + "local l, b, w, h = ns.Layout:Rect('session'); local W, H = ns.Layout.Screen(); "
+              "ns.Layout:MoveTo('session', l, H - h - 8); ns.EditMode:Select({ 'session' })")
 STATES += [
-    ("Edit layout - open", demo(EDIT + "ns.EditMode:Select({ 'session' })")),
+    ("Edit layout - open", demo(EDIT)),
+    ("Edit layout - one picked", demo(EDIT + "ns.EditMode:Select({ 'session' })")),
     ("Edit layout - several picked", demo(EDIT + "ns.EditMode:Select({ 'session', 'roll', 'reminder' })")),
+    # (the meters on too: their outline's chip, "drag by a header")
+    ("Edit layout - names", demo("ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true); "
+                                 + EDIT + "ns.EditMode:Select({ 'roll' }); ns.EditMode:ToggleNames()")),
+    ("Edit layout - frames menu", demo(EDIT + "ns.EditMode:Select({ 'session' }); ns.EditMode:ShowFrames(true)")),
+    ("Edit layout - picked under the bar", demo(EDIT_UNDER)),
+    ("Edit layout - mirror hint", demo(EDIT + "ns.EditMode:Select({ 'roll' }); ns.EditMode:GetBar().b.mirror1:Click()")),
     ("Edit layout - dragging", demo(EDIT_DRAG)),
-    ("Settings - Layout", opened("settings", "ns.SettingsUI:SelectSection('layout')")),
+    ("Settings - Layout", opened("settings", "ns.EditMode:Close(); ns.Layout:Reset('session'); "
+                                             "ns.SettingsUI:SelectSection('layout')")),
 ]
 
 # UI looks (UI/Look.lua, LookUnits / LookCast): every part's face in the five looks, made-up units

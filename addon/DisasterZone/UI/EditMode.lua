@@ -1,21 +1,31 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/EditMode.lua", ...) then return end -- DisasterZone UI/EditMode.lua
 -- Edit layout (/dz edit): one overlay that moves every frame the layout knows (Core/Layout.lua): the addon's HUD
--- frames, the class tools, the meters and the game's own frames. The approved prototype of 2026-10-13:
---   every frame gets a box (gold edge, its name on hover); drag it, Shift-click or drag a box round several;
+-- frames, the class tools, the meters and the game's own frames. The approved prototype of 2026-10-13, made quiet the
+-- same day ("Quiet until picked", dev/art/casc/cleanup_mockup option A):
+--   a frame you haven't picked has a faint dashed outline only (no fill, no name; Media/Edit/dash_h / dash_v tiled
+--   along each edge); under the mouse a gold outline and its name chip; picked: a gold edge, a faint gold fill, a
+--   soft glow and its name chip; a picked frame's mirrored partner: a dashed gold edge. Names (the bar) shows every
+--   frame's chip. Drag a frame, Shift-click or drag a box round several;
 --   snapping: the screen's centre lines (gold, they win a near tie), other frames' edges and centres (teal), equal
 --   gaps between two neighbours (pink, both gaps numbered); Alt held: no snapping; with the grid on, a free drop lands
 --   on it, counted from the centre (so the grid is symmetric too); the gaps to the nearest neighbours while dragging;
---   a readout of the place from the screen's centre (equal numbers either side = symmetric);
+--   a readout of the place from the screen's centre (equal numbers either side = symmetric); the screen's centre
+--   cross and the grid only show while something is dragged or resized;
 --   mirrored pairs: move one and its partner follows on the other side of the centre (same height, same size);
---   a toolbar on the selection (centre, line up, equal gaps, mirror, reset, hide); arrow keys 1 px (Shift: a grid
---   step); Ctrl+Z / Ctrl+Y; Esc (deselect, then done).
+--   arrow keys 1 px (Shift: a grid step); Ctrl+Z / Ctrl+Y; Esc (the hint, the Frames panel, the selection, then done).
 --   resizing: 8 handles round the selection (one frame or several as a group). A corner scales evenly from the
 --   opposite corner; a side stretches a frame that lays itself out at any width / height (def.stretch: cast bars, the
 --   XP bar), else scales evenly too; Shift: from the centre; the moving edge snaps like a drag (Alt: free); the mouse
 --   wheel on a picked frame: 5% a notch; a double-click on a handle: back to 100% / its natural size. Several picked:
 --   they scale as one, the gaps between them too. The game's frames scale through their Edit Mode size (its steps).
--- The panel: profile (this character's; new, copy, rename, delete, share), grid, what snaps, my character's frames or
--- everything, the list with an eye per frame, undo / redo / reset / done.
+-- One slim bar flush to the top edge, in the middle (nothing else floats over the frames but the name chips and the
+-- drag guides): "Edit layout", a readout (the picked frame's name, place from the centre and size; "3 frames
+-- picked"; "Click a frame to pick it"), the picked frames' tools (one: centre, mirror, reset, hide; several: line
+-- up, equal gaps, centre, mirror a pair), undo / redo, Grid (Off / 8 / 16 / 32), Snap (all three kinds), Names,
+-- Frames (a panel under the bar: profile (this character's; new, copy, rename, delete, share), what snaps, my
+-- character's frames or everything, the list with an eye per frame, reset all) and Done. The bar steps back: 32%
+-- while a picked frame sits under it (full again under the mouse), 18% while anything is dragged or resized.
+-- A hint (picking a mirror partner, a handle's keys) shows under the bar.
 -- The meters keep their own docking: while editing they are unlocked and raised over the overlay, and a stack dragged
 -- by its header snaps like the rest (MeterPanels calls EditMode:SnapBox). The game's frames move when dropped (the
 -- game applies its Edit Mode layout). A fight closes the overlay (the game forbids moving its frames then).
@@ -31,10 +41,18 @@ local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 local T = 6                                   -- how near (UIParent units) an edge snaps
 local TEAL = { 0.31, 0.83, 0.88 }
 local ROSE = { 1, 0.42, 0.6 }
-local GOLD = { 1, 0.82, 0 }
+local GOLD = S.C.GOLD
 local PANEL_W, ROW_H, LIST_H = 252, 18, 168
+local BAR_H = 28                              -- the bar along the top edge
+local BAR_UNDER, BAR_DRAG = 0.32, 0.18        -- its alpha with a picked frame under it / while dragging
+local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\Edit\\"
+local DASH = 6                                -- UIParent units per dash + gap (the 8-texel tile: 4 on, 4 off)
+local PAD = 3                                 -- a box's outline sits this far outside its frame
+local CHIP_BG, CHIP_EDGE = { 0.04, 0.04, 0.05, 0.94 }, S:WithAlpha("GOLD", 0.55)
+local QUIET = { 0.93, 0.91, 0.86, 0.2 }       -- the dashed outline of a frame not picked
+local PARTNER = { 0.89, 0.73, 0.33, 1 }       -- the dashed gold of a picked frame's mirrored partner
 
-local active, overlay, guides, panel, toolbar, banner
+local active, overlay, guides, panel, bar, hint
 local movers, outlines = {}, {}
 local sel, primary, pickFor = {}, nil, nil
 local undo, redo = {}, {}
@@ -60,6 +78,8 @@ end
 
 local function IndexOf(t, v) for i, x in ipairs(t) do if x == v then return i end end end
 local function IsSel(id) return IndexOf(sel, id) ~= nil end
+local function Clock() return GetTime and GetTime() or 0 end
+local function NamesOn() return Get("editlayout.names", false) and true or false end
 
 ---------------------------------------------------------------------------
 -- Which items show, and their boxes
@@ -252,8 +272,8 @@ function EM:Snap(l, b, w, h, skip, free)
     return floor(l + 0.5), floor(b + 0.5), gx, gy
 end
 
--- Draws what a box at bx lines up with, its gaps and its place.
-local function DrawGuides(id, bx, skip, gx, gy, scale)
+-- Draws what a box at bx lines up with, its gaps and its place (noPlace: not the place, the bar reads it out).
+local function DrawGuides(id, bx, skip, gx, gy, scale, noPlace)
     EM:ClearGuides()
     local W, H = Layout().Screen()
     -- (two passes: the screen's centre lines last, so gold shows where a frame's line runs along it too)
@@ -318,6 +338,7 @@ local function DrawGuides(id, bx, skip, gx, gy, scale)
         Pill(W / 2, bx.cy, "mirrored", GOLD, true)
     end
     -- where it is, from the screen's centre
+    if noPlace then return end
     local dx, dy = floor(bx.cx - W / 2 + 0.5), floor(bx.cy - H / 2 + 0.5)
     local p = Layout().AnchorOf(bx.l, bx.b, bx.w, bx.h)
     local text = ("centre %s%d, %s%d"):format(dx > 0 and "+" or "", dx, dy > 0 and "+" or "", dy)
@@ -332,8 +353,158 @@ end
 -- Movers
 ---------------------------------------------------------------------------
 
-local function SetEdges(m, r, g, b, a)
-    for _, e in ipairs(m.edges) do e:SetColorTexture(r, g, b, a) end
+-- Four edges PAD outside frame f (top, bottom, left, right): f.edges.
+local function NewEdges(f)
+    f.edges = {}
+    for i = 1, 4 do f.edges[i] = f:CreateTexture(nil, "BORDER") end
+    local e = f.edges
+    e[1]:SetPoint("TOPLEFT", -PAD, PAD); e[1]:SetPoint("TOPRIGHT", PAD, PAD)
+    e[2]:SetPoint("BOTTOMLEFT", -PAD, -PAD); e[2]:SetPoint("BOTTOMRIGHT", PAD, -PAD)
+    e[3]:SetPoint("TOPLEFT", -PAD, PAD); e[3]:SetPoint("BOTTOMLEFT", -PAD, -PAD)
+    e[4]:SetPoint("TOPRIGHT", PAD, PAD); e[4]:SetPoint("BOTTOMRIGHT", PAD, -PAD)
+end
+
+-- The dash tile's tex coords along f's edges: one dash and gap every DASH units, however long the edge.
+local function Retile(f)
+    local w, h = (f:GetWidth() or 0) + 2 * PAD, (f:GetHeight() or 0) + 2 * PAD
+    local e = f.edges
+    e[1]:SetTexCoord(0, max(1, w) / DASH, 0, 1); e[2]:SetTexCoord(0, max(1, w) / DASH, 0, 1)
+    e[3]:SetTexCoord(0, 1, 0, max(1, h) / DASH); e[4]:SetTexCoord(0, 1, 0, max(1, h) / DASH)
+end
+
+-- f's edges dashed or solid in colour c ({ r, g, b, a }), thick units wide. (The game draws no dashed lines: the
+-- dash tile, 4 texels on and 4 off, repeats along each edge, one texture per edge.)
+local function PaintEdges(f, dashed, c, thick)
+    for i, e in ipairs(f.edges) do
+        if dashed then
+            if not f.dashed then e:SetTexture(MEDIA .. (i <= 2 and "dash_h" or "dash_v"), "REPEAT", "REPEAT") end
+            e:SetVertexColor(c[1], c[2], c[3], c[4])
+        else
+            e:SetColorTexture(c[1], c[2], c[3], c[4])
+            e:SetVertexColor(1, 1, 1, 1)
+        end
+        if i <= 2 then e:SetHeight(thick) else e:SetWidth(thick) end
+    end
+    f.dashed = dashed and true or false
+    if dashed then Retile(f) end
+end
+
+-- A soft gold glow round frame f, just outside its outline: the radial texture's falloff in 8 pieces (corners and
+-- sides, as UI:SoftShadow cuts it; no middle, the frame shows through), r units wide. Returns the textures.
+local RADIAL = "Interface\\AddOns\\DisasterZone\\Media\\MyBiS\\Radial"
+local function NewGlow(f, r)
+    local list = {}
+    local function piece(l, rt, t, b)
+        local tex = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+        tex:SetTexture(RADIAL)
+        tex:SetTexCoord(l, rt, t, b)
+        tex:SetVertexColor(S:Alpha("GOLD", 0.22))
+        list[#list + 1] = tex
+        return tex
+    end
+    local m1, m2 = 0.499, 0.501
+    local a, b, c, d = 0.5 - 0.406, 0.5 - 0.125, 0.5 + 0.125, 0.5 + 0.406
+    local tl = piece(a, b, a, b)
+    tl:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", -PAD, PAD); tl:SetSize(r, r)
+    local tr = piece(c, d, a, b)
+    tr:SetPoint("BOTTOMLEFT", f, "TOPRIGHT", PAD, PAD); tr:SetSize(r, r)
+    local bl = piece(a, b, c, d)
+    bl:SetPoint("TOPRIGHT", f, "BOTTOMLEFT", -PAD, -PAD); bl:SetSize(r, r)
+    local br = piece(c, d, c, d)
+    br:SetPoint("TOPLEFT", f, "BOTTOMRIGHT", PAD, -PAD); br:SetSize(r, r)
+    local top = piece(m1, m2, a, b)
+    top:SetPoint("BOTTOMLEFT", tl, "BOTTOMRIGHT"); top:SetPoint("TOPRIGHT", tr, "TOPLEFT")
+    local bottom = piece(m1, m2, c, d)
+    bottom:SetPoint("TOPLEFT", bl, "TOPRIGHT"); bottom:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT")
+    local left = piece(a, b, m1, m2)
+    left:SetPoint("TOPRIGHT", tl, "BOTTOMRIGHT"); left:SetPoint("BOTTOMLEFT", bl, "TOPLEFT")
+    local right = piece(c, d, m1, m2)
+    right:SetPoint("TOPLEFT", tr, "BOTTOMLEFT"); right:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT")
+    return list
+end
+
+-- A name chip: near-black, a thin gold edge, the name in gold (the "when it shows" part grey). chip:SetLabel(text).
+local function NameChip(parent)
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetFrameLevel(parent:GetFrameLevel() + 5)
+    c:SetHeight(15)
+    c.bg = c:CreateTexture(nil, "BACKGROUND")
+    c.bg:SetAllPoints()
+    c.bg:SetColorTexture(CHIP_BG[1], CHIP_BG[2], CHIP_BG[3], CHIP_BG[4])
+    UI:AddEdges(c, "BORDER")
+    UI:SetEdgeColor(c, CHIP_EDGE[1], CHIP_EDGE[2], CHIP_EDGE[3], CHIP_EDGE[4])
+    c.fs = UI:Text(c, "small", "GOLD", { shadow = false })
+    c.fs:SetPoint("LEFT", 6, 0)
+    function c:SetLabel(text)
+        self.fs:SetText(text)
+        local tw = self.fs:GetStringWidth() or 0
+        if tw <= 0 then tw = #tostring(text) * 5 end
+        self:SetWidth(floor(tw + 12.5))
+    end
+    c:Hide()
+    return c
+end
+
+-- Where the bar is (UIParent units): left, right, bottom.
+local function BarRect()
+    local W, H = Layout().Screen()
+    local w = bar and bar:IsShown() and bar:GetWidth() or 0
+    return (W - w) / 2, (W + w) / 2, H - BAR_H
+end
+
+-- The chips placed in this pass (UIParent rects l, b, r, t): a later chip keeps off them. EM:Refresh and the
+-- quiet refresh start a pass (picked frames first: their chips get the best spots).
+local chipRects, chipN = {}, 0
+local function ResetChips() chipN = 0 end
+
+local function Overlap(l1, b1, r1, t1, l2, b2, r2, t2)
+    local w, h = min(r1, r2) - max(l1, l2), min(t1, t2) - max(b1, b2)
+    if w <= 0 or h <= 0 then return 0 end
+    return w * h
+end
+
+-- Where a chip can sit: over the box or under it, from its left edge or ending at its right edge.
+local SPOTS = { { true, false }, { false, false }, { true, true }, { false, true } }
+
+-- A chip goes to the first of the spots (over the box's top-left corner first) that covers the least of the other
+-- boxes and chips, never the bar or past the screen's edges. lift: clear of the resize handles (a picked frame).
+-- keep: also counted for the chips after it (it shows).
+local function PlaceChip(chip, f, bx, lift, selfId, keep)
+    local W, H = Layout().Screen()
+    local cw, ch = chip:GetWidth() or 60, 15
+    local gap = lift and 8 or 4
+    local bl, br, bb = BarRect()
+    local best, bestScore
+    for i, spot in ipairs(SPOTS) do
+        local l = spot[2] and (bx.r + PAD - cw) or (bx.l - PAD)
+        local b = spot[1] and (bx.t + PAD + gap) or (bx.b - PAD - gap - ch)
+        local r, t = l + cw, b + ch
+        local score = i * 0.01                                   -- (a tie: the earlier spot)
+        if l < 0 or r > W or b < 0 or t > H then score = score + 1e7 end
+        score = score + Overlap(l, b, r, t, bl, bb, br, H) * 1000
+        for id, o in pairs(boxes) do
+            if id ~= selfId then score = score + Overlap(l, b, r, t, o.l - PAD, o.b - PAD, o.r + PAD, o.t + PAD) end
+        end
+        for j = 1, chipN do
+            local c = chipRects[j]
+            score = score + Overlap(l, b, r, t, c[1], c[2], c[3], c[4]) * 4
+        end
+        if not bestScore or score < bestScore then best, bestScore = i, score end
+        if score < 1 then break end                             -- (free: no need to look further)
+    end
+    local above, right = SPOTS[best][1], SPOTS[best][2]
+    local p = right and "RIGHT" or "LEFT"
+    chip:ClearAllPoints()
+    if above then chip:SetPoint("BOTTOM" .. p, f, "TOP" .. p, right and PAD or -PAD, PAD + gap)
+    else chip:SetPoint("TOP" .. p, f, "BOTTOM" .. p, right and PAD or -PAD, -PAD - gap) end
+    if keep then
+        chipN = chipN + 1
+        local c = chipRects[chipN] or {}
+        chipRects[chipN] = c
+        c[1] = right and (bx.r + PAD - cw) or (bx.l - PAD)
+        c[2] = above and (bx.t + PAD + gap) or (bx.b - PAD - gap - ch)
+        c[3], c[4] = c[1] + cw, c[2] + ch
+    end
 end
 
 local function PaintMover(m)
@@ -341,21 +512,24 @@ local function PaintMover(m)
     local on = IsSel(id)
     local partner = false
     for _, s in ipairs(sel) do if Layout():Partner(s) == id then partner = true end end
+    local hover = not drag and m:IsMouseOver()
     if on then
-        SetEdges(m, GOLD[1], GOLD[2], GOLD[3], 1)
-        m.wash:SetColorTexture(1, 0.82, 0, 0.12)
+        PaintEdges(m, false, S:WithAlpha("GOLD", 1), 1.5)
+        m.wash:SetColorTexture(S:Alpha("GOLD", 0.05))
     elseif partner then
-        SetEdges(m, 0.89, 0.73, 0.33, 0.85)
-        m.wash:SetColorTexture(1, 0.82, 0, 0.07)
-    elseif m:IsMouseOver() then
-        SetEdges(m, 1, 0.82, 0, 0.8)
-        m.wash:SetColorTexture(1, 0.82, 0, 0.07)
+        PaintEdges(m, true, PARTNER, 1.5)
+    elseif hover then
+        PaintEdges(m, false, S:WithAlpha("GOLD", 0.7), 1)
+        m.wash:SetColorTexture(S:Alpha("GOLD", 0.04))
     else
-        SetEdges(m, 1, 0.82, 0, 0.4)
-        m.wash:SetColorTexture(1, 0.82, 0, 0.04)
+        PaintEdges(m, true, QUIET, 1)
     end
+    m.wash:SetShown(on or (hover and not partner))
+    if on and not m.glow then m.glow = NewGlow(m, 10) end
+    if m.glow then for _, t in ipairs(m.glow) do t:SetShown(on) end end
+    m.state = on and "picked" or partner and "partner" or hover and "hover" or "quiet"
     local def = Layout():Item(id)
-    m.tag:SetShown(on or m:IsMouseOver())
+    m.tag:SetShown(on or hover or NamesOn())
     m:SetAlpha((def and not Layout():IsMine(id)) and 0.6 or 1)
 end
 
@@ -364,24 +538,11 @@ local function NewMover()
     m:SetFrameLevel(overlay:GetFrameLevel() + 20)
     m:RegisterForClicks("AnyUp")
     m.wash = m:CreateTexture(nil, "BACKGROUND")
-    m.wash:SetPoint("TOPLEFT", -3, 3)
-    m.wash:SetPoint("BOTTOMRIGHT", 3, -3)
-    -- a 1 px edge 3 px outside the frame (top, bottom, left, right)
-    m.edges = {}
-    for i = 1, 4 do m.edges[i] = m:CreateTexture(nil, "BORDER") end
-    local e = m.edges
-    e[1]:SetPoint("TOPLEFT", -3, 3); e[1]:SetPoint("TOPRIGHT", 3, 3); e[1]:SetHeight(1)
-    e[2]:SetPoint("BOTTOMLEFT", -3, -3); e[2]:SetPoint("BOTTOMRIGHT", 3, -3); e[2]:SetHeight(1)
-    e[3]:SetPoint("TOPLEFT", -3, 3); e[3]:SetPoint("BOTTOMLEFT", -3, -3); e[3]:SetWidth(1)
-    e[4]:SetPoint("TOPRIGHT", 3, 3); e[4]:SetPoint("BOTTOMRIGHT", 3, -3); e[4]:SetWidth(1)
-    m.tag = CreateFrame("Frame", nil, m)
-    m.tag:SetFrameLevel(m:GetFrameLevel() + 5)
-    m.tag.bg = m.tag:CreateTexture(nil, "BACKGROUND")
-    m.tag.bg:SetAllPoints()
-    m.tag.bg:SetColorTexture(1, 0.82, 0, 0.9)
-    m.tag.fs = UI:Text(m.tag, "small", "TEXT", { shadow = false })
-    m.tag.fs:SetTextColor(0.08, 0.08, 0.08)
-    m.tag.fs:SetPoint("LEFT", 4, 0)
+    m.wash:SetPoint("TOPLEFT", -PAD, PAD)
+    m.wash:SetPoint("BOTTOMRIGHT", PAD, -PAD)
+    m.wash:Hide()
+    NewEdges(m)
+    m.tag = NameChip(m)
     m:EnableMouseWheel(true)
     m:SetScript("OnMouseWheel", function(self, delta) EM:Wheel(self.id, delta) end)
     m:SetScript("OnMouseDown", function(self, button) EM:OnMoverDown(self.id, button) end)
@@ -391,23 +552,37 @@ local function NewMover()
     return m
 end
 
+-- (while something is dragged the chips stay put: they don't dodge round the moving box; the moving frames' own
+-- chips are hidden then)
 local function PlaceMover(m, bx)
     m:ClearAllPoints()
     m:SetPoint("BOTTOMLEFT", overlay, "BOTTOMLEFT", bx.l, bx.b)
     m:SetSize(max(4, bx.w), max(4, bx.h))
-    local W, H = Layout().Screen()
-    m.tag:ClearAllPoints()
-    if bx.t > H - 20 then m.tag:SetPoint("TOPLEFT", m, "BOTTOMLEFT", -3, -5)
-    else m.tag:SetPoint("BOTTOMLEFT", m, "TOPLEFT", -3, 5) end
+    if m.dashed then Retile(m) end
+    if not drag then
+        local on = IsSel(m.id)
+        PlaceChip(m.tag, m, bx, on, m.id, on or NamesOn() or m.tag:IsShown())
+    end
+end
+
+-- Every shown mover at its box, the picked ones first (their chips get the best spots).
+local function PlaceMovers()
+    ResetChips()
+    for pass = 1, 2 do
+        for _, def in ipairs(Layout():Items()) do
+            local m, bx = movers[def.id], boxes[def.id]
+            if m and bx and m:IsShown() and (pass == 1) == IsSel(def.id) then PlaceMover(m, bx) end
+        end
+    end
 end
 
 local function TagText(def)
     local t = def.name or def.id
-    if def.when then t = t .. "  |cff4b3d00" .. def.when .. "|r" end
+    if def.when then t = t .. "  |cff8f8a7e" .. def.when .. "|r" end
     return t
 end
 
--- An outline (no mouse) round each meter stack, where it is now.
+-- An outline (no mouse) round each meter stack, where it is now; its chip with Names on or under the mouse.
 local function PlaceOutlines()
     local i = 0
     for k, bx in pairs(boxes) do
@@ -417,21 +592,17 @@ local function PlaceOutlines()
             if not o then
                 o = CreateFrame("Frame", nil, overlay)
                 o:SetFrameLevel(overlay:GetFrameLevel() + 2)
-                o.edges = {}
-                for j = 1, 4 do o.edges[j] = o:CreateTexture(nil, "BORDER") end
-                o.edges[1]:SetPoint("TOPLEFT", -3, 3); o.edges[1]:SetPoint("TOPRIGHT", 3, 3); o.edges[1]:SetHeight(1)
-                o.edges[2]:SetPoint("BOTTOMLEFT", -3, -3); o.edges[2]:SetPoint("BOTTOMRIGHT", 3, -3); o.edges[2]:SetHeight(1)
-                o.edges[3]:SetPoint("TOPLEFT", -3, 3); o.edges[3]:SetPoint("BOTTOMLEFT", -3, -3); o.edges[3]:SetWidth(1)
-                o.edges[4]:SetPoint("TOPRIGHT", 3, 3); o.edges[4]:SetPoint("BOTTOMRIGHT", 3, -3); o.edges[4]:SetWidth(1)
-                for _, e in ipairs(o.edges) do e:SetColorTexture(1, 0.82, 0, 0.4) end
-                o.fs = UI:Text(o, "small", "GOLD")
-                o.fs:SetPoint("BOTTOMLEFT", o, "TOPLEFT", -2, 5)
-                o.fs:SetText("Meters  |cff9a958adrag by a header|r")
+                NewEdges(o)
+                o.tag = NameChip(o)
+                o.tag:SetLabel("Meters  |cff8f8a7edrag by a header|r")
                 outlines[i] = o
             end
             o:ClearAllPoints()
             o:SetPoint("BOTTOMLEFT", overlay, "BOTTOMLEFT", bx.l, bx.b)
             o:SetSize(bx.w, bx.h)
+            PaintEdges(o, true, QUIET, 1)
+            PlaceChip(o.tag, o, bx, false, k, NamesOn())
+            o.tag:SetShown(NamesOn() or o:IsMouseOver())
             o:Show()
         end
     end
@@ -442,6 +613,7 @@ end
 function EM:Refresh()
     if not active then return end
     ReadBoxes()
+    self:UpdateBar()                  -- (first: the chips keep out from under it)
     local used = {}
     for _, def in ipairs(Layout():Items()) do
         local bx = boxes[def.id]
@@ -449,18 +621,16 @@ function EM:Refresh()
             local m = movers[def.id]
             if not m then m = NewMover(); movers[def.id] = m end
             m.id = def.id
-            m.tag.fs:SetText(TagText(def))
-            m.tag:SetSize(floor((m.tag.fs:GetStringWidth() or 60) + 9), 13)
-            PlaceMover(m, bx)
+            m.tag:SetLabel(TagText(def))
             m:Show()
-            PaintMover(m)
             used[def.id] = true
         end
     end
     for id, m in pairs(movers) do if not used[id] then m:Hide() end end
+    PlaceMovers()
+    for _, m in pairs(movers) do if m:IsShown() then PaintMover(m) end end
     PlaceOutlines()
     self:PlaceHandles()
-    self:UpdateToolbar()
     self:UpdateList()
 end
 
@@ -570,7 +740,7 @@ local function NewHandle(h)
     b.t = b:CreateTexture(nil, "OVERLAY")
     b.t:SetPoint("CENTER")
     b.t:SetSize(7, 7)
-    b.t:SetColorTexture(1, 0.82, 0, 1)
+    b.t:SetColorTexture(S:Alpha("GOLD", 1))
     b.h = h
     b:SetScript("OnEnter", function(self)
         self.t:SetSize(9, 9); self.edge:SetSize(11, 11)
@@ -658,7 +828,7 @@ function EM:StartResize(hx, hy)
     PushUndo()
     drag = { kind = "resize", hx = hx, hy = hy, x0 = cx, y0 = cy, ids = ids, start = start, s0 = s0, size0 = size0,
              g = SelBox(ids), stretch = Stretches(ids, hx, hy), ghost = {}, bsize = {}, id = primary or ids[1] }
-    if toolbar then toolbar:Hide() end
+    for _, id in ipairs(ids) do if movers[id] then movers[id].tag:Hide() end end
 end
 -- (the old corner grip's name)
 function EM:StartScale(id)
@@ -769,7 +939,7 @@ local function UpdateResize(d, cx, cy)
         if p and not IsSel(p) and Layout():Item(i2).kind == "dz" then Layout():FollowMirror(i2, true) end
     end
     ReadBoxes()
-    for i2, m in pairs(movers) do if m:IsShown() and boxes[i2] then PlaceMover(m, boxes[i2]) end end
+    PlaceMovers()
     DrawGuides(d.id, d.now, skip, nil, nil, nil)
     Pill(cx + 14, cy - 22, d.label, GOLD, true, true)
     EM:PlaceHandles()
@@ -872,7 +1042,8 @@ local function UpdateDrag()
             if abs(dx) + abs(dy) < 2 then return end
             d.moved = true
             PushUndo()
-            toolbar:Hide()
+            -- (the moving frames' chips step aside for the guides: the gaps' numbers and the place)
+            for k in pairs(d.set) do if movers[k] then movers[k].tag:Hide() end end
         end
         local s0 = d.start[d.id]
         if not s0 then return end
@@ -895,7 +1066,7 @@ local function UpdateDrag()
             end
         end
         ReadBoxes()
-        for id, m in pairs(movers) do if m:IsShown() and boxes[id] then PlaceMover(m, boxes[id]) end end
+        PlaceMovers()
         DrawGuides(d.id, Box(nl, nb, s0.w, s0.h), skip, gx, gy, Layout():Scale(d.id))
     elseif d.kind == "resize" then
         UpdateResize(d, cx, cy)
@@ -942,19 +1113,19 @@ function EM:CommitBlizz()
     if C_Timer and C_Timer.After then C_Timer.After(0.1, function() EM:Refresh() end) end
 end
 
--- After a toolbar action or a nudge: the guides of the first picked frame for a second.
+-- After a tool or a nudge: the guides of the first picked frame for a second (its place: the bar's readout).
 function EM:Flash()
     if drag or not sel[1] then return end
     ReadBoxes()
     local bx = boxes[sel[1]]
     if not bx then return end
     local skip = MovingSet()
-    DrawGuides(sel[1], bx, skip, nil, nil, Layout():Scale(sel[1]))
-    self.flashUntil = (GetTime and GetTime() or 0) + 1.2
+    DrawGuides(sel[1], bx, skip, nil, nil, Layout():Scale(sel[1]), true)
+    self.flashUntil = Clock() + 1.2
 end
 
 ---------------------------------------------------------------------------
--- The toolbar on the selection
+-- The bar's buttons: flat, no fill until the mouse comes over them
 ---------------------------------------------------------------------------
 
 -- Glyphs drawn from small bars (x, y from the top-left of a 14 x 14 box, w, h).
@@ -971,49 +1142,126 @@ local GLYPHS = {
     cv = { { 0, 6.5, 3, 1 }, { 11, 6.5, 3, 1 }, { 4.5, 2, 5, 10 } },
     mir = { { 6.5, 0, 1, 3 }, { 6.5, 5.5, 1, 3 }, { 6.5, 11, 1, 3 }, { 1, 3, 4, 8 }, { 9, 3, 4, 8 } },
 }
+local INK, INK_HOT, INK_OFF = { 0.85, 0.82, 0.75 }, { 1, 1, 1 }, { 0.33, 0.32, 0.3 }
+local HOVER_BG = { 0.12, 0.12, 0.145, 1 }
 
+-- The tooltip under a bar button (the bar is at the screen's top).
+local function BarTip(b, title, text)
+    if not title then return end
+    UI:AttachTooltip(b, title, text and { text } or nil, { anchor = "ANCHOR_BOTTOM" })
+end
+
+local function HoverFill(b)
+    b.hl = b:CreateTexture(nil, "BACKGROUND")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(HOVER_BG[1], HOVER_BG[2], HOVER_BG[3], HOVER_BG[4])
+    b.hl:Hide()
+end
+
+-- The hover / enabled scripts every bar button shares: b:Paint() draws it.
+local function BarScripts(b, onClick)
+    b:SetScript("OnEnter", function(self) self.over = true; self:Paint() end)
+    b:SetScript("OnLeave", function(self) self.over = nil; self:Paint() end)
+    b:SetScript("OnEnable", function(self) self:Paint() end)
+    b:SetScript("OnDisable", function(self) self:Paint() end)
+    b:SetScript("OnClick", onClick)
+end
+
+-- An alignment glyph (GLYPHS[key]) for the picked frames' tools.
 local function GlyphButton(parent, key, title, text, onClick)
     local b = CreateFrame("Button", nil, parent)
-    b:SetSize(24, 24)
-    b.hover = b:CreateTexture(nil, "BACKGROUND")
-    b.hover:SetAllPoints()
-    b.hover:SetColorTexture(1, 1, 1, 0.06)
-    b.hover:Hide()
+    b:SetSize(22, 22)
+    HoverFill(b)
     b.bars = {}
     for _, r in ipairs(GLYPHS[key]) do
         local t = b:CreateTexture(nil, "ARTWORK")
-        t:SetPoint("TOPLEFT", b, "TOPLEFT", 5 + r[1], -5 - r[2])
+        t:SetPoint("TOPLEFT", b, "TOPLEFT", 4 + r[1], -4 - r[2])
         t:SetSize(r[3], r[4])
-        t:SetColorTexture(0.85, 0.82, 0.75, 1)
         b.bars[#b.bars + 1] = t
     end
-    b:SetScript("OnEnter", function(self)
-        self.hover:Show()
-        for _, t in ipairs(self.bars) do t:SetColorTexture(1, 0.82, 0, 1) end
-        GameTooltip:SetOwner(self, ns.UI:TowardMiddle(self, "y"))
-        GameTooltip:AddLine(title)
-        if text then GameTooltip:AddLine(text, 1, 1, 1, true) end
-        GameTooltip:Show()
-    end)
-    b:SetScript("OnLeave", function(self)
-        self.hover:Hide()
-        for _, t in ipairs(self.bars) do t:SetColorTexture(0.85, 0.82, 0.75, self:IsEnabled() and 1 or 0.3) end
-        GameTooltip:Hide()
-    end)
-    b:SetScript("OnClick", onClick)
+    function b:Paint()
+        local en = self:IsEnabled()
+        local c = not en and INK_OFF or self.over and GOLD or INK
+        for _, t in ipairs(self.bars) do t:SetColorTexture(c[1], c[2], c[3], 1) end
+        self.hl:SetShown(en and self.over and true or false)
+    end
+    BarScripts(b, onClick)
+    BarTip(b, title, text)
     b.key = key
+    b:Paint()
     return b
 end
 
 local function SetGlyphEnabled(b, on)
     b:SetEnabled(on)
-    for _, t in ipairs(b.bars) do t:SetColorTexture(0.85, 0.82, 0.75, on and 1 or 0.3) end
+    b:Paint()
 end
 
-local function TextButton(parent, text, onClick)
-    local b = UI:CreateSleekButton(parent, text, 10, 20, onClick)
-    UI:SetTextStyle(b:GetFontString(), "small")
-    b:SetWidth(floor((b:GetFontString():GetStringWidth() or 40) + 16))
+-- A text button for the bar. lit (b:SetLit): gold text, a thin gold edge and a faint gold fill (a switch that is on,
+-- the panel it opened). b:SetLabel(text) fits the width; chevron = true: a small gold chevron after the text.
+local function BarButton(parent, text, onClick, title, tip, chevron)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(22)
+    HoverFill(b)
+    b.litFill = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.litFill:SetAllPoints()
+    b.litFill:SetColorTexture(S:Alpha("GOLD", 0.08))
+    b.litFill:Hide()
+    UI:AddEdges(b, "BORDER")
+    b.fs = UI:Text(b, "small", "TEXT", { shadow = false })
+    b.fs:SetPoint("LEFT", 7, 0)
+    if chevron then
+        b.chev = b:CreateTexture(nil, "ARTWORK")
+        b.chev:SetSize(10, 10)
+        b.chev:SetPoint("RIGHT", -5, 0)
+        b.chev:SetTexture(UI.ICON_ATLAS)
+        UI:SetChevronUp(b.chev, false)
+        b.chev:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
+    end
+    function b:SetLabel(t)
+        self.fs:SetText(t)
+        local w = self.fs:GetStringWidth() or 0
+        if w <= 0 then w = #tostring(t) * 5 end
+        self:SetWidth(floor(w + 14 + (self.chev and 12 or 0) + 0.5))
+    end
+    function b:Paint()
+        local en = self:IsEnabled()
+        local c = not en and INK_OFF or self.lit and GOLD or self.over and INK_HOT or INK
+        self.fs:SetTextColor(c[1], c[2], c[3])
+        self.hl:SetShown(en and self.over and not self.lit and true or false)
+        self.litFill:SetShown(self.lit and true or false)
+        UI:SetEdgeColor(self, S:Alpha("GOLD", self.lit and 0.45 or 0))
+    end
+    function b:SetLit(on)
+        self.lit = on and true or nil
+        if self.chev then UI:SetChevronUp(self.chev, self.lit) end
+        self:Paint()
+    end
+    BarScripts(b, onClick)
+    BarTip(b, title, tip)
+    b:SetLabel(text or "")
+    b:Paint()
+    return b
+end
+
+-- An atlas glyph button for the bar (UI.ICON_ATLAS index: undo, redo).
+local function BarIcon(parent, icon, title, tip, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(22, 22)
+    HoverFill(b)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(14, 14)
+    b.icon:SetPoint("CENTER")
+    UI:SetGlyph(b.icon, icon)
+    function b:Paint()
+        local en = self:IsEnabled()
+        local c = not en and INK_OFF or self.over and INK_HOT or INK
+        self.icon:SetVertexColor(c[1], c[2], c[3], 1)
+        self.hl:SetShown(en and self.over and true or false)
+    end
+    BarScripts(b, onClick)
+    BarTip(b, title, tip)
+    b:Paint()
     return b
 end
 
@@ -1077,128 +1325,282 @@ function EM:Act(a)
     self:Flash()
 end
 
-function EM:UpdateToolbar()
-    if not toolbar then return end
-    for _, c in ipairs(toolbar.parts or {}) do c:Hide() end
-    toolbar.parts = {}
-    if not active or drag or #sel == 0 then toolbar:Hide() return end
-    ReadBoxes()
-    local sb = SelBox(sel)
-    if not sb then toolbar:Hide() return end
-    local x = 6
-    local function add(c, gap)
-        c:SetParent(toolbar)
-        c:ClearAllPoints()
-        c:SetPoint("LEFT", toolbar, "LEFT", x, 0)
-        c:Show()
-        x = x + c:GetWidth() + (gap or 2)
-        toolbar.parts[#toolbar.parts + 1] = c
-    end
-    local function sep()
-        local s = toolbar.seps[#toolbar.parts + 1]
-        if not s then
-            s = CreateFrame("Frame", nil, toolbar)
-            s:SetSize(9, 16)
-            local t = s:CreateTexture(nil, "ARTWORK")
-            t:SetPoint("CENTER")
-            t:SetSize(1, 14)
-            t:SetColorTexture(1, 1, 1, 0.12)
-            toolbar.seps[#toolbar.parts + 1] = s
-        end
-        add(s, 0)
-    end
-    toolbar.name:SetText(#sel == 1 and (Layout():Item(sel[1]) and Layout():Item(sel[1]).name or sel[1])
-        or (#sel .. " frames"))
-    toolbar.name:ClearAllPoints()
-    toolbar.name:SetPoint("LEFT", toolbar, "LEFT", 8, 0)
-    x = 14 + (toolbar.name:GetStringWidth() or 60)
-    toolbar.name:Show()
-    local B = toolbar.b
-    sep()
-    if #sel == 1 then
-        local id = sel[1]
-        local partner = Layout():Partner(id)
-        SetGlyphEnabled(B.ch, not partner)
-        B.ch.tipNote = partner
-        add(B.ch); add(B.cv)
-        sep()
-        if partner then add(B.unmirror) else add(B.mirror1) end
-        sep()
-        add(B.reset)
-        local def = Layout():Item(id)
-        if def and def.kind == "dz" and not def.noHide then add(B.hide) end
-    else
-        SetGlyphEnabled(B.ch, true)
-        add(B.al); add(B.ac); add(B.ar); sep()
-        add(B.at); add(B.am); add(B.ab); sep()
-        SetGlyphEnabled(B.dh, #sel >= 3); SetGlyphEnabled(B.dv, #sel >= 3)
-        add(B.dh); add(B.dv); sep()
-        add(B.ch); add(B.cv)
-        if #sel == 2 then
-            sep()
-            if Layout():Partner(sel[1]) == sel[2] then add(B.unmirror) else add(B.mirror2) end
-        end
-    end
-    toolbar:SetWidth(x + 4)
-    local W, H = Layout().Screen()
-    local tx = max(4, min(W - x - 8, sb.cx - (x + 4) / 2))
-    -- (above the picked frame's name tag, else under the frame)
-    local ty = sb.t + 54 <= H - 4 and (sb.t + 22) or max(4, sb.b - 40)
-    toolbar:ClearAllPoints()
-    toolbar:SetPoint("BOTTOMLEFT", overlay, "BOTTOMLEFT", tx, ty)
-    toolbar:Show()
+---------------------------------------------------------------------------
+-- The bar along the top edge
+---------------------------------------------------------------------------
+
+local GRID_STEPS = { 0, 8, 16, 32 }
+local SNAPS = { "editlayout.snapScreen", "editlayout.snapFrames", "editlayout.snapGaps" }
+
+local function GridStep() return tonumber(Get("editlayout.grid", 0)) or 0 end
+
+-- Any of the three kinds of snapping on.
+local function SnapOn()
+    for _, k in ipairs(SNAPS) do if Get(k, true) then return true end end
+    return false
 end
 
-local function BuildToolbar()
-    toolbar = CreateFrame("Frame", "DisasterZoneEditToolbar", overlay)
-    toolbar:SetFrameLevel(overlay:GetFrameLevel() + 110)
-    toolbar:SetHeight(28)
-    toolbar:EnableMouse(true)
-    toolbar.bg = UI:Fill(toolbar, "DROP_BG", "BACKGROUND")
-    UI:AddEdges(toolbar, "BORDER")
-    UI:SetEdgeColor(toolbar, S:Color("DROP_EDGE"))
-    toolbar.name = UI:Text(toolbar, "small", "GOLD")
-    toolbar.seps = {}
+-- What the readout says: the picked frame's name, its place from the screen's centre and its size; a count of
+-- several; what to do with none.
+function EM:Readout()
+    if #sel == 0 then return "Click a frame to pick it" end
+    if #sel > 1 then return ("|cffe8e3d1%d frames|r picked"):format(#sel) end
+    local id = sel[1]
+    local def = Layout():Item(id)
+    local name = "|cffe8e3d1" .. ((def and def.name) or id) .. "|r"
+    local bx = boxes[id]
+    if not bx then return name end
+    local W, H = Layout().Screen()
+    local dx, dy = floor(bx.cx - W / 2 + 0.5), floor(bx.cy - H / 2 + 0.5)
+    local pct = floor((Layout():Scale(id) or 1) * 100 + 0.5)
+    return ("%s  \194\183  centre |cffffd100%s%d|r, |cffffd100%s%d|r  \194\183  |cffffd100%d%%|r"):format(name,
+        dx > 0 and "+" or "", dx, dy > 0 and "+" or "", dy, pct)
+end
+
+-- Lays the bar out for what is picked now: its readout, the selection's tools, the switches' states.
+function EM:UpdateBar()
+    if not bar then return end
+    local B = bar.b
+    -- (what stays is not hidden and shown again: a button under the mouse keeps its hover and its tooltip)
+    local want = {}
+    local nSep = 0
+    local x = 10
+    local function add(c, gap)
+        want[c] = true
+        c:ClearAllPoints()
+        c:SetPoint("LEFT", bar, "LEFT", x, 0)
+        c:Show()
+        x = x + c:GetWidth() + (gap or 1)
+    end
+    local function sep()
+        nSep = nSep + 1
+        local s = bar.seps[nSep]
+        if not s then
+            s = bar:CreateTexture(nil, "ARTWORK")
+            s:SetSize(1, 16)
+            s:SetColorTexture(0.17, 0.17, 0.2, 1)
+            bar.seps[nSep] = s
+        end
+        x = x + 4
+        s:ClearAllPoints()
+        s:SetPoint("LEFT", bar, "LEFT", x, 0)
+        s:Show()
+        x = x + 5
+    end
+    bar.title:ClearAllPoints()
+    bar.title:SetPoint("LEFT", bar, "LEFT", x, 0)
+    x = x + floor((bar.title:GetStringWidth() or 62) + 0.5) + 10
+    -- the readout: while the same frames stay picked it only grows (the buttons after it don't jump at each nudge)
+    local key = table.concat(sel, ",")
+    bar.read:SetWidth(0)              -- (unbounded while measured: a set width caps GetStringWidth)
+    bar.read:SetText(self:Readout())
+    local rw = floor((bar.read:GetStringWidth() or 120) + 0.5)
+    if key == bar.readKey then rw = max(rw, bar.readW or 0) end
+    bar.readKey, bar.readW = key, rw
+    bar.read:SetWidth(rw + 2)
+    bar.read:ClearAllPoints()
+    bar.read:SetPoint("LEFT", bar, "LEFT", x, 0)
+    x = x + rw + 8
+    -- the picked frames' tools
+    if active and #sel > 0 then
+        sep()
+        if #sel == 1 then
+            local id = sel[1]
+            local partner = Layout():Partner(id)
+            SetGlyphEnabled(B.ch, not partner)
+            B.ch.tipNote = partner
+            add(B.ch); add(B.cv)
+            sep()
+            if partner then add(B.unmirror) else add(B.mirror1) end
+            add(B.reset)
+            local def = Layout():Item(id)
+            if def and def.kind == "dz" and not def.noHide then add(B.hide) end
+        else
+            SetGlyphEnabled(B.ch, true)
+            add(B.al); add(B.ac); add(B.ar); sep()
+            add(B.at); add(B.am); add(B.ab); sep()
+            SetGlyphEnabled(B.dh, #sel >= 3); SetGlyphEnabled(B.dv, #sel >= 3)
+            add(B.dh); add(B.dv); sep()
+            add(B.ch); add(B.cv)
+            if #sel == 2 then
+                sep()
+                if Layout():Partner(sel[1]) == sel[2] then add(B.unmirror) else add(B.mirror2) end
+            end
+        end
+    end
+    sep()
+    B.undo:SetEnabled(#undo > 0); B.redo:SetEnabled(#redo > 0)
+    add(B.undo); add(B.redo)
+    sep()
+    local g = GridStep()
+    B.grid:SetLabel("Grid  |cffffd100" .. (g > 0 and tostring(g) or "Off") .. "|r")
+    B.snap:SetLabel("Snap  |cffffd100" .. (SnapOn() and "On" or "Off") .. "|r")
+    B.names:SetLit(NamesOn())
+    B.frames:SetLit(panel and panel:IsShown())
+    add(B.grid); add(B.snap); add(B.names); add(B.frames)
+    sep()
+    add(B.done, 0)
+    for _, c in pairs(B) do if not want[c] then c:Hide() end end
+    for i = nSep + 1, #bar.seps do bar.seps[i]:Hide() end
+    bar:SetWidth(x + 4)
+end
+
+-- Grid: Off, 8, 16, 32 and round.
+function EM:CycleGrid()
+    local g, nxt = GridStep(), GRID_STEPS[1]
+    for i, v in ipairs(GRID_STEPS) do if v == g then nxt = GRID_STEPS[i % #GRID_STEPS + 1] end end
+    Set("editlayout.grid", nxt)
+    self:DrawGrid()
+    self:UpdateBar()
+end
+
+-- Snap: all three kinds off (what was on is kept), or back on (what was on before; all three when none was).
+function EM:ToggleSnap()
+    if SnapOn() then
+        local keep = {}
+        for i, k in ipairs(SNAPS) do keep[i] = Get(k, true) and true or false; Set(k, false) end
+        Set("editlayout.snapKeep", keep)
+    else
+        local keep = Get("editlayout.snapKeep")
+        local any = false
+        if type(keep) == "table" then for i = 1, #SNAPS do if keep[i] then any = true end end end
+        for i, k in ipairs(SNAPS) do Set(k, (not any) or keep[i] and true or false) end
+    end
+    self:UpdatePanel()
+end
+
+function EM:ToggleNames()
+    Set("editlayout.names", not NamesOn())
+    self:Refresh()
+end
+
+-- The bar's alpha it is heading for: faint while dragging, stepped back while a picked frame is under it (unless the
+-- mouse is on it or its panel is open), else full.
+local function Dragging()
+    if drag and (drag.kind ~= "move" or drag.moved) then return true end
+    return EM.meterDrag ~= nil and Clock() - EM.meterDrag < 0.3
+end
+
+function EM:BarTarget()
+    if not bar or not bar:IsShown() then return 1 end
+    if Dragging() then return BAR_DRAG end
+    if bar:IsMouseOver() or (panel and panel:IsShown()) then return 1 end
+    local bl, br, bb = BarRect()
+    for _, id in ipairs(sel) do
+        local bx = boxes[id]
+        if bx and bx.t + PAD > bb and bx.l - PAD < br and bx.r + PAD > bl then return BAR_UNDER end
+    end
+    return 1
+end
+
+-- Each frame: the bar eases toward its alpha; the centre cross and the grid show only while something is placed.
+function EM:Ease(elapsed)
+    if not bar then return end
+    local a, t = bar:GetAlpha() or 1, self:BarTarget()
+    if abs(a - t) > 0.004 then
+        bar:SetAlpha(a + (t - a) * min(1, (elapsed or 0) * 14))
+    elseif a ~= t then
+        bar:SetAlpha(t)
+    end
+    local placing = Dragging() and not (drag and drag.kind == "marquee")
+    if placing ~= self.placing then
+        self.placing = placing
+        overlay.axisV:SetShown(placing)
+        overlay.axisH:SetShown(placing)
+        overlay.gridLayer:SetShown(placing)
+    end
+    for _, o in ipairs(outlines) do
+        if o:IsShown() then o.tag:SetShown(NamesOn() or o:IsMouseOver()) end
+    end
+end
+
+local function BuildBar()
+    bar = CreateFrame("Frame", "DisasterZoneEditBar", overlay)
+    bar:SetFrameLevel(overlay:GetFrameLevel() + 110)
+    bar:SetHeight(BAR_H)
+    bar:SetPoint("TOP", overlay, "TOP", 0, 0)
+    bar:EnableMouse(true)
+    if UI.SoftShadow then UI:SoftShadow(bar, 14, 0.45, -4, 2) end
+    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
+    bar.bg:SetAllPoints()
+    bar.bg:SetColorTexture(0.04, 0.04, 0.05, 0.95)
+    -- (a thin edge on the sides and the bottom; none along the screen's top)
+    bar.edges = {}
+    local function edge(p1, p2, horiz)
+        local t = bar:CreateTexture(nil, "BORDER")
+        t:SetPoint(p1); t:SetPoint(p2)
+        if horiz then t:SetHeight(1) else t:SetWidth(1) end
+        t:SetColorTexture(0.2, 0.2, 0.23, 1)
+        bar.edges[#bar.edges + 1] = t
+    end
+    edge("BOTTOMLEFT", "BOTTOMRIGHT", true)
+    edge("TOPLEFT", "BOTTOMLEFT")
+    edge("TOPRIGHT", "BOTTOMRIGHT")
+    bar.title = UI:Text(bar, "body", "GOLD", { shadow = false })
+    bar.title:SetText("Edit layout")
+    bar.read = UI:Text(bar, "small", { 0.6, 0.58, 0.54 }, { shadow = false })
+    bar.seps = {}
     local function act(a) return function() EM:Act(a) end end
     local B = {}
-    B.al = GlyphButton(toolbar, "al", "Line up left edges", nil, act("al"))
-    B.ac = GlyphButton(toolbar, "ac", "Line up centres", "Left to right: their middles in one column.", act("ac"))
-    B.ar = GlyphButton(toolbar, "ar", "Line up right edges", nil, act("ar"))
-    B.at = GlyphButton(toolbar, "at", "Line up top edges", nil, act("at"))
-    B.am = GlyphButton(toolbar, "am", "Line up middles", "Top to bottom: their middles in one row.", act("am"))
-    B.ab = GlyphButton(toolbar, "ab", "Line up bottom edges", nil, act("ab"))
-    B.dh = GlyphButton(toolbar, "dh", "Equal gaps across", "Three or more: the same gap between each, left to right.", act("dh"))
-    B.dv = GlyphButton(toolbar, "dv", "Equal gaps down", "Three or more: the same gap between each, top to bottom.", act("dv"))
-    B.ch = GlyphButton(toolbar, "ch", "Centre left to right", "On the screen's middle line.", act("ch"))
-    B.cv = GlyphButton(toolbar, "cv", "Centre top to bottom", "On the screen's middle line.", act("cv"))
-    B.mirror1 = TextButton(toolbar, "Mirror\226\128\166", function()
+    B.al = GlyphButton(bar, "al", "Line up left edges", nil, act("al"))
+    B.ac = GlyphButton(bar, "ac", "Line up centres", "Left to right: their middles in one column.", act("ac"))
+    B.ar = GlyphButton(bar, "ar", "Line up right edges", nil, act("ar"))
+    B.at = GlyphButton(bar, "at", "Line up top edges", nil, act("at"))
+    B.am = GlyphButton(bar, "am", "Line up middles", "Top to bottom: their middles in one row.", act("am"))
+    B.ab = GlyphButton(bar, "ab", "Line up bottom edges", nil, act("ab"))
+    B.dh = GlyphButton(bar, "dh", "Equal gaps across", "Three or more: the same gap between each, left to right.", act("dh"))
+    B.dv = GlyphButton(bar, "dv", "Equal gaps down", "Three or more: the same gap between each, top to bottom.", act("dv"))
+    B.ch = GlyphButton(bar, "ch", "Centre left to right", "On the screen's middle line.", act("ch"))
+    B.cv = GlyphButton(bar, "cv", "Centre top to bottom", "On the screen's middle line.", act("cv"))
+    B.mirror1 = BarButton(bar, "Mirror\226\128\166", function()
         pickFor = sel[1]
         EM:Hint(("Click the frame that sits mirrored on the other side of %s  \194\183  Esc cancels")
             :format(Layout():Item(sel[1]).name or sel[1]))
-    end)
-    B.mirror2 = TextButton(toolbar, "Mirror", act("mir"))
-    UI:AttachTooltip(B.mirror2, "Mirror", { "The second one moves to the other side of the centre, level with the first, "
-        .. "and follows it from now on." })
-    B.unmirror = TextButton(toolbar, "Unmirror", act("unmirror"))
-    B.reset = TextButton(toolbar, "Reset", act("reset"))
-    UI:AttachTooltip(B.reset, "Reset", { "Back to its own default place and size." })
-    B.hide = TextButton(toolbar, "Hide", act("hide"))
-    UI:AttachTooltip(B.hide, "Hide", { "Hidden in this profile. The eye in the list brings it back." })
+    end, "Mirror", "Then click the frame on the other side: it moves level with this one and follows it from now on.")
+    B.mirror2 = BarButton(bar, "Mirror", act("mir"), "Mirror", "The second one moves to the other side of the centre, "
+        .. "level with the first, and follows it from now on.")
+    B.unmirror = BarButton(bar, "Unmirror", act("unmirror"), "Unmirror", "They move on their own again.")
+    B.reset = BarButton(bar, "Reset", act("reset"), "Reset", "Back to its own default place and size.")
+    B.hide = BarButton(bar, "Hide", act("hide"), "Hide", "Hidden in this profile. The eye in Frames brings it back.")
+    B.undo = BarIcon(bar, 9, "Undo", "Ctrl+Z", function() EM:Undo() end)
+    B.redo = BarIcon(bar, 10, "Redo", "Ctrl+Y", function() EM:Redo() end)
+    B.grid = BarButton(bar, "Grid", function() EM:CycleGrid() end, "Grid",
+        "Click: off, 8, 16, 32. A drop that catches nothing lands on it, counted from the centre; Shift+arrow moves "
+        .. "a grid step. It shows while you drag.")
+    B.snap = BarButton(bar, "Snap", function() EM:ToggleSnap() end, "Snapping",
+        "To the screen's centre and edges, other frames and equal gaps (Frames picks which). Hold Alt while you drag "
+        .. "to place freely.")
+    B.names = BarButton(bar, "Names", function() EM:ToggleNames() end, "Names",
+        "Every frame's name, not only the picked one's.")
+    B.frames = BarButton(bar, "Frames", function() EM:ShowFrames() end, "Frames",
+        "Every frame in a list (pick one, hide it with its eye), my character's or everything, what snaps, profiles.",
+        true)
+    B.done = UI:CreateSleekButton(bar, "Done", 54, 22, function() EM:Close() end, "primary")
+    UI:SetTextSize(B.done:GetFontString(), "small")
+    UI:AttachTooltip(B.done, "Done", { "Esc too (the first Esc drops what is picked)." }, { anchor = "ANCHOR_BOTTOM" })
     for _, b in pairs(B) do b:Hide() end
-    toolbar.b = B
-    toolbar:Hide()
+    bar.b = B
+    -- the hint (a mirror partner to pick, a handle's keys) under the bar, gold
+    hint = CreateFrame("Frame", nil, overlay)
+    hint:SetFrameLevel(overlay:GetFrameLevel() + 105)
+    hint:SetHeight(18)
+    hint:SetPoint("TOP", bar, "BOTTOM", 0, -6)
+    hint.bg = hint:CreateTexture(nil, "BACKGROUND")
+    hint.bg:SetAllPoints()
+    hint.bg:SetColorTexture(S:Alpha("GOLD", 0.95))
+    hint.fs = UI:Text(hint, "small", "TEXT", { shadow = false })
+    hint.fs:SetTextColor(0.08, 0.08, 0.08)
+    hint.fs:SetPoint("CENTER", 0, 0)
+    hint:Hide()
+    bar.hint = hint
 end
 
----------------------------------------------------------------------------
--- The panel
----------------------------------------------------------------------------
-
 function EM:Hint(text)
-    if not banner then return end
-    banner.fs:SetText(text or "Edit layout  \194\183  drag anything  \194\183  pull a handle or roll the wheel to resize"
-        .. "  \194\183  Esc when done")
-    banner:SetWidth(floor((banner.fs:GetStringWidth() or 300) + 24))
-    if text then banner.bg:SetColorTexture(1, 0.82, 0, 1) else banner.bg:SetColorTexture(1, 0.82, 0, 0.88) end
+    if not hint then return end
+    if not text then hint:Hide() return end
+    hint.fs:SetText(text)
+    hint:SetWidth(floor((hint.fs:GetStringWidth() or 300) + 24))
+    hint:Show()
 end
 
 -- Asks a name for a new profile (a copy of where everything is now) and switches this character to it.
@@ -1262,11 +1664,11 @@ local function ListRow(parent, i)
     r:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -(i - 1) * ROW_H)
     r.hl = r:CreateTexture(nil, "BACKGROUND")
     r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.05)
+    r.hl:SetColorTexture(S:Alpha("HAIRLINE", 0.05))
     r.hl:Hide()
     r.sel = r:CreateTexture(nil, "BACKGROUND", nil, 1)
     r.sel:SetAllPoints()
-    r.sel:SetColorTexture(1, 0.82, 0, 0.1)
+    r.sel:SetColorTexture(S:Alpha("GOLD", 0.1))
     r.sel:Hide()
     r.fs = UI:Text(r, "small", "TEXT")
     r.fs:SetPoint("LEFT", 8, 0)
@@ -1336,45 +1738,42 @@ end
 function EM:UpdatePanel()
     if not panel then return end
     panel.profile:Refresh()
-    panel.grid:Select(tostring(tonumber(Get("editlayout.grid", 0)) or 0))
     panel.show:Select(ShowAll() and "all" or "mine")
-    panel.undo:SetEnabled(#undo > 0)
-    panel.redo:SetEnabled(#redo > 0)
+    for _, cb in ipairs(panel.snaps) do cb:Refresh() end
     self:UpdateList()
+    self:UpdateBar()
 end
 
+-- Frames (the bar): the panel under the bar's right end, or away (on = nil: the other way round). It stays where it
+-- opened while the bar grows or shrinks with what is picked (the list doesn't slide from under the mouse).
+function EM:ShowFrames(on)
+    if not panel then return end
+    if on == nil then on = not panel:IsShown() end
+    if on then
+        local _, br = BarRect()
+        local W, H = Layout().Screen()
+        panel:ClearAllPoints()
+        panel:SetPoint("TOPRIGHT", overlay, "BOTTOMLEFT", floor(min(W - 6, max(PANEL_W + 6, br)) + 0.5), H - BAR_H - 4)
+        panel:Show()
+        self:UpdatePanel()
+    else
+        panel:Hide()
+        self:UpdateBar()
+    end
+end
+
+-- The Frames panel: profile, what snaps, whose frames, the list with an eye each, reset all.
 local function BuildPanel()
     panel = CreateFrame("Frame", "DisasterZoneEditPanel", overlay)
     panel:SetFrameLevel(overlay:GetFrameLevel() + 100)
     panel:SetSize(PANEL_W, 200)
     panel:EnableMouse(true)
-    panel:SetMovable(true)
     panel:SetClampedToScreen(true)
     if UI.SoftShadow then UI:SoftShadow(panel, 18, 0.5, -6, 2) end
     panel.bg = UI:Fill(panel, "DROP_BG", "BACKGROUND")
     UI:AddEdges(panel, "BORDER")
-    UI:SetEdgeColor(panel, 1, 0.82, 0, 0.45)
-    local head = CreateFrame("Frame", nil, panel)
-    head:SetPoint("TOPLEFT"); head:SetPoint("TOPRIGHT"); head:SetHeight(28)
-    head:EnableMouse(true)
-    head:RegisterForDrag("LeftButton")
-    head:SetScript("OnDragStart", function() panel:StartMoving() end)
-    head:SetScript("OnDragStop", function()
-        panel:StopMovingOrSizing()
-        local l, t = panel:GetLeft(), panel:GetTop()
-        if l and t then Set("editlayout.panel", { floor(l + 0.5), floor(t + 0.5) }) end
-    end)
-    local hb = head:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hb:SetAllPoints()
-    hb:SetColorTexture(1, 1, 1, 0.03)
-    local title = UI:Text(head, "emph", "GOLD")
-    title:SetPoint("LEFT", 10, 0)
-    title:SetText("Edit layout")
-    local drag = UI:Text(head, "small", "DIM")
-    drag:SetPoint("RIGHT", -10, 0)
-    drag:SetText("drag here")
-
-    local y = -36
+    UI:SetEdgeColor(panel, S:Color("DROP_EDGE"))
+    local y = -10
     local function label(text)
         local fs = UI:Text(panel, "small", "TEXT")
         fs:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, y - 4)
@@ -1393,21 +1792,15 @@ local function BuildPanel()
     panel.more = UI:CreateSleekMenuButton(panel, "\194\183\194\183\194\183", 40, ProfileMenu)
     panel.more:SetPoint("LEFT", panel.profile, "RIGHT", 4, 0)
     y = y - 30
-    label("Grid")
-    panel.grid = UI:CreateSegments(panel, { { key = "0", label = "Off" }, { key = "8", label = "8" },
-        { key = "16", label = "16" }, { key = "32", label = "32" } }, function(key)
-        Set("editlayout.grid", tonumber(key) or 0)
-        EM:DrawGrid()
-    end, { width = 166, h = 20, textSize = "small" })
-    panel.grid:SetPoint("TOPLEFT", panel, "TOPLEFT", 70, y)
-    y = y - 28
     label("Snap to")
-    local snaps = { { "editlayout.snapScreen", "Screen centre and edges", GOLD },
-                    { "editlayout.snapFrames", "Other frames", TEAL }, { "editlayout.snapGaps", "Equal gaps", ROSE } }
+    local snaps = { { SNAPS[1], "Screen centre and edges", GOLD }, { SNAPS[2], "Other frames", TEAL },
+                    { SNAPS[3], "Equal gaps", ROSE } }
+    panel.snaps = {}
     for i, s in ipairs(snaps) do
         local cb = UI:CreateCheckbox(panel, s[2], function() return Get(s[1], true) and true or false end,
-            function(on) Set(s[1], on and true or false) end)
+            function(on) Set(s[1], on and true or false); EM:UpdateBar() end)
         cb:SetPoint("TOPLEFT", panel, "TOPLEFT", 66, y + 2 - (i - 1) * 18)
+        panel.snaps[i] = cb
         local sw = panel:CreateTexture(nil, "ARTWORK")
         sw:SetSize(10, 2)
         sw:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_W - 22, y - 9 - (i - 1) * 18)
@@ -1432,13 +1825,7 @@ local function BuildPanel()
     sf:SetScrollChild(child)
     panel.listChild, panel.rows = child, {}
     y = y - LIST_H - 10
-    panel.undo = UI:CreateSleekButton(panel, "Undo", 50, 22, function() EM:Undo() end)
-    panel.undo:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, y)
-    UI:AttachTooltip(panel.undo, "Undo", { "Ctrl+Z" })
-    panel.redo = UI:CreateSleekButton(panel, "Redo", 50, 22, function() EM:Redo() end)
-    panel.redo:SetPoint("LEFT", panel.undo, "RIGHT", 4, 0)
-    UI:AttachTooltip(panel.redo, "Redo", { "Ctrl+Y" })
-    local reset = UI:CreateSleekButton(panel, "Reset", 54, 22, function()
+    panel.reset = UI:CreateSleekButton(panel, "Reset all\226\128\166", 84, 22, function()
         ns.Popup:Confirm({ title = "Reset layout", text = "Put every frame of this profile back at its own default place?",
             ok = "Reset", danger = true, onAccept = function()
                 PushUndo()
@@ -1448,10 +1835,13 @@ local function BuildPanel()
                 EM:Refresh()
             end })
     end)
-    reset:SetPoint("LEFT", panel.redo, "RIGHT", 4, 0)
-    local done = UI:CreateSleekButton(panel, "Done", 70, 22, function() EM:Close() end, "primary")
-    done:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, y)
+    panel.reset:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, y)
+    UI:SetTextSize(panel.reset:GetFontString(), "small")
+    local close = UI:CreateSleekButton(panel, "Close", 58, 22, function() EM:ShowFrames(false) end)
+    UI:SetTextSize(close:GetFontString(), "small")
+    close:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, y)
     panel:SetHeight(-y + 30)
+    panel:Hide()
 end
 
 ---------------------------------------------------------------------------
@@ -1505,6 +1895,7 @@ end
 function EM:OnKey(key)
     if key == "ESCAPE" then
         if pickFor then pickFor = nil; self:Hint(nil)
+        elseif panel and panel:IsShown() then self:ShowFrames(false)
         elseif #sel > 0 then sel = {}; self:Refresh()
         else self:Close() end
         return true
@@ -1548,31 +1939,26 @@ local function BuildOverlay()
     overlay:EnableKeyboard(true)
     overlay.dim = overlay:CreateTexture(nil, "BACKGROUND")
     overlay.dim:SetAllPoints()
-    overlay.dim:SetColorTexture(0, 0, 0, 0.22)
+    overlay.dim:SetColorTexture(0, 0, 0, 0.1)          -- (light: the real frames read clearly through it)
     overlay.gridLayer = CreateFrame("Frame", nil, overlay)
     overlay.gridLayer:SetAllPoints()
+    -- (the grid and the centre cross only while something is dragged or resized: EM:Ease)
+    overlay.gridLayer:Hide()
     overlay.axisV = overlay:CreateTexture(nil, "BACKGROUND", nil, 3)
     overlay.axisH = overlay:CreateTexture(nil, "BACKGROUND", nil, 3)
-    overlay.axisV:SetColorTexture(1, 0.82, 0, 0.3)
-    overlay.axisH:SetColorTexture(1, 0.82, 0, 0.3)
+    overlay.axisV:SetColorTexture(S:Alpha("GOLD", 0.3))
+    overlay.axisH:SetColorTexture(S:Alpha("GOLD", 0.3))
     overlay.axisV:SetWidth(1)
     overlay.axisV:SetPoint("TOP", overlay, "TOP", 0, 0)
     overlay.axisV:SetPoint("BOTTOM", overlay, "BOTTOM", 0, 0)
     overlay.axisH:SetHeight(1)
     overlay.axisH:SetPoint("LEFT", overlay, "LEFT", 0, 0)
     overlay.axisH:SetPoint("RIGHT", overlay, "RIGHT", 0, 0)
+    overlay.axisV:Hide(); overlay.axisH:Hide()
+    EM.placing = false
     guides = CreateFrame("Frame", nil, overlay)
     guides:SetAllPoints()
     guides:SetFrameLevel(overlay:GetFrameLevel() + 60)
-    banner = CreateFrame("Frame", nil, overlay)
-    banner:SetFrameLevel(overlay:GetFrameLevel() + 70)
-    banner:SetHeight(18)
-    banner:SetPoint("TOP", overlay, "TOP", 0, 0)
-    banner.bg = banner:CreateTexture(nil, "BACKGROUND")
-    banner.bg:SetAllPoints()
-    banner.fs = UI:Text(banner, "small", "TEXT", { shadow = false })
-    banner.fs:SetTextColor(0.08, 0.08, 0.08)
-    banner.fs:SetPoint("CENTER", 0, 0)
     -- empty space: a click drops the selection, a drag picks with a box
     overlay:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" then return end
@@ -1592,15 +1978,14 @@ local function BuildOverlay()
     end)
     local since = 0
     overlay:SetScript("OnUpdate", function(_, elapsed)
-        if drag then
-            UpdateDrag()
-            return
-        end
+        if drag then UpdateDrag() end
+        EM:Ease(elapsed)
+        if drag then return end
         since = since + (elapsed or 0)
-        if EM.flashUntil and (GetTime and GetTime() or 0) > EM.flashUntil then EM.flashUntil = nil; EM:ClearGuides() end
+        if EM.flashUntil and Clock() > EM.flashUntil then EM.flashUntil = nil; EM:ClearGuides() end
         if since > 0.3 then since = 0; EM:RefreshQuiet() end
     end)
-    BuildToolbar()
+    BuildBar()
     BuildPanel()
     EM:Hint(nil)
     overlay:Hide()
@@ -1610,11 +1995,10 @@ end
 function EM:RefreshQuiet()
     if not active or drag then return end
     ReadBoxes()
-    for id, m in pairs(movers) do
-        if m:IsShown() and boxes[id] then PlaceMover(m, boxes[id]) end
-    end
+    PlaceMovers()
     PlaceOutlines()
     self:PlaceHandles()
+    if bar and bar.read:GetText() ~= self:Readout() then self:UpdateBar() end
 end
 
 -- Frames that only show sometimes come up with made-up content while editing (and go when it closes).
@@ -1665,10 +2049,9 @@ function EM:Open()
         mf:Close()
     end
     if GameTooltip then GameTooltip:Hide() end
-    local pos = Get("editlayout.panel")
-    panel:ClearAllPoints()
-    if type(pos) == "table" and pos[1] then panel:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos[1], pos[2])
-    else panel:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 260, -160) end
+    -- (quiet to begin with: the Frames panel shut, the bar at full)
+    panel:Hide()
+    bar:SetAlpha(1)
     overlay:Show()
     -- the hidden frames show while editing (to be moved, or brought back with the eye)
     for _, def in ipairs(Layout():Items()) do
@@ -1706,7 +2089,14 @@ function EM:Close()
     end
     Layout():Capture()
     if Layout().Blizz.dirty then Layout().Blizz:Commit() end
-    if overlay then overlay:Hide() end
+    self.meterDrag = nil
+    if overlay then
+        self:Hint(nil)
+        panel:Hide()
+        self.placing = false
+        overlay.axisV:Hide(); overlay.axisH:Hide(); overlay.gridLayer:Hide()
+        overlay:Hide()
+    end
     if GameTooltip then GameTooltip:Hide() end
     ns:Fire("EDIT_LAYOUT", false)
     -- (back to the window's page, unless a fight closed it: then the window stays out of the way)
@@ -1736,13 +2126,16 @@ function EM:HandlesShown()
     return n
 end
 function EM:GetPanel() return panel end
-function EM:GetToolbar() return toolbar end
+-- (the selection's tools live in the bar now: bar.b holds them, as the old toolbar's .b did)
+function EM:GetToolbar() return bar end
+function EM:GetBar() return bar end
 function EM:Boxes() ReadBoxes() return boxes end
 
 -- The meters: a stack dragged by its header snaps like the rest (MeterPanels' drag, holder units: TOPLEFT x, y).
 -- (the other stacks are the meters' own business: docking to them is theirs, so they are left out here)
 function EM:SnapBox(frame, x, y, w, h)
     if not active then return x, y end
+    self.meterDrag = Clock()            -- (the bar fades and the guides show as for any drag: EM:Ease)
     local r = Layout().Ratio(frame)
     ReadBoxes()
     local skip = {}
