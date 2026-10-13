@@ -378,11 +378,12 @@ local function SetFrameScale(def, f, s)
 end
 
 -- Puts a frame at its place: the profile's, else its old one (legacy), else its default.
+-- frame: the item's frame while it is being built (its feature hasn't kept it yet, so def.frame can't return it).
 local pendingPlace = {}
-function Layout:Place(id)
+function Layout:Place(id, frame)
     local def = items[id]
     if not def or def.kind ~= "dz" then return false end
-    local f = self:Frame(id)
+    local f = frame or self:Frame(id)
     if not f then return false end
     if def.protected and InCombat() then pendingPlace[id] = true return false end
     local e = self:Entry(id)

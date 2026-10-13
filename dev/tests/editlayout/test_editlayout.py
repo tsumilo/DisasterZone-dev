@@ -666,5 +666,24 @@ def the_games_frames_resize_through_their_edit_mode_size():
     w.assert_no_errors()
 
 
+@case
+def the_roll_frame_and_the_session_bar_keep_their_place_after_a_reload():
+    w, c = boot()
+    open_edit(w, c)
+    c.eval("ns.Layout:MoveTo('roll', 300, 250); ns.Layout:MoveTo('session', 1400, 800)")
+    c.eval("ns.EditMode:Close()")
+    c.relog()
+    w.tick(2)
+    c.eval("__MOCK.real_geometry = true")
+    # (both are built the first time they show: the roll frame for a roll, the bar in a raid)
+    c.eval("ns.RollFrame:GetFrame():Show()")
+    c.eval("ns.SessionBar:Preview(true)")
+    w.tick(0.1)
+    l, b, _, _ = box(c, "roll")
+    assert abs(l - 300) < 1 and abs(b - 250) < 1, (l, b)
+    l, b, _, _ = box(c, "session")
+    assert abs(l - 1400) < 1 and abs(b - 800) < 1, (l, b)
+    w.assert_no_errors()
+
 if __name__ == "__main__":
     run_all()

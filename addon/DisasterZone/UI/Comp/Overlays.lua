@@ -892,7 +892,7 @@ end
 function HudMethods:RestorePlace()
     -- (a frame of the layout: Core/Layout.lua places it, from its profile, its old saved place or its default)
     local L = self.cdlLayout and ns.Layout
-    if L and L:Item(self.cdlLayout) and L:Place(self.cdlLayout) then return true end
+    if L and L:Item(self.cdlLayout) and L:Place(self.cdlLayout, self) then return true end
     local d = self.cdlDefault
     if self.cdlPosKey then
         if d then return UI:RestorePosition(self, self.cdlPosKey, d[1], d[2] or UIParent, d[3] or d[1], d[4] or 0, d[5] or 0) end
