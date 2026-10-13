@@ -16,6 +16,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/BossMod.lua", ...) then retur
 --              too, so one /pull reaches everyone. /dz pull 10, /dz pull 0 cancels.
 --   break      DBM's and BigWigs' break messages, read and sent (D5 "BT", BigWigs "P^Break"): /dz break 5 (minutes).
 -- Pull and break timers you send work with boss mods off; you see them only with boss mods on.
+-- Learning (Core/BossLearn.lua): a fight starts with what was learned from our pulls (m.lw, a copy taken at its start:
+-- nothing changes it during the pull; the engine's own start / cd bars use it), and tells the recorder of bar starts,
+-- phase changes and bars a fight script started (Note: inside a pcall, never in the alerts' way).
 local addonName, ns = ...
 
 local BM = ns:NewModule("BossMod")
@@ -279,6 +282,22 @@ BM.Format = Format
 
 local function PhaseOK(m, a) return not a._ph or a._ph[m.phase] or false end
 
+-- Learning (Core/BossLearn.lua): the recorder hears of bar starts, phase changes and bars a fight script started. It
+-- never changes the fight: its own pcall, and it stops itself for the rest of the pull on any error.
+local function Note(m, kind, x)
+    local r = m.rec
+    if r and r.on and r.Note then pcall(r.Note, r, kind, m, x, Now()) end
+end
+
+-- The learned numbers a fight starts with (BossLearn's snapshot at the pull: a copy that nothing changes until the
+-- next pull), or nil = the data's.
+local function Learned(def)
+    local L = ns.BossLearn
+    if not (L and L.Snapshot) then return nil end
+    local ok, lw = pcall(L.Snapshot, L, def)
+    return ok and type(lw) == "table" and lw or nil
+end
+
 -- Bars
 local function Window(secs)
     if type(secs) == "table" then return secs[1], secs[2] end
@@ -302,8 +321,20 @@ function M:Bar(key, secs, text)
     b.text = text or Format(self, a, nil, self.lastEv)
     b.icon = SpellIcon(a.icon or a.spell)
     b.role = a.role
-    b.kind = nil
+    b.kind, b.learned = nil, nil
+    if self.inHook then Note(self, "hook", a) end
     ns:Fire("BOSSMOD_BARS")
+end
+
+-- A bar the engine itself (re)starts from the data's `start` or `cd`: the fight's learned number when it has one.
+local function EngineBar(m, a, f)
+    local lw = m.lw and m.lw[a.key]
+    local v = lw and lw[f]
+    m:Bar(a.key, v or a[f])
+    if v then
+        local b = bars[m.id .. a.key]
+        if b then b.learned = true end
+    end
 end
 
 function M:Stop(key)
@@ -342,12 +373,13 @@ function M:Count(key) return self.counts[key] or 0 end
 function M:Phase(n)
     if self.phase == n then return end
     self.phase = n
+    Note(self, "phase", n)
     for _, a in ipairs(self.def.alerts or {}) do
         if a._ph and not a._ph[n] then
             if a.kind == "bar" then self:Stop(a.key) end
             if a.kind == "range" then ranges[self.id .. a.key] = nil end
         end
-        if a.start and a._ph and a._ph[n] and a.kind == "bar" and not self.resumed then self:Bar(a.key, a.start) end
+        if a.start and a._ph and a._ph[n] and a.kind == "bar" and not self.resumed then EngineBar(self, a, "start") end
     end
     BM:Dispatch(self, self.def._t.phase[n], nil)
 end
@@ -358,7 +390,9 @@ function M:End() BM:EndFight(self) end
 local function Fire(m, e, x)
     if e.f == "hook" then
         m.lastEv = x
+        m.inHook = true
         local ok, err = pcall(e.hook, m, x or ev)
+        m.inHook = nil
         if not ok and ns.Debug then ns:Debug("boss mod hook %s: %s", m.def.key, tostring(err)) end
         return
     end
@@ -380,7 +414,10 @@ local function Fire(m, e, x)
     m.counts[a.key] = (m.counts[a.key] or 0) + 1
     m.lastEv = x
     if a.kind == "bar" then
-        if a.cd then m:Bar(a.key, a.cd) end
+        if a.cd then
+            EngineBar(m, a, "cd")
+            Note(m, "bar", a)
+        end
     elseif a.kind == "range" then
         m:Range(a.key, true)
     else
@@ -409,17 +446,22 @@ function BM:StartFight(def, opts)
                              once = {}, hpDone = {}, live = true, resumed = opts.resumed, demo = opts.demo,
                              enc = opts.enc }, M)
     active[#active + 1] = m
+    if not m.demo then m.lw = Learned(def) end
     for _, a in ipairs(def.alerts or {}) do
-        if a.kind == "bar" and a.start and PhaseOK(m, a) and not m.resumed then m:Bar(a.key, a.start) end
+        if a.kind == "bar" and a.start and PhaseOK(m, a) and not m.resumed then EngineBar(m, a, "start") end
     end
     self:Dispatch(m, def._t.engage, nil)
     self:Listen()
+    local L = ns.BossLearn
+    if L and L.Begin and not m.demo then pcall(L.Begin, L, m) end
     ns:Fire("BOSSMOD_FIGHT", def.key, true)
     return m
 end
 
 function BM:EndFight(m)
     if not m or not m.live then return end
+    local L = ns.BossLearn
+    if m.rec and L and L.Finish then pcall(L.Finish, L, m) end
     m.live = false
     for i = #active, 1, -1 do if active[i] == m then table.remove(active, i) end end
     for id, b in pairs(bars) do if b.m == m then bars[id] = nil end end
@@ -613,11 +655,12 @@ function BM:OnEncounterStart(id, name)
     self:Listen()
 end
 
-function BM:OnEncounterEnd(id)
+function BM:OnEncounterEnd(id, success)
     id = tonumber(id)
     for i = #active, 1, -1 do
         local m = active[i]
         if m.enc == nil or m.enc == id or not id then
+            m.ended, m.kill = "encounter", tonumber(success) == 1
             if m.enc ~= nil or not m.def.engage then self:EndFight(m) end
         end
     end
@@ -940,7 +983,7 @@ function BM:OnLogin()
     self:Compile()
     playerGUID = UnitGUID and UnitGUID("player")
     ns:RegisterEvent("ENCOUNTER_START", function(_, id, name) BM:OnEncounterStart(id, name) end)
-    ns:RegisterEvent("ENCOUNTER_END", function(_, id) BM:OnEncounterEnd(id) end)
+    ns:RegisterEvent("ENCOUNTER_END", function(_, id, _, _, _, success) BM:OnEncounterEnd(id, success) end)
     ns:RegisterEvent("START_PLAYER_COUNTDOWN", function(_, ...) BM:OnCountdown(...) end)
     ns:RegisterEvent("CANCEL_PLAYER_COUNTDOWN", function() BM:OnCountdownCancel() end)
     ns:RegisterEvent("PLAYER_ENTERING_WORLD", function() BM:ArmZone(); BM:Resume() end)

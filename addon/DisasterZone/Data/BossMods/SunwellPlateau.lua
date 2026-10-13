@@ -60,17 +60,18 @@ B["SunwellPlateau:Felmyst"] = {
         { key = "land", kind = "bar", spell = 45717, text = "Landing", on = "YELL I am stronger than ever before",
           cd = { 99, 100 } },
         -- Deep Breath: first DBM 42, BW 40.5 -> {40.5, 42}; then DBM 17, BW 17 -> 17, three per air phase (hook)
-        { key = "breath", kind = "bar", spell = 45717, text = "Deep Breath",
+        { key = "breath", kind = "bar", learn = false, spell = 45717, text = "Deep Breath",
           on = "YELL I am stronger than ever before", cd = { 40.5, 42 } },
         { key = "breathwarn", kind = "warn", spell = 45717, text = "Deep Breath: get out of its path",
           count = true, on = "EMOTE takes a deep breath" },
         -- Gas Nova: first DBM 17, BW none, CM 18-20 -> {17, 20}; again DBM 19 (CD), BW 20, CM 16-20 -> {19, 20};
         -- after landing DBM 17, CM 16-20 -> {115, 120} from the air line (hook)
-        { key = "gas", kind = "bar", spell = 45855, start = { 17, 20 }, on = "CAST 45855", cd = { 19, 20 } },
+        { key = "gas", kind = "bar", spell = 45855, start = { 17, 20 }, on = "CAST 45855", cd = { 19, 20 },
+          learn = false },
         -- Encapsulate: BW reads the damage (no normal debuff), 15 s apart. First DBM none, BW 30, CM 20-30
         -- -> {20, 30}; again CM 30-45 only -> {30, 45}; after landing {119, 130} from the air line (hook)
         { key = "encap", kind = "bar", spell = 45665, start = { 20, 30 }, on = "HIT 45661", cd = { 30, 45 },
-          throttle = 15 },
+          throttle = 15, learn = false },
         { key = "encapwarn", kind = "warn", spell = 45665, text = "Encapsulate on %t",
           meText = "Encapsulate on you", on = "HIT 45661", throttle = 15 },
         -- DBM and BW read SPELL_SUMMON 45392 whose source is the player it follows; `me` looks at the target, so
@@ -176,7 +177,7 @@ B["SunwellPlateau:Kiljaeden"] = {
           on = "SUCCESS 45892", throttle = 10 },
         -- Darkness of a Thousand Souls: after a reflection DBM 77, CM about 76 -> 77; in the last phase DBM 57.8,
         -- CM about 63 -> {57.8, 63} (hook); again DBM 45 (CD), BW 46, CM 45 -> 45, last phase 25 in all three (hook)
-        { key = "darkness", kind = "bar", spell = 46605, start = 77, on = "CAST 46605", cd = 45,
+        { key = "darkness", kind = "bar", learn = false, spell = 46605, start = 77, on = "CAST 46605", cd = 45,
           phase = { 2, 3, 4 } },
         { key = "darknesswarn", kind = "warn", spell = 46605, text = "Darkness: get behind the blue shield",
           sub = "It goes off in 8 s", on = "CAST 46605" },

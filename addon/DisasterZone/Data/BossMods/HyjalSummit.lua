@@ -95,7 +95,7 @@ B["HyjalSummit:Kazrogal"] = {
     alerts = {
         -- Mark: first DBM 45, BW 45, CM 45 -> 45; then 5 s shorter each time: DBM and CM stop at 10, BW at 5 -> 10
         -- (the hook)
-        { key = "mark", kind = "bar", spell = 31447, start = 45 },
+        { key = "mark", kind = "bar", learn = false, spell = 31447, start = 45 },
         { key = "markwarn", kind = "warn", spell = 31447, text = "Mark of Kaz'rogal (%n)", count = true,
           on = "CAST 31447" },
         { key = "markyou", kind = "you", spell = 31447, text = "Mark on you",

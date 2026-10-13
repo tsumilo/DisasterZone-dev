@@ -133,6 +133,7 @@ function SettingsUI:BuildBossMods(sec)
             .. "with the most points (Feral druids by form)."))
     Dim(self:SwitchSetting(sec, "Alerts for other roles", "Also show the tank and healer alerts when they're not yours.",
         "bossmods.roles", false))
+    if ns.BossLearnUI then ns.BossLearnUI:AddSettingsRows(self, sec, Dim) end     -- (learning: UI/BossLearnUI.lua)
     Dim(self:SwitchSetting(sec, "DBM and BigWigs timers", "See their break timers, and they see yours.", "bossmods.dbm", true,
         "Pull timers are the game's own countdown: everyone sees them whatever they run. Breaks travel in DBM's and "
             .. "BigWigs' own messages."))
@@ -236,6 +237,7 @@ local function Fill(card)
         end)
         try:SetPoint("RIGHT", head, "RIGHT", 0, 0)
         head.try = try
+        if ns.BossLearnUI then ns.BossLearnUI:DecorateBossHead(head, d) end     -- (its learning pill and page)
         card.tries = card.tries or {}
         card.tries[key] = try
         y = y + BOSS_H + 6

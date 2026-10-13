@@ -20,7 +20,7 @@ B["Karazhan:Attumen"] = {
         { key = "curse", kind = "warn", spell = 29833, text = "Intangible Presence: decurse", on = "SUCCESS 29833" },
         -- Intangible Presence: DBM 27 on foot, 30.5 mounted (CD timers), BW none, CM DB -> {27, 30.5};
         -- after the mount DBM 20.2 from SUMMON 29799 (the hook)
-        { key = "cursebar", kind = "bar", spell = 29833, on = "SUCCESS 29833", cd = { 27, 30.5 } },
+        { key = "cursebar", kind = "bar", learn = false, spell = 29833, on = "SUCCESS 29833", cd = { 27, 30.5 } },
     },
     fn = {
         ["SUMMON 29799"] = function(m) m:Bar("cursebar", 20.2) end,

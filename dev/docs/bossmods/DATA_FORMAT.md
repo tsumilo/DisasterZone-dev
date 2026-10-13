@@ -84,6 +84,7 @@ Line 1 is the boot guard every addon file has (copy it, with the file's own path
 | `delay` | warning: show it this many seconds after the trigger |
 | `throttle` | seconds a repeat is ignored (default: 2 for warnings, 0 for bars) |
 | `loop` | bars: when it runs out with no trigger, it starts again with `cd` (adds that come on their own timer) |
+| `learn` | bars: `false` = never learned from our pulls (LEARNING.md). Required on every bar an `fn` hook starts with `m:Bar` (tests/bosslearn checks it): the hook's numbers are not the data's |
 
 Windows: `{ min, max }` means the sources disagree or the ability really varies. The bar counts to `min`; between
 `min` and `max` it shows "any moment". Use a window instead of guessing one number whenever the sources disagree

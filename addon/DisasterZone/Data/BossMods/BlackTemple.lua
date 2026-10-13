@@ -215,7 +215,8 @@ B["BlackTemple:Illidan"] = {
         -- Demon Form: first DBM 76, BW 75 after both flames die -> {75, 76} (hook); again from his demon line
         -- DBM 74 + 60, BW 60 + 60 from the form (14 s after the line) -> 134; after Maiev DBM 92, BW 90 -> {90, 92}
         -- (hook)
-        { key = "demon", kind = "bar", spell = 40506, on = "YELL of the demon within", cd = 134, phase = { 3, 4 } },
+        { key = "demon", kind = "bar", spell = 40506, on = "YELL of the demon within", cd = 134, phase = { 3, 4 },
+          learn = false },
         -- Human again: DBM 74 from the line, BW 60 from the form, CM 48 + the change back -> 74
         { key = "demonends", kind = "bar", spell = 40506, text = "Demon Form ends", on = "YELL of the demon within",
           cd = 74, phase = { 3, 4 }, stop = "SUCCESS 40647" },

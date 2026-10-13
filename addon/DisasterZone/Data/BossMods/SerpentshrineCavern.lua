@@ -40,7 +40,7 @@ B["SerpentshrineCavern:Lurker"] = {
           on = "EMOTE takes a deep breath" },
         -- Spout: first DBM 37, BW 37, CM 42 -> {37, 42}; again DBM 50 (CD), BW 50, CM 45 -> {45, 50}
         { key = "spoutbar", kind = "bar", spell = 37433, start = { 37, 42 }, on = "EMOTE takes a deep breath",
-          cd = { 45, 50 }, stop = "AURA 28819" },
+          cd = { 45, 50 }, stop = "AURA 28819", learn = false },
         -- Submerge: first DBM 90, BW 90, CM 90 -> 90; after emerging BW 90, DBM 105, CM 120 -> {90, 120}.
         -- Submerge Visual 28819 is an aura in CM; DBM reads it from UNIT_SPELLCAST_SUCCEEDED (not in our grammar)
         { key = "submerge", kind = "bar", spell = 28819, text = "Lurker submerges", start = 90, on = "AURAGONE 28819",
@@ -79,7 +79,7 @@ B["SerpentshrineCavern:Leotheras"] = {
         { key = "innerdemon", kind = "you", spell = 37676, text = "Inner Demon on you: kill it",
           sub = "Or it takes your mind", on = "AURA 37676", me = true },
         -- Whirlwind: again DBM 27 (CD), CM 32 -> {27, 32}; the hooks set the first one of each part
-        { key = "whirl", kind = "bar", spell = 37640, on = "AURA 37640", cd = { 27, 32 } },
+        { key = "whirl", kind = "bar", learn = false, spell = 37640, on = "AURA 37640", cd = { 27, 32 } },
         { key = "whirlwarn", kind = "warn", spell = 37640, text = "Whirlwind: get away from him", on = "AURA 37640" },
         { key = "split", kind = "warn", text = "15%: Leotheras splits", sub = "Tank both, kill Leotheras", icon = 37673,
           on = { "HP 15", "YELL No... no! What have you done" }, setPhase = 3, once = true },
