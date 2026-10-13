@@ -15,7 +15,7 @@ ns.CHANGELOG = {
               "Timers where the sources disagree count to the earliest time, then say 'within n s'.",
               "/dz pull 10 and /dz break 5 reach DBM and BigWigs users too, and theirs reach you.",
               "Hyjal: the next wave and 'Wave 4 of 8'. A range frame where the game can measure.",
-              "They wear your UI look, or one of their own. Size them in Settings; Try it plays a pull.",
+              "Your UI look or one of their own, a size of your choice, and a Try it for every fight.",
           } },
           { heading = "Settings, sorted", area = "other", kind = "changed", hi = true, open = "settings/looks",
             lead = "Six groups, a search, and every look in one place.", lines = {

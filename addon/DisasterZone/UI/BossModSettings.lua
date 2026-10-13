@@ -57,7 +57,7 @@ end
 local function AlertText(d, a)
     local t = a.text or (a.spell and GetSpellInfo and GetSpellInfo(a.spell)) or a.key
     if a.kind == "range" then t = "Range frame" .. (a.yd and (" · " .. a.yd .. " yd") or "") .. (a.text and (": " .. a.text) or "") end
-    t = t:gsub("%%n", "#"):gsub("%%t", "someone"):gsub("%%s", (a.spell and GetSpellInfo and GetSpellInfo(a.spell)) or "")
+    t = t:gsub("%s*%(%%n%)", ""):gsub("%%n", "#"):gsub("%%t", "someone"):gsub("%%s", (a.spell and GetSpellInfo and GetSpellInfo(a.spell)) or "")
     return t
 end
 
@@ -222,10 +222,23 @@ local function Fill(card)
     card.filled = true
     local y = 0
     for _, d in ipairs(card.bosses) do
-        local bn = UI:Text(card.body, "small", "GOLD")
-        bn:SetPoint("TOPLEFT", card.body, "TOPLEFT", 0, -y - 6)
+        -- the boss: its name, and Try it (a short pull made from its own alerts, UI/BossModUI.lua TryBoss)
+        local head = CreateFrame("Frame", nil, card.body)
+        head:SetPoint("TOPLEFT", card.body, "TOPLEFT", 0, -y - 2)
+        head:SetPoint("TOPRIGHT", card.body, "TOPRIGHT", 0, -y - 2)
+        head:SetHeight(BOSS_H)
+        local bn = UI:Text(head, "small", "GOLD")
+        bn:SetPoint("LEFT", head, "LEFT", 0, 0)
         bn:SetText(BossName(d))
-        y = y + BOSS_H
+        local key = d.key
+        local try = ns.UI:CreateSleekButton(head, "Try it", 64, 18, function()
+            if ns.BossModUI then ns.BossModUI:TryBoss(key) end
+        end)
+        try:SetPoint("RIGHT", head, "RIGHT", 0, 0)
+        head.try = try
+        card.tries = card.tries or {}
+        card.tries[key] = try
+        y = y + BOSS_H + 6
         for _, a in ipairs(d.alerts or {}) do
             AlertRow(card.body, d, a, y)
             y = y + ALERT_H

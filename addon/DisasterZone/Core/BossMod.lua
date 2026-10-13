@@ -882,29 +882,44 @@ end
 -- Try it: a made-up Gruul pull through the real engine (UI/BossModUI.lua plays it; nothing is read or sent)
 ---------------------------------------------------------------------------
 
--- Fires a trigger on a running fight as if the game had sent it (the demo and the tests).
+-- Fires a trigger on a running fight as if the game had sent it (Try it, the tests): the trigger's first id (an HP
+-- trigger's number is the health it drops to). fields: me, dstName, amount, srcNpc, text.
 function BM:Inject(m, trigger, fields)
-    if not (m and m.live) then return end
+    if not (m and m.live) or type(trigger) ~= "string" then return end
     local word, rest = trigger:match("^(%u+)%s*(.*)$")
-    local id = tonumber(rest)
+    if not word then return end
+    local id = tonumber(rest:match("%d+"))
+    fields = fields or {}
+    local me = fields.me and true or false
     ev.spell, ev.src, ev.srcName, ev.srcNpc, ev.dst, ev.dstName, ev.me, ev.amount, ev.npc, ev.text =
-        id, nil, nil, fields and fields.srcNpc or (m.def.npc and m.def.npc[1]), nil, fields and fields.dstName,
-        fields and fields.me or false, fields and fields.amount, nil, fields and fields.text
+        id, nil, nil, fields.srcNpc or (m.def.npc and m.def.npc[1]), nil,
+        fields.dstName or (me and UnitName and UnitName("player")) or nil, me, fields.amount, nil, fields.text
+    ev.npc = ev.srcNpc
     local T = m.def._t
     if SUB[word] then
-        local c = T.cleu[SUB[word][1]]
-        self:Dispatch(m, c and c[id], ev)
+        for _, sub in ipairs(SUB[word]) do
+            local c = T.cleu[sub]
+            if c and c[id] then self:Dispatch(m, c[id], ev) break end
+        end
     elseif word == "DIES" then
+        ev.npc = id
         self:Dispatch(m, T.dies[id], ev)
+    elseif word == "WIDGET" then
+        ev.amount = fields.amount or 3
+        ev.text = fields.text or ("Wave " .. ev.amount .. " of 8")
+        self:Dispatch(m, T.widget[id], ev)
     elseif word == "HP" then
         for i, e in ipairs(T.hp) do
             if not m.hpDone[i] and id and id <= e.pct then m.hpDone[i] = true; Fire(m, e, ev) end
         end
     elseif word == "YELL" or word == "EMOTE" then
         local low = strlower(rest)
+        ev.text = fields.text or rest
         for _, e in ipairs(word == "YELL" and T.yell or T.emote) do
             if strfind(low, e.text, 1, true) then Fire(m, e, ev) end
         end
+    elseif word == "PHASE" and id then
+        m:Phase(id)
     end
 end
 

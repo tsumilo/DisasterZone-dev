@@ -462,6 +462,13 @@ function UI:StopTry()
     if demoFight then bm:EndFight(demoFight); demoFight = nil end
     bm.preview = false
     bm:OnCountdownCancel()
+    UI.trying = nil
+    if overlay then overlay:SetFrameStrata("HIGH") end
+end
+
+-- While a pull is tried the overlay sits above the windows (Try it is clicked in Settings, in the middle of the screen).
+local function Showing()
+    if overlay then overlay:SetFrameStrata("FULLSCREEN_DIALOG") end
 end
 
 function UI:TryIt(loop)
@@ -472,6 +479,8 @@ function UI:TryIt(loop)
     self:StopTry()
     looping = loop and true or false
     bm.preview = true
+    UI.trying = DEMO_BOSS
+    if not looping then Showing() end
     bm:OnCountdown(5, "Kaelor")
     self:Wake()
     After(5, function()
@@ -490,12 +499,149 @@ function UI:TryIt(loop)
         for _, s in ipairs(steps) do After(s[1], function() bm:Inject(m, s[2], s[3]) end) end
         After(18, function()
             if demoFight then bm:EndFight(demoFight); demoFight = nil end
-            if looping then UI:TryIt(true) else bm.preview = false end
+            if looping then UI:TryIt(true) else UI:StopTry() end
         end)
     end)
 end
 
 function UI:IsTrying() return BM() and BM().preview or false end
+
+---------------------------------------------------------------------------
+-- Try a boss: a short pull made from its own data (every fight, no script per boss). After a 3 s countdown each
+-- phase in turn: its bars a few seconds from their next cast (and that cast then lands, so the bar starts again with
+-- its real timer), its warnings one after another (the ones "on you" on you, the others on a made-up raider), its
+-- range frame opening and closing, then the alert that moves the fight on (or the phase change itself).
+---------------------------------------------------------------------------
+
+local REEL_NAMES = { "Moonwhisper", "Dreadhex", "Victhar", "Brightsong", "Kaelthrin", "Gina" }
+local REEL_BARS, REEL_WARNS = 5, 6
+
+local function FirstTrigger(list)
+    if type(list) == "table" then list = list[1] end
+    return type(list) == "string" and list or nil
+end
+
+-- The event's details for an alert: on me when it is "you" (or every other time it has a "you" text), else on a
+-- raider; a stack of 2 for stack counts; the caster its own creature.
+local function Fields(a, i)
+    local f = {}
+    if a.count == "stack" or a.count == "next" then f.amount = 2 end
+    if a.kind == "you" or a.me or (a.meText and i % 2 == 0) then f.me = true
+    else f.dstName = REEL_NAMES[(i % #REEL_NAMES) + 1] end
+    if type(a.src) == "table" and a.src[1] then f.srcNpc = a.src[1] end
+    return f
+end
+
+-- The phases a boss's alerts name, in order (1 = the pull).
+local function Phases(def)
+    local list, seen = { 1 }, { [1] = true }
+    local function Add(p) if type(p) == "number" and not seen[p] then seen[p] = true; list[#list + 1] = p end end
+    for _, a in ipairs(def.alerts or {}) do
+        if type(a.phase) == "number" then Add(a.phase) elseif type(a.phase) == "table" then for _, q in ipairs(a.phase) do Add(q) end end
+        Add(a.setPhase)
+    end
+    table.sort(list)
+    return list
+end
+
+local function InPhase(a, p)
+    if a.phase == nil then return p == 1 end
+    if type(a.phase) == "number" then return a.phase == p end
+    for _, q in ipairs(a.phase) do if q == p then return true end end
+    return false
+end
+
+-- Plans the reel: { { at, fn(m) }, ... } and its length.
+function UI:Reel(def)
+    local bm = BM()
+    local steps, t = {}, 0.8
+    local function At(at, fn) steps[#steps + 1] = { at, fn } end
+    for pi, p in ipairs(Phases(def)) do
+        if pi > 1 then
+            local setter
+            for _, a in ipairs(def.alerts or {}) do
+                if a.setPhase == p and FirstTrigger(a.on) then setter = a break end
+            end
+            At(t, function(m)
+                if setter then bm:Inject(m, FirstTrigger(setter.on), Fields(setter, 0)) end
+                if m.phase ~= p then m:Phase(p) end
+            end)
+            t = t + 3.2
+        end
+        local seg, bars, warns, last = t, 0, 0, t
+        for _, a in ipairs(def.alerts or {}) do
+            if InPhase(a, p) and not a.setPhase then
+                local on = FirstTrigger(a.on)
+                if a.kind == "bar" and bars < REEL_BARS then
+                    local lead = 3 + 1.6 * bars
+                    bars = bars + 1
+                    At(seg, function(m) m:Bar(a.key, lead) end)
+                    if on and on ~= "ENGAGE" then
+                        local i = bars
+                        At(seg + lead, function(m) bm:Inject(m, on, Fields(a, i)) end)
+                    end
+                    last = math.max(last, seg + lead)
+                elseif (a.kind == "warn" or a.kind == "you") and on and on ~= "ENGAGE" and warns < REEL_WARNS then
+                    local at, i = seg + 1.2 + 2.4 * warns, warns
+                    warns = warns + 1
+                    At(at, function(m) bm:Inject(m, on, Fields(a, i)) end)
+                    last = math.max(last, at + 2.2)
+                elseif a.kind == "range" then
+                    At(seg + 0.4, function(m)
+                        if on and on ~= "ENGAGE" then bm:Inject(m, on, Fields(a, 0)) end
+                        m:Range(a.key, true)
+                    end)
+                    At(seg + 7, function(m) m:Range(a.key, false) end)
+                    last = math.max(last, seg + 7.5)
+                end
+            end
+        end
+        -- (a counter on screen drives the fight, Hyjal's waves: it counts on, wave 2, wave 3)
+        if pi == 1 and type(def.fn) == "table" then
+            for trig in pairs(def.fn) do
+                if trig:match("^WIDGET") then
+                    for n = 2, 3 do
+                        local at = seg + 1.5 + (n - 2) * 4.5
+                        At(at, function(m) bm:Inject(m, trig, { amount = n, text = "Wave " .. n .. " of 8" }) end)
+                        last = math.max(last, at + 3)
+                    end
+                end
+            end
+        end
+        t = math.max(last + 2, seg + 5)
+    end
+    return steps, t
+end
+
+-- Plays a boss's reel (Settings > Combat > Boss mods: the Try it of each fight).
+function UI:TryBoss(key)
+    local bm = BM()
+    local def = bm and bm:Mod(key)
+    if not def then return false end
+    self:Setup()
+    self:StopTry()
+    looping = false
+    bm.preview = true
+    UI.trying = key
+    Showing()
+    bm:OnCountdown(3, "Kaelor")
+    self:Wake()
+    local steps, len = self:Reel(def)
+    After(3, function()
+        demoFight = bm:StartFight(def, { demo = true })
+        local m = demoFight
+        for _, st in ipairs(steps) do
+            After(st[1], function() if m.live then st[2](m) end end)
+        end
+        After(len, function()
+            if demoFight then bm:EndFight(demoFight); demoFight = nil end
+            bm.preview = false
+            UI.trying = nil
+            if overlay then overlay:SetFrameStrata("HIGH") end
+        end)
+    end)
+    return true, len + 3
+end
 
 -- Edit layout: the pull plays over and over while the spots are being moved.
 function UI:Preview(on)

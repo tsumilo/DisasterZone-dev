@@ -301,6 +301,46 @@ def settings_combat_has_the_boss_mods_card_and_a_looks_page():
 
 
 @case
+def every_boss_has_a_try_it_that_plays_its_alerts():
+    w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
+    c.eval("ns.DB:SetSetting('ui.bossmods.look', 'halo'); __warns = {}; "
+           "ns:On('BOSSMOD_WARN', function(w) __warns[#__warns + 1] = w end)")
+    keys = c.eval_py("local o = {}; for _, d in ipairs(ns.BossMod:Mods()) do o[#o + 1] = d.key end; return o")
+    assert len(keys) >= 50, len(keys)
+    quiet = []
+    for key in keys:
+        c.eval("__warns = {}; __bars = 0")
+        ok, length = c.eval_py("return { ns.BossModUI:TryBoss(...) }", key)
+        assert ok, key
+        seen = 0
+        t = 0.0
+        while t < length + 1:
+            w.tick(0.5)
+            t += 0.5
+            seen = max(seen, c.eval("return #ns.BossMod:Bars()"))
+        warns = c.eval("return #__warns")
+        if warns == 0 and seen == 0:
+            quiet.append(key)
+        assert c.eval("return ns.BossMod:Active()") is None, key
+        assert c.eval("return ns.BossMod.preview") is False, key
+    assert not quiet, quiet
+    w.assert_no_errors()
+
+
+@case
+def a_long_fight_tries_in_every_look():
+    for look in LOOKS:
+        w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
+        c.eval("ns.DB:SetSetting('ui.bossmods.look', ...)", look)
+        for key in ("BlackTemple:Illidan", "SerpentshrineCavern:Vashj"):
+            ok, length = c.eval_py("return { ns.BossModUI:TryBoss(...) }", key)
+            assert ok, key
+            for _ in range(int((length + 1) / 0.5) + 1):
+                w.tick(0.5)
+        w.assert_no_errors()
+
+
+@case
 def every_data_file_passes_the_check():
     r = subprocess.run([sys.executable, os.path.join(DEV, "tools", "bossmods_check.py")], capture_output=True, text=True,
                        cwd=DEV)
