@@ -125,6 +125,8 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
     // guild commands show up at once (global ones can take an hour); setting the whole list drops old ones
     let commands = [
         CommandBuilder::new("ping", "Check that the DisasterZone bot is online", CommandType::ChatInput).build(),
+        CommandBuilder::new("link", "Link your Discord to your character (gives a code for the game)", CommandType::ChatInput)
+            .build(),
         CommandBuilder::new("bridgetest", "Send a test line to the game (it shows at the host's next /reload)", CommandType::ChatInput)
             .option(StringBuilder::new("text", "What the game should print").required(true).max_length(200))
             .build(),
@@ -145,12 +147,14 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
                     let now = newest_saved_variables(&dir);
                     if now != seen {
                         seen = now;
-                        if let Err(e) = bridge::sync(&dir, unix_now()) {
-                            eprintln!("bot: bridge sync: {e}");
+                        match bridge::sync(&dir, unix_now()) {
+                            Ok(out) => tell(&http, &out).await,
+                            Err(e) => eprintln!("bot: bridge sync: {e}"),
                         }
                         // the host's addon wrote a new snapshot: post new raids, edit changed ones
                         if let Some(snap) = bridge::read_bridge_db(&dir).and_then(|v| v.get("snap").cloned()) {
                             crate::posts::update(&http, &snap).await;
+                            crate::signup::set_snap(snap);
                         }
                     }
                 }
@@ -179,6 +183,28 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
         }
     }
     "Discord closed the connection".into()
+}
+
+/// DMs after a sync: a sign-up the game refused (with why) and a link the game confirmed.
+async fn tell(http: &Client, out: &bridge::Synced) {
+    for (r, why) in &out.failed {
+        if !r.discord.is_empty() {
+            dm(http, &r.discord, &format!("Your Discord sign-up didn't go through: {why}")).await;
+        }
+    }
+    for (user, key) in &out.linked {
+        let name = key.split('-').next().unwrap_or(key);
+        dm(http, user, &format!("You're linked to **{name}**. The raid posts' buttons sign you up now.")).await;
+    }
+}
+
+async fn dm(http: &Client, user: &str, text: &str) {
+    let Some(uid) = user.parse::<u64>().ok().and_then(Id::new_checked) else { return };
+    let Ok(resp) = http.create_private_channel(uid).await else { return };
+    let Ok(ch) = resp.model().await else { return };
+    if let Err(e) = http.create_message(ch.id).content(text).await {
+        eprintln!("bot: dm: {e}");
+    }
 }
 
 /// The server's text channels go into the inbox, for the addon's Settings > Discord dropdowns: "category > #channel",
@@ -241,12 +267,23 @@ fn explain_http(e: &str) -> String {
 }
 
 async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction) -> Result<()> {
-    if let Some(InteractionData::MessageComponent(_)) = &i.data {
-        return reply(http, app_id, i, "Signing up from Discord comes in the next update. For now, sign up in game.".into()).await;
+    let user = i.author_id().map(|u| u.get().to_string()).unwrap_or_default();
+    let name = i.author().map(|u| u.global_name.clone().unwrap_or_else(|| u.name.clone())).unwrap_or_default();
+    if let Some(InteractionData::MessageComponent(c)) = &i.data {
+        let now = unix_now();
+        if c.custom_id.starts_with("sp:") {
+            let text = crate::signup::select(&user, &name, &c.custom_id, &c.values, now);
+            return reply_with(http, app_id, i, text, Vec::new()).await;
+        }
+        return match crate::signup::button(&user, &name, &c.custom_id, now) {
+            crate::signup::Answer::Text(t) => reply_with(http, app_id, i, t, Vec::new()).await,
+            crate::signup::Answer::Picker(t, comps) => reply_with(http, app_id, i, t, comps).await,
+        };
     }
     let Some(InteractionData::ApplicationCommand(cmd)) = &i.data else { return Ok(()) };
     let text = match cmd.name.as_str() {
         "ping" => ping_text(app),
+        "link" => crate::signup::link_cmd(&user, unix_now()),
         "bridgetest" => {
             let text = cmd
                 .options
@@ -265,10 +302,21 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
 }
 
 async fn reply(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, text: String) -> Result<()> {
+    reply_with(http, app_id, i, text, Vec::new()).await
+}
+
+async fn reply_with(
+    http: &Client,
+    app_id: Id<ApplicationMarker>,
+    i: &Interaction,
+    text: String,
+    components: Vec<twilight_model::channel::message::Component>,
+) -> Result<()> {
     let resp = InteractionResponse {
         kind: InteractionResponseType::ChannelMessageWithSource,
         data: Some(InteractionResponseData {
             content: Some(text),
+            components: if components.is_empty() { None } else { Some(components) },
             flags: Some(MessageFlags::EPHEMERAL),
             ..Default::default()
         }),
@@ -293,6 +341,7 @@ fn bridge_test(app: &AppHandle, who: &str, text: &str, nonce: u64) -> String {
         at: now,
         by: who.to_string(),
         body: serde_json::json!({ "text": text }),
+        discord: String::new(),
     };
     match bridge::push(&dir, r, now) {
         Ok(q) => {

@@ -3,6 +3,7 @@
 mod background;
 mod bot;
 mod posts;
+mod signup;
 pub mod core;
 
 use crate::core::error::msg;

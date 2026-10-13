@@ -853,6 +853,11 @@ local function CleanSignup(s, now)
         out.n = CleanText(s.n, MAX_SIGNUP_NOTE)
         if not out.n then return nil end
     end
+    -- 1.4.2: given in Discord (the Discord host's launcher; Core/Bridge.lua)
+    if s.dc ~= nil then
+        if s.dc ~= 1 then return nil end
+        out.dc = 1
+    end
     -- when the character first answered this raid (kept when the answer changes; the sign-up order)
     if s.at ~= nil then
         if not IsInt(s.at, 1, s.rev) then return nil end
@@ -1328,6 +1333,26 @@ local function OnAltSignups(sender, msg, dist)
         if e == nil then break end
         local key = type(e) == "table" and IsOccId(e.o) and WireKey(e.k)
         if key and key ~= sender and G:SameAccount(sender, key) then
+            local s = CleanSignup(e.s, now)
+            if s and MergeSignup(root, e.o, key, s) then changed = true end
+        end
+    end
+    if changed then Changed() end
+end
+
+-- RPH { l = { { o = occId, k = character, s = signup }, ... } }: answers given in Discord, sent by the Discord host
+-- (Guild:IsDiscordHost: the GM names it). Anyone else's RPH is ignored.
+local function OnHostSignups(sender, msg, dist)
+    if dist ~= "GUILD" or type(msg.l) ~= "table" then return end
+    local root = Root(true)
+    local G = Guild()
+    if not root or not (G and G.IsDiscordHost and G:IsDiscordHost(sender)) then return end
+    local now, changed = Now(), false
+    for i = 1, MAX_RPS_ENTRIES do
+        local e = msg.l[i]
+        if e == nil then break end
+        local key = type(e) == "table" and IsOccId(e.o) and WireKey(e.k)
+        if key then
             local s = CleanSignup(e.s, now)
             if s and MergeSignup(root, e.o, key, s) then changed = true end
         end
@@ -3819,6 +3844,49 @@ end
 -- status: "A" | "T" | "B" | "X"; spec: index into ns.SPECS[the character's class] (nil = keep / last used); note:
 -- optional (false clears it); charKey: another character of my account to answer with (default: this one).
 -- Returns ok, err.
+-- The Discord host only (Core/Bridge.lua): an answer a linked member gave in Discord, for their character `key`.
+-- Same checks as their own sign-up (cancelled, over, blacklist, taken off, lock, level). Returns ok, err.
+function RaidPlan:SignUpFor(occId, key, status, spec, note)
+    local root = Root(true)
+    local G = Guild()
+    key = WireKey(key)
+    if not root or not key then return false, "unknown character" end
+    if not (G and G.IsDiscordHost and G:IsDiscordHost(Util.PlayerKey())) then return false, "not the Discord host" end
+    local v = ResolveOcc(root, occId)
+    if not v then return false, "unknown raid" end
+    if v.cancelled then return false, "This raid was cancelled." end
+    if v.t < Now() - SIGNUP_CLOSE then return false, "This raid is over." end
+    if not STATUSES[status] then return false, "invalid status" end
+    local block = self:GetSignupBlock(v, key)
+    if block == "blacklist" then return false, "You can't sign up for raids. Contact an officer."
+    elseif block == "declined" then return false, "You were taken off this raid."
+    elseif block == "lock" then return false, "This raid is locked to its teams and invited players."
+    elseif block == "level" then return false, strformat("This raid is for level %d characters.", v.ml)
+    end
+    local class = ClassOf(key)
+    if not class then return false, "That character is not in the guild roster." end
+    local cur = root.U[occId] and root.U[occId][key]
+    local s = { st = status, rev = NextRev(cur), c = class, dc = 1 }
+    if v.rm and v.rm[key] and s.rev <= v.rm[key] then s.rev = v.rm[key] + 1 end
+    for _, other in ipairs(Linked(key)) do
+        local o = other ~= key and root.U[occId] and root.U[occId][other]
+        if o and s.rev <= o.rev then s.rev = o.rev + 1 end
+    end
+    s.at = cur and (cur.at or cur.rev) or s.rev
+    if spec == nil then spec = cur and cur.sp or self:GetLastSpec(key) end
+    if spec ~= nil then
+        if not IsInt(spec, 1, SpecCount(class)) then return false, "invalid spec" end
+        s.sp = spec
+    end
+    if note == nil then s.n = cur and cur.n or nil
+    elseif Util.Trim(tostring(note)) ~= "" then s.n = CleanText(note, MAX_SIGNUP_NOTE) end
+    local clean = CleanSignup(s, Now())
+    if not clean or not MergeSignup(root, occId, key, clean) then return false, "could not save the sign-up" end
+    BroadcastSignups({ { o = occId, k = key, s = clean } }, "RPH")
+    Changed()
+    return true
+end
+
 function RaidPlan:SignUp(occId, status, spec, note, charKey)
     local root = Root(true)
     local player = Util.PlayerKey()
@@ -4156,6 +4224,7 @@ function RaidPlan:OnInit()
     if Comm and Comm.Register then
         Comm:Register("RPS", OnSignups)
         Comm:Register("RPA", OnAltSignups)
+        Comm:Register("RPH", OnHostSignups)
         Comm:Register("BLL", OnBlacklist)
         Comm:Register("RTW", Lineup.OnLive)
     end
