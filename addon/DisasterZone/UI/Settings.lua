@@ -1315,6 +1315,12 @@ function SettingsUI:BuildUI(sec)
             { "range", "Out of range", "", "icon", { { value = "icon", text = "Red icon" }, { value = "key", text = "Red key bind" } } },
             { "xp", "Experience bar", "Your experience and the reputation you watch, in the look.", true },
         },
+        bags = {
+            { "layout", "Layout", "How the window lays out your items. Only the view changes: items stay in their slots.",
+              "one", { { value = "one", text = "One bag" }, { value = "shelves", text = "Shelves" },
+                       { value = "bags", text = "Bag by bag" } } },
+            { "newglow", "Glow on new items", "Until you have seen them once.", true },
+        },
         minimap = {
             { "shape", "Shape", "The look's own: round for Halo and Gilded, square for the rest.", "theme",
               { { value = "theme", text = "The look's" }, { value = "round", text = "Round" }, { value = "square", text = "Square" } } },

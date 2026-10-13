@@ -263,6 +263,7 @@ UI\LookUnits.lua
 UI\LookCast.lua
 UI\LookBars.lua
 UI\LookDock.lua
+UI\LookBags.lua
 UI\LookMinimap.lua
 UI\PatchUI.lua
 

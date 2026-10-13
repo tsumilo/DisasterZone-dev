@@ -170,7 +170,7 @@ def action_buttons_are_reskinned_not_replaced():
         ns.LookBars:Restyle()""")
     assert c.eval("return ActionButton1.NormalTexture:GetAlpha()") == 0
     assert c.eval("return ActionButton1.SlotBackground:GetAlpha()") == 0
-    assert c.eval("local p, rel, rp = ActionButton1.HotKey:GetPoint(1); return p .. '>' .. rp") == "BOTTOM>BOTTOM"
+    assert c.eval("local p, rel, rp = ActionButton1.HotKey:GetPoint(1); return p .. '>' .. rp") == "TOP>BOTTOM"
     # Halo cuts the icon round, again whenever the game sets a new one
     assert c.eval("return ns.LookBars.skinned[ActionButton1].round") is True
     # (round by the portrait disc as a mask on the icon, where the client has masks)

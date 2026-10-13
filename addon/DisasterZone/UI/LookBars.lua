@@ -171,8 +171,8 @@ function Bars:Apply(b, look)
             -- (a table's cell: the icon in its upper part, the key bind as its label underneath)
             local w = b:GetWidth() or 36
             if w <= 0 then w = 36 end
-            icon:SetPoint("TOPLEFT", b, "TOPLEFT", w * 0.14, -w * 0.11)
-            icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -w * 0.14, w * 0.33)
+            icon:SetPoint("TOPLEFT", b, "TOPLEFT", w * 0.1, -w * 0.08)
+            icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -w * 0.1, w * 0.26)
         else
             icon:SetPoint("TOPLEFT", b, "TOPLEFT", inset, -inset)
             icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -inset, inset)
@@ -250,15 +250,12 @@ function Bars:Apply(b, look)
         end
         hk:SetAlpha(L:Opt("bars", "keys", true) and 1 or 0)
         if k == "halo" then
-            -- (the key bind in a small dark pill on the ring's foot)
+            -- (the key bind small and faint just under the ring, off the icon: the Dock's gap holds it)
             hk:ClearAllPoints()
-            hk:SetPoint("CENTER", b, "BOTTOM", 0, 1)
-            s.pill:SetTexture(L.WHITE)
-            s.pill:ClearAllPoints()
-            s.pill:SetPoint("TOPLEFT", hk, "TOPLEFT", -3, 1)
-            s.pill:SetPoint("BOTTOMRIGHT", hk, "BOTTOMRIGHT", 3, -1)
-            s.pill:SetVertexColor(0.03, 0.03, 0.04, 0.92)
-            s.pill:SetShown(L:Opt("bars", "keys", true) and (hk:GetText() or "") ~= "" and true or false)
+            hk:SetPoint("TOP", b, "BOTTOM", 0, -1)
+            hk:SetJustifyH("CENTER")
+            hk:SetTextColor(0.86, 0.84, 0.78, 0.7)
+            s.pill:Hide()
         end
     end
     if ct then
@@ -294,12 +291,13 @@ function Bars:Status(b)
     local active = (b.GetChecked and b:GetChecked()) and true or false
     local hover = s.hover and true or false
     s.state = { oor = oor, oom = oom, active = active, hover = hover }
+    -- (s.calm: a bag slot's item quality, its resting colour)
     if k == "halo" then
-        L.Color(s.ring, hover and GOLD_HI or active and GOLD or oor and OOR_C or oom and OOM_C or CALM_RING)
+        L.Color(s.ring, hover and GOLD_HI or active and GOLD or oor and OOR_C or oom and OOM_C or s.calm or CALM_RING)
     elseif k == "sigil" then
-        s.edge2:Paint(active and GOLD or hover and { 1, 0.82, 0, 0.75 } or oor and { 1, 0.35, 0.29, 0.85 } or CALM_FRAME)
+        s.edge2:Paint(active and GOLD or hover and { 1, 0.82, 0, 0.75 } or oor and { 1, 0.35, 0.29, 0.85 } or s.calm or CALM_FRAME)
     elseif k == "flat" then
-        s.edge2:Paint(active and GOLD or hover and { 1, 1, 1, 0.55 } or nil)
+        s.edge2:Paint(active and GOLD or hover and { 1, 1, 1, 0.55 } or s.calm or nil)
     elseif k == "slate" then
         local hk = b.HotKey
         if hk then
@@ -313,6 +311,8 @@ function Bars:Status(b)
             s.bezelHot:Show()
         else s.bezelHot:Hide() end
         if oor then s.bezel:SetVertexColor(1, 0.55, 0.45, 1) else s.bezel:SetVertexColor(1, 1, 1, 1) end
+        -- (the item's quality as a thin line inside the gold)
+        if s.calm and not (active or hover) then s.edge2:Paint(s.calm) else s.edge2:Paint(nil) end
     end
 end
 
@@ -455,7 +455,13 @@ function Bars:Tile(b, look)
     if h <= 0 then h = 32 end
     -- (a square in the middle of the button: the menu's buttons are taller than wide, the key ring thin)
     local size = math.max(14, math.min(w, h) - ((k == "halo") and 3 or 1))
-    if name == "KeyRingButton" then size = math.max(16, math.min(h * 0.62, 26)) end
+    -- (the key ring is thin in the game's bag bar; in the Dock it fills its cell like the bags)
+    -- (in the Dock the cell is the button's height, scaled; its width is the game's and can shrink later)
+    if name == "KeyRingButton" then
+        if ns.LookDock and ns.LookDock.placed[b] then
+            size = math.max(14, (b.dzBase or h) - ((k == "halo") and 3 or 1))
+        else size = math.max(16, math.min(h * 0.62, 26)) end
+    end
     t.f:ClearAllPoints()
     t.f:SetSize(size, size)
     t.f:SetPoint("CENTER", b, "CENTER", 0, 0)
@@ -478,6 +484,11 @@ function Bars:Tile(b, look)
         PaintGlyphTile(t, false)
     else
         t.icon:Apply(look, look.icon == "none" and "small" or look.icon)
+        -- (the hover light in the tile's shape: a disc in Halo, the icon's square elsewhere)
+        t.hl:SetTexture(k == "halo" and L.DISC or L.WHITE)
+        t.hl:SetVertexColor(1, 1, 1, 0.14)
+        t.hl:ClearAllPoints()
+        t.hl:SetAllPoints(t.icon.tex or t.f)
         -- (Halo: the same faint light ring as the action buttons and the menu)
         if k == "halo" then Look().Color(t.icon.ring, { 1, 1, 1, 0.16 }) end
         t.shown = nil

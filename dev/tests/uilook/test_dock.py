@@ -38,6 +38,15 @@ FAKE_BARS = """
         return bar
     end
     Bar('MainActionBar', 'ActionButton', 12, true)
+    -- (action bar 1's page switcher: arrows and the page number, as the game's MainActionBar has it)
+    local pn = CreateFrame('Frame', nil, MainActionBar); pn:SetSize(42, 36); pn:SetPoint('BOTTOMLEFT', MainActionBar, 'BOTTOMRIGHT')
+    pn.Text = pn:CreateFontString(nil, 'OVERLAY', 'GameFontNormalSmall'); pn.Text:SetText('1')
+    for _, k in ipairs({ 'UpButton', 'DownButton' }) do
+        local b = CreateFrame('Button', nil, pn); b:SetSize(19, 17)
+        b:SetNormalTexture('Interface/Buttons/WHITE8X8'); b:SetPushedTexture('Interface/Buttons/WHITE8X8')
+        b:SetHighlightTexture('Interface/Buttons/WHITE8X8'); pn[k] = b
+    end
+    MainActionBar.ActionBarPageNumber = pn
     Bar('MultiBarBottomLeft', 'MultiBarBottomLeftButton', 12, true)
     Bar('MultiBarBottomRight', 'MultiBarBottomRightButton', 12, true)
     Bar('MultiBarRight', 'MultiBarRightButton', 12, true)
@@ -51,6 +60,7 @@ FAKE_BARS = """
         local b = CreateFrame('Button', n, bags); b:SetSize(40, 40); b:SetPoint('LEFT')
         b.Icon = b:CreateTexture(); b.Icon:SetTexture(133633)
     end
+    KeyRingButton:SetSize(18, 39)        -- (the game's key ring is tall and thin)
     local menu = CreateFrame('Frame', 'MicroMenuContainer', UIParent); menu:SetSize(300, 40); menu:SetPoint('BOTTOMRIGHT')
     for _, n in ipairs({ 'CharacterMicroButton', 'SpellbookMicroButton', 'TalentMicroButton', 'QuestLogMicroButton',
                          'SocialsMicroButton', 'GuildMicroButton', 'WorldMapMicroButton', 'LFGMicroButton',
@@ -143,6 +153,15 @@ def the_bars_buttons_bags_and_menu_sit_on_the_grid():
     # bags: the backpack at the bottom of the first column, the block's height in all
     bp = box(c, "MainMenuBarBackpackButton")
     assert bp[0] == g["bags"][0][0] and bp[1] + bp[3] == blk["y"] + blk["h"] and bp[2] == 36, bp
+    # the page switcher: a strip half a button wide just left of the block, its full height; up on top, down below
+    pg = c.eval_py("local p = MainActionBar.ActionBarPageNumber; return { p:GetLeft() and true, p.UpButton:GetTop() == p:GetTop(), p.DownButton:GetBottom() == p:GetBottom() }")
+    assert pg == [True, True, True], pg
+    pb = c.eval_py(BOX.replace("f = type(f) == 'string' and _G[f] or f", "f = MainActionBar.ActionBarPageNumber"), "x")
+    assert pb == [g["pager"]["x"], blk["y"], 18, blk["h"]] and g["pager"]["x"] + 18 + 2 == blk["x"], (pb, g["pager"], blk)
+    # the key ring fills its cell like a bag (it is thin in the game's bag bar)
+    kr = box(c, "KeyRingButton")
+    assert kr[2] == 36 and kr[3] == 36, kr
+    assert c.eval("return ns.LookBars.tiles[KeyRingButton].f:GetWidth() >= 30") is True
     # the menu: squares on the grid, the DisasterZone tile last
     assert box(c, "CharacterMicroButton")[:3] == [g["menu"][0][0], blk["y"], 36]
     assert c.eval("return ns.LookBars.tiles[DisasterZoneDockMenuButton] ~= nil") is True
@@ -192,10 +211,10 @@ def each_look_wears_its_state():
         w, c = docked(look)
         st = c.eval_py("""
             local b = ActionButton3
-            b:GetScript('OnEnter')(b)
+            __MOCK.hover(b)
             local s = ns.LookBars.skinned[b]
             local hover = { s.state.hover, s.ring:IsShown(), select(4, s.ring:GetVertexColor()) }
-            b:GetScript('OnLeave')(b)
+            __MOCK.call_script(b, 'OnLeave', true)
             b.GetChecked = function() return true end
             ns.LookBars:Status(b)
             return { hover = hover, active = s.state.active, plate = DisasterZoneDock.panel.bg:IsShown(),

@@ -1221,6 +1221,76 @@ SHOT_HUD = ("__MOCK.real_geometry = true; __MOCK.ranged_speed = 2.2; "
             "ST.state.aspect = 'hawk'; ST.state.auto = true; ST.OnShot(GetTime() - %s); ns.ShotTimerHUD:Update()")
 
 
+
+# The Dock (UI/LookDock.lua): the game's bottom bars stood in for (containers of 45 px buttons with a Ret paladin's
+# icons, 3 stances, bags, menu), the bars part in look LOOK, then the Dock laid out.
+DOCK_ICONS = ["Spell_Holy_CrusaderStrike", "Spell_Holy_RighteousFury", "Ability_Warrior_InnerRage", "Spell_Holy_SealOfBlood",
+              "Spell_Holy_Excorcism_02", "Spell_Holy_InnerFire", "Ability_ThunderClap", "Spell_Holy_SealOfMight",
+              "Spell_Holy_AvengersShield", "INV_Potion_108", "INV_Potion_137", "INV_Misc_Drum_02",
+              "Spell_Holy_HolyBolt", "Spell_Holy_FlashHeal", "Spell_Holy_Renew", "Spell_Holy_SealOfValor",
+              "Spell_Holy_SealOfProtection", "Spell_Holy_DivineIntervention", "Spell_Holy_LayOnHands",
+              "Spell_Holy_PrayerOfHealing", "Spell_Holy_TurnUndead", "Ability_ThunderBolt", "Spell_Holy_RighteousnessAura",
+              "Spell_Holy_HealingAura"]
+DOCK_STATE = (
+    "local ICONS = { " + ", ".join("'Interface\\\\Icons\\\\%s'" % n for n in DOCK_ICONS) + " }; "
+    "local function Bar(name, prefix, n, shown, size, off) "
+    "  local bar = CreateFrame('Frame', name, UIParent); bar:SetSize(500, 50); bar:SetPoint('BOTTOM'); "
+    "  for i = 1, n do "
+    "    local cont = CreateFrame('Frame', name .. 'ButtonContainer' .. i, bar); cont:SetSize(size or 45, size or 45); "
+    "    cont:SetPoint('LEFT', bar, 'LEFT', (i - 1) * 47, 0); "
+    "    local b = CreateFrame('CheckButton', prefix .. i, cont); b:SetSize(size or 45, size or 45); b:SetPoint('CENTER'); "
+    "    b.container, b.index = cont, i; b.icon = b:CreateTexture(nil, 'ARTWORK'); b.icon:SetAllPoints(); "
+    "    if (i + (off or 0)) % 7 ~= 0 then b.icon:SetTexture(ICONS[((i + (off or 0)) % #ICONS) + 1]) end; "
+    "    b.HotKey = b:CreateFontString(nil, 'OVERLAY', 'NumberFontNormalSmallGray'); b.HotKey:SetText(off == 0 and tostring(i % 10) or (off == 12 and 'S' .. (i % 10) or '')); "
+    "    b.Count = b:CreateFontString(nil, 'OVERLAY', 'NumberFontNormal'); "
+    "    b.action = i + (off or 0); function b:Update() end; function b:UpdateUsable() end; "
+    "  end; bar:SetShown(shown); return bar "
+    "end; "
+    "if not _G.DisasterZoneDockFakes then DisasterZoneDockFakes = true; "
+    "Bar('MainActionBar', 'ActionButton', 12, true, nil, 0); Bar('MultiBarBottomLeft', 'MultiBarBottomLeftButton', 12, true, nil, 12); "
+    "Bar('MultiBarBottomRight', 'MultiBarBottomRightButton', 12, true, nil, 5); Bar('MultiBarRight', 'MultiBarRightButton', 12, true, nil, 9); "
+    "Bar('StanceBar', 'StanceButton', 10, true, 30, 20); for i = 4, 10 do _G['StanceButton' .. i].container:Hide() end; "
+    "ActionButton3.GetChecked = function() return true end; "
+    "local bags = CreateFrame('Frame', 'BagsBar', UIParent); bags:SetSize(200, 40); bags:SetPoint('BOTTOMRIGHT'); "
+    "for _, n in ipairs({ 'MainMenuBarBackpackButton', 'CharacterBag0Slot', 'CharacterBag1Slot', 'CharacterBag2Slot', 'CharacterBag3Slot', 'KeyRingButton' }) do "
+    "  local b = CreateFrame('Button', n, bags); b:SetSize(40, 40); b:SetPoint('LEFT'); b.Icon = b:CreateTexture(); "
+    "  b.Icon:SetTexture('Interface\\\\Icons\\\\INV_Misc_Bag_10_Blue') end; "
+    "local menu = CreateFrame('Frame', 'MicroMenuContainer', UIParent); menu:SetSize(300, 40); menu:SetPoint('BOTTOMRIGHT'); "
+    "for _, n in ipairs({ 'CharacterMicroButton', 'SpellbookMicroButton', 'TalentMicroButton', 'QuestLogMicroButton', "
+    "  'SocialsMicroButton', 'GuildMicroButton', 'WorldMapMicroButton', 'LFGMicroButton', 'PVPMicroButton', 'MainMenuMicroButton', 'HelpMicroButton' }) do "
+    "  local b = CreateFrame('Button', n, menu); b:SetSize(28, 36); b:SetPoint('LEFT') end; end; "
+    "ns.DB:SetSetting('ui.bars.look', 'LOOK'); ns.Look:SetApplied('bars', 'LOOK'); ns.LookBars:Restyle(); "
+    "ns.LookDock:Start(); ns.LookDock:Layout(); ns.MainFrame:Close()")
+
+
+# Bags (UI/LookBags.lua): Gina's bags filled with a Ret paladin's items (icons by item id), the bags part in look
+# LOOK and layout LAYOUT, the Bags window open.
+BAGS_STATE = (
+    "local D = __MOCK.define_item; "
+    "D(28830, 'Dragonspine Trophy', 4, 'INVTYPE_NON_EQUIP_IGNORE', 4, 0, 'itemicon:28830'); "
+    "D(29383, 'Bloodlust Brooch', 4, 'INVTYPE_NON_EQUIP_IGNORE', 4, 0, 'itemicon:29383'); "
+    "D(22838, 'Haste Potion', 1, 'INVTYPE_NON_EQUIP_IGNORE', 0, 0, 'itemicon:22838'); "
+    "D(22832, 'Super Mana Potion', 1, 'INVTYPE_NON_EQUIP_IGNORE', 0, 0, 'itemicon:22832'); "
+    "D(22854, 'Flask of Relentless Assault', 1, 'INVTYPE_NON_EQUIP_IGNORE', 0, 0, 'itemicon:22854'); "
+    "D(30106, 'Belt of One-Hundred Deaths', 4, 'INVTYPE_NON_EQUIP_IGNORE', 4, 0, 'itemicon:30106'); "
+    "D(27658, 'Roasted Clefthoof', 1, 'INVTYPE_NON_EQUIP_IGNORE', 0, 0, 'itemicon:27658'); "
+    "D(23445, 'Fel Iron Bar', 1, 'INVTYPE_NON_EQUIP_IGNORE', 7, 0, 'itemicon:23445'); "
+    "D(21877, 'Netherweave Cloth', 1, 'INVTYPE_NON_EQUIP_IGNORE', 7, 0, 'itemicon:21877'); "
+    "D(28429, 'Lionheart Champion', 4, 'INVTYPE_NON_EQUIP_IGNORE', 2, 0, 'itemicon:28429'); "
+    "D(29529, 'Drums of Battle', 3, 'INVTYPE_NON_EQUIP_IGNORE', 0, 0, 'itemicon:29529'); "
+    "D(22450, 'Void Crystal', 4, 'INVTYPE_NON_EQUIP_IGNORE', 7, 0, 'itemicon:22450'); "
+    "D(21884, 'Primal Fire', 2, 'INVTYPE_NON_EQUIP_IGNORE', 7, 0, 'itemicon:21884'); "
+    "D(24027, 'Bold Living Ruby', 3, 'INVTYPE_NON_EQUIP_IGNORE', 3, 0, 'itemicon:24027'); "
+    "D(23441, 'Nightseye', 3, 'INVTYPE_NON_EQUIP_IGNORE', 3, 0, 'itemicon:23441'); "
+    "D(29760, 'Helm of the Fallen Champion', 4, 'INVTYPE_NON_EQUIP_IGNORE', 12, 0, 'itemicon:29760'); "
+    "D(3300, 'Rabbit\\'s Foot', 0, 'INVTYPE_NON_EQUIP_IGNORE', 15, 0, 'itemicon:3300'); "
+    "D(4865, 'Ruined Pelt', 0, 'INVTYPE_NON_EQUIP_IGNORE', 15, 0, 'itemicon:4865'); "
+    "__MOCK.bags[1] = __MOCK.bags[1] or { size = 16, slots = {} }; __MOCK.bags[1].size = 16; "
+    "__MOCK.set_bags({ { 0, 1, 28830, 1 }, { 0, 2, 29383, 1 }, { 0, 3, 22838, 10 }, { 0, 4, 22832, 14 }, { 0, 5, 22854, 4 }, { 0, 6, 30106, 1 }, { 0, 7, 27658, 20 }, { 0, 8, 23445, 14 }, { 0, 9, 21877, 20 }, { 0, 10, 28429, 1 }, { 0, 11, 29529, 2 }, { 0, 12, 22450, 2 }, { 0, 13, 21884, 7 }, { 0, 14, 24027, 2 }, { 1, 1, 23441, 3 }, { 1, 2, 29760, 1 }, { 1, 3, 3300, 2 }, { 1, 4, 4865, 5 } }); "
+    "ns.DB:SetSetting('ui.bags.look', 'LOOK'); ns.DB:SetSetting('ui.bags.layout', 'LAYOUT'); "
+    "ns.Look:SetApplied('bags', 'LOOK'); ns.LookBags:Start(); ns.MainFrame:Close(); ns.LookBags:Open('bags'); "
+    "ns.LookBags:Refresh('bags')")
+
 # Twist practice: Gina as a Ret paladin with keys on her bars, some lessons done.
 PRACTICE = (SWING_HUD.replace("ST.state.seal = 'soc'; ST.state.last = GetTime() - %s; ST.state.sealExpires = GetTime() + 22; ", "")
             .replace("ns.SwingTimerHUD:Update()", "")
@@ -1777,6 +1847,17 @@ STATES = [
     ("Shot timer theme - slate", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'slate'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer theme - gilded", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'gilded'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer theme - pips", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'pips'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
+    ("Dock - flat", opened("home", DOCK_STATE.replace("LOOK", "flat"))),
+    ("Dock - halo", opened("home", DOCK_STATE.replace("LOOK", "halo"))),
+    ("Dock - sigil", opened("home", DOCK_STATE.replace("LOOK", "sigil"))),
+    ("Dock - slate", opened("home", DOCK_STATE.replace("LOOK", "slate"))),
+    ("Dock - gilded", opened("home", DOCK_STATE.replace("LOOK", "gilded"))),
+    ("Bags - flat one", opened("home", BAGS_STATE.replace("LOOK", "flat").replace("LAYOUT", "one"))),
+    ("Bags - halo one", opened("home", BAGS_STATE.replace("LOOK", "halo").replace("LAYOUT", "one"))),
+    ("Bags - sigil shelves", opened("home", BAGS_STATE.replace("LOOK", "sigil").replace("LAYOUT", "shelves"))),
+    ("Bags - slate shelves", opened("home", BAGS_STATE.replace("LOOK", "slate").replace("LAYOUT", "shelves"))),
+    ("Bags - gilded shelves", opened("home", BAGS_STATE.replace("LOOK", "gilded").replace("LAYOUT", "shelves"))),
+    ("Bags - gilded bags", opened("home", BAGS_STATE.replace("LOOK", "gilded").replace("LAYOUT", "bags"))),
     ("Settings - Shot timer", demo("ns.SettingsUI:SelectSection('shot')", "settings")),
     ("Shot timer - both, Steady now", opened("home", "ns.MainFrame:Close(); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer - bar, late in the shot", opened("home", "ns.MainFrame:Close(); " + (SHOT_HUD % "1.6").replace("STYLE", "bar"))),

@@ -31,9 +31,9 @@ local function InCombat() return InCombatLockdown and InCombatLockdown() and tru
 -- the looks' numbers at S = 36 (the mockup's)
 Dock.TOKENS = {
     flat = { G = 2, P = 5, R = 12, xp = 5 },
-    halo = { G = 6, P = 10, R = 18, xp = 5 },
+    halo = { G = 10, P = 10, R = 18, xp = 5 },       -- (G holds the key binds under the rings)
     sigil = { G = 3, P = 6, R = 14, xp = 6 },
-    slate = { G = 0, P = 0, R = 14, xp = 3 },
+    slate = { G = 2, P = 3, R = 14, xp = 3 },
     gilded = { G = 4, P = 9, R = 16, xp = 7 },
 }
 Dock.SIZES = { 30, 33, 36, 39, 42 }
@@ -83,8 +83,11 @@ end
 ---------------------------------------------------------------------------
 
 -- Where everything goes, from the top-left of the dock (y down). n = { rows (1-3), bags, menu, stance, pet (counts),
--- rep (a reputation bar under the experience bar) }. Returns { w, h, block, bags = { {x, y} }, menu, stance, pet,
--- rows = { y of each row from the top }, seams = { x }, xp = { x, y, w, h }, rep, plateTop }.
+-- rep (a reputation bar under the experience bar), pager (action bar 1's page switcher) }. Returns { w, h, block,
+-- bags = { {x, y} }, menu, stance, pet, rows = { y of each row from the top }, seams = { x }, xp = { x, y, w, h },
+-- rep, pager = { x, y, w, h }, plateTop }.
+-- The page switcher is a strip half a button wide, G left of the block and its full height: up at its top, the page
+-- in the middle, down at its foot.
 function Dock.Grid(T, n)
     local S, G, P, R, s = T.S, T.G, T.P, T.R, T.s
     local rows = max(1, min(3, n.rows or 1))
@@ -97,10 +100,13 @@ function Dock.Grid(T, n)
     local crown = (n.stance > 0 or n.pet > 0) and (s + R) or 0
     local top = P + crown
     local bagX = P
-    local blockX = bagX + (bagW > 0 and bagW + R or 0)
+    local pw0 = n.pager and floor(S * 0.5 + 0.5) or 0
+    local pagerX = bagX + (bagW > 0 and bagW + R or 0)
+    local blockX = pagerX + (pw0 > 0 and pw0 + max(G, 2) or 0)
     local menuX = blockX + bw + R
     g.w = (menuW > 0) and (menuX + menuW + P) or (blockX + bw + P)
     g.block = { x = blockX, y = top, w = bw, h = bh }
+    if pw0 > 0 then g.pager = { x = pagerX, y = top, w = pw0, h = bh } end
     g.plateTop = top - P
     for i = 1, rows do g.rows[i] = top + (i - 1) * (S + G) end
     -- the wings: column-major from the bottom left (the backpack by the block); the menu row by row from the top
@@ -228,7 +234,13 @@ local function BagButtons()
     local out = {}
     for _, name in ipairs(BAGS) do
         local b = _G[name]
-        if b and Shown(b) then out[#out + 1] = b end
+        if b and Shown(b) then
+            -- (the key ring is tall and thin in the game's bag bar, and the bar sizes it again on every layout of its
+            -- own: square it each time, it fills its cell like a bag)
+            local bw, bh = b:GetWidth() or 0, b:GetHeight() or 0
+            if bw ~= bh and bh > 0 then b:SetWidth(bh) end
+            out[#out + 1] = b
+        end
     end
     return out
 end
@@ -247,6 +259,70 @@ function Dock:Contents()
         if bar and Shown(bar) then c.rail[#c.rail + 1] = { bar = bar, prefix = r[2] } end
     end
     return c
+end
+
+---------------------------------------------------------------------------
+-- Action bar 1's page switcher: the game's own (its arrows page the bar, its key binds stay), moved into its strip
+---------------------------------------------------------------------------
+
+function Dock:PageFrame()
+    local bar = _G.MainActionBar
+    return bar and bar.ActionBarPageNumber or nil
+end
+
+-- the page number's colour per look (the looks' name colour)
+local PAGE_C = { flat = { 0.86, 0.84, 0.78 }, halo = { 0.96, 0.9, 0.72 }, sigil = { 1, 0.82, 0 },
+                 slate = { 0.74, 0.72, 0.65 }, gilded = { 1, 0.84, 0.42 } }
+
+function Dock:Pager(f, box, look)
+    local pn = self:PageFrame()
+    if not pn or not box then return end
+    local L = Look()
+    -- (in dock units: its scale undoes its parent's, so a dock pixel is its pixel)
+    local pes = (pn:GetParent() and pn:GetParent():GetEffectiveScale()) or 1
+    local k = (f:GetEffectiveScale() or 1) / pes
+    pn:SetScale(k)
+    pn:ClearAllPoints()
+    pn:SetPoint("TOPLEFT", f, "TOPLEFT", box.x, -box.y)
+    pn:SetSize(box.w, box.h)
+    self.placed[pn] = true
+    local aw = box.w
+    local ah = max(10, floor(min(box.h / 3, aw * 0.8) + 0.5))
+    for i, b in ipairs({ pn.UpButton, pn.DownButton }) do
+        if b then
+            -- (the game's sleek arrows, not the stone bar's)
+            if b.SwapToAlternateAtlas then pcall(b.SwapToAlternateAtlas, b) end
+            b:ClearAllPoints()
+            b:SetSize(aw, ah)
+            b:SetPoint(i == 1 and "TOP" or "BOTTOM", pn, i == 1 and "TOP" or "BOTTOM", 0, 0)
+            for _, t in ipairs({ b:GetNormalTexture(), b:GetPushedTexture(), b:GetHighlightTexture(),
+                                 b.GetDisabledTexture and b:GetDisabledTexture() or nil }) do
+                if t then t:ClearAllPoints(); t:SetAllPoints(b) end
+            end
+            Dock.placed[b] = true
+        end
+    end
+    if pn.Text then
+        pn.Text:ClearAllPoints()
+        pn.Text:SetPoint("CENTER", pn, "CENTER", 0, 0)
+        pn.Text:SetSize(aw + 6, 12)
+        local c = PAGE_C[look.key] or PAGE_C.flat
+        pn.Text:SetTextColor(c[1], c[2], c[3])
+    end
+    -- its strip on the plate: a faint track the arrows sit on (Halo: a thin line)
+    f.pagerTrack = f.pagerTrack or Tex(f, "BORDER", 2)
+    local t = f.pagerTrack
+    t:SetTexture(L.WHITE)
+    t:ClearAllPoints()
+    if look.key == "halo" then
+        t:SetSize(1, max(1, box.h - 2 * ah - 8))
+        t:SetPoint("CENTER", f, "TOPLEFT", box.x + box.w / 2, -(box.y + box.h / 2))
+        L.Color(t, { 0.96, 0.9, 0.72, 0.18 })
+    else
+        t:SetPoint("TOPLEFT", f, "TOPLEFT", box.x, -box.y)
+        t:SetSize(box.w, box.h)
+        L.Color(t, look.key == "gilded" and { 0, 0, 0, 0.35 } or { 1, 1, 1, 0.04 })
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -319,7 +395,7 @@ function Dock:Layout()
     local c = self:Contents()
     local repOn = ns.LookBars and ns.LookBars.WatchingRep and ns.LookBars:WatchingRep() or false
     local g = Dock.Grid(T, { rows = #c.rows, bags = #c.bags, menu = #c.menu, stance = #c.stance, pet = #c.pet,
-                             rep = repOn and L:Opt("bars", "xp", true) })
+                             rep = repOn and L:Opt("bars", "xp", true), pager = Dock:PageFrame() ~= nil })
     self.grid, self.T = g, T
     f:SetSize(g.w, g.h)
     f:Show()
@@ -334,6 +410,7 @@ function Dock:Layout()
         end
     end
     for i, b in ipairs(c.bags) do Place(b, f, g.bags[i][1], g.bags[i][2], S) end
+    self:Pager(f, g.pager, look)
     for i, b in ipairs(c.menu) do Place(b, f, g.menu[i][1], g.menu[i][2], S) end
     for i, cont in ipairs(c.stance) do Place(cont, f, g.stance[i][1], g.stance[i][2], T.s) end
     for i, cont in ipairs(c.pet) do Place(cont, f, g.pet[i][1], g.pet[i][2], T.s) end
@@ -417,17 +494,25 @@ local function HookAll()
     local function H(obj, fn)
         if obj and type(obj[fn]) == "function" then pcall(hooksecurefunc, obj, fn, function() Dock:Queue() end) end
     end
+    H(_G.MainActionBar, "EditModeSetScale"); H(_G.MainActionBar, "UpdateEndCaps")
     for _, r in ipairs(ROWS) do H(_G[r[1]], "UpdateGridLayout"); H(_G[r[1]], "UpdateSystemSettingIconSize"); H(_G[r[1]], "UpdateShownButtons") end
     for _, r in ipairs(RAIL) do H(_G[r[1]], "UpdateGridLayout"); H(_G[r[1]], "UpdateSystemSettingIconSize"); H(_G[r[1]], "UpdateShownButtons") end
     for _, n in ipairs({ "StanceBar", "PetActionBar" }) do
         H(_G[n], "UpdateGridLayout"); H(_G[n], "UpdateSystemSettingIconSize"); H(_G[n], "UpdateShownButtons")
     end
     H(_G.MicroMenuContainer, "Layout"); H(_G.MicroMenu, "Layout"); H(_G.BagsBar, "Layout")
+    H(_G.KeyRingButton, "UpdateOrientation")
+    -- (picking an item up expands the game's bag bar: its layout runs from a callback it took at load time, not
+    -- through the method hooked above)
+    if EventRegistry and EventRegistry.RegisterCallback then
+        pcall(EventRegistry.RegisterCallback, EventRegistry, "MainMenuBarManager.OnExpandChanged",
+            function() Dock:Queue() end, Dock)
+    end
     for _, fn in ipairs({ "UpdateMicroButtonsParent", "MoveMicroButtons", "MultiActionBar_Update" }) do
         if type(_G[fn]) == "function" then pcall(hooksecurefunc, fn, function() Dock:Queue() end) end
     end
     local ev = CreateFrame("Frame")
-    for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "UPDATE_SHAPESHIFT_FORMS", "PET_BAR_UPDATE",
+    for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "CURSOR_CHANGED", "UPDATE_SHAPESHIFT_FORMS", "PET_BAR_UPDATE",
                          "UNIT_PET", "BAG_UPDATE_DELAYED", "UPDATE_FACTION", "DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED" }) do
         pcall(ev.RegisterEvent, ev, e)
     end

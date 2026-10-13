@@ -6,6 +6,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Look.lua", ...) then return end
 --   units    player, target, target of target, focus, pet       replaced (UI/LookUnits.lua: secure unit buttons)
 --   group    party and raid frames                                replaced (UI/LookUnits.lua: secure group headers)
 --   cast     player, target and focus cast bars                   replaced (UI/LookCast.lua)
+--   bags     the bag windows, key ring and bank                    replaced (UI/LookBags.lua: the game's item buttons
+--            in our windows)
 --   bars     action bars 1 - 5, stance and pet bars, bags, menu   reskinned (UI/LookBars.lua: Blizzard's own buttons);
 --            and the experience / reputation bar                  replaced (the game's status bars retired)
 --   minimap  the minimap, zone, clock and its buttons             reskinned (UI/LookMinimap.lua)
@@ -43,6 +45,7 @@ Look.PARTS = {
     { key = "cast", name = "Cast bars", tip = "Your cast bar and the target's and focus's.", replaced = true },
     { key = "bars", name = "Action bars", tip = "Every action bar, the stance and pet bars, bags, menu and experience.",
       replaced = true },
+    { key = "bags", name = "Bags", tip = "Your bags, the key ring and the bank in one window each.", replaced = true },
     { key = "minimap", name = "Minimap", tip = "The map, the zone and the clock, and the buttons around it." },
 }
 local PART = {}

@@ -63,6 +63,26 @@ ns.CHANGELOG = {
           { heading = "Swing and shot timers: rotation optional", area = "class", kind = "changed", lines = {
               "Settings > Show rotation off hides the next presses and plan lane: just the timer.",
           } },
+          { heading = "The Dock: every bottom bar on one grid", area = "look", kind = "new", hi = true,
+            open = "settings/ui", lead = "Action bars, bags, menu, stance, pet and XP built as one piece.", lines = {
+              "Bars 1 to 3 make one block; bags and the menu stand beside it at its exact height.",
+              "Stance and pet bars line up on top; the XP bar runs the block's width under it.",
+              "One plate behind it all in the look, with seams between the parts (Halo floats).",
+              "Bars 4 and 5 stand at the right edge in the same size and look.",
+              "Bar 1's page arrows get their own slim strip beside the block, the page number between them.",
+              "Settings > UI > Action bars: button size from Compact to Large; move it in Edit layout.",
+              "Every look made over: Halo's rings, Sigil's gold, Slate's table and Gilded's gold show the state.",
+          } },
+          { heading = "Bags, key ring and bank in your look", area = "look", kind = "new", hi = true,
+            open = "settings/ui", lead = "One window for your bags, one for the bank, in the Dock's size and look.", lines = {
+              "Three layouts: One bag (the default), Shelves sorted by kind, or Bag by bag.",
+              "Shelves fold; Junk sells in one click at a vendor; new items glow until you look.",
+              "Search as you type, by name or type; junk and new work as words too.",
+              "Sort stacks partial stacks and orders everything, many moves at once: a full bag in under a second.",
+              "The key ring folds into the bags from the Dock's key ring or the footer.",
+              "At a banker the Bank window opens beside your bags, with bank bag slots to buy.",
+              "Items keep their slots: clicking, dragging and using them work exactly as before.",
+          } },
           { heading = "Themes for the swing and shot timers", area = "class", kind = "new", ["for"] = "PALADIN HUNTER",
             open = "settings/classtools", lines = {
               "Halo, Sigil, Slate, Gilded or Pips: the same looks as the Blessings and Totem bars.",
