@@ -229,11 +229,16 @@ SERVER = """
         C_Timer.After(0.1, function() locks[key(bag, slot)] = nil; __MOCK.fire('ITEM_LOCK_CHANGED', bag, slot) end)
     end
     local function stackOf(id) local r = __MOCK.ITEMS[id]; return r and r.stack or 1 end
+    ClearCursor = function() held = nil end
     C_Container.PickupContainerItem = function(bag, slot)
         local b = __MOCK.bags[bag]
         if not held then
             if locks[key(bag, slot)] or not b.slots[slot] then return end
             held = { bag = bag, slot = slot }
+            -- (the real client locks the picked-up slot and fires the event right away, mid-move)
+            locks[key(bag, slot)] = true
+            __MOCK.fire('ITEM_LOCK_CHANGED', bag, slot)
+            locks[key(bag, slot)] = nil
             return
         end
         local from = held; held = nil
@@ -303,12 +308,19 @@ def sort_run(refuse):
         local t = {}
         for b = 0, 4 do for s, x in pairs(__MOCK.bags[b].slots) do t[x.id] = (t[x.id] or 0) + x.count end end
         return t""")
+    c.eval("ns.LookBags:Open('bags')")
     assert c.eval("return ns.LookBags:Sort('bags')") is True
+    # (the sort tile shows it is working, and stops when done)
+    assert c.eval("return DisasterZoneBags.sort.spin:IsShown()") is True
+    # (drawn on the tile's face, the top frame: not under its ground)
+    assert c.eval("local b = DisasterZoneBags.sort; return b.spin:GetParent() == ns.LookBars.tiles[b].f") is True
     for _ in range(80):
         w.tick(0.1)
         if c.eval("return ns.LookBags.sorting == nil"):
             break
     assert c.eval("return ns.LookBags.sorting == nil") is True, "the sort never finished"
+    w.tick(0.5)      # (the loading glyph fades back out)
+    assert c.eval("return DisasterZoneBags.sort.spin:IsShown()") is False
     # nothing lost, every item one stack (no stack is over 20 here), in order, the free slots last
     after = c.eval_py("""
         local t, order, gap = {}, {}, false

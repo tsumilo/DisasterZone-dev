@@ -118,6 +118,40 @@ local function Text(parent, size, r, g, b)
     return fs
 end
 
+-- A ground with round corners (WoW has no rounded rectangle): four quarter discs (the game's portrait mask cut in four)
+-- and three strips between them, none overlapping, so a see-through colour stays even. r: the corner's radius.
+function Bags.Rounded(f, r)
+    local L = Look()
+    local g = { parts = {} }
+    local function T(path)
+        local t = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+        t:SetTexture(path or L.WHITE)
+        g.parts[#g.parts + 1] = t
+        return t
+    end
+    local corners = { { "TOPLEFT", 0, 0.5, 0, 0.5 }, { "TOPRIGHT", 0.5, 1, 0, 0.5 },
+                      { "BOTTOMLEFT", 0, 0.5, 0.5, 1 }, { "BOTTOMRIGHT", 0.5, 1, 0.5, 1 } }
+    for _, c in ipairs(corners) do
+        local t = T(L.DISC)
+        t:SetSize(r, r)
+        t:SetPoint(c[1], f, c[1], 0, 0)
+        t:SetTexCoord(c[2], c[3], c[4], c[5])
+    end
+    local mid = T()                                       -- the full-height middle, between the corner columns
+    mid:SetPoint("TOPLEFT", f, "TOPLEFT", r, 0)
+    mid:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -r, 0)
+    local left = T()                                      -- the side strips, between the corners
+    left:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -r)
+    left:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", r, r)
+    local right = T()
+    right:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -r)
+    right:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", -r, r)
+    function g:SetColor(cr, cg, cb, ca) for _, t in ipairs(self.parts) do t:SetVertexColor(cr, cg, cb, ca) end end
+    function g:Show() for _, t in ipairs(self.parts) do t:Show() end end
+    function g:Hide() for _, t in ipairs(self.parts) do t:Hide() end end
+    return g
+end
+
 -- kind: "bags" | "bank"
 local function NewWindow(kind)
     local name = kind == "bank" and "DisasterZoneBank" or "DisasterZoneBags"
@@ -132,8 +166,7 @@ local function NewWindow(kind)
     f:Hide()
     if UISpecialFrames then tinsert(UISpecialFrames, name) end
     f.panel = Look():Panel(f)
-    f.floor = Tex(f, "BACKGROUND", -8)                   -- (Halo: a plain dark ground, no edges: the rings carry it)
-    f.floor:SetAllPoints(f)
+    f.floor = Bags.Rounded(f, 14)                         -- (Halo: a dark ground with round corners, no edges)
     f.floor:Hide()
 
     -- header: title, free slots, search, sort, close (dragging it moves the window)
@@ -154,26 +187,66 @@ local function NewWindow(kind)
     f.title = Text(hd, "normal")
     f.title:SetPoint("LEFT", 0, 0)
     f.title:SetText(kind == "bank" and "Bank" or "Bags")
-    f.free = Text(hd, "small", 0.8, 0.78, 0.72)
-    f.free:SetPoint("LEFT", f.title, "RIGHT", 6, 0)
-    f.close = CreateFrame("Button", nil, hd)
-    f.close:SetSize(18, 18)
-    f.close:SetPoint("RIGHT", 0, 0)
-    f.close.x = Text(f.close, "normal", 0.85, 0.83, 0.78)
-    f.close.x:SetPoint("CENTER"); f.close.x:SetText("x")
-    f.close:SetScript("OnClick", function() f:Hide() end)
-    f.sort = CreateFrame("Button", nil, hd)
-    f.sort:SetSize(40, 20)
-    f.sort:SetPoint("RIGHT", f.close, "LEFT", -6, 0)
-    f.sort.bg = Tex(f.sort, "BACKGROUND", 0)
-    f.sort.bg:SetAllPoints()
-    f.sort.t = Text(f.sort, "small"); f.sort.t:SetPoint("CENTER"); f.sort.t:SetText("Sort")
-    f.sort:SetScript("OnClick", function() Bags:Sort(kind) end)
-    if UI.CreateSearchBox then
-        f.search = UI:CreateSearchBox(hd, 180, function(text) Bags:Search(text) end, "Search (or junk, new)")
-        f.search:SetPoint("LEFT", f.free, "RIGHT", 10, 0)
-        f.search:SetPoint("RIGHT", f.sort, "LEFT", -8, 0)
+    f.free = Text(hd, "small", 0.62, 0.6, 0.55)
+    f.free:SetPoint("LEFT", f.title, "RIGHT", 8, -1)
+    -- the tools on the right: tiles drawn like the Dock's menu tiles (UI/LookBars.lua Tile), so they belong to the look
+    local function Tool(glyph, tip, onClick)
+        local b = CreateFrame("Button", nil, hd)
+        b:SetSize(24, 24)
+        b.dzGlyph = glyph
+        b:RegisterForClicks("AnyUp")
+        b:SetScript("OnClick", onClick)
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(type(tip) == "function" and tip() or tip)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        return b
     end
+    f.tools = {}
+    f.close = Tool({ "txt", "x" }, "Close", function() f:Hide() end)
+    f.sort = Tool({ 1, UI.ICON.poll or 55 }, function()
+        return Bags.sorting and "Sorting..." or "Sort: stacks merged, then gear, consumables, trade goods, gems, junk last"
+    end, function() Bags:Sort(kind) end)
+    -- (while sorting the glyph cross-fades into a spinning loading glyph, and back when done)
+    f.sort.spin = f.sort:CreateTexture(nil, "OVERLAY", nil, 7)
+    f.sort.spin:SetTexture("Interface\\AddOns\\DisasterZone\\Media\\Strategy\\sync")
+    f.sort.spin:SetPoint("CENTER")
+    f.sort.spin:SetAlpha(0)
+    f.sort.spin:Hide()
+    f.tools = { f.close, f.sort }
+    if kind == "bags" then
+        f.keys = Tool({ 2, 5, 38 }, "Key ring", function() Bags:ShowKeys(not Bags.keys) end)
+        tinsert(f.tools, f.keys)
+    end
+    -- the search: our own field, its ground in the look (Bags:Chrome)
+    local eb = CreateFrame("EditBox", nil, hd)
+    eb:SetAutoFocus(false)
+    eb:SetFontObject("GameFontHighlightSmall")
+    eb:SetHeight(22)
+    eb:SetTextInsets(22, 8, 0, 0)
+    eb:SetMaxLetters(60)
+    eb.bg = Tex(eb, "BACKGROUND", 0)
+    eb.bg:SetAllPoints()
+    eb.edge = Look().Edges(eb, "BORDER", 1)
+    eb.edge:Place(eb, 0)
+    eb.icon = Tex(eb, "ARTWORK", 0, "Interface\\Common\\UI-Searchbox-Icon")
+    eb.icon:SetSize(12, 12)
+    eb.icon:SetPoint("LEFT", 6, 0)
+    eb.hint = Text(eb, "small", 0.55, 0.53, 0.48)
+    eb.hint:SetPoint("LEFT", 22, 0)
+    eb.hint:SetText("Search")
+    eb:SetScript("OnTextChanged", function(self)
+        local t = self:GetText() or ""
+        self.hint:SetShown(t == "" and not self:HasFocus())
+        Bags:Search(t)
+    end)
+    eb:SetScript("OnEditFocusGained", function(self) self.hint:Hide() end)
+    eb:SetScript("OnEditFocusLost", function(self) self.hint:SetShown((self:GetText() or "") == "") end)
+    eb:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
+    eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    f.search = eb
 
     -- body: the slots (each bag's holder carries the bag's id: the item button template reads it), section heads
     f.body = CreateFrame("Frame", nil, f)
@@ -188,17 +261,7 @@ local function NewWindow(kind)
     f.money = Text(f.ft, "small", 1, 1, 1)
     f.money:SetPoint("RIGHT", 0, 0)
     f.bagIcons = {}
-    if kind == "bags" then
-        f.keys = CreateFrame("Button", nil, f.ft)
-        f.keys:SetSize(20, 20)
-        f.keys.icon = Tex(f.keys, "ARTWORK", 0, "Interface\\Icons\\INV_Misc_Key_14")
-        f.keys.icon:SetAllPoints(); f.keys.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        f.keys:SetScript("OnClick", function() Bags:ShowKeys(not Bags.keys) end)
-        f.keys:SetScript("OnEnter", function(s)
-            GameTooltip:SetOwner(s, "ANCHOR_TOP"); GameTooltip:AddLine(KEYRING or "Key ring"); GameTooltip:Show()
-        end)
-        f.keys:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    else
+    if kind ~= "bags" then
         f.buy = CreateFrame("Button", nil, f.ft)
         f.buy:SetSize(110, 20)
         f.buy.bg = Tex(f.buy, "BACKGROUND", 0); f.buy.bg:SetAllPoints()
@@ -428,7 +491,7 @@ function Bags:Refresh(kind)
     -- the ground in the look (Halo: no plate, a light dark ground the rings float on)
     if k == "halo" then
         f.panel:Apply(nil)
-        f.floor:Show(); f.floor:SetVertexColor(0.05, 0.05, 0.06, 0.62)
+        f.floor:Show(); f.floor:SetColor(0.05, 0.05, 0.06, 0.62)
     else
         f.floor:Hide()
         f.panel:Apply(look)
@@ -570,11 +633,6 @@ function Bags:Footer(f, kind, look)
     end
     f.slots:ClearAllPoints()
     f.slots:SetPoint("LEFT", f.ft, "LEFT", x + 6, 0)
-    if f.keys then
-        f.keys:ClearAllPoints()
-        f.keys:SetPoint("LEFT", f.slots, "RIGHT", 10, 0)
-        f.keys:SetAlpha(self.keys and 1 or 0.6)
-    end
     if f.buy then
         local n, full = nil, true
         if GetNumBankSlots then n, full = GetNumBankSlots() end
@@ -594,9 +652,104 @@ function Bags:Footer(f, kind, look)
     end
     local m = GetMoney and GetMoney() or 0
     f.money:SetText(GetCoinTextureString and GetCoinTextureString(m) or tostring(m))
+    self:Chrome(f, kind, look)
+end
+
+-- The header in the look: the title in its heading colour, the search's ground, the tool tiles (the Dock's tiles:
+-- Halo's rings, Sigil's frames, Gilded's gold), right to left with the look's gap.
+local SEARCH_LOOK = {
+    flat = { bg = { 0, 0, 0, 0.45 }, edge = { 0, 0, 0, 1 } },
+    halo = { bg = { 0, 0, 0, 0.32 }, under = { 0.96, 0.9, 0.72, 0.35 } },
+    sigil = { bg = { 0, 0, 0, 0.85 }, edge = { 0.91, 0.89, 0.82, 0.22 } },
+    slate = { under = { 1, 1, 1, 0.16 } },
+    gilded = { bg = { 0.08, 0.055, 0.02, 0.7 }, edge = { 0.66, 0.51, 0.17, 1 } },
+}
+
+function Bags:Chrome(f, kind, look)
+    local L = Look()
+    local k = look.key
+    local hc = HEAD_C[k] or HEAD_C.flat
+    f.title:SetText((k == "sigil" or k == "gilded") and (kind == "bank" and "BANK" or "BAGS") or (kind == "bank" and "Bank" or "Bags"))
+    f.title:SetTextColor(hc[1], hc[2], hc[3])
+    -- tools: right to left, the look's gap
+    local size, gap = 24, (GAP[k] or 3) + 2
+    local prev
+    local LB = ns.LookBars
+    for _, b in ipairs(f.tools) do
+        b:ClearAllPoints()
+        if prev then b:SetPoint("RIGHT", prev, "LEFT", -gap, 0) else b:SetPoint("RIGHT", f.hd, "RIGHT", 0, 0) end
+        b:SetSize(size, size)
+        if LB and LB.Tile then LB:Tile(b, look) end
+        prev = b
+    end
     f.sort:SetShown(self:CanSort(kind))
-    f.sort.t:SetText(self.sorting and self.sorting.kind == kind and "Sorting" or "Sort")
-    L.Color(f.sort.bg, { 0, 0, 0, 0.35 })
+    self:Spinner(f, self.sorting and self.sorting.kind == kind)
+    if f.keys then
+        local t = LB and LB.tiles and LB.tiles[f.keys]
+        if t and t.glyph then
+            local c = self.keys and { 1, 0.82, 0 } or nil
+            if c then t.glyph:SetVertexColor(c[1], c[2], c[3], 1) end
+        end
+    end
+    -- the search between the title and the tools
+    local eb = f.search
+    eb:ClearAllPoints()
+    eb:SetPoint("LEFT", f.free, "RIGHT", 12, 1)
+    eb:SetPoint("RIGHT", prev or f.hd, prev and "LEFT" or "RIGHT", -10, 0)
+    local sl = SEARCH_LOOK[k] or SEARCH_LOOK.flat
+    if sl.bg then L.Color(eb.bg, sl.bg) else eb.bg:Hide() end
+    if sl.edge then
+        eb.edge:Paint(sl.edge)
+    else
+        eb.edge:Paint(nil)
+        if sl.under then L.Color(eb.edge[2], sl.under) end      -- (Halo, Slate: a single line under it)
+    end
+    eb.icon:SetVertexColor(hc[1], hc[2], hc[3], 0.8)
+end
+
+-- The sort tile while sorting: its glyph fades out as a loading glyph fades in and spins; when the sort ends they
+-- trade places again (0.2 s each way).
+local FADE = 0.2
+function Bags:Spinner(f, on)
+    local b = f.sort
+    if not b or not b.spin then return end
+    b.spinOn = on and true or false
+    if b.spinRunning then return end
+    b.spinRunning = true
+    b.k = b.k or 0                           -- (0 = the sort glyph, 1 = the loading glyph)
+    b.angle = b.angle or 0
+    local t = ns.LookBars and ns.LookBars.tiles and ns.LookBars.tiles[b]
+    -- (on the tile's face, over its ground: the face is a frame above the button, so a texture on the button
+    -- itself would spin out of sight)
+    if t and t.f and b.spin:GetParent() ~= t.f then
+        b.spin:SetParent(t.f)
+        b.spin:SetDrawLayer("OVERLAY", 7)
+        b.spin:ClearAllPoints()
+        b.spin:SetPoint("CENTER", t.f, "CENTER", 0, 0)
+    end
+    local size = math.floor((b:GetWidth() or 24) * 0.58 + 0.5)
+    b.spin:SetSize(size, size)
+    if t and t.glyph then
+        local r, g, bl = t.glyph:GetVertexColor()
+        b.spin:SetVertexColor(r or 1, g or 1, bl or 1, 1)
+    end
+    b.spin:Show()
+    b:SetScript("OnUpdate", function(self, dt)
+        dt = dt or 0
+        local goal = self.spinOn and 1 or 0
+        if self.k < goal then self.k = math.min(1, self.k + dt / FADE)
+        elseif self.k > goal then self.k = math.max(0, self.k - dt / FADE) end
+        self.angle = (self.angle - dt * 6) % (2 * math.pi)
+        if self.spin.SetRotation then self.spin:SetRotation(self.angle) end
+        local e = self.k * self.k * (3 - 2 * self.k)            -- (smooth)
+        self.spin:SetAlpha(e)
+        if t and t.glyph then t.glyph:SetAlpha(1 - e) end
+        if not self.spinOn and self.k <= 0 then
+            self.spin:Hide()
+            self.spinRunning = false
+            self:SetScript("OnUpdate", nil)
+        end
+    end)
 end
 
 ---------------------------------------------------------------------------
@@ -683,8 +836,8 @@ local function Round(slots)
         C.PickupContainerItem(slots[from][1], slots[from][2])
         C.PickupContainerItem(slots[to][1], slots[to][2])
         if CursorHasItem and CursorHasItem() then
-            -- (the server took neither: put it back where it came from)
-            C.PickupContainerItem(slots[from][1], slots[from][2])
+            -- (the drop was refused: the item goes back where it came from; a later round tries again)
+            if ClearCursor then ClearCursor() else C.PickupContainerItem(slots[from][1], slots[from][2]) end
         end
         used[from], used[to] = true, true
     end
@@ -782,17 +935,29 @@ function Bags:Sort(kind)
     local fr = self.sorter
     pcall(fr.RegisterEvent, fr, "ITEM_LOCK_CHANGED")
     pcall(fr.RegisterEvent, fr, "BAG_UPDATE_DELAYED")
+    local function Now() return GetTime and GetTime() or 0 end
+    self.sorting.progress = Now()
     local function Step()
         local st = Bags.sorting
-        if not st then return end
-        if (InCombatLockdown and InCombatLockdown()) or (CursorHasItem and CursorHasItem())
-            or (st.kind == "bank" and not Bags.atBank) then Bags:StopSort() return end
-        local made, pending = Round(st.slots)
+        -- (picking an item up fires the lock event at once, inside a round's own move: never a round in a round)
+        if not st or st.busy then return end
+        if (InCombatLockdown and InCombatLockdown()) or (st.kind == "bank" and not Bags.atBank) then
+            Bags:StopSort() return
+        end
+        -- something on the cursor (yours): wait for it to be put down; give up if it stays a few seconds
+        if CursorHasItem and CursorHasItem() then
+            if Now() - st.progress > 4 then Bags:StopSort() end
+            return
+        end
+        st.busy = true
+        local ok, made, pending = pcall(Round, st.slots)
+        st.busy = false
+        if not ok then Bags:StopSort() return end
         st.rounds = st.rounds + 1
         if not pending then Bags:StopSort() return end
-        -- (nothing could move: everything waits for the server; give up after a while without any progress)
-        if made == 0 then st.idle = st.idle + 1 else st.idle = 0; st.waves = st.waves + 1 end
-        if st.idle > 200 or st.rounds > 2000 then Bags:StopSort() end
+        if made > 0 then st.progress = Now(); st.waves = st.waves + 1 end
+        -- (nothing has moved for a while: something the sort can't finish; stop rather than spin)
+        if Now() - st.progress > 6 or st.rounds > 5000 then Bags:StopSort() end
     end
     fr:SetScript("OnEvent", function() Step() end)
     fr:SetScript("OnUpdate", function(_, dt)
@@ -804,14 +969,17 @@ function Bags:Sort(kind)
         Step()
     end)
     Step()
-    self:Refresh(kind)
+    local w = windows[kind]
+    if w and w:IsShown() then self:Spinner(w, Bags.sorting ~= nil) end
     return true
 end
 
 function Bags:StopSort()
     -- (how long it took, in seconds: tests read it)
     self.lastTime = self.sorting and GetTime and (GetTime() - (self.sorting.started or GetTime())) or nil
+    local kind = self.sorting and self.sorting.kind
     self.sorting = nil
+    if kind and windows[kind] then self:Spinner(windows[kind], false) end
     if self.sorter then
         self.sorter:SetScript("OnUpdate", nil)
         self.sorter:SetScript("OnEvent", nil)

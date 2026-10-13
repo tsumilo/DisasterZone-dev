@@ -396,7 +396,9 @@ end
 function Bars:Tile(b, look)
     local L = Look()
     local name = b.dzName or b:GetName() or ""   -- (dzName: a sample button standing for one of the game's)
-    local g = GLYPHS[name] or (b.dzGlyph and { "dz" })
+    -- (b.dzGlyph: one of our own buttons drawn as a tile: "dz" the DisasterZone letters, { "txt", text }, or a glyph
+    -- spec like GLYPHS')
+    local g = GLYPHS[name] or (b.dzGlyph == "dz" and { "dz" }) or (type(b.dzGlyph) == "table" and b.dzGlyph) or nil
     local t = tiles[b]
     if not t then
         t = { b = b, g = g, enabled = true }
@@ -415,12 +417,12 @@ function Bars:Tile(b, look)
             t.edge2 = L.Edges(t.f, "BORDER", 2); t.edge2:Place(t.f, -1)
             t.glyph = t.f:CreateTexture(nil, "OVERLAY")
             t.glyph:SetPoint("CENTER")
-            if g[1] == "dz" then
+            if g[1] == "dz" or g[1] == "txt" then
                 -- (the DisasterZone tile: its letters, coloured like a glyph)
                 t.text = t.f:CreateFontString(nil, "OVERLAY")
-                t.text:SetFont(STANDARD_TEXT_FONT or "Fonts\FRIZQT__.TTF", 11, "")
+                t.text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 11, "")
                 t.text:SetPoint("CENTER", 0, 0)
-                t.text:SetText("DZ")
+                t.text:SetText(g[1] == "txt" and g[2] or "DZ")
                 t.glyph:SetTexture(L.WHITE)
                 t.glyph:SetAlpha(0)
             else
@@ -480,7 +482,7 @@ function Bars:Tile(b, look)
             L.Gradient(t.sheen, { 1, 1, 1, 0 }, { 1, 1, 1, 0.14 })
         else t.sheen:Hide() end
         t.glyph:SetSize(size * ((k == "slate") and 0.78 or 0.58), size * ((k == "slate") and 0.78 or 0.58))
-        if t.text then t.text:SetFont(STANDARD_TEXT_FONT or "Fonts\FRIZQT__.TTF", math.max(8, math.floor(size * 0.36)), "") end
+        if t.text then t.text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", math.max(8, math.floor(size * ((t.g and t.g[1] == "txt") and 0.62 or 0.36))), "") end
         PaintGlyphTile(t, false)
     else
         t.icon:Apply(look, look.icon == "none" and "small" or look.icon)
