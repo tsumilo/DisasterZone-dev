@@ -161,7 +161,8 @@ def close_all(cl):
                               'DisasterZoneTotems', 'DisasterZoneTotemBar', 'DisasterZoneTotemRange',
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
-                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZAuditFull' }) do
+                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZAuditFull',
+                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       -- (the shared pop-ups of UI:Toast, which replaced some of the named ones above)
@@ -197,6 +198,7 @@ def close_all(cl):
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.Picker and ns.Picker.Close then pcall(ns.Picker.Close, ns.Picker) end
+      if ns.WardrobeUI and ns.WardrobeUI.HideBar then ns.WardrobeUI:HideBar() end
       if ns.EditMode and ns.EditMode.IsActive and ns.EditMode:IsActive() then pcall(ns.EditMode.Close, ns.EditMode) end
       -- (My BiS's Equipped views: back to the list, the mock's own links)
       if __WORN_ORIG then GetInventoryItemLink = __WORN_ORIG; __WORN_ORIG = nil end
@@ -3299,4 +3301,82 @@ end
 STATES += [
     ("UI looks - gallery", opened("home", LOOK_GALLERY)),
     ("Settings - UI", opened("settings", "ns.SettingsUI:SelectSection('ui')")),
+]
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Gear > Wardrobe (Core/Wardrobe.lua, UI/Wardrobe.lua; mockup dev/art/casc/wardrobe_mockup)
+# ---------------------------------------------------------------------------------------------------------------
+WARDROBE_SEED = """
+  local W = ns.Wardrobe
+  local I = 'Interface' .. string.char(92) .. 'Icons' .. string.char(92)
+  local key = ns.Util.PlayerKey()
+  ns.db.wardrobe = ns.db.wardrobe or {}
+  local old = ns.db.wardrobe[key]
+  ns.db.wardrobe[key] = { outfits = {}, n = 0, bank = old and old.bank }
+  local function slots(t)
+    local s = {}
+    for inv, id in pairs(t) do s[inv] = id and { id = id } or false end
+    return s
+  end
+  local ret = W:SaveWorn('Raid \\226\\128\\148 Retribution')
+  ret.icon = I .. 'Spell_Holy_AuraOfLight'
+  W:SetRule(ret.id, 'spec', 'Retribution')
+  local p = W:Add('Tank \\226\\128\\148 Protection', slots({ [1] = 29068, [3] = 29070, [15] = 28660, [5] = 29066,
+    [9] = 29252, [10] = 29067, [6] = 30034, [7] = 29069, [8] = 33523, [11] = 28757, [12] = 29279, [13] = 28528,
+    [16] = 28749, [17] = 28825, [18] = 29388, [2] = 28745 }), I .. 'Spell_Holy_DevotionAura')
+  W:SetRule(p.id, 'spec', 'Protection')
+  local h = W:Add('Hydross \\226\\128\\148 Nature res', slots({ [1] = 29508, [5] = 31364, [7] = 31367 }),
+    I .. 'Spell_Nature_ResistNature')
+  W:SetRule(h.id, 'boss', { kind = 'boss', name = 'Hydross the Unstable' })
+  local f = W:Add('Fishing', slots({ [1] = 33820, [16] = 19970, [17] = false }), I .. 'Trade_Fishing')
+  W:SetRule(f.id, 'pole', true)
+  W:SetBar(true)
+"""
+# the Prot pieces in the bags, its main hand in the bank (seen last time it was open), Hydross's helm and legs in bags
+WARDROBE_BAGS = {(0, 1): 29068, (0, 2): 29070, (0, 3): 28660, (0, 4): 29066, (0, 5): 29252, (0, 6): 29067,
+                 (0, 7): 30034, (0, 8): 29069, (0, 9): 33523, (0, 10): 29279, (0, 11): 28528, (0, 12): 28825,
+                 (0, 13): 29388, (0, 14): 29508, (0, 15): 31367, (0, 16): 33820, (1, 1): 19970, (1, 2): 28430,
+                 (1, 3): 29171}
+
+
+def wardrobe_view(lua=None, empty=False):
+    """Gear > Wardrobe on Gina's screen: P1 Ret gear worn, four outfits (Ret worn, Prot from the bags + its main
+    hand in the bank, Hydross missing its chest, Fishing); empty = no outfits yet."""
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        g.equip(SIM_P1)
+        g.set_bags(WARDROBE_BAGS)
+        g.set_bank({(-1, 1): 28749})
+        w.tick(0.3)
+        g.close_bank()
+        w.tick(0.3)
+        if empty:
+            g.eval("ns.db.wardrobe = ns.db.wardrobe or {}; ns.db.wardrobe[ns.Util.PlayerKey()] = nil; "
+                   "ns.Wardrobe.Changed()")
+        else:
+            g.eval(WARDROBE_SEED)
+        tab(g, "wardrobe")
+        w.tick(0.3)
+        if lua:
+            g.eval(lua)
+        w.tick(0.3)
+        return g
+    return fn
+
+
+STATES += [
+    ("Wardrobe", wardrobe_view("local W = ns.Wardrobe; ns.WardrobeUI:Select(W:List()[2].id); "
+                               "ns.WardrobeUI:SetTab('outfit')")),
+    ("Wardrobe - rules", wardrobe_view("ns.WardrobeUI:Select(ns.Wardrobe:List()[1].id); "
+                                       "ns.WardrobeUI:SetTab('auto')")),
+    ("Wardrobe - picker", wardrobe_view("ns.WardrobeUI:Select(ns.Wardrobe:List()[2].id); "
+                                        "ns.WardrobeUI:SetTab('outfit'); "
+                                        "ns.WardrobeUI:OpenPicker(ns.WardrobeUI.view.body.tiles[15])")),
+    ("Wardrobe - demo", demo("if DisasterZoneBlessBar then DisasterZoneBlessBar:Hide() end; "
+                                 "ns.WardrobeUI:Select('prot'); ns.WardrobeUI:SetTab('outfit')", "wardrobe")),
+    ("Wardrobe - empty", wardrobe_view(empty=True)),
+    ("Wardrobe - bar", wardrobe_view("ns.MainFrame:Close(); ns.WardrobeUI:UpdateBar()")),
 ]

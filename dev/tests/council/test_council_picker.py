@@ -152,7 +152,7 @@ def gm_picks_three_members_and_every_online_client_sees_them():
         assert "council" in tabs(c[n]), (n, tabs(c[n]))
     for n in ("Tess", "Uma"):
         open_window(c[n])
-        assert tabs(c[n]) == ["home", "mybis", "gearsim", "consumables", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], (n, tabs(c[n]))
+        assert tabs(c[n]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], (n, tabs(c[n]))
     # only the GM may save the guild list
     res = c["Olaf"].eval_py("local ok, err = ns.Guild:SetGuildCouncil({}); return { ok = ok, err = err }")
     assert res.get("ok") is False and res.get("err"), res
@@ -330,7 +330,7 @@ def gm_removes_a_member_who_loses_council_views_and_whisper_gates_everywhere():
     gm_pick(w, c["Gina"], ["Rita"])                     # the GM removes Sam
     for n in c:
         assert council(c[n], "Sam") is False, n
-    assert tabs(c["Sam"]) == ["home", "mybis", "gearsim", "consumables", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Sam"])
+    assert tabs(c["Sam"]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Sam"])
     assert c["Sam"].eval("return ns.MainFrame:GetSelectedTab()") == "home"
     a2 = award(28587)
     send_as(c["Sam"], {"t": "A", "e": a2}, "WHISPER", K("Rita"))
@@ -475,19 +475,19 @@ def disband_clears_new_raid_reshares_and_leader_change_switches_lists():
 def raid_leader_is_council_for_their_raid_and_loses_the_tab_after_leaving():
     w, c = raid_world()
     open_window(c["Lee"])
-    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"]
+    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"]
     w.make_raid([c["Lee"], c["Rita"], c["Sam"]], leader=c["Lee"])
     w.tick(5)
     assert council(c["Lee"]) is True and c["Lee"].eval("return ns.Guild:AmIRaidLeader()") is True
-    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Lee"])
-    assert tabs(c["Rita"]) == ["home", "mybis", "gearsim", "consumables", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"] or not c["Rita"].eval("return ns.MainFrame:IsShown()")
+    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Lee"])
+    assert tabs(c["Rita"]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"] or not c["Rita"].eval("return ns.MainFrame:IsShown()")
     c["Lee"].slash("/dz council")
     w.tick(0.5)
     assert c["Lee"].eval("return ns.MainFrame:GetSelectedTab()") == "council"
     w.disband()
     w.tick(2)
     assert council(c["Lee"]) is False
-    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Lee"])
+    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Lee"])
     assert c["Lee"].eval("return ns.MainFrame:GetSelectedTab()") == "home"
     # on the guild list too: the tab stays after the raid
     gm_pick(w, c["Gina"], ["Lee"])
@@ -495,7 +495,7 @@ def raid_leader_is_council_for_their_raid_and_loses_the_tab_after_leaving():
     w.tick(4)
     w.disband()
     w.tick(2)
-    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Lee"])
+    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Lee"])
     no_errors(w)
 
 

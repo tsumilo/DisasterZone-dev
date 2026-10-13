@@ -55,6 +55,7 @@ local INFO = {
     mybis   = { art = 131846, cx = 0.50, icon = "bag", accent = S.C.GOLD },
     gearsim = { art = 131873, cx = 0.55, icon = "chart", accent = { 1, 0.55, 0.25 } },
     consumables = { art = 131847, cx = 0.45, icon = "flask", accent = { 0.53, 0.85, 0.42 } },
+    wardrobe = { art = LS .. "Outland", cx = 0.30, icon = "shield", accent = { 0.37, 0.82, 1 } },
     atlas   = { art = LS .. "Outland", cx = 0.50, icon = "eye", accent = { 0.53, 0.85, 0.42 } },
     members = { art = LS .. "EasternKingdom", cx = 0.50, icon = "team", accent = S.C.GOLD },
     map     = { art = LS .. "Kalimdor", cx = 0.55, icon = "flag", accent = { 0.37, 0.82, 1 } },
@@ -72,6 +73,7 @@ local function IconIndex(name)
         name = ({ poll = "notes", chart = "notes", flask = "bag" })[name] or name
     end
     -- (art pack 7: the ballot box of Raids > Loot rules)
+    if name == "shield" and not (ns.HasAssets and ns:HasAssets(7)) then name = "bag" end
     if name == "ballot" and not (ns.HasAssets and ns:HasAssets(7)) then name = (ns.HasAssets and ns:HasAssets(6)) and "poll" or "notes" end
     return I[name] or I.notes
 end
@@ -262,6 +264,14 @@ FACTS.consumables = function()
     if (s.slots or 0) <= 0 then return end
     if s.ready >= s.slots then return { { "Ready", "for tonight" } } end
     return { { s.ready .. "/" .. s.slots, "in your bags" } }
+end
+
+FACTS.wardrobe = function()
+    local W = ns.Wardrobe
+    local n = W and W.List and #W:List() or 0
+    if n == 0 then return end
+    local on = W:Wearing()
+    return { { Count(n), Plural(n, "outfit", "outfits") }, on and { "Wearing", on.name } or nil }
 end
 
 FACTS.atlas = function()

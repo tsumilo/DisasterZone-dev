@@ -589,7 +589,7 @@ def nav_groups_pages_under_five_tabs():
     c.hover(gear)
     w.tick(0.3)
     assert selected(c) == "home", selected(c)
-    assert c.eval_py(menu) == ["My BiS", "Gear sim", "Consumables", "Atlas"], c.eval_py(menu)
+    assert c.eval_py(menu) == ["My BiS", "Gear sim", "Consumables", "Wardrobe", "Atlas"], c.eval_py(menu)
     # leaving the tab (and the menu) closes it after a moment
     c.eval("local t = ... t.IsMouseOver = nil", gear)
     c.leave(gear)
@@ -609,11 +609,11 @@ def nav_groups_pages_under_five_tabs():
     w.tick(0.3)
     assert c.eval_py(menu) == [], c.eval_py(menu)
     c.eval("ns.MainFrame:OpenGroupMenu('grp:gear')")
-    assert c.eval_py(menu) == ["My BiS", "Gear sim", "Consumables", "Atlas"], c.eval_py(menu)
+    assert c.eval_py(menu) == ["My BiS", "Gear sim", "Consumables", "Wardrobe", "Atlas"], c.eval_py(menu)
     # a spotlight: the list (the page shown now gold, the spotlit one with the bar), the page big on the right
     rows = c.eval_py("local f = ns.NavMenu:GetFrame() local o = {} for _, r in ipairs(f.rows) do if r:IsShown() then "
                      "o[#o + 1] = { r.page.key, r.bar:IsShown() } end end return o")
-    assert rows == [["mybis", True], ["gearsim", False], ["consumables", False], ["atlas", False]], rows
+    assert rows == [["mybis", True], ["gearsim", False], ["consumables", False], ["wardrobe", False], ["atlas", False]], rows
     spot = "local s = ns.NavMenu:GetFrame().spot return { s.name:GetText(), s.line:GetText() }"
     assert c.eval_py(spot) == ["My BiS", "Your BiS lists and what you still need."], c.eval_py(spot)
     # the mouse on a row spotlights it; Atlas jumps straight into its shopping list

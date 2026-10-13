@@ -110,8 +110,8 @@
   ["^UI/(Members|GuildMapUI|Feedback|FeedbackSheet)\\.lua$", "Guild"],
 
   ["^Data/(BiSLists|SimItems|SimAPL)\\.lua$", "Gear"],
-  ["^Core/(BiS|BiSImport|BiSExport|Kit|Store)\\.lua$", "Gear"],
-  ["^UI/(MyBiS|PaperDoll|ImportExport|Sim\\w*|KitView)\\.lua$", "Gear"],
+  ["^Core/(BiS|BiSImport|BiSExport|Kit|Store|Wardrobe)\\.lua$", "Gear"],
+  ["^UI/(MyBiS|PaperDoll|ImportExport|Sim\\w*|KitView|Wardrobe)\\.lua$", "Gear"],
   ["^Sim/", "Gear"],
 
   ["^Core/(Loot|Roll|Loon|Ledger|Prized|Dungeon)\\.lua$", "Loot"],

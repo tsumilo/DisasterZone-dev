@@ -8,6 +8,16 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.4.2", date = "13 October 2026", title = "Edit layout and the UI in our looks",
       sections = {
+          { heading = "Wardrobe: outfits in one click", area = "gear", kind = "new", hi = true, open = "wardrobe",
+            lead = "Outfits in one click: swaps everything at once; weapons even in combat.", lines = {
+              "Gear > Wardrobe: save what you wear, or your BiS list, as an outfit.",
+              "Each slot shows what Wear does: swaps in, in the bank, missing or keep current.",
+              "Wear swaps only what differs, all at once. In a fight the armour waits for the end.",
+              "With the bank open, the pieces in it come out to your bags first.",
+              "Wear automatically: a spec switch, a boss or zone, a fishing pole, a mount.",
+              "The quick-swap bar: a button per outfit in your bar theme; Edit layout moves it.",
+              "A key for Next outfit under Key Bindings > AddOns; /dz wardrobe opens it.",
+          } },
           { heading = "The game's UI in DisasterZone's looks", area = "look", kind = "new", hi = true,
             open = "settings/ui", lead = "Flat, Halo, Sigil, Slate or Gilded for the frames you play with.", lines = {
               "Settings > UI: one look for everything, or a look of its own for each part.",

@@ -149,6 +149,7 @@ Core\Codec.lua
 Core\BiSImport.lua
 Core\BiSExport.lua
 Core\WornGems.lua
+Core\Wardrobe.lua
 Core\Demo.lua
 Core\DemoScenarios.lua
 
@@ -255,6 +256,7 @@ UI\ClassBar.lua
 UI\BlessingsBar.lua
 UI\TotemsUI.lua
 UI\TotemBar.lua
+UI\Wardrobe.lua
 UI\EditMode.lua
 UI\Look.lua
 UI\LookUnits.lua

@@ -17,10 +17,10 @@ for _, k in ipairs(ns.MainFrame:GetShownPages()) do out[#out + 1] = k end
 return out"""
 
 # The pages the window offers (a tab or a line in a group's menu), in the pages' order.
-ALL_TABS = ["home", "mybis", "gearsim", "consumables", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"]
+ALL_TABS = ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"]
 # Addendum J: every guild member has the Raids tab (Upcoming / Teams); its Raid log view stays council only.
-PERSONAL_TABS = ["home", "mybis", "gearsim", "consumables", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"]
-GUILDLESS_TABS = ["home", "mybis", "gearsim", "consumables", "atlas", "mylog", "members", "games", "feedback", "changelog", "settings"]
+PERSONAL_TABS = ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"]
+GUILDLESS_TABS = ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "mylog", "members", "games", "feedback", "changelog", "settings"]
 
 
 def shown_tabs(c):

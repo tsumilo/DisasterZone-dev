@@ -41,7 +41,7 @@ local NAV_HIDDEN = { notify = true }
 -- last in it (settings.navLast). Groups follow shared data: raid nights and their loot, items, the guild's people and pastimes.
 local NAV_GROUPS = {
     { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council", "lootrules", "mylog" } },
-    { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "gearsim", "consumables", "atlas" } },
+    { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "gearsim", "consumables", "wardrobe", "atlas" } },
     { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "map", "events", "polls", "games" } },
 }
 -- A line under each page in a group's menu (its tooltip).
@@ -53,6 +53,7 @@ local NAV_PAGE_TIPS = {
     mybis   = "Your BiS lists and what you still need.",
     gearsim = "Try gear before you have it: simulated fights.",
     consumables = "The flask, food and potions for your spec.",
+    wardrobe = "Your outfits: one click (or a rule) swaps your gear.",
     atlas   = "Every raid and dungeon's drops, sets and costs.",
     members = "The guild's members, professions and recipes.",
     map     = "Where guildmates are right now.",

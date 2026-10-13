@@ -308,7 +308,7 @@ def a_raid_leader_gets_no_loot_council_data():
     w, c = world()
     rhea, cora = c["Rhea"], c["Cora"]
     # every page a member has (Gear sim / Consumables since 1.3.4, Loot rules for everyone since 1.3.5), no council page
-    assert tabs(rhea) == ["home", "mybis", "gearsim", "consumables", "atlas", "raids", "lootrules", "mylog", "dungeons",
+    assert tabs(rhea) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "raids", "lootrules", "mylog", "dungeons",
                           "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(rhea)
     ct = tabs(cora)
     assert "council" in ct, ct

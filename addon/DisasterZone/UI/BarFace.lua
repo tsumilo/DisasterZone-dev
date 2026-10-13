@@ -698,6 +698,7 @@ function Face:Refresh()
     if InCombatLockdown() then return end
     if ns.BlessingsBar and ns.BlessingsBar.Update then ns.BlessingsBar:Update() end
     if ns.TotemBar and ns.TotemBar.Update then ns.TotemBar:Update() end
+    if ns.WardrobeUI and ns.WardrobeUI.UpdateBar then ns.WardrobeUI:UpdateBar() end
 end
 
 function Face:SetPreview(key)

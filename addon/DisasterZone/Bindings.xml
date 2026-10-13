@@ -4,4 +4,7 @@
 	<Binding name="DISASTERZONE_EDITLAYOUT" category="ADDONS">
 		DisasterZone_ToggleEditLayout()
 	</Binding>
+	<Binding name="DISASTERZONE_WARDROBENEXT" category="ADDONS">
+		DisasterZone_WardrobeNext()
+	</Binding>
 </Bindings>
