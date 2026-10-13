@@ -615,7 +615,15 @@ function UI:ColoredName(key, classFile)
     classFile = self:ClassOf(key, classFile)
     -- (a player from another realm: "Name*", the realm is long and the tooltips say it)
     local name = (ns.Util and ns.Util.DisplayName) and ns.Util.DisplayName(key) or (ns.Util.ShortName(key) or key)
-    return "|c" .. ClassHex(classFile) .. name .. "|r"
+    return "|c" .. ClassHex(classFile) .. name .. "|r" .. self:DiscordTag(key)
+end
+
+-- A small Discord badge after the name of a player who made their character in Discord (Core/Bridge.lua), else "".
+UI.DISCORD_ICON = "Interface\\AddOns\\DisasterZone\\Media\\Icons\\Discord"
+function UI:DiscordTag(key)
+    local B = ns.Bridge
+    if not (B and B.GetDiscordName and B:GetDiscordName(key)) then return "" end
+    return " |T" .. UI.DISCORD_ICON .. ":0:0:0:0|t"
 end
 
 -- Is that player a guest: someone outside my guild (pugs in a raid, guests on a planned raid)? False while the

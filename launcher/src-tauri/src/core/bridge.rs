@@ -45,6 +45,9 @@ pub struct Char {
     pub class: String,
     /// 1-based index into the class's specs (addon ns.SPECS)
     pub spec: u32,
+    /// the Discord name of whoever made it (the addon shows a badge after the character's name)
+    #[serde(default)]
+    pub by: String,
 }
 
 /// Discord user id -> their characters (the first is their main)
@@ -190,7 +193,7 @@ pub fn save_json<T: Serialize + ?Sized>(p: &Path, v: &T) -> Result<()> {
     Ok(())
 }
 
-pub fn inbox_lua(records: &[Record], written: u64, channels: &[Channel]) -> String {
+pub fn inbox_lua(records: &[Record], written: u64, channels: &[Channel], profiles: &Profiles) -> String {
     let mut s = String::from("-- Written by the DisasterZone launcher (host mode). Do not edit: it is rewritten.\n");
     s.push_str(&format!("DZBridgeInbox = {{ v = 1, written = {written}, records = {{\n"));
     for r in records {
@@ -200,6 +203,14 @@ pub fn inbox_lua(records: &[Record], written: u64, channels: &[Channel]) -> Stri
     }
     s.push_str("}, channels = ");
     lua_value(&serde_json::to_value(channels).unwrap(), &mut s);
+    // the characters made in Discord: { { name, discord }, ... }
+    let links: Vec<Value> = profiles
+        .values()
+        .flatten()
+        .map(|c| serde_json::json!({ "name": c.name, "discord": if c.by.is_empty() { "Discord" } else { &c.by } }))
+        .collect();
+    s.push_str(", links = ");
+    lua_value(&Value::Array(links), &mut s);
     s.push_str(" }\n");
     s
 }
@@ -232,7 +243,7 @@ pub fn write_inbox(flavor_dir: &Path, records: &[Record], written: u64) -> Resul
         interface_of(&addons)
     );
     write_atomic(&dir.join(format!("{FOLDER}.toc")), &toc)?;
-    write_atomic(&dir.join("Inbox.lua"), &inbox_lua(records, written, &load_channels()))
+    write_atomic(&dir.join("Inbox.lua"), &inbox_lua(records, written, &load_channels(), &load_profiles()))
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -533,10 +544,13 @@ DisasterZoneBridgeDB = {
 
     #[test]
     fn inbox_round_trips_through_the_reader() {
-        let lua = inbox_lua(&[rec("dc_1", "hi \"there\" | \\ \n")], 7, &[Channel { id: "1".into(), name: "raids".into() }]);
+        let mut p = Profiles::new();
+        p.insert("9".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3, by: "Tsumi".into() }]);
+        let lua = inbox_lua(&[rec("dc_1", "hi \"there\" | \\ \n")], 7, &[Channel { id: "1".into(), name: "raids".into() }], &p);
         let v = read_global(&lua, "DZBridgeInbox").unwrap();
         assert_eq!(v["written"], json!(7));
         assert_eq!(lua_list(v.get("channels"))[0]["name"], json!("raids"));
+        assert_eq!(lua_list(v.get("links"))[0]["discord"], json!("Tsumi"));
         assert_eq!(v["records"]["1"]["id"], json!("dc_1"));
         assert_eq!(v["records"]["1"]["body"]["text"], json!("hi \"there\" | \\ \n"));
     }
@@ -560,7 +574,7 @@ DisasterZoneBridgeDB = {
     #[test]
     fn one_name_one_owner() {
         let mut p = Profiles::new();
-        p.insert("1".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3 }]);
+        p.insert("1".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3, by: String::new() }]);
         assert_eq!(owner_of(&p, "lee").as_deref(), Some("1"));
         assert_eq!(owner_of(&p, "LEE-Thunderstrike").as_deref(), Some("1"));
         assert_eq!(owner_of(&p, "Rita"), None);

@@ -205,7 +205,7 @@ pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64)
                 let _ = owner;
                 return Answer::Update(format!("**{cname}** is already someone else's. Ask an officer if that's you."), Vec::new());
             }
-            let c = Char { name: cname.to_string(), class: class.to_string(), spec };
+            let c = Char { name: cname.to_string(), class: class.to_string(), spec, by: name.to_string() };
             let list = profiles.entry(user.to_string()).or_default();
             list.retain(|x| !x.name.eq_ignore_ascii_case(cname));
             list.push(c.clone());
@@ -213,6 +213,10 @@ pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64)
                 return Answer::Update(format!("Could not save it: {e}"), Vec::new());
             }
             let made = format!("Saved **{cname}** ({}). ", spec_name(class, spec));
+            // (the addon's Discord badges: the host's inbox carries the new name at once)
+            if let Some(dir) = crate::core::state::load().flavor_dir() {
+                let _ = bridge::sync(&dir, now);
+            }
             if raid == "-" {
                 return Answer::Update(format!("{made}The raid posts' buttons use it now."), Vec::new());
             }
@@ -241,6 +245,9 @@ pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64)
                 list.remove(i);
             }
             let _ = bridge::save_profiles(&profiles);
+            if let Some(dir) = crate::core::state::load().flavor_dir() {
+                let _ = bridge::sync(&dir, now);
+            }
             Answer::Update(format!("Removed **{gone}**."), Vec::new())
         }
         _ => text("Unknown menu."),

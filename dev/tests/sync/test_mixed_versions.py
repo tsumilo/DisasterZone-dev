@@ -463,7 +463,8 @@ def the_hello_is_the_same_as_140s():
     """rlr and av moved from Sync.lua into registered HELLO fields: the HELLO Gina sends is the one 1.4.0 sent (the
     same keys and values; n, the session nonce, aside)."""
     (old, old_own), (new, new_own) = hello_of(True), hello_of(False)
-    assert set(old) == set(new), (sorted(old), sorted(new))
+    # (1.4.2 adds dcr, the Discord links' rev: Core/Bridge.lua)
+    assert set(old) == set(new) - {"dcr"}, (sorted(old), sorted(new))
     assert {"rlr", "av", "pd", "blr", "gnr", "sd", "ed", "od", "zd"} <= set(new), sorted(new)
     # (the digest hashes are over records with ids made from each world's clock: each is its own client's hash)
     for m, own in ((old, old_own), (new, new_own)):

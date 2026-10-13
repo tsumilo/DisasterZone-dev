@@ -8,7 +8,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Bridge.lua", ...) then return
 -- Records are read once, at login or /reload. Everyone else gets the result through the normal guild sync.
 --
 -- DZBridgeInbox = { v = 1, written = <epoch>, records = { { id, type, at, by, body = { ... } }, ... },
---                  channels = { { id = "<snowflake>", name = "raids" }, ... } (the Discord server's text channels) }
+--                  channels = { { id = "<snowflake>", name = "raids" }, ... } (the Discord server's text channels),
+--                  links = { { name = "Lee", discord = "Tsumi" }, ... } (the characters made in Discord) }
 --
 -- Who is who: a Discord user makes their character in Discord once (name, class, spec); the launcher keeps it. No
 -- proof is asked: the guild trusts its Discord. A name in the guild roster signs up as that member (the roster's
@@ -91,6 +92,104 @@ function Bridge:GetChannels()
 end
 
 ---------------------------------------------------------------------------
+-- Discord links: which guild members made their character in Discord (a badge after their name, UI:DiscordTag).
+-- The host's addon turns the inbox's links into db.discordLinks[guildKey] = { rev, l = { [key] = Discord name } }
+-- and shares it: DCL { rev, l } (GUILD, or WHISPER to one member). Only the Discord host's list counts. Its rev
+-- rides in the HELLO (dcr): the host answers an older one, a member asks the host for a newer one (DCQ).
+---------------------------------------------------------------------------
+
+local MAX_LINKS = 400
+
+local function LinksRec(create)
+    local G = ns.Guild
+    local gk = G and G.GetGuildKey and G:GetGuildKey()
+    local rec = gk and ns.DB:GuildBucket("discordLinks", create, gk)
+    if not rec then return nil end
+    if type(rec.l) ~= "table" or type(rec.rev) ~= "number" then
+        if not create then return nil end
+        rec.rev, rec.l = 0, {}
+    end
+    return rec
+end
+
+local function CleanLinks(l)
+    if type(l) ~= "table" then return nil end
+    local out, n = {}, 0
+    for k, v in pairs(l) do
+        n = n + 1
+        if n > MAX_LINKS then return nil end
+        if type(k) == "string" and #k <= 48 and not k:find("[%c|]") and type(v) == "string" and #v <= 40
+            and not v:find("[%c|]") then
+            out[ns.Util.NormalizeName(k) or k] = v
+        end
+    end
+    return out
+end
+
+local function SameLinks(a, b)
+    for k, v in pairs(a) do if b[k] ~= v then return false end end
+    for k in pairs(b) do if a[k] == nil then return false end end
+    return true
+end
+
+local function SendLinks(target)
+    local rec = LinksRec(false)
+    if not rec or rec.rev == 0 or not ns.Comm then return end
+    ns.Comm:Send({ t = "DCL", rev = rec.rev, l = rec.l }, target and "WHISPER" or "GUILD", target, "data")
+end
+
+local function AmHost()
+    return ns.Guild and ns.Guild.IsDiscordHost and ns.Guild:IsDiscordHost(ns.Util.PlayerKey()) or false
+end
+
+-- The Discord name of the player who made `key` in Discord, or nil.
+function Bridge:GetDiscordName(key)
+    local rec = type(key) == "string" and LinksRec(false)
+    return rec and rec.l[key] or nil
+end
+
+-- The host only: the inbox's links, as guild members' keys (names not in the guild are left out).
+function Bridge:TakeLinks(list)
+    if not AmHost() or type(list) ~= "table" then return false end
+    local l = {}
+    for _, e in ipairs(list) do
+        local key = type(e) == "table" and self:FindMember(e.name)
+        if key and type(e.discord) == "string" then l[key] = e.discord:sub(1, 40):gsub("[%c|]", "") end
+    end
+    local rec = LinksRec(true)
+    if not rec or SameLinks(l, rec.l) then return false end
+    rec.rev, rec.l = math.max(ns.Util.Now(), rec.rev + 1), l
+    SendLinks()
+    ns:Fire("DISCORD_LINKS_CHANGED")
+    return true
+end
+
+local function OnLinks(sender, msg, dist)
+    if (dist ~= "GUILD" and dist ~= "WHISPER") or not ns.Guild:IsDiscordHost(sender) then return end
+    local l = CleanLinks(msg.l)
+    if not l or type(msg.rev) ~= "number" or msg.rev > ns.Util.Now() + 600 then return end
+    local rec = LinksRec(true)
+    if not rec or msg.rev <= rec.rev then return end
+    rec.rev, rec.l = msg.rev, l
+    ns:Fire("DISCORD_LINKS_CHANGED")
+end
+
+local linksSync = ns.DigestSync and ns.DigestSync.RevList({
+    field = "dcr", order = 95, query = "DCQ", limit = 60,
+    send = function(...) return ns.Comm and ns.Comm:Send(...) end,
+    replyKey = "dcl-reply:", askKey = "dcq-ask:", queryKey = "dcq:",
+    rev = function() local r = LinksRec(false); return r and r.rev or 0 end,
+    serve = function() return AmHost() end,
+    writer = function(key) return ns.Guild:IsDiscordHost(key) end,
+    sendList = function(target) SendLinks(target) end,
+})
+
+function Bridge:OnInit()
+    if ns.Comm then ns.Comm:Register("DCL", OnLinks) end
+    if linksSync then linksSync.Register() end
+end
+
+---------------------------------------------------------------------------
 -- Snapshot
 ---------------------------------------------------------------------------
 
@@ -146,6 +245,12 @@ function Bridge:OnLogin()
     db.loaded, db.inbox = time(), inbox.written
     db.claims = nil   -- (1.4.2 dev builds linked with codes)
     if n > 0 then ns:Print("Loaded %d update%s from Discord.", n, n == 1 and "" or "s") end
+    -- (the roster may not be in yet at login: the links are taken once it is)
+    if type(inbox.links) == "table" then
+        local function take() Bridge:TakeLinks(inbox.links) end
+        take()
+        ns:On("ROSTER_UPDATED", function() ns.Util.Debounce("bridge-links", 3, take) end)
+    end
     -- (saved variables are written at logout / reload: the snapshot is made then, on the host's PC only)
     ns:RegisterEvent("PLAYER_LOGOUT", function()
         local ok, snap = pcall(Bridge.Snapshot, Bridge)

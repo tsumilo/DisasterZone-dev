@@ -231,5 +231,32 @@ def snapshot_carries_the_roster():
     no_errors(w)
 
 
+@case
+def discord_badges_reach_the_guild():
+    w, c = discord_world()
+    gina, lee, rita = c["Gina"], c["Lee"], c["Rita"]
+    gina.eval("DZBridgeInbox = { records = {}, links = { { name = 'lee', discord = 'LeeOnDiscord' }, "
+              "{ name = 'Stranger', discord = 'x' } } }")
+    login(gina)
+    w.tick(3)
+    assert rita.eval("return ns.Bridge:GetDiscordName(...)", rp.K("Lee")) == "LeeOnDiscord"
+    assert rita.eval("return ns.Bridge:GetDiscordName(...)", rp.K("Rita")) is None
+    name = rita.eval("return ns.UI:ColoredName(...)", rp.K("Lee"))
+    assert "Icons" in name and "Discord" in name, name
+    assert "Discord" not in rita.eval("return ns.UI:ColoredName(...)", rp.K("Rita"))
+    # a list from anyone but the host is ignored
+    lee.eval("ns.Comm:Send({ t = 'DCL', rev = GetServerTime() + 5, l = { [...] = 'fake' } }, 'GUILD', nil, 'data')",
+             rp.K("Rita"))
+    w.tick(3)
+    assert rita.eval("return ns.Bridge:GetDiscordName(...)", rp.K("Rita")) is None
+    # a member who missed it gets it from the host through the HELLO
+    sam = c["Sam"]
+    sam.eval("local gk = ns.Guild:GetGuildKey(); if DisasterZoneDB.discordLinks then DisasterZoneDB.discordLinks[gk] = nil end")
+    sam.relog()
+    w.tick(15)
+    assert sam.eval("return ns.Bridge:GetDiscordName(...)", rp.K("Lee")) == "LeeOnDiscord"
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()
