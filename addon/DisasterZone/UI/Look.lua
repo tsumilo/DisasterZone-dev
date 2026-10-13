@@ -378,15 +378,27 @@ function BarMethods:Layout()
         self.endPart:SetPoint("TOPRIGHT", self.f, "TOPRIGHT", -r, 0)
         self.endPart:SetPoint("BOTTOMRIGHT", self.f, "BOTTOMRIGHT", -r, 0)
         self.endPart:SetWidth(max(0.01, (w - 2 * r) * self.endFrac))
+        -- (a pill's end is round: the wash takes the track's right cap too)
+        if self.endCap then
+            self.endCap:ClearAllPoints()
+            self.endCap:SetSize(r, h)
+            self.endCap:SetPoint("RIGHT", self.f, "RIGHT", 0, 0)
+            self.endCap:SetShown(pill and self.endPart:IsShown())
+        end
     end
 end
 
 -- A stretch at the bar's end in its own colour (a cast's latency); frac nil: none.
 function BarMethods:SetEnd(frac, r, g, b, a)
-    if not self.endPart then self.endPart = Tex(self.f, "ARTWORK", 3) end
+    if not self.endPart then
+        self.endPart = Tex(self.f, "ARTWORK", 0)
+        self.endCap = Tex(self.f, "ARTWORK", 0, DISC)
+        self.endCap:SetTexCoord(0.5, 1, 0, 1)
+    end
     self.endFrac = frac
-    if not frac or frac <= 0 then self.endPart:Hide() return end
+    if not frac or frac <= 0 then self.endPart:Hide(); self.endCap:Hide() return end
     self.endPart:SetVertexColor(r or 1, g or 0.25, b or 0.16, a or 0.45)
+    self.endCap:SetVertexColor(r or 1, g or 0.25, b or 0.16, a or 0.45)
     self.endPart:Show()
     self:Layout()
 end

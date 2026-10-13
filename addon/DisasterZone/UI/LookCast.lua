@@ -44,8 +44,14 @@ local function NewBar(key, parent, sample)
     f.icon = L:Icon(f)
     f.bar = L:Bar(f)
     f.bar.fixedW = true
-    f.spark = L.Tex(f.bar.f, "OVERLAY", 4)
-    f.spark:SetVertexColor(1, 1, 1, 0.85)
+    -- the moving end (Halo): a soft round glow in warm gold, added on, with a thin bright core at the edge
+    f.spark = f.bar.f:CreateTexture(nil, "OVERLAY", nil, 4)
+    f.spark:SetTexture("Interface\\AddOns\\DisasterZone\\Media\\SoftGlow")
+    f.spark:SetBlendMode("ADD")
+    f.spark:SetVertexColor(1, 0.86, 0.45, 0.95)
+    f.core = L.Tex(f.bar.f, "OVERLAY", 5)
+    f.core:SetVertexColor(1, 0.97, 0.85, 0.9)
+    if f.core.SetBlendMode then f.core:SetBlendMode("ADD") end
     local over = CreateFrame("Frame", nil, f)
     over:SetAllPoints(f)
     over:SetFrameLevel(f:GetFrameLevel() + 5)
@@ -125,7 +131,9 @@ function Cast:Apply(f, look)
     end
     f.name:SetWidth(bw - 50)
     f.spark:SetShown(k == "halo")
-    f.spark:SetSize(k == "halo" and 6 or 2, bh)
+    f.spark:SetSize(bh * 2.2, bh * 2.2)
+    f.core:SetShown(false)          -- (a line inside the round end looked odd: the glow alone)
+    f.core:SetSize(2, math.max(2, bh - 4))
     for i, s in ipairs(f.studs) do
         s:ClearAllPoints()
         if look.studs then
@@ -144,6 +152,8 @@ function Cast:Paint(f)
     f.lock:ClearAllPoints()
     f.lock:SetPoint("RIGHT", f.name, "LEFT", -2, 0)
     f.lock:SetShown(f.ni and true or false)
+    -- the glow takes the bar's colour, lighter (warm gold, or a pale grey for a cast that can't be interrupted)
+    if f.spark then f.spark:SetVertexColor(math.min(1, c[1] + 0.25), math.min(1, c[2] + 0.2), math.min(1, c[3] + 0.3), 0.8) end
 end
 
 -- What a unit is casting: name, icon, start, end (seconds), channel, can't be interrupted.
@@ -180,7 +190,7 @@ function Cast:Start(f, fake)
     if f.unit == "player" and Look():Opt("cast", "latency", true) and not chan and GetNetStats then
         local _, _, _, world = GetNetStats()
         local dur = max(0.05, e - s)
-        f.bar:SetEnd(min(0.5, (world or 0) / 1000 / dur), 1, 0.25, 0.16, 0.45)
+        f.bar:SetEnd(min(0.5, (world or 0) / 1000 / dur), 0.9, 0.22, 0.16, 0.3)
     else
         f.bar:SetEnd(nil)
     end
@@ -222,8 +232,17 @@ function Cast:Step(f, dt)
     elseif tm == "both" then f.time:SetText(strformat("%.1f / %.1f", left, dur))
     else f.time:SetText(strformat("%.1f", left)) end
     if f.spark:IsShown() and f.bar.w then
+        -- (where the fill ends: past a pill's left cap, the fill runs on the track between the caps)
+        local cap = (f.bar.kind == "pill") and math.floor((f.bar.h or 0) / 2) or 0
+        -- (the visible end: past the fill's own round cap)
+        local x = cap + (f.bar.w - 2 * cap) * (f.chan and (1 - p) or p) + cap * 0.45
         f.spark:ClearAllPoints()
-        f.spark:SetPoint("CENTER", f.bar.f, "LEFT", f.bar.w * (f.chan and (1 - p) or p), 0)
+        f.spark:SetPoint("CENTER", f.bar.f, "LEFT", x, 0)
+        f.core:ClearAllPoints()
+        f.core:SetPoint("CENTER", f.bar.f, "LEFT", x, 0)
+        local show = p > 0.01 and p < 0.995
+        f.spark:SetAlpha(show and 1 or 0)
+        f.core:SetAlpha(show and 1 or 0)
     end
     if not f.fake and p >= 1 and not f.chan then self:Stop(f) end
 end

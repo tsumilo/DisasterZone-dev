@@ -1288,7 +1288,9 @@ function SettingsUI:BuildUI(sec)
             { "dispel", "Light what I can remove", "A debuff you can dispel colours the frame's edge.", true },
         },
         cast = {
-            { "latency", "Latency", "The red end of your own casts: the time the server needs.", true },
+            { "latency", "Latency", "A soft red end on your own casts: from there the next cast can be queued.", true,
+              tip = "It is as long as the time your cast takes to reach the server (your world latency). When the "
+                  .. "fill reaches it, pressing the next spell already queues it." },
             { "time", "Time", "", "left",
               { { value = "left", text = "0.6" }, { value = "both", text = "0.6 / 1.5" }, { value = "none", text = "None" } } },
             { "icon", "Spell icon", "", true },
@@ -1321,7 +1323,7 @@ function SettingsUI:BuildUI(sec)
             function(a, b) Set("ui." .. p.key .. ".look", Value(a, b)) end)
         for _, o in ipairs(OPTS[p.key] or {}) do
             local path = "ui." .. p.key .. "." .. o[1]
-            if type(o[4]) == "boolean" then self:SwitchSetting(sec, o[2], o[3], path, o[4])
+            if type(o[4]) == "boolean" then self:SwitchSetting(sec, o[2], o[3], path, o[4], o.tip)
             else self:DropdownSetting(sec, o[2], o[3], path, o[4], o[5]) end
         end
     end
