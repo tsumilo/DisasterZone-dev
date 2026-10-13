@@ -142,6 +142,7 @@ local function CreateThemeTiles(UI, parent, kind, opts)
         strip.tiles[i] = tile
     end
     function strip:Refresh()
+        if self.Layout then self:Layout() end
         local saved = Themes:Get(kind, Themes:Saved(kind))
         local cur = saved and saved.key
         for _, tile in ipairs(self.tiles) do
@@ -155,6 +156,8 @@ local function CreateThemeTiles(UI, parent, kind, opts)
     function strip:Layout()
         local n = #self.tiles
         local avail = self:GetWidth() or 0
+        -- (anchored to its section: before that resolves, the section's own width)
+        if avail <= 0 and self:GetParent() then avail = self:GetParent():GetWidth() or 0 end
         local w = W
         if n > 0 and avail > 0 and n * W + (n - 1) * G > avail then w = math.floor((avail - (n - 1) * G) / n) end
         if w == self.tileW then return end

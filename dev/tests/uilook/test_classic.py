@@ -282,5 +282,32 @@ def the_minimap_is_the_games_own_with_our_drawer_knob_on_the_ring():
     w.assert_no_errors()
 
 
+@case
+def a_long_name_ends_inside_the_name_band():
+    w, c = classic()
+    c.eval("""_G.__H = CreateFrame('Frame', nil, UIParent); __H:SetPoint('TOPLEFT')
+              _G.__F = ns.LookUnits:NewFace(__H, 'big', 'units', 'right'); __F:Apply(ns.Look.BY_KEY.classic)
+              __F:Set({ exists = true, name = 'Coilfang Ambusher of the Deep', level = 70, hp = 3623, hpMax = 5490,
+                        pt = 0, pw = 1, pwMax = 1, reaction = 2, isPlayer = false })""")
+    nw, band = c.eval_py("return { __F.name:GetWidth(), __F.cl.nbg:GetWidth() }")
+    assert nw <= band - 10, (nw, band)
+    w.assert_no_errors()
+
+
+@case
+def a_theme_picker_fits_every_tile_in_its_row():
+    w, c = classic()
+    r = c.eval_py("""
+        if not ns.Themes:Kind('uilook') then ns.Themes:Define('uilook', ns.Look.LOOKS, 'blizzard', { setting = 'ui.look' }) end
+        local host = CreateFrame('Frame', nil, UIParent); host:SetSize(600, 100); host:SetPoint('TOPLEFT')
+        local strip = ns.UI:CreateThemeTiles(host, 'uilook', { tileW = 88, tileH = 64, gap = 5 })
+        strip:SetSize(600, 64); strip:SetPoint('TOPLEFT')
+        strip:Refresh()
+        local last = strip.tiles[#strip.tiles]
+        return { #strip.tiles, strip.tiles[1]:GetWidth(), last:GetRight() - strip:GetLeft() }""")
+    assert r[0] == 7 and r[1] == 81 and r[2] <= 600, r       # ((600 - 6 x 5) / 7, the row filled exactly)
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all(globals())

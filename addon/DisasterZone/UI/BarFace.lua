@@ -12,6 +12,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BarFace.lua", ...) then return 
 --   slate   quiet glass cards; a hairline under the icon shrinks with the time left
 --   gilded  a gold bezel around each round icon (Media/Blessings/bezel, art pack 7); the time runs in a groove
 --   pips    small and dense: 24 px icons, a 2 px bar beneath, a class dot
+--   classic the game's action buttons (UI/Look.lua's Classic): the button frame (a totem in the totem bar's element
+--           frame), the spent time as the cooldown sweep, the next one in the spell alert, an aura on in the check glow,
+--           out of reach a red icon, the chip in the tooltip's edge
 -- Everything here is looks: faces sit on the bars' secure buttons and never touch them, so they move in combat too.
 local addonName, ns = ...
 
@@ -46,6 +49,8 @@ Face.THEMES = {
       W = 38, H = 38, GAP = 9, round = true, corner = { 13, 13 }, cs = 14, miss = { -13, 13 }, glow = 2.4, num = 11 },
     { key = "pips", name = "Pips", tip = "Small and dense: little icons with a bar beneath and a class dot.",
       W = 24, H = 28, GAP = 4, corner = { 9, 12 }, cs = 8, miss = { -10, 12 }, glow = 0, num = 9, dot = true },
+    { key = "classic", name = "Classic", tip = "The game's action buttons: the cooldown sweep for the time, the spell alert on the next one.",
+      W = 34, H = 34, GAP = 8, corner = { 13, 13 }, cs = 13, miss = { -13, 13 }, glow = 0, num = 11, game = true },
 }
 Face.DEFAULT = "halo"
 -- (one registry with the meter themes: UI/Comp/Themes.lua; a hovered tile previews on the bars)
@@ -202,6 +207,30 @@ end
 local PARTS = { "card", "cardEdge", "disc", "bezel", "groove", "sq1", "sq2", "sq3", "track", "cd", "cdDark", "bezelHot",
     "barBg", "barFill" }
 
+-- Classic's parts: the action button frame (or a totem's element frame), the spell alert, the check glow, the hover
+local TOTEM_FRAME = { earth = "totemEarth", fire = "totemFire", water = "totemWater", air = "totemAir" }
+local function GameParts(f)
+    if f.qs then return end
+    local L = ns.Look
+    f.qs = f.top:CreateTexture(nil, "BACKGROUND", nil, -2)
+    f.alert = f.top:CreateTexture(nil, "BACKGROUND", nil, -1)
+    L:GameTex(f.alert, "alert")
+    f.alert:SetBlendMode("ADD")
+    f.check = f.top:CreateTexture(nil, "BACKGROUND", nil, 0)
+    L:GameTex(f.check, "checked")
+    f.check:SetBlendMode("ADD")
+    f.check:SetAllPoints(f.icon)
+    f.hl = f.top:CreateTexture(nil, "BACKGROUND", nil, 1)
+    L:GameTex(f.hl, "hover")
+    f.hl:SetBlendMode("ADD")
+    f.hl:SetAllPoints(f.icon)
+end
+local function GameOff(f)
+    if not f.qs then return end
+    f.qs:Hide(); f.alert:Hide(); f.check:Hide(); f.hl:Hide()
+    if f.label.e9 then f.label.e9:Show(false) end
+end
+
 local function Box(tex, f, x, y, w, h)
     tex:ClearAllPoints()
     tex:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
@@ -273,6 +302,19 @@ function Face:Skin(f, t, axis)
         f.barBg:SetVertexColor(0, 0, 0, 1)
         f.barW = W - 2
         f.sq1:Show(); f.barBg:Show(); f.barFill:Show()
+    elseif t.game then
+        -- (the icon fills the button; the frame and the alert reach past it, the game's 66 and 64 of 36)
+        f.iconSize = W
+    end
+    if t.game then
+        GameParts(f)
+        local k = W / 36
+        f.alert:ClearAllPoints()
+        f.alert:SetPoint("CENTER", f, "CENTER", 0, 0)
+        f.alert:SetSize(64 * k, 64 * k)
+        f.qs:Show()
+    else
+        GameOff(f)
     end
     if key ~= "pips" then f.barBg:SetVertexColor(1, 1, 1, 0.1) end
     -- the icon
@@ -315,7 +357,16 @@ function Face:Skin(f, t, axis)
     fpath = select(1, text:GetFont())
     if fpath then text:SetFont(fpath, key == "pips" and 9 or 10, "") end
     lb:SetHeight(key == "pips" and 13 or 15)
-    if key == "slate" then
+    if lb.e9 then lb.e9:Show(false) end
+    if t.game then
+        -- (the game's tooltip: its edge at half size round a dark ground, the words in its gold)
+        lb.bg:SetVertexColor(0.035, 0.035, 0.075, 0.92)
+        text:SetTextColor(1, 0.82, 0)
+        UI():SetEdges(lb, 0, 0, 0, 0)
+        if not lb.e9 then lb.e9 = ns.Look:Edge9(lb, "tip", "BORDER", 2) end
+        lb.e9:Place(lb, 8, 2)
+        lb.e9:Show(true)
+    elseif key == "slate" then
         lb.bg:SetVertexColor(GLASS[1], GLASS[2], GLASS[3], 0.92)
         text:SetTextColor(1, 0.88, 0.54)
         UI():SetEdges(lb, GOLD[1], GOLD[2], GOLD[3], 0.6)
@@ -361,6 +412,26 @@ function Face:Set(f, st)
     end
     f.icon:SetDesaturated(st.desat and true or false)
     f.icon:SetAlpha(st.alpha or 1)
+    if t.game and f.qs then
+        local fr = st.element and TOTEM_FRAME[st.element]
+        if fr then
+            -- (the totem bar's element frame: its icon inset 3 of 34 x 36)
+            ns.Look:GameTex(f.qs, fr)
+            f.qs:ClearAllPoints()
+            f.qs:SetPoint("TOPLEFT", f.icon, "TOPLEFT", -3 * t.W / 28, 3 * t.W / 28)
+            f.qs:SetPoint("BOTTOMRIGHT", f.icon, "BOTTOMRIGHT", 3 * t.W / 28, -5 * t.W / 28)
+        else
+            ns.Look:QuickFrame(f.qs, f.icon)
+        end
+        -- (out of reach: the game's red icon, not a faded one)
+        if st.alpha and st.alpha < 1 and not st.desat then
+            f.icon:SetAlpha(1)
+            f.icon:SetVertexColor(0.8, 0.1, 0.1, 1)
+        else
+            f.icon:SetVertexColor(1, 1, 1, 1)
+        end
+        f.check:SetShown(st.tone == "on")
+    end
     -- the corner: a class (a circle, or a dot in pips) or a second icon, on a black disc
     local cs = f.cs or t.cs
     if st.cornerClass then
@@ -405,7 +476,7 @@ function Face:Set(f, st)
     local ring = (key == "halo" or key == "gilded")
     SetSwipe(f.cd, ring and timed and st.start or nil, st.total)
     f.cd:SetAlpha(st.alpha or 1)
-    if key == "sigil" and timed then
+    if (key == "sigil" or t.game) and timed then
         if f.cdDark.SetReverse then f.cdDark:SetReverse(true) end
         if f.cdDark.SetSwipeColor then f.cdDark:SetSwipeColor(0, 0, 0, 0.66) end
         SetSwipe(f.cdDark, st.start, st.total)
@@ -535,6 +606,14 @@ function Face.Apply(f)
         UI():SetEdges(f.cardEdge, Mix(1, GOLD[1], hot), Mix(1, GOLD[2], hot), Mix(1, GOLD[3], hot), Mix(0.09 + 0.12 * hover, 0.85, hot))
     elseif key == "pips" then
         f.sq1:SetVertexColor(Mix(0, GOLD[1], hot), Mix(0, GOLD[2], hot), Mix(0, GOLD[3], hot), 1)
+    elseif t.game and f.qs then
+        f.alert:SetAlpha(hot)
+        f.alert:SetShown(hot > 0.01)
+        f.hl:SetAlpha(hover)
+        f.hl:SetShown(hover > 0.01)
+        -- (running short: the frame warms to red, as the game reddens what you can't use)
+        local st = f.st or {}
+        if st.short or st.tone == "warn" then f.qs:SetVertexColor(1, 0.45, 0.4, 1) else f.qs:SetVertexColor(1, 1, 1, 1) end
     end
     if key == "slate" or key == "pips" then
         local missing = f.frac ~= nil and f.frac <= 0 and not (f.st and f.st.tone)

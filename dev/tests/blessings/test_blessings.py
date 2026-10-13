@@ -334,7 +334,7 @@ THEMES = """
 """
 th = vic.eval_py(THEMES)
 cells = [th[i] for i in sorted(k for k in th if isinstance(k, int))]
-assert len(cells) == 10, cells
+assert len(cells) == 2 * vic.eval("return #ns.BarFace.THEMES"), cells     # (every theme, rail and strip)
 for c in cells:
     key, lay = txt(c["key"]), txt(c["lay"])
     assert (c["w"], c["h"]) == (c["W"], c["H"]), c
@@ -342,7 +342,7 @@ for c in cells:
     assert c["along"] == 0, c                                # one straight line
     assert txt(c["face"]) == key and txt(c["aura"]) == key and txt(c["sym"]) == key, c
     assert txt(c["axis"]) == ("v" if lay == "vertical" else "h"), c
-assert txt(th["preview"]) == "gilded" and txt(th["after"]) == "pips", th   # (a hovered tile; the setting is pips)
+assert txt(th["preview"]) == "gilded" and txt(th["after"]) == "classic", th   # (a hovered tile; the setting is the last)
 assert len(texts(vic)) == before, texts(vic)[before:]
 vic.slash("/dz demo off")
 w.tick(1)

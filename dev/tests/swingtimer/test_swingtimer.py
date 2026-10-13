@@ -109,7 +109,7 @@ assert r["idle"] == 0 and r["sealIcon"] is True and r["live"] == 1 and abs(r["re
 r = ret.eval_py("""
     local ST, HUD, RF = ns.SwingTimer, ns.SwingTimerHUD, ns.RingFace
     local out = {}
-    for _, key in ipairs({ 'halo', 'sigil', 'slate', 'gilded', 'pips' }) do
+    for _, key in ipairs({ 'halo', 'sigil', 'slate', 'gilded', 'pips', 'classic' }) do
         ns.DB:SetSetting('swing.theme', key)
         for _, style in ipairs({ 'bar', 'lane', 'both' }) do
             ns.DB:SetSetting('swing.style', style)
@@ -129,7 +129,7 @@ r = ret.eval_py("""
     ns.DB:SetSetting('swing.theme', 'halo'); ns.DB:SetSetting('swing.style', 'bar')
     return out
 """)
-for key in ("halo", "sigil", "slate", "gilded", "pips"):
+for key in ("halo", "sigil", "slate", "gilded", "pips", "classic"):
     t = r[key]
     assert t["worn"] == key and t["cells"] == t["n"] and abs(t["rest"] - 0.35) < 0.01, (key, t)
 assert r["pips"]["laneW"] == 320 and r["halo"]["laneW"] == 500, r

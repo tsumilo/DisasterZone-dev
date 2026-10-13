@@ -426,6 +426,7 @@ function Bar:UpdateLooks()
             row.state = nil
         end
         local look = { icon = st.icon, cornerIcon = st.corner, missing = missing, alpha = st.down and 1 or 0.55,
+            element = p.el and Tm.D.ELEMENTS[p.el] and Tm.D.ELEMENTS[p.el].key or nil,
             desat = not st.down, start = st.start, total = st.total, frac = (not st.start) and (st.frac or 0) or nil,
             num = (st.count and st.count > 0) and tostring(st.count) or nil, short = st.short,
             chip = isNext and urgent.short or nil }

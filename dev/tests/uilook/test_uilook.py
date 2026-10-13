@@ -110,7 +110,7 @@ def the_numbers_sit_in_the_bar_and_the_name_never_runs_under_them():
 @case
 def every_look_lays_every_kind_out():
     w, c = with_look("flat")
-    for look in ["flat", "halo", "sigil", "slate", "gilded"]:
+    for look in ["flat", "halo", "sigil", "slate", "gilded", "classic"]:
         for kind, fake in [("big", "player"), ("big", "target"), ("small", "tot"), ("cell", "member")]:
             c.eval("""
                 local look, kind, fake = ...

@@ -7,6 +7,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RingFace.lua", ...) then return
 --   slate   a quiet glass card: the next press on the left, the cycle a flat bar beside it, the queue small above it
 --   gilded  the ring inside a gold bezel (Media/Blessings/bezel, art pack 7), the cycle in its groove
 --   pips    small and dense: a 28 px next press over a row of 20 pips
+--   classic the swing drawn as the game draws a cast (UI/Look.lua's Classic): the cast bar's border round the cycle
+--           in its status bar texture, its spark at the swing, the next press an action button with the spell alert
+--           while its window is open, the presses after it small above the bar, the badge in a minimap button's ring
 -- Each timer has its own (<prefix>.theme, kind "ring_<prefix>", default Halo); a hovered tile previews. Twist practice
 -- always uses Halo (its parts sit round it).
 --   RingFace:BuildFace(parent, key)    the face: { root (= the ring frame: .dots, .head, .tip, .glow, .flash),
@@ -50,6 +53,10 @@ RF.GEO = {
     pips = { W = 150, H = 44, path = "pips", x0 = -75, step = 7.5, y = -17, N = 20,
              big = { 28, -60, 7 }, badge = { 12, -47, 20 }, queue = "top", queueAt = { 42, -8, 16, 19 },
              lane = { 320, 26 }, small = true },
+    -- (the border's inside, x 65..280 and 17 tall round y -8, is the cycle; the border reaches 9 / 10 px past it)
+    classic = { W = 290, H = 62, path = "bar", x0 = -80, len = 215, y = -8, band = 17, N = 72, game = true,
+                big = { 44, -123, -8 }, badge = { 16, 131, -8 }, queue = "top", queueAt = { 65, -1, 20, 24 },
+                name = { 71, -34 }, lane = { 500, 40 } },
 }
 
 -- The timer themes: the class tool themes' names, with tips for a timer.
@@ -59,6 +66,7 @@ RF.THEMES = {
     { key = "slate", name = "Slate", tip = "A quiet glass card with the cycle as a flat bar. Calmest look." },
     { key = "gilded", name = "Gilded", tip = "The ring in a worked gold bezel, the next press gold-rimmed." },
     { key = "pips", name = "Pips", tip = "Small and dense: a little next press over a row of 20 pips." },
+    { key = "classic", name = "Classic", tip = "The swing as the game's cast bar: its border and spark, the next press an action button." },
 }
 
 local function Part(parent, layer, path, r, g, b, a, sub)
@@ -173,7 +181,7 @@ function RF:BuildFace(parent, key)
             d:SetSize(5, 4)
             d:SetPoint("CENTER", back, "CENTER")
         else
-            d = Part(ring, "ARTWORK", WHITE)
+            d = Part(ring, "ARTWORK", g.game and ns.Look.SBAR or WHITE)
             local x, y = RF.Pos(g, f)
             if g.path == "square" then
                 local cell = 8 * g.half / g.N + 0.6
@@ -192,6 +200,14 @@ function RF:BuildFace(parent, key)
     ring.head:SetBlendMode("ADD")
     local hs = g.path == "bar" and 22 or 30
     ring.head:SetSize(hs, hs)
+    if g.game then
+        ring.head:SetTexture(ns.Look.GAME.spark[1])
+        ring.head:SetSize(32, g.band + 18)
+        -- the border round the cycle, over its cells
+        ring.border = ns.Look:GameSlice3(ring, "cast", 12, 12, "ARTWORK", 4)
+        local cx = g.W / 2 + g.x0 - 9
+        ring.border:Place(ring, cx, g.H / 2 - g.y - 17, g.len + 19, 34)
+    end
     ring.tip = ring:CreateLine(nil, "OVERLAY", nil, 1)   -- a flat bright edge where the fill ends
     ring.tip:SetColorTexture(1, 1, 1, 1)
     ring.tip:SetThickness(2)
@@ -237,6 +253,16 @@ function RF:BuildFace(parent, key)
     if big.cd.SetHideCountdownNumbers then big.cd:SetHideCountdownNumbers(true) end
     big.cd:EnableMouse(false)
     big.cd:Hide()
+    if g.game then
+        big.qs = big:CreateTexture(nil, "OVERLAY", nil, 2)
+        ns.Look:QuickFrame(big.qs, big)
+        big.alert = big:CreateTexture(nil, "OVERLAY", nil, 3)
+        ns.Look:GameTex(big.alert, "alert")
+        big.alert:SetBlendMode("ADD")
+        big.alert:SetPoint("CENTER")
+        big.alert:SetSize(bs * 64 / 36, bs * 64 / 36)
+        big.alert:SetAlpha(0)
+    end
     big.name = UI:Text(ring, key == "slate" and "small" or "page", { 1, 0.88, 0.54 }, { shadow = true })
     big.hint = UI:Text(ring, "emph", "SUB", { font = NARROW, shadow = true })
     if g.name then
@@ -250,6 +276,15 @@ function RF:BuildFace(parent, key)
     big.hint:SetPoint("TOPLEFT", big.name, "BOTTOMLEFT", 0, -2)
     big.name:SetShown(big.showName or false)
     big.hint:Hide()
+    if g.game then
+        -- (the name and the time in the bar, as a cast bar writes them)
+        UI:SetTextSize(big.name, "body")
+        big.name:SetWidth(g.len - 70)
+        big.hint:ClearAllPoints()
+        big.hint:SetPoint("RIGHT", ring, "CENTER", g.x0 + g.len - 24, g.y)     -- (clear of the badge's ring)
+        big.hint:SetJustifyH("RIGHT")
+        big.hint:Show()
+    end
     face.big = big
 
     -- the badge (the seal, the aspect)
@@ -262,6 +297,15 @@ function RF:BuildFace(parent, key)
         local sb = Part(seal, "BACKGROUND", DISC, 0, 0, 0, 1)
         sb:SetPoint("CENTER"); sb:SetSize(bd + 8, bd + 8)
         Bezel(seal, "BORDER", bd + 6)
+    elseif g.game then
+        -- (the tracking border is 53 px for a 17 px icon, its ring's middle 16.6 px in from its top left)
+        local sb = Part(seal, "BACKGROUND", DISC, 0, 0, 0, 1)
+        sb:SetPoint("CENTER"); sb:SetSize(bd + 4, bd + 4)
+        local bs2 = bd * 53 / 17
+        seal.ring = seal:CreateTexture(nil, "OVERLAY")
+        ns.Look:GameTex(seal.ring, "tracking")
+        seal.ring:SetSize(bs2, bs2)
+        seal.ring:SetPoint("TOPLEFT", seal, "CENTER", -bs2 * 16.6 / 53, bs2 * 16.6 / 53)
     else
         local sb = Part(seal, "BACKGROUND", g.round and DISC or WHITE, 0, 0, 0, 1)
         sb:SetPoint("CENTER")
@@ -270,7 +314,7 @@ function RF:BuildFace(parent, key)
     seal.icon = Part(seal, "ARTWORK")
     seal.icon:SetAllPoints()
     seal.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    if g.round then Round(seal, seal.icon) end
+    if g.round or g.game then Round(seal, seal.icon) end
     seal.text = UI:Text(seal, "small", { 1, 1, 1 }, { font = NARROW, flags = "OUTLINE", justify = "CENTER" })
     seal.text:SetPoint("CENTER", 0, 0)
     face.seal = seal
@@ -292,6 +336,10 @@ function RF:BuildFace(parent, key)
         s.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         if g.round then Round(s, s.icon) end
         s.text = UI:Text(s, "small", { 1, 1, 1 }, { font = NARROW, shadow = true })
+        if g.game then
+            s.qs = s:CreateTexture(nil, "OVERLAY")
+            ns.Look:QuickFrame(s.qs, s)
+        end
         if g.queue == "top" then
             s:SetAlpha(0.85 - (i - 1) * 0.2)
             s:SetPoint("TOPLEFT", ring, "TOPLEFT", g.queueAt[1] + (i - 1) * g.queueAt[4], g.queueAt[2])
@@ -314,6 +362,7 @@ local LANE_LOOK = {
     slate = { bg = { 0.047, 0.047, 0.059, 0.82 }, edge = { 1, 1, 1, 0.09 } },
     gilded = { bg = { 0.08, 0.055, 0.02, 0.92 }, edge = { 0.64, 0.48, 0.14, 1 }, line = { 0.54, 0.42, 0.13, 1 } },
     pips = { bg = { 0, 0, 0, 0.7 }, edge = { 0, 0, 0, 1 } },
+    classic = { bg = { 0.035, 0.035, 0.075, 0.9 }, edge = { 0.36, 0.36, 0.4, 1 } },
 }
 
 function RF:BuildLane(parent, key, opts)
@@ -387,6 +436,7 @@ function RF:Paint(face, p)
         local k = (inside and p.fade) and 1 - 0.65 * (f - z0) / zw or 1
         if f <= frac then
             if inside then d:SetVertexColor(0.30 + 0.70 * k, 0.19 + (0.43 + 0.2 * pulse) * k, 0.10 + 0.20 * k)
+            elseif g.game then d:SetVertexColor(1, 0.7, 0)                -- (the game's casting yellow)
             else d:SetVertexColor(0.62 + 0.36 * f, 0.46 + 0.36 * f, 0.18 + 0.30 * f) end
         elseif inside then
             if p.hot then d:SetVertexColor(0.30 + 0.32 * k, 0.19 + 0.13 * k, 0.10)
@@ -419,6 +469,8 @@ function RF:Paint(face, p)
         if open then face.big.frame:SetVertexColor(1, 0.82, 0, 1) else face.big.frame:SetVertexColor(0, 0, 0, 1) end
     elseif face.key == "sigil" then
         if open then ring.edge:SetVertexColor(1, 0.67, 0.35, 0.9) else ring.edge:SetVertexColor(0.91, 0.89, 0.82, 0.25) end
+    elseif g.game and face.big.alert then
+        face.big.alert:SetAlpha(open and 0.75 + 0.25 * pulse or 0)
     end
 end
 
@@ -433,7 +485,8 @@ function RF:Rest(face)
     ring.flash:SetAlpha(0)
     if face.key == "slate" then UI:SetEdgeColor(ring, 1, 1, 1, 0.09)
     elseif face.key == "pips" then face.big.frame:SetVertexColor(0, 0, 0, 1)
-    elseif face.key == "sigil" then ring.edge:SetVertexColor(0.91, 0.89, 0.82, 0.25) end
+    elseif face.key == "sigil" then ring.edge:SetVertexColor(0.91, 0.89, 0.82, 0.25)
+    elseif face.big.alert then face.big.alert:SetAlpha(0) end
 end
 
 -- ---------------------------------------------------------------------------------------------------------------

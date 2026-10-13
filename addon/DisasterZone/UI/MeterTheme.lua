@@ -14,6 +14,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterTheme.lua", ...) then retu
 --   slate   no filled bars: names in class colour, a 2 px hairline shows the share
 --   gilded  a gold-trimmed frame with corners, textured bars (the game's status bar), gold-rimmed icons
 --   pips    dense 13 px rows, rank numbers, no icons, per second only in the header
+--   classic the game's own (UI/Look.lua's Classic): the tooltip's edge round the stack, the game's status bar texture
+--           in class colour, the round class icons, your row in the quest log's gold
 -- Overrides (Settings > Meters > Look): meters.barColor (class / role / one), meters.icons (theme / spec / class /
 -- none), meters.rowSize (theme / compact / roomy), meters.numbers (short 380.1k / full 380,112 / round 380k),
 -- meters.bg (theme or an opacity). No new art: the round parts use the game's portrait disc.
@@ -69,6 +71,11 @@ MT.THEMES = {
       bg = { 0, 0, 0, 0.5 }, edge = NONE, headBg = C.QUIET, flBg = 0.25,
       title = 10, nameSize = 10, nameFont = NARROW, value = 11, sub = 10, fillA = 0.55, trackInset = 3, rank = true,
       rate = false, small = true },
+    { key = "classic", name = "Classic", tip = "The game's own: the tooltip's edge, the status bar texture in class colour, round class icons.",
+      head = 24, fl = 18, row = 17, gap = 1, pad = 5, icon = "circle", bar = "game", game = true,
+      bg = { 0.035, 0.035, 0.075, 0.9 }, edge = NONE, headBg = NONE, headLine = { 0.36, 0.36, 0.4, 0.5 }, flBg = 0.3,
+      frameC = { 0.36, 0.36, 0.4 }, titleColor = { 1, 0.82, 0 }, title = 12, nameSize = 12, value = 13, sub = 12,
+      fillA = 1, trackInset = 3, rate = true },
 }
 MT.DEFAULT = "flat"
 -- (one registry with the class tool bars' themes: UI/Comp/Themes.lua; a hovered tile previews on the panels)
@@ -101,15 +108,16 @@ function MT:Metrics(t)
     local icon = Setting("icons", "theme")
     local kind = t.icon
     if icon == "none" then kind = "none"
-    elseif (icon == "spec" or icon == "class") and kind == "none" then kind = "square" end
+    elseif (icon == "spec" or icon == "class") and kind == "none" then kind = "square"
+    elseif icon == "spec" and kind == "circle" then kind = "square" end
     local m = { t = t, head = t.head, fl = t.fl, row = row, gap = t.gap, pad = t.pad, icon = kind, iconSrc = icon,
                 bar = t.bar }
-    if kind == "square" then m.iconW = row + 1
+    if kind == "square" or kind == "circle" then m.iconW = row + 1
     elseif kind == "round" then m.iconW = row + 2
     elseif kind == "framed" then m.iconW = row + 2
     elseif kind == "small" then m.iconW = min(row, 16) + 4
     else m.iconW = t.rank and 15 or 3 end
-    m.barL = m.iconW + ((kind == "round") and 2 or 0)
+    m.barL = m.iconW + ((kind == "round") and 2 or 0) + ((kind == "circle") and 1 or 0)
     if t.bar == "hair" then m.barL = m.iconW + 2 end
     if kind == "none" then m.barL = 0 end
     -- room the bar keeps for its ends: a pill's two round caps, an edged bar's two edge pixels
@@ -206,6 +214,10 @@ function MT:SkinStack(f, m, locked)
     -- (Gilded: the looks' worked gold moulding, filigree corners and grain, UI/Look.lua)
     if t.corners and not f.gilt and ns.Look and ns.Look.Gilt then f.gilt = ns.Look:Gilt(f) end
     if f.gilt then f.gilt:Show(t.corners and true or false) end
+    -- (Classic: the game's tooltip edge round the stack, no black outer pixel)
+    if t.game and not f.e9 and ns.Look and ns.Look.Edge9 then f.e9 = ns.Look:Edge9(f, "tip", "BORDER", 6) end
+    if f.e9 then f.e9:Show(t.game and true or false) end
+    if t.game then f.outer:SetAlpha(0) end
     MT:StackEdge(f, m, locked)
 end
 
@@ -295,6 +307,12 @@ function MT:SetIcon(row, cls, spec, m)
     tex:Show()
     if tex.iconKey == key then return end
     tex.iconKey = key
+    if m.icon == "circle" then
+        local c = cls and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[cls]
+        tex:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
+        if c then tex:SetTexCoord(c[1], c[2], c[3], c[4]) else tex:SetTexCoord(0, 0.25, 0, 0.25) end
+        return
+    end
     if m.icon == "round" and path and SetPortraitToTexture then
         tex:SetTexCoord(0, 1, 0, 1)
         SetPortraitToTexture(tex, path)
@@ -332,6 +350,9 @@ function MT:SkinRow(row, m, threat)
     HideAll(row.ring, row.ringIn, row.frame)
     if m.icon == "square" then
         ic:SetSize(h, h)
+        ic:SetPoint("LEFT", row, "LEFT", 0, 0)
+    elseif m.icon == "circle" then
+        ic:SetSize(h - 1, h - 1)
         ic:SetPoint("LEFT", row, "LEFT", 0, 0)
     elseif m.icon == "round" then
         local s = h - 3
@@ -375,13 +396,13 @@ function MT:SkinRow(row, m, threat)
     -- the bar
     local fill, bg = row.fill, row.bg
     HideAll(row.capL, row.capR, row.tcapL, row.tcapR, row.back, row.lit, row.shade, row.sepLine, row.meBg)
-    fill:SetTexture(t.bar == "gilt" and BAR or WHITE)
+    fill:SetTexture((t.bar == "gilt" or t.bar == "game") and BAR or WHITE)
     if threat then
         local ins = t.trackInset
         row.trackTop, row.trackBot = -ins, ins
         if t.bar == "hair" then row.trackTop, row.trackBot = -(h - 4), 2 end
         if t.bar == "lit" then Paint(row.track, C.INSET, 1)
-        elseif t.bar == "gilt" then Paint(row.track, { 0, 0, 0, 0.4 })
+        elseif t.bar == "gilt" or t.bar == "game" then Paint(row.track, { 0, 0, 0, 0.4 })
         elseif t.bar == "hair" then Paint(row.track, C.HAIRLINE)
         else Paint(row.track, C.HOVER) end
         if t.bar == "lit" or t.bar == "gilt" then
@@ -443,6 +464,13 @@ function MT:SkinRow(row, m, threat)
             UI:Gradient(row.shade, "VERTICAL", { 0, 0, 0, 0.32 }, { 1, 1, 1, 0.1 })
             row.shade:Show()
         end
+    elseif t.bar == "game" then
+        -- (Classic: the status bar texture as tall as the row, on a faint dark track)
+        fill:SetPoint("TOPLEFT", row, "TOPLEFT", L, 0)
+        fill:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", L, 0)
+        bg:SetPoint("TOPLEFT", row, "TOPLEFT", L, 0)
+        bg:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+        bg:SetVertexColor(0, 0, 0, 0.3)
     elseif t.bar == "hair" then
         fill:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", L, 2)
         fill:SetHeight(2)
@@ -482,7 +510,7 @@ function MT:Paint(row, m, r, g, b, me)
         UI:Gradient(fill, "HORIZONTAL", c1, c2)
         row.capL:SetVertexColor(c1[1], c1[2], c1[3], a)
         row.capR:SetVertexColor(c2[1], c2[2], c2[3], a)
-    elseif t.bar == "gilt" then
+    elseif t.bar == "gilt" or t.bar == "game" then
         fill:SetTexture(BAR)
         fill:SetVertexColor(r, g, b, a)
     else
@@ -525,7 +553,24 @@ function MT:Me(row, m, me)
         if me then
             row.meBg:ClearAllPoints()
             row.meBg:SetAllPoints()
+            row.meBg:SetTexture(WHITE)
+            if row.meBg.SetBlendMode then row.meBg:SetBlendMode("BLEND") end
+            row.meBg:SetDrawLayer("BACKGROUND", 2)
             UI:Gradient(row.meBg, "HORIZONTAL", "SELECT", { GOLD[1], GOLD[2], GOLD[3], 0 })
+            row.meBg:Show()
+        else
+            row.meBg:Hide()
+        end
+    elseif row.meBg and t.game then
+        if me then
+            row.meBg:ClearAllPoints()
+            row.meBg:SetPoint("TOPLEFT", row, "TOPLEFT", m.barL, 1)
+            row.meBg:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, -1)
+            row.meBg:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+            row.meBg:SetTexCoord(0, 1, 0, 1)
+            row.meBg:SetVertexColor(1, 1, 1, 0.9)
+            row.meBg:SetDrawLayer("ARTWORK", 3)
+            if row.meBg.SetBlendMode then row.meBg:SetBlendMode("ADD") end
             row.meBg:Show()
         else
             row.meBg:Hide()

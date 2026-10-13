@@ -559,7 +559,8 @@ function Look:QuickFrame(t, f, key)
         t:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", ox, -oy)
     end
     Fit()
-    if not t.dzQuickHooked and f.HookScript then
+    -- (a frame refits when it changes size; a texture round which it sits is fitted again by its caller)
+    if not t.dzQuickHooked and f.IsObjectType and f:IsObjectType("Frame") then
         t.dzQuickHooked = true
         f:HookScript("OnSizeChanged", Fit)
     end

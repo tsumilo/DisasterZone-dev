@@ -1846,6 +1846,8 @@ STATES = [
     ("Shot timer theme - sigil", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'sigil'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer theme - slate", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'slate'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer theme - gilded", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'gilded'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
+    ("Swing timer theme - classic", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('swing.theme', 'classic'); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
+    ("Shot timer theme - classic", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'classic'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer theme - pips", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'pips'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Dock - flat", opened("home", DOCK_STATE.replace("LOOK", "flat"))),
     ("Dock - halo", opened("home", DOCK_STATE.replace("LOOK", "halo"))),
@@ -1885,7 +1887,7 @@ STATES = [
 ] + [("Meters - theme " + _k, opened("home", "ns.MainFrame:Close(); " + MET + METQ +
         "ns.DB:SetSetting('meters.theme', '" + _k + "'); "
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y, L.stacks[1].w = 560, 620, 280; "
-        "ns.MeterPanels:Rebuild(); " + METBOX)) for _k in ("flat", "halo", "sigil", "slate", "gilded", "pips")] + [
+        "ns.MeterPanels:Rebuild(); " + METBOX)) for _k in ("flat", "halo", "sigil", "slate", "gilded", "pips", "classic")] + [
     ("Meters - theme overrides", opened("home", "ns.MainFrame:Close(); " + MET + METQ +
         "ns.DB:SetSetting('meters.theme', 'halo'); ns.DB:SetSetting('meters.barColor', 'role'); "
         "ns.DB:SetSetting('meters.icons', 'class'); ns.DB:SetSetting('meters.rowSize', 'roomy'); "
@@ -3213,7 +3215,7 @@ STATES += [
 
 
 # Class tool bar themes (UI/BarFace.lua): every theme on both bars, rail and strip (the same cells; only the axis turns)
-for _t in ("halo", "sigil", "slate", "gilded", "pips"):
+for _t in ("halo", "sigil", "slate", "gilded", "pips", "classic"):
     STATES += [
         ("Bar themes - %s blessings rail" % _t, bless_view("Gina", bar=True, theme=_t)),
         ("Bar themes - %s blessings strip" % _t, bless_view("Gina", "ns.DB:SetSetting('bless.layout', 'horizontal'); "
@@ -3389,14 +3391,14 @@ end
 LOOK_LONG_NAMES = r"""
 ns.MainFrame:Close(); __MOCK.real_geometry = true
 local p = DZLookLongNames or CreateFrame('Frame', 'DZLookLongNames', UIParent)
-p:SetSize(1240, 330); p:ClearAllPoints(); p:SetPoint('CENTER'); p:Show()
+p:SetSize(1530, 330); p:ClearAllPoints(); p:SetPoint('CENTER'); p:Show()
 if not p.bg then p.bg = p:CreateTexture(nil, 'BACKGROUND'); p.bg:SetAllPoints(); p.bg:SetColorTexture(0.16, 0.12, 0.2, 1) end
 local U = ns.LookUnits
 local function mob(name, level, hp, hpMax, classif)
   return { exists = true, name = name, level = level, classif = classif, hp = hp, hpMax = hpMax, pt = 0, pw = 1,
            pwMax = 1, reaction = 2, isPlayer = false, portrait = 'Interface\\Icons\\Ability_Hunter_Pet_Spider' }
 end
-for i, key in ipairs({ 'flat', 'halo', 'sigil', 'slate', 'gilded' }) do
+for i, key in ipairs({ 'flat', 'halo', 'sigil', 'slate', 'gilded', 'classic' }) do
   local look = ns.Look.BY_KEY[key]
   local x = 16 + (i - 1) * 246
   local function face(kind, side, y, d, w, xo)

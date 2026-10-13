@@ -1298,7 +1298,8 @@ def themed(r, theme, **over):
         local s1 = ns.MeterPanels._Stacks()[1]
         local _, _, _, a = s1.fill:GetVertexColor()
         o.bg = a
-        o.corners = s1.corners and s1.corners[1][1]:IsShown() or false
+        o.corners = s1.gilt and s1.gilt.cornerTex[1]:IsShown() or false     -- (Gilded's worked gold, UI/Look.lua)
+        o.edge9 = s1.e9 and s1.e9.on or false                                -- (Classic's tooltip edge)
         return o""")
 
 
@@ -1339,6 +1340,7 @@ def every_meter_theme_draws_its_own_rows():
         else:
             assert got["label"] == "Damage done", (key, got)
         assert got["corners"] is (key == "gilded"), (key, got)
+        assert got["edge9"] is (key == "classic"), (key, got)
 
 
 @case
@@ -1371,7 +1373,7 @@ def pointing_at_a_theme_tile_previews_it_on_the_panels():
     r.tick(0.3)
     names = r.cl.eval_py("""local o = {}
         for _, t in ipairs(ns.MeterTheme.THEMES) do o[#o + 1] = t.name end; return o""")
-    assert names == ["Flat", "Halo", "Sigil", "Slate", "Gilded", "Pips"], names
+    assert names == ["Flat", "Halo", "Sigil", "Slate", "Gilded", "Pips", "Classic"], names
     for n in names:
         assert r.cl.find_text(n), n                            # a tile per theme, named
     h = r.cl.eval("""ns.MeterTheme:SetPreview('pips'); ns.MeterPanels:Draw()
