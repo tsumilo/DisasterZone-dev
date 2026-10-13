@@ -184,7 +184,8 @@ def action_buttons_are_reskinned_not_replaced():
     assert c.eval("return CharacterBag0Slot.art:GetAlpha()") == 0
     assert c.eval("return ns.LookBars.tiles[CharacterBag0Slot].shown") == 133633
     assert c.eval("return ns.LookBars.tiles[CharacterBag0Slot].icon.shape") == "round"
-    assert "INV_Misc_Book_09" in c.eval("return ns.LookBars.tiles[SpellbookMicroButton].shown")
+    # the menu: the addon's own flat glyphs (the book from the second sheet, art pack 8)
+    assert "uiglyphs" in c.eval("return ns.LookBars.tiles[SpellbookMicroButton].glyph:GetTexture()")
     assert c.eval("return SpellbookMicroButton.art:GetAlpha()") == 0
     # the bag slots get the same face; the experience bar is ours
     assert c.eval("return DisasterZoneXPBar ~= nil") is True

@@ -622,6 +622,75 @@ def tool_atlas():
     return img
 
 
+# --- the game's menu in the addon's looks (UI/LookBars.lua, art pack 8): a second, small sheet (uiglyphs.tga, 4 x 4
+# cells of 64 px, the same white-on-transparent style), so the full tools.tga keeps its rows ---
+def ic_book(d, k):
+    # the spellbook: an open book, two pages and a spine
+    d.polygon(_pts(k, [(4, 14), (30, 18), (30, 58), (4, 52)]), fill=255)
+    d.polygon(_pts(k, [(60, 14), (34, 18), (34, 58), (60, 52)]), fill=255)
+    for y in (26, 34, 42):
+        d.line(_pts(k, [(10, y), (25, y + 2)]), fill=0, width=_w(k, 3))
+        d.line(_pts(k, [(54, y), (39, y + 2)]), fill=0, width=_w(k, 3))
+
+
+def ic_talent(d, k):
+    # talents: an eight-point spark
+    import math
+    pts = []
+    for i in range(16):
+        a = math.pi / 8 * i - math.pi / 2
+        r = (29 if i % 4 == 0 else 19) if i % 2 == 0 else 9     # long points up/down/left/right, short between
+        pts.append((32 + r * math.cos(a), 32 + r * math.sin(a)))
+    d.polygon(_pts(k, pts), fill=255)
+
+
+def ic_quest(d, k):
+    # the quest log: a scroll with an exclamation mark
+    d.rounded_rectangle(_pts(k, [(10, 6), (54, 58)]), radius=_w(k, 6), outline=255, width=_w(k, 5))
+    d.rectangle(_pts(k, [(28, 16), (36, 38)]), fill=255)
+    d.rectangle(_pts(k, [(28, 44), (36, 50)]), fill=255)
+
+
+def ic_swords(d, k):
+    # PvP: two crossed swords
+    for a, b, g1, g2, h in (((10, 10), (50, 50), (40, 52), (52, 40), (55, 55)),
+                            ((54, 10), (14, 50), (24, 52), (12, 40), (9, 55))):
+        d.line(_pts(k, [a, b]), fill=255, width=_w(k, 6))
+        d.line(_pts(k, [g1, g2]), fill=255, width=_w(k, 5))
+        d.line(_pts(k, [b, h]), fill=255, width=_w(k, 7))
+
+
+def ic_key(d, k):
+    # the key ring: a key, its bow a ring
+    d.ellipse(_pts(k, [(6, 6), (30, 30)]), outline=255, width=_w(k, 6))
+    d.line(_pts(k, [(26, 26), (57, 57)]), fill=255, width=_w(k, 7))
+    d.line(_pts(k, [(44, 44), (36, 52)]), fill=255, width=_w(k, 6))
+    d.line(_pts(k, [(52, 52), (45, 59)]), fill=255, width=_w(k, 6))
+
+
+def ic_map(d, k):
+    # the world map: a map folded in three
+    d.polygon(_pts(k, [(4, 12), (22, 6), (42, 12), (60, 6), (60, 52), (42, 58), (22, 52), (4, 58)]), fill=255)
+    d.line(_pts(k, [(22, 8), (22, 52)]), fill=0, width=_w(k, 3))
+    d.line(_pts(k, [(42, 12), (42, 56)]), fill=0, width=_w(k, 3))
+
+
+UI_GLYPHS = [ic_book, ic_talent, ic_quest, ic_swords, ic_key, ic_map]
+
+
+def ui_glyph_atlas():
+    cell = 64
+    big = Image.new("L", (cell * 4 * OS, cell * 4 * OS), 0)
+    for i, fn in enumerate(UI_GLYPHS):
+        sub = Image.new("L", (cell * OS, cell * OS), 0)
+        fn(ImageDraw.Draw(sub), OS)
+        big.paste(sub, ((i % 4) * cell * OS, (i // 4) * cell * OS))
+    alpha = big.resize((cell * 4, cell * 4), Image.LANCZOS)
+    img = Image.new("RGBA", alpha.size, (255, 255, 255, 0))
+    img.putalpha(alpha)
+    return img
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     for name, fn in (("disc", disc), ("ring", ring), ("arrow", arrow), ("sync", sync), ("check", check)):
@@ -629,3 +698,5 @@ if __name__ == "__main__":
         print("wrote", name)
     tool_atlas().save(os.path.join(OUT, "tools.tga"))
     print("wrote tools")
+    ui_glyph_atlas().save(os.path.join(OUT, "uiglyphs.tga"))
+    print("wrote uiglyphs")

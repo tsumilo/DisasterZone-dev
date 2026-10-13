@@ -570,6 +570,7 @@ Layout.BLIZZARD = {
     { "MultiBarBottomRight", "Action bar 3", 8 }, { "MultiBarRight", "Action bar 4", 9 },
     { "MultiBarLeft", "Action bar 5", 10 }, { "StanceBar", "Stance bar", 11 }, { "PetActionBar", "Pet bar", 12 },
     { "MinimapCluster", "Minimap", 13 }, { "BuffFrame", "Buffs", 14 },
+    { "MicroMenuContainer", "Menu", 15 }, { "BagsBar", "Bags", 16 },
 }
 
 function Blizz:Available()

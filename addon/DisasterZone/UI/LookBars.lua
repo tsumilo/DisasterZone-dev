@@ -39,23 +39,18 @@ local MICRO = { "CharacterMicroButton", "SpellbookMicroButton", "PlayerSpellsMic
 local TILED = { "KeyRingButton", "MainMenuBarBackpackButton", "CharacterBag0Slot", "CharacterBag1Slot",
     "CharacterBag2Slot", "CharacterBag3Slot" }
 for _, n in ipairs(MICRO) do TILED[#TILED + 1] = n end
-local TILE_ICON = {
-    CharacterMicroButton = "portrait",
-    SpellbookMicroButton = "Interface\\Icons\\INV_Misc_Book_09",
-    PlayerSpellsMicroButton = "Interface\\Icons\\INV_Misc_Book_09",
-    TalentMicroButton = "Interface\\Icons\\Ability_Marksmanship",
-    QuestLogMicroButton = "Interface\\Icons\\INV_Misc_Note_01",
-    SocialsMicroButton = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
-    GuildMicroButton = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
-    WorldMapMicroButton = "Interface\\Icons\\INV_Misc_Map_01",
-    LFGMicroButton = "Interface\\Icons\\INV_Misc_Spyglass_02",
-    LFDMicroButton = "Interface\\Icons\\INV_Misc_Spyglass_02",
-    PVPMicroButton = "Interface\\Icons\\INV_BannerPVP_02",
-    MainMenuMicroButton = "Interface\\Icons\\INV_Gizmo_01",
-    HelpMicroButton = "Interface\\Icons\\INV_Misc_QuestionMark",
-    KeyRingButton = "Interface\\Icons\\INV_Misc_Key_14",
-    MainMenuBarBackpackButton = "Interface\\Buttons\\Button-Backpack-Up",
+-- the backpack's picture (the bag slots show their bags)
+local TILE_ICON = { MainMenuBarBackpackButton = "Interface\\Buttons\\Button-Backpack-Up" }
+-- the menu's glyphs: { sheet, index } (sheet 2 = Media/Strategy/uiglyphs, art pack 8; else the main atlas's
+-- nearest) - the addon's own flat glyphs, as every button of the addon has
+local GLYPHS = {
+    CharacterMicroButton = { 1, 61 }, SpellbookMicroButton = { 2, 1, 25 }, PlayerSpellsMicroButton = { 2, 1, 25 },
+    TalentMicroButton = { 2, 2, 58 }, QuestLogMicroButton = { 2, 3, 50 }, SocialsMicroButton = { 1, 46 },
+    GuildMicroButton = { 1, 26 }, WorldMapMicroButton = { 2, 6, 31 }, LFGMicroButton = { 1, 15 },
+    LFDMicroButton = { 1, 15 }, PVPMicroButton = { 2, 4, 62 }, MainMenuMicroButton = { 1, 13 },
+    HelpMicroButton = { 1, 11 }, KeyRingButton = { 2, 5, 38 },
 }
+local SHEET2 = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\uiglyphs"
 
 -- the stone art of the classic main bar
 local ART = { "MainMenuBarTexture0", "MainMenuBarTexture1", "MainMenuBarTexture2", "MainMenuBarTexture3",
@@ -242,57 +237,133 @@ local function HideArt(b)
     if port and port.GetParent and port:GetParent() == b then port:SetAlpha(0) end
 end
 
+-- A glyph on a texture: the main atlas's (UI.ICON_ATLAS) or the second sheet's (art pack 8; else the fallback).
+local function SetGlyph(tex, g)
+    if g[1] == 2 and ns:HasAssets(8) then
+        local i = g[2] - 1
+        tex:SetTexture(SHEET2)
+        tex:SetTexCoord((i % 4) / 4, (i % 4 + 1) / 4, math.floor(i / 4) / 4, (math.floor(i / 4) + 1) / 4)
+    else
+        local c = UI:IconCoords(g[1] == 2 and g[3] or g[2])
+        tex:SetTexture(UI.ICON_ATLAS)
+        tex:SetTexCoord(c[1], c[2], c[3], c[4])
+    end
+end
+
+-- a glyph tile's faces per look: ground, its edges, the glyph's colour
+local GLYPH_C = { flat = { 0.86, 0.84, 0.78 }, halo = { 0.88, 0.86, 0.8 }, sigil = { 1, 0.86, 0.45 },
+    slate = { 0.8, 0.79, 0.74 }, gilded = { 0.96, 0.9, 0.75 } }
+
+local function PaintGlyphTile(t, hover)
+    local L, look = Look(), t.look
+    local k = look.key
+    local gold = { 1, 0.82, 0, 1 }
+    local c = hover and gold or GLYPH_C[k] or GLYPH_C.flat
+    t.glyph:SetVertexColor(c[1], c[2], c[3], t.enabled and 1 or 0.35)
+    if k == "halo" then
+        L.Color(t.ring, hover and gold or { 1, 1, 1, 0.16 })
+    elseif k == "sigil" then
+        t.edge2:Paint(hover and gold or { 1, 0.82, 0, 0.55 })
+    elseif k == "gilded" then
+        t.edge2:Paint(hover and { 1, 0.88, 0.54, 1 } or look.rim)
+    elseif k == "flat" then
+        t.edge:Paint(hover and { 1, 0.82, 0, 0.8 } or { 0, 0, 0, 1 })
+    end
+end
+
 function Bars:Tile(b, look)
     local L = Look()
+    local name = b.dzName or b:GetName() or ""   -- (dzName: a sample button standing for one of the game's)
+    local g = GLYPHS[name]
     local t = tiles[b]
     if not t then
-        t = { b = b }
+        t = { b = b, g = g, enabled = true }
         t.f = CreateFrame("Frame", nil, b)
         t.f:SetFrameLevel(b:GetFrameLevel() + 2)
-        t.icon = L:Icon(t.f)
-        t.icon.f:SetAllPoints(t.f)
-        t.hl = L.Tex(t.f, "OVERLAY", 7)
-        t.hl:SetAllPoints(t.f)
-        t.hl:SetVertexColor(1, 1, 1, 0.14)
-        t.hl:Hide()
-        b:HookScript("OnEnter", function() if t.look then t.hl:Show() end end)
-        b:HookScript("OnLeave", function() t.hl:Hide() end)
+        if g then
+            t.ring = L.Tex(t.f, "BACKGROUND", 1, L.DISC)
+            t.ring:SetPoint("TOPLEFT", -2, 2); t.ring:SetPoint("BOTTOMRIGHT", 2, -2)
+            t.ringIn = L.Tex(t.f, "BACKGROUND", 2, L.DISC)
+            t.ringIn:SetPoint("TOPLEFT", -0.5, 0.5); t.ringIn:SetPoint("BOTTOMRIGHT", 0.5, -0.5)
+            t.bg = L.Tex(t.f, "BACKGROUND", 3)
+            t.bg:SetAllPoints(t.f)
+            t.sheen = L.Tex(t.f, "ARTWORK", 1)
+            t.sheen:SetPoint("TOPLEFT", 2, -2); t.sheen:SetPoint("TOPRIGHT", -2, -2)
+            t.edge = L.Edges(t.f, "BORDER", 1); t.edge:Place(t.f, 0)
+            t.edge2 = L.Edges(t.f, "BORDER", 2); t.edge2:Place(t.f, -1)
+            t.glyph = t.f:CreateTexture(nil, "OVERLAY")
+            t.glyph:SetPoint("CENTER")
+            SetGlyph(t.glyph, g)
+        else
+            t.icon = L:Icon(t.f)
+            t.icon.f:SetAllPoints(t.f)
+            t.hl = L.Tex(t.f, "OVERLAY", 7)
+            t.hl:SetAllPoints(t.f)
+            t.hl:SetVertexColor(1, 1, 1, 0.14)
+            t.hl:Hide()
+        end
+        b:HookScript("OnEnter", function()
+            if not t.look then return end
+            if t.g then PaintGlyphTile(t, true) elseif t.hl then t.hl:Show() end
+        end)
+        b:HookScript("OnLeave", function()
+            if not t.look then return end
+            if t.g then PaintGlyphTile(t, false) elseif t.hl then t.hl:Hide() end
+        end)
         -- the count (free bag slots) over our tile
-        local ct = b.Count or _G[(b:GetName() or "") .. "Count"]
+        local ct = b.Count or _G[name .. "Count"]
         if ct and ct.SetParent then ct:SetParent(t.f); ct:SetDrawLayer("OVERLAY", 7) end
         tiles[b] = t
     end
     t.look = look
-    -- a square on the button (a menu button is tall: the square sits low on it; the key ring: at its middle)
+    local k = look.key
+    -- the size: the action buttons' (the look's), within the button (a menu button is tall: its tile sits low)
     local w, h = b:GetWidth() or 0, b:GetHeight() or 0
     if w <= 0 then w = 32 end
     if h <= 0 then h = 32 end
-    local name = b:GetName() or ""
     local micro = name:find("MicroButton") ~= nil
-    local size = math.max(14, math.min(w, h) - ((look.key == "halo") and 2 or 0))
+    local size = math.max(14, math.min(w, h) - ((k == "halo") and 3 or 1))
     if micro then size = math.max(16, math.min(w - 2, h * 0.62)) end
+    if name == "KeyRingButton" then size = math.max(16, math.min(h * 0.62, 26)) end
     t.f:ClearAllPoints()
     t.f:SetSize(size, size)
     t.f:SetPoint("CENTER", b, "CENTER", 0, micro and -h * 0.12 or 0)
-    t.icon:Apply(look, look.icon == "none" and "small" or look.icon)
-    t.shown = nil
+    if t.g then
+        local round = k == "halo"
+        t.ring:SetShown(round); t.ringIn:SetShown(round)
+        if round then L.Color(t.ringIn, { 0, 0, 0, 1 }) end
+        t.bg:SetTexture(round and L.DISC or L.WHITE)
+        if k == "slate" then t.bg:Hide()
+        elseif k == "gilded" then L.Gradient(t.bg, look.panel.bg2, look.panel.bg)
+        else L.Color(t.bg, round and { 0.031, 0.031, 0.043, 0.92 } or { 0.039, 0.039, 0.051, 0.88 }) end
+        t.edge:Paint((k == "flat" or k == "sigil" or k == "gilded") and { 0, 0, 0, 1 } or nil)
+        t.edge2:Paint(nil)
+        if k == "sigil" then
+            t.sheen:SetHeight(size / 2)
+            L.Gradient(t.sheen, { 1, 1, 1, 0 }, { 1, 1, 1, 0.14 })
+        else t.sheen:Hide() end
+        t.glyph:SetSize(size * ((k == "slate") and 0.78 or 0.58), size * ((k == "slate") and 0.78 or 0.58))
+        PaintGlyphTile(t, false)
+    else
+        t.icon:Apply(look, look.icon == "none" and "small" or look.icon)
+        t.shown = nil
+    end
     t.f:Show()
     self:TileIcon(b)
 end
 
--- Our tile's picture: the menu's icon, the player's portrait, or the game's own texture (a bag).
+-- Our tile: the art hidden again, a bag's picture (from the game's own icon), the glyph dim while disabled.
 function Bars:TileIcon(b)
     local t = tiles[b]
     if not t or not t.look then return end
     HideArt(b)
-    local want = TILE_ICON[b:GetName() or ""]
-    if want == "portrait" then
-        if t.shown ~= "portrait" then t.icon:SetPortrait("player"); t.shown = "portrait" end
-    else
-        local tex = want or GameTexture(b)
-        if tex and tex ~= t.shown then t.icon:SetTexture(tex); t.shown = tex end
-    end
     local enabled = not b.IsEnabled or b:IsEnabled()
+    if t.g then
+        if t.enabled ~= enabled then t.enabled = enabled; PaintGlyphTile(t, false) end
+        return
+    end
+    local tex = TILE_ICON[b:GetName() or ""] or GameTexture(b)
+    if tex and tex ~= t.shown then t.icon:SetTexture(tex); t.shown = tex end
     if t.icon.tex.SetDesaturated then t.icon.tex:SetDesaturated(not enabled) end
     t.f:SetAlpha(enabled and 1 or 0.55)
 end

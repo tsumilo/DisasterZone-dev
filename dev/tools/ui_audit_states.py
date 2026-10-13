@@ -3261,6 +3261,31 @@ for i, key in ipairs({ 'flat', 'halo', 'sigil', 'slate', 'gilded' }) do
   end
   local cb = C:Sample(p, 'player', look); cb:SetPoint('TOPLEFT', p, 'TOPLEFT', x, -400)
   local ct = C:Sample(p, 'target', look); ct:SetPoint('TOPLEFT', p, 'TOPLEFT', x, -440)
+  -- the bottom bar: action buttons, the menu (glyph tiles), the bags and the key ring
+  local icons = { 132340, 132355, 132363, 132326, 135358, 136105 }
+  for j, ic in ipairs(icons) do
+    local b = CreateFrame('Button', nil, p); b:SetSize(32, 32)
+    b:SetPoint('TOPLEFT', p, 'TOPLEFT', x + (j - 1) * 38, -486)
+    b.icon = b:CreateTexture(nil, 'BACKGROUND'); b.icon:SetAllPoints(); b.icon:SetTexture(ic)
+    b.HotKey = b:CreateFontString(nil, 'OVERLAY', 'GameFontHighlight'); b.HotKey:SetText(tostring(j))
+    b.NormalTexture = b:CreateTexture()
+    ns.LookBars:Apply(b, look)
+  end
+  local menu = { 'CharacterMicroButton', 'SpellbookMicroButton', 'TalentMicroButton', 'QuestLogMicroButton',
+                 'SocialsMicroButton', 'WorldMapMicroButton', 'MainMenuMicroButton', 'HelpMicroButton' }
+  for j, n in ipairs(menu) do
+    local b = CreateFrame('Button', nil, p); b:SetSize(28, 36); b.dzName = n
+    b:SetPoint('TOPLEFT', p, 'TOPLEFT', x + (j - 1) * 29, -530)
+    ns.LookBars:Tile(b, look)
+  end
+  local kr = CreateFrame('Button', nil, p); kr:SetSize(18, 36); kr.dzName = 'KeyRingButton'
+  kr:SetPoint('TOPLEFT', p, 'TOPLEFT', x, -580); ns.LookBars:Tile(kr, look)
+  for j, ic in ipairs({ 133628, 133633, 133640, 133639 }) do
+    local b = CreateFrame('Button', nil, p); b:SetSize(30, 30); b.dzName = 'CharacterBag' .. (j - 1) .. 'Slot'
+    b.Icon = b:CreateTexture(); b.Icon:SetTexture(ic)
+    b:SetPoint('TOPLEFT', p, 'TOPLEFT', x + 24 + (j - 1) * 34, -583)
+    ns.LookBars:Tile(b, look)
+  end
 end
 """
 STATES += [

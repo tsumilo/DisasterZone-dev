@@ -6,5 +6,5 @@
 -- This file is never part of an in-game update.
 DisasterZoneBuild = {
     id = "dev",
-    assetPack = 7,
+    assetPack = 8,
 }
