@@ -20,6 +20,11 @@ ns.CHANGELOG = {
               "After a fight: Auto Shots on time, clipped (and the time lost) and held by moving.",
               "Settings > Class tools > Shot timer; /dz shot. Demo mode plays the rotation by itself.",
           } },
+          { heading = "Swing and shot timers: see the next press coming", area = "class", kind = "changed",
+            open = "settings/classtools", lines = {
+              "The icon in the middle now has a cooldown swipe, like your action bars.",
+              "The dark part shrinks as the press comes closer; full colour means press it now.",
+          } },
       } },
     { version = "1.4.1", date = "12 October 2026", title = "Council Bingo, made epic",
       sections = {

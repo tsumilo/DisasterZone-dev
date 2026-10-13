@@ -2,7 +2,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingTimerHUD.lua", ...) then r
 -- The on-screen part of Core/SwingTimer.lua, and the ring every timer class tool shares (ns.SwingRing: the hunter's
 -- shot timer, UI/ShotTimerHUD.lua, is the same ring with its own driver). The swing is a ring of flat strokes around
 -- the next press: gold fills clockwise from 12 o'clock, the press window orange, the server's window dim red; it
--- flashes when a swing lands and glows while the window is open. Notes from the earlier bar layout:
+-- flashes when a swing lands and glows while the window is open.
+-- The next press sits in the middle with a round cooldown swipe: dark where time is left until it is due, gone (full
+-- colour, a small pop) when it is time to press. Notes from the earlier bar layout:
 --   queue   NEXT: the next press large in a gold frame (its name and what to do), the three after it smaller,
 --           Judgement (off the GCD) on the left
 --   bar     the swing in a dark panel with a gold rim: gold fill and spark, the orange press zone (the twist window
@@ -83,6 +85,7 @@ local function NewRing(D)
     local frame
     local zoneWasOpen
     local lastTo, lastLanded, flashAt, shownKey, shownAt, lastExtra = nil, nil, nil, nil, 0, nil
+    local swipeFrom, wasDue = nil, false   -- (the middle icon's swipe: since when this press has been the next one)
     local rested, restIcon, restBadge = false, nil, nil   -- (Rest's look is on, for this icon and badge)
 
     local function Get(path, default) return D.Get(path, default) end
@@ -154,6 +157,16 @@ local function NewRing(D)
         Round(big, big.icon)
         big.shade = Part(big, "OVERLAY", DISC, 0, 0, 0, 0)
         big.shade:SetAllPoints()
+        -- the time left until it is due: a round cooldown swipe, dark where time is left, like the action bars'
+        big.cd = CreateFrame("Cooldown", nil, big, "CooldownFrameTemplate")
+        big.cd:SetAllPoints(big.icon)
+        if big.cd.SetSwipeTexture then big.cd:SetSwipeTexture(DISC) end
+        if big.cd.SetSwipeColor then big.cd:SetSwipeColor(0, 0, 0, 0.66) end
+        if big.cd.SetDrawEdge then big.cd:SetDrawEdge(false) end
+        if big.cd.SetDrawBling then big.cd:SetDrawBling(false) end
+        if big.cd.SetHideCountdownNumbers then big.cd:SetHideCountdownNumbers(true) end
+        big.cd:EnableMouse(false)
+        big.cd:Hide()
         frame.big = big
 
         -- the badge (the seal, the aspect), small on the ring's lower right
@@ -312,6 +325,8 @@ local function NewRing(D)
         frame.big.icon:SetTexture(icon)
         frame.big.icon:SetDesaturated(true)
         frame.big.shade:SetAlpha(0)
+        frame.big.cd:Hide()
+        frame.big.cdStart, swipeFrom, wasDue = nil, nil, false
         frame.big.name:SetText("")
         frame.big.hint:SetText("")
         for _, s in ipairs(frame.small) do s:Hide() end
@@ -414,12 +429,30 @@ local function NewRing(D)
             local dt = first.at - now
             local waiting = first.key == "wait"
             local nowPress = dt <= 0.05 and not waiting
-            if first.key ~= shownKey then shownKey, shownAt = first.key, now end
+            -- a new press to come: another spell, or the one that was due was made (the same spell again later)
+            if first.key ~= shownKey or (wasDue and not nowPress) then
+                shownKey, shownAt, swipeFrom = first.key, now, now
+            end
+            if nowPress and not wasDue then shownAt = now end      -- it pops as it lights up
+            wasDue = nowPress
             local pop = min(1, (now - shownAt) / 0.18)
             big:SetScale(0.82 + 0.18 * Ease(pop))
             big.icon:SetTexture(D.Icon(first.key))
             big.icon:SetDesaturated(waiting)
-            big.shade:SetAlpha(nowPress and 0 or 0.45)
+            -- the swipe from when it became the next press to when it is due; full colour once due
+            local swiping = not waiting and not nowPress and swipeFrom and first.at - swipeFrom > 0.1
+            if swiping then
+                local d = first.at - swipeFrom
+                if not big.cdStart or math.abs(big.cdStart - swipeFrom) > 0.01 or math.abs(big.cdDur - d) > 0.02 then
+                    big.cd:SetCooldown(swipeFrom, d)
+                    big.cdStart, big.cdDur = swipeFrom, d
+                end
+                big.cd:Show()
+            elseif big.cdStart then
+                big.cd:Hide()
+                big.cdStart = nil
+            end
+            big.shade:SetAlpha((nowPress or swiping) and 0 or 0.45)
             big.name:SetText(StepText(first))
             if waiting then big.name:SetTextColor(0.62, 0.58, 0.48)
             elseif hot then big.name:SetTextColor(1, 0.66, 0.34)

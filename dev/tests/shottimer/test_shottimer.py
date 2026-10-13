@@ -151,6 +151,29 @@ r = hunt.eval_py("""
 """)
 assert r == {"hot": True, "z0": True, "before": True, "red": True, "from": True}, r
 
+# the middle icon's swipe: while the GCD runs, Steady Shot is coming (the swipe runs from now to when it is due);
+# once due the swipe is gone and the icon is in full colour
+r = hunt.eval_py("""
+    local ST, HUD, f = ns.ShotTimer, ns.ShotTimerHUD, DisasterZoneShotTimer
+    ST.state.aspect = 'hawk'
+    __MOCK.spell_cd['Steady Shot'] = { GetTime(), 1.5 }
+    __MOCK.spell_cd['Multi-Shot'] = { GetTime(), 10 }
+    __MOCK.spell_cd['Arcane Shot'] = { GetTime(), 6 }
+    ST.OnShot(GetTime()); HUD:Update()
+    local first = ST:Current().plan.steps[1]
+    local coming = { key = first.key, shown = f.big.cd:IsShown(), dur = f.big.cdDur, due = first.at - GetTime(),
+                     shade = f.big.shade:GetAlpha() }
+    __MOCK.spell_cd['Steady Shot'] = { 0, 0 }
+    ST:MarkDirty(); HUD:Update()
+    local due = { key = ST:Current().plan.steps[1].key, shown = f.big.cd:IsShown(), shade = f.big.shade:GetAlpha() }
+    __MOCK.spell_cd['Multi-Shot'] = { 0, 0 }; __MOCK.spell_cd['Arcane Shot'] = { 0, 0 }
+    return { coming = coming, due = due }
+""")
+c, d = r["coming"], r["due"]
+assert c["key"] == "steady" and c["shown"] is True and abs(c["dur"] - c["due"]) < 0.01 and c["due"] > 1, r
+assert c["shade"] == 0, "the swipe replaces the flat shade"
+assert d["key"] == "steady" and d["shown"] is False and d["shade"] == 0, r
+
 # a fight: on time, a clipped shot (0.4 s late), one held by moving -> the report
 r = hunt.eval_py("""
     local ST = ns.ShotTimer

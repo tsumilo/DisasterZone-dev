@@ -128,6 +128,7 @@ ShotTimer.state = state
 
 -- Demo mode: a made-up 3.0 bow at 2.2 s (a quiver and Serpent's Swiftness), Hawk up, a bot pressing what the plan says.
 local DEMO_SPEED, DEMO_BASE = 2.2, 3.0
+local DEMO_REACTION = 0.2        -- the demo bot presses this long after a press is due, as a player would
 local demo                       -- { gcd, ready = {}, kcUntil } while demo mode runs
 
 local function RangedSpeed()
@@ -550,8 +551,8 @@ function ShotTimer:OnLogin()
     self:Refresh()
 end
 
--- Demo mode: made-up Auto Shots from a 3.0 bow at 2.2 s, and a bot that presses what the plan says when it is due
--- (nothing is cast), so the ring plays the whole rotation for anyone, anywhere. Every fourth shot "crits", which
+-- Demo mode: made-up Auto Shots from a 3.0 bow at 2.2 s, and a bot that presses what the plan says a reaction time
+-- after it is due (nothing is cast), so the ring plays the whole rotation for anyone, anywhere. Every fourth shot "crits", which
 -- lights Kill Command for a moment.
 local demoDriver
 local function DemoShots(on)
@@ -570,7 +571,7 @@ local function DemoShots(on)
             end
             local cur = ShotTimer:Current()
             local st = cur and cur.plan.steps[1]
-            if st and st.at <= now + 0.001 then
+            if st and st.at <= now - DEMO_REACTION then
                 if st.key == "kc" then
                     demo.ready.kc, demo.kcUntil = now + state.cd.kc, 0
                 else
