@@ -723,25 +723,8 @@ local function FillRow(r, sec, v, w, opts)
     r:SetSelected(open)
     UI():SetGlyph(r.tile.icon, AreaAtlas(sec.area), "TEXT")
     r.title:SetText(UI():SafeText(sec.title))
-    local x = 42 + UI():TextWidth(r.title) + 8
-    local kinfo = sec.kind and KIND[sec.kind]
-    if kinfo then
-        r.kind:Set(kinfo[1], kinfo[2])
-        r.kind:ClearAllPoints()
-        r.kind:SetPoint("LEFT", r, "TOPLEFT", x, -13)
-        r.kind:Show()
-        x = x + (r.kind:GetWidth() or 40) + 7
-    else
-        r.kind:Hide()
-    end
-    local tag = opts.version and S:Wrap("SUB", sec.version)
-        or (AreaIcon(sec.area, 10, S.C.SUB) .. " " .. (AREAS[sec.area] or AREAS.other)[1])
-    r.tag:SetText(tag)
-    r.tag:ClearAllPoints()
-    r.tag:SetPoint("LEFT", r, "TOPLEFT", x, -13)
-    r.tag:Show()
-    x = x + UI():TextWidth(r.tag) + 8
-    -- the right side: count + chevron, Show me, what Just for me left out
+    -- the right side first (count + chevron, Show me, what Just for me left out): the title, its pill and its tag get
+    -- what is left of the top line
     local right = 10 + 9 + 4
     r.count:SetText(tostring(#v.lines))
     right = right + UI():TextWidth(r.count) + 10
@@ -770,6 +753,36 @@ local function FillRow(r, sec, v, w, opts)
     else
         r.more:Hide()
     end
+    -- the left side in what is left: the tag goes first, then the title is cut ("...") so the pill still fits
+    local kinfo = sec.kind and KIND[sec.kind]
+    local kindW = 0
+    if kinfo then
+        r.kind:Set(kinfo[1], kinfo[2])
+        kindW = (r.kind:GetWidth() or 40) + 7
+    end
+    local tag = opts.version and S:Wrap("SUB", sec.version)
+        or (AreaIcon(sec.area, 10, S.C.SUB) .. " " .. (AREAS[sec.area] or AREAS.other)[1])
+    r.tag:SetText(tag)
+    local tagW = UI():TextWidth(r.tag) + 8
+    local avail = w - right - 8 - 42
+    local titleW = UI():TextWidth(r.title)
+    local showTag = titleW + 8 + kindW + tagW <= avail
+    local cut = titleW + 8 + kindW > avail
+    if cut then titleW = max(40, avail - kindW - 8) end
+    r.title:SetWidth(titleW + (cut and 0 or 2))
+    local x = 42 + titleW + 8
+    if kinfo then
+        r.kind:ClearAllPoints()
+        r.kind:SetPoint("LEFT", r, "TOPLEFT", x, -13)
+        r.kind:Show()
+        x = x + kindW
+    else
+        r.kind:Hide()
+    end
+    r.tag:ClearAllPoints()
+    r.tag:SetPoint("LEFT", r, "TOPLEFT", x, -13)
+    r.tag:SetShown(showTag)
+    if showTag then x = x + tagW end
     if v.credited and x + 120 < w - right then
         local F = ns.Feedback
         local info = F and F.KIND_INFO and F.KIND_INFO.idea
@@ -1288,16 +1301,28 @@ local function SearchView(w)
     return y, total
 end
 
--- The lines of the notes that credit me: { { sec, ln }, ... } newest first.
+-- What I asked for that shipped, one entry per feedback item (an item often ships as several lines, even in several
+-- sections): { { sec, ln (its newest line), lines = { { sec, ln }, ... } }, ... } newest first. Lines that name no
+-- item are entries of their own.
 local function MyShipped()
-    local out = {}
+    local out, byNo = {}, {}
     local F = ns.Feedback
     if not (F and F.LineIsMine) then return out end
     for _, ne in ipairs(Norm().list) do
         if Compare(ne.version, ns.version) <= 0 then
             for _, sec in ipairs(ne.sections) do
                 for _, ln in ipairs(sec.lines) do
-                    if F:LineIsMine(ln.raw) then out[#out + 1] = { sec = sec, ln = ln } end
+                    if F:LineIsMine(ln.raw) then
+                        local raw = ln.raw
+                        local no = type(raw) == "table" and type(raw.fb) == "table" and raw.fb[1] or nil
+                        local g = no and byNo[no]
+                        if not g then
+                            g = { sec = sec, ln = ln, lines = {} }
+                            out[#out + 1] = g
+                            if no then byNo[no] = g end
+                        end
+                        g.lines[#g.lines + 1] = { sec = sec, ln = ln }
+                    end
                 end
             end
         end
@@ -1332,9 +1357,11 @@ local function FeedbackView(w)
         c.head:SetText(head)
         local leftW = floor(w * 0.38)
         c.quote:SetWidth(leftW - 20)
+        -- (long words are cut after 8 lines; the height is measured, so nothing below runs into it)
+        if c.quote.SetMaxLines then c.quote:SetMaxLines(8) end
         c.quote:SetText(item and ("“" .. UI():SafeText(item.text or "") .. "”")
             or S:Wrap("DIM", "Your words haven't reached this character yet."))
-        local qh = min(WrapH(c.quote, leftW - 20, 13), 13 * 5)
+        local qh = min(WrapH(c.quote, leftW - 20, 13), c.quote.SetMaxLines and 1e9 or 13 * 8)
         local votes = item and tonumber(item.voteCount) or (type(raw) == "table" and tonumber(raw.mt)) or 0
         c.metoo:SetText(votes > 0 and (votes == 1 and "1 more said me too" or (votes .. " more said me too"))
             or "Only you asked")
@@ -1345,14 +1372,23 @@ local function FeedbackView(w)
         c.div:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", leftW, 1)
         c.div:SetWidth(1)
         local rx, rw = leftW + 12, w - leftW - 24
+        -- every version and section it shipped in; its lines as one list
+        local vers, secs, texts, seen = {}, {}, {}, {}
+        for _, l in ipairs(it.lines) do
+            if not seen["v" .. l.sec.version] then seen["v" .. l.sec.version] = true; vers[#vers + 1] = l.sec.version end
+            if not seen[l.sec] then seen[l.sec] = true; secs[#secs + 1] = l.sec end
+            texts[#texts + 1] = UI():SafeText(l.ln.text)
+        end
         c.kick:ClearAllPoints()
         c.kick:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -10)
-        c.kick:SetText("|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t SHIPPED IN " .. it.sec.version)
+        c.kick:SetText("|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t SHIPPED IN " .. table.concat(vers, ", "))
         c.secText:ClearAllPoints()
         c.secText:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -26)
-        c.secText:SetText(AreaIcon(it.sec.area, 11, S.C.TEXT) .. " " .. UI():SafeText(it.sec.title))
+        c.secText:SetWidth(rw)
+        c.secText:SetText(AreaIcon(it.sec.area, 11, S.C.TEXT) .. " " .. UI():SafeText(it.sec.title)
+            .. (#secs > 1 and S:Wrap("SUB", ("  and %d more"):format(#secs - 1)) or ""))
         c.line:SetWidth(rw - 14)
-        c.line:SetText(UI():SafeText(it.ln.text))
+        c.line:SetText(#texts == 1 and texts[1] or ("• " .. table.concat(texts, "\n• ")))
         local lh = WrapH(c.line, rw - 14, 13)
         c.lineBox:ClearAllPoints()
         c.lineBox:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -44)

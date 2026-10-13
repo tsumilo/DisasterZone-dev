@@ -1820,7 +1820,9 @@ STATES = [
     ("Changelog - from your feedback", opened("changelog", "local e; for _, x in ipairs(ns.CHANGELOG) do "
                                        "if x.version == ns.version then e = x end end; table.insert(e.sections[1].lines, "
                                        "{ 'Built-in meters: no need for Details or a threat addon.', fb = { 3 }, "
-                                       "by = { 'Gina' }, k = 'idea' }); ns.ChangelogUI.ResetIndex(); "
+                                       "by = { 'Gina' }, k = 'idea' }); table.insert(e.sections[2].lines, "
+                                       "{ 'Meters dock to the side of your screen.', fb = { 3 }, by = { 'Gina' }, "
+                                       "k = 'idea' }); ns.ChangelogUI.ResetIndex(); "
                                        "ns.ChangelogUI:Select('feedback')")),
     ("Changelog - newest version", opened("changelog", "ns.ChangelogUI:Select(ns.CHANGELOG[1].version)")),
     ("Changelog - pop-up", opened("home", "ns.ChangelogUI.ResetSession(); ns.db.settings.changelogSeen = '1.3.1'; "
