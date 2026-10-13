@@ -43,7 +43,8 @@ RUN = """
       nextStart = o.next or (last - w + speed), buffer = math.min(0.5, 0.25 * speed),
       ct = { steady = 1.5 / h, multi = 0.5 / h }, lat = 0.05, gcdReady = o.gcd or 10, busyUntil = 10, gcd = 1.5,
       cd = { multi = 10, arcane = 6, kc = 5 }, ready = { multi = o.multiAt or 10, arcane = o.arcaneAt or 10 },
-      kc = o.kc or false, mana = o.mana or 80, aspect = o.aspect or 'hawk',
+      kc = o.kc or false, mana = o.mana or 80, aspect = o.aspect or 'hawk', react = o.react,
+      readySince = o.readySince,
       use = { steady = true, multi = o.multi or false, arcane = o.arcane or false, aspect = o.aspects or false,
               viperStart = 5, viperStop = 25 } }
     local steps, shots = ST.Run(snap)
@@ -87,6 +88,19 @@ assert run(kc=True)[0].split()[0:2] == ["kc@10.000", "steady@10.000<11.183"], ru
 assert run(mana=3, aspects=True)[0].split()[0] == "viper@10.000"
 assert run(mana=30, aspect="viper", aspects=True)[0].split()[0] == "hawk@10.000"
 assert run(mana=3)[0].split()[0].startswith("steady@")
+# reaction time: the GCD ends 0.13 s before the next windup (11.7 vs 11.833). WoWSims' bot squeezes a Multi-Shot in
+# (it fits with the buffer); with a 0.25 s reaction the chance is too short, so Steady at the next shot (12.2)
+assert run(gcd=11.7, multi=True)[0].split()[0] == "multi@11.700<11.917", run(gcd=11.7, multi=True)
+assert run(gcd=11.7, multi=True, react=0.25)[0].split()[0].startswith("steady@12.200"), run(gcd=11.7, multi=True, react=0.25)
+# ... Arcane Shot too (instant, but nothing goes during the windup): 0.08 s before it is too short
+assert run(gcd=11.7, arcane=True, react=0.25)[0].split()[0].startswith("steady@12.200")
+assert run(gcd=11.7, arcane=True)[0].split()[0] == "arcane@11.700"
+# ... the reaction counts once, from when the press became possible: 0.48 s of room is too little to offer a
+# Multi-Shot now (0.37 s cast + 0.25 s), but one possible since 9.8 (0.2 s of the reaction gone) stays up
+assert run(last=8.2, multi=True, react=0.25)[0].split()[0] != "multi@10.000"
+assert run(last=8.2, multi=True, react=0.25, readySince=9.8)[0].split()[0].startswith("multi@10.000")
+# ... with time to spare (the GCD ends at 11.5) the Multi-Shot is still suggested
+assert run(gcd=11.5, multi=True, react=0.25)[0].split()[0].startswith("multi@11.500"), run(gcd=11.5, multi=True, react=0.25)
 # the planner never stops early on a long horizon (no endless loop, ~2 swings ahead)
 assert len(run(multi=True, arcane=True)[0].split()) >= 2
 

@@ -111,6 +111,12 @@ if ns.ClassKit then ns.ClassKit:Extend("shot", { iconPath = "Interface\\Icons\\A
     -- (on/off is the switch on the card's header: shot.enabled)
     ns.SwingRingSettings(S, sec, "shot", "Auto averages your world latency with what it measures from your own "
         .. "casts (the time from pressing Steady Shot to it starting). /dz shot shows both.")
+    local reacts = { { value = 0, text = "None (sim)" } }
+    for _, n in ipairs({ 150, 200, 250, 300, 400 }) do reacts[#reacts + 1] = { value = n, text = n .. " ms" } end
+    S:DropdownSetting(sec, "Reaction time", "A shot is only suggested when you have this long to press it.",
+        "shot.reactMs", 250, reacts, "WoWSims plays with no reaction time, so it squeezes in a Multi-Shot even when "
+            .. "the chance lasts a tenth of a second. Real hands can't, so by default the planner skips those and "
+            .. "tells you Steady Shot at the next shot instead.")
     S:SwitchSetting(sec, "Multi-Shot", "When its cast fits before the next Auto Shot. On in WoWSims' rotation.", "shot.use.multi", true)
     S:SwitchSetting(sec, "Arcane Shot", "When nothing with a cast fits. On in WoWSims' rotation.", "shot.use.arcane", true)
     S:SwitchSetting(sec, "Kill Command", "Off the GCD, after you crit.", "shot.use.kc", true)

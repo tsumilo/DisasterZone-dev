@@ -6,26 +6,6 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.4.2", date = "13 October 2026", title = "A shot timer for Hunters",
-      sections = {
-          { heading = "Shot timer (Hunters)", area = "class", kind = "new", hi = true, ["for"] = "HUNTER",
-            open = "settings/classtools", lead = "The swing timer's ring, for Auto Shot and Steady Shot.", lines = {
-              "New shot timer for every Hunter spec: the swing timer's ring, timed to your Auto Shot.",
-              "The orange window is when Steady Shot still fits before the next Auto Shot.",
-              "The red end is the next shot's windup: stand still and cast nothing there.",
-              "What to press comes from WoWSims' Hunter rotation, the one the gear sim plays.",
-              "Steady Shot when it fits, else Multi-Shot, else Arcane Shot; Kill Command after a crit.",
-              "Haste is read live: quiver, Rapid Fire, Bloodlust and haste rating all move the window.",
-              "Aspect hints: Viper when you run dry, Hawk once you have mana again.",
-              "After a fight: Auto Shots on time, clipped (and the time lost) and held by moving.",
-              "Settings > Class tools > Shot timer; /dz shot. Demo mode plays the rotation by itself.",
-          } },
-          { heading = "Swing and shot timers: see the next press coming", area = "class", kind = "changed",
-            open = "settings/classtools", lines = {
-              "The icon in the middle now has a cooldown swipe, like your action bars.",
-              "The dark part shrinks as the press comes closer; full colour means press it now.",
-          } },
-      } },
     { version = "1.4.1", date = "12 October 2026", title = "Council Bingo, made epic",
       sections = {
           { heading = "Council Bingo: a new card set", area = "games", kind = "new", hi = true, art = "ssc", open = "games",
@@ -51,6 +31,24 @@ ns.CHANGELOG = {
               "Point at one for who set it off first, where, and how often you've seen it.",
               "The season ladder and the legendaries you've witnessed sit beside it.",
               "Demo mode shows a made-up game, with a button to try how each quality arrives.",
+          } },
+          { heading = "Shot timer (Hunters)", area = "class", kind = "new", hi = true, ["for"] = "HUNTER",
+            open = "settings/classtools", lead = "The swing timer's ring, for Auto Shot and Steady Shot.", lines = {
+              "New shot timer for every Hunter spec: the swing timer's ring, timed to your Auto Shot.",
+              "The orange window is when Steady Shot still fits before the next Auto Shot.",
+              "The red end is the next shot's windup: stand still and cast nothing there.",
+              "What to press comes from WoWSims' Hunter rotation, the one the gear sim plays.",
+              "Steady Shot when it fits, else Multi-Shot, else Arcane Shot; Kill Command after a crit.",
+              "Haste is read live: quiver, Rapid Fire, Bloodlust and haste rating all move the window.",
+              "Aspect hints: Viper when you run dry, Hawk once you have mana again.",
+              "After a fight: Auto Shots on time, clipped (and the time lost) and held by moving.",
+              "It skips shots you'd get under a quarter second to press (Reaction time in Settings).",
+              "Settings > Class tools > Shot timer; /dz shot. Demo mode plays the rotation by itself.",
+          } },
+          { heading = "Swing and shot timers: see the next press coming", area = "class", kind = "changed",
+            open = "settings/classtools", lines = {
+              "The icon in the middle now has a cooldown swipe, like your action bars.",
+              "The dark part shrinks as the press comes closer; full colour means press it now.",
           } },
           { heading = "Your alts can change what you made", area = "guild", kind = "changed", lines = {
               "Strategies, polls and events you made: edit or remove them from any of your characters.",

@@ -63,8 +63,9 @@ local DEFAULTS = {
         -- Shot timer (Core/ShotTimer.lua, UI/ShotTimerHUD.lua): every Hunter. style / locked / idle / scale /
         -- latencyMs / sound as the swing timer's; use.* = the shots the planner may suggest (all on, as in WoWSims'
         -- rotation); aspects = Viper / Hawk hints, Viper below viperStart %, Hawk again from viperStop %; base =
-        -- the ranged weapon's own speed learned from Steady Shot casts [itemID]; reports / pos are kept here too
-        shot = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0,
+        -- the ranged weapon's own speed learned from Steady Shot casts [itemID]; reactMs = a cast is only suggested
+        -- with this long to press it (0 = WoWSims' bot); reports / pos are kept here too
+        shot = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0, reactMs = 250,
                  use = { multi = true, arcane = true, kc = true }, aspects = true, viperStart = 5, viperStop = 25,
                  sound = false },
         -- Blessings (Core/Blessings.lua, UI/BlessingsBar.lua): paladins. bar "group" (party and raid) | "raid" | "off";

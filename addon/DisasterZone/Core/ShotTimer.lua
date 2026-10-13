@@ -126,8 +126,9 @@ local state = {
 }
 ShotTimer.state = state
 
--- Demo mode: a made-up 3.0 bow at 2.2 s (a quiver and Serpent's Swiftness), Hawk up, a bot pressing what the plan says.
-local DEMO_SPEED, DEMO_BASE = 2.2, 3.0
+-- Demo mode: a made-up 3.0 bow at 2.6 s (a 15% quiver), Hawk up, a bot pressing what the plan says: slow enough that
+-- Multi-Shot and Arcane Shot fit between the shots now and then, so every part of the ring shows.
+local DEMO_SPEED, DEMO_BASE = 2.6, 3.0
 local DEMO_REACTION = 0.2        -- the demo bot presses this long after a press is due, as a player would
 local demo                       -- { gcd, ready = {}, kcUntil } while demo mode runs
 
@@ -300,10 +301,11 @@ function ShotTimer:Snapshot(now)
         now = now, nextStart = self:NextStart(now), lastShot = state.last, speed = sp,
         cycle = state.cycle or sp, haste = h, windup = WINDUP / h, buffer = min(0.5, 0.25 * sp),
         ct = { steady = CAST.steady / h, multi = CAST.multi / h }, lat = self:Latency(),
+        react = (tonumber(Get("reactMs", 250)) or 250) / 1000,
         gcdReady = now + GcdLeft(now), busyUntil = max(now, state.castEnd), gcd = state.gcd, cd = state.cd,
         -- since when a press has been possible (the last shot, GCD or cast, whichever ended last): a due press's
         -- window starts there, not at now
-        readySince = max(state.last or 0, state.gcdEnd or 0, state.castEnd or 0),
+        readySince = min(now, max(state.last or 0, state.gcdEnd or 0, state.castEnd or 0)),
         ready = { multi = now + CdLeft("multi", now), arcane = now + CdLeft("arcane", now) },
         kc = Get("use.kc", true) and KillCommandUp(now), use = use,
         mana = manaMax > 0 and mana / manaMax * 100 or 100, aspect = demo and "hawk" or state.aspect,
@@ -320,7 +322,10 @@ end
 --   5. Arcane Shot
 -- The buffer is min(0.5 s, a quarter of the ranged swing): WoWSims lets a cast push the next Auto Shot by up to that
 -- much because a Steady Shot is worth it. Major cooldowns (Rapid Fire, Bestial Wrath, trinkets) are yours to press.
--- "Fits" is on the server's clock: a press reaches it one round trip after the windup time we see.
+-- "Fits" is on the server's clock: a press reaches it one round trip after the windup time we see. And it has to fit
+-- with a human reaction to spare (setting shot.reactMs, 0.25 s; 0 = WoWSims' bot, which reacts in no time): a cast
+-- (or an instant) whose chance lasts less than that is not suggested, so the plan never shows a Multi-Shot that lights up for a tenth
+-- of a second and is gone; it says "Steady at the next shot" at once instead.
 -- Run(snap) plays the rules forward from now (as if each press is made on time) and returns the presses and the
 -- Auto Shots: steps = { { key, at (our clock), cast, latest (the last moment it still fits), off (off the GCD) } },
 -- shots = { the times the next Auto Shots leave }; the first step at or before now is the press to make.
@@ -334,6 +339,7 @@ function ShotTimer.Run(snap, horizon)
     for k, v in pairs(snap.ready) do rd[k] = v end
     local use, G, CD = snap.use, snap.gcd, snap.cd
     local aspect = snap.aspect
+    local react = snap.react or 0
     local steps, shots = {}, {}
     if snap.kc then steps[1] = { key = "kc", at = t, off = true } end
     for _ = 1, 60 do
@@ -346,13 +352,18 @@ function ShotTimer.Run(snap, horizon)
         elseif t < gcd - 0.001 or t < busy - 0.001 then
             t = min(max(gcd, busy), nxt)
         else
-            local left = nxt - (t + lat) + buf      -- room before the next windup, as the server sees the press
+            -- room before the next windup, as the server sees the press, with a reaction to spare. The reaction counts
+            -- once, from when the press became possible: one offered stays up until its real last moment.
+            local r = react
+            if t <= snap.now + 0.001 and snap.readySince then r = max(0, react - (snap.now - snap.readySince)) end
+            local left = nxt - (t + lat) + buf - r
             local act, ct
             if use.aspect and aspect ~= "viper" and snap.mana < use.viperStart then act = "viper"
             elseif use.aspect and aspect ~= "hawk" and snap.mana >= use.viperStop then act = "hawk"
             elseif use.steady and snap.ct.steady <= left then act, ct = "steady", snap.ct.steady
             elseif use.multi and t >= rd.multi - 0.001 and snap.ct.multi <= left then act, ct = "multi", snap.ct.multi
-            elseif use.arcane and t >= rd.arcane - 0.001 then act = "arcane"
+            elseif use.arcane and t >= rd.arcane - 0.001 and nxt - (t + lat) >= r then
+                act = "arcane"                     -- (instant, but not into the windup: a reaction before it)
             end
             if act then
                 local st = { key = act, at = t, cast = ct }
@@ -551,7 +562,7 @@ function ShotTimer:OnLogin()
     self:Refresh()
 end
 
--- Demo mode: made-up Auto Shots from a 3.0 bow at 2.2 s, and a bot that presses what the plan says a reaction time
+-- Demo mode: made-up Auto Shots from a 3.0 bow at 2.6 s, and a bot that presses what the plan says a reaction time
 -- after it is due (nothing is cast), so the ring plays the whole rotation for anyone, anywhere. Every fourth shot "crits", which
 -- lights Kill Command for a moment.
 local demoDriver
