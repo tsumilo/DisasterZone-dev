@@ -464,7 +464,9 @@ def the_hello_is_the_same_as_140s():
     same keys and values; n, the session nonce, aside)."""
     (old, old_own), (new, new_own) = hello_of(True), hello_of(False)
     # (1.4.2 adds dcr, the Discord links' rev: Core/Bridge.lua)
-    assert set(old) == set(new) - {"dcr"}, (sorted(old), sorted(new))
+    assert "dcr" in new and "dcr" not in old
+    new.pop("dcr")
+    assert set(old) == set(new), (sorted(old), sorted(new))
     assert {"rlr", "av", "pd", "blr", "gnr", "sd", "ed", "od", "zd"} <= set(new), sorted(new)
     # (the digest hashes are over records with ids made from each world's clock: each is its own client's hash)
     for m, own in ((old, old_own), (new, new_own)):
