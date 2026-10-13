@@ -455,17 +455,34 @@ function IconMethods:SetPortrait(unit)
     self:Refresh()
 end
 
+-- The disc mask on the texture (round textures), made the first time.
+function IconMethods:Mask(on)
+    local t = self.tex
+    if on and not self.mask and self.f.CreateMaskTexture then
+        self.mask = self.f:CreateMaskTexture()
+        self.mask:SetTexture(DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        self.mask:SetAllPoints(t)
+    end
+    if not self.mask then return end
+    if on and not self.masked then pcall(t.AddMaskTexture, t, self.mask); self.masked = true
+    elseif not on and self.masked then pcall(t.RemoveMaskTexture, t, self.mask); self.masked = false end
+end
+
 function IconMethods:Refresh()
     local t = self.tex
     if self.kind == "unit" and self.unit then
+        self:Mask(false)
         if SetPortraitTexture then pcall(SetPortraitTexture, t, self.unit) end
         if self.shape == "round" then t:SetTexCoord(0, 1, 0, 1) else t:SetTexCoord(0.14, 0.86, 0.14, 0.86) end
     elseif self.path then
-        -- (a texture with coords is a cut of a sheet, already shaped: the class circles; else round looks round it)
-        if self.shape == "round" and SetPortraitToTexture and not self.coords then
-            if not pcall(SetPortraitToTexture, t, self.path) then t:SetTexture(self.path) end
-            t:SetTexCoord(0, 1, 0, 1)
+        -- (a texture with coords is a cut of a sheet, already shaped: the class circles; else a round look masks it
+        -- with the portrait disc: the portrait cut did nothing to file ids in game)
+        if self.shape == "round" and not self.coords then
+            t:SetTexture(self.path)
+            t:SetTexCoord(0.06, 0.94, 0.06, 0.94)
+            self:Mask(true)
         else
+            self:Mask(false)
             t:SetTexture(self.path)
             local c = self.coords
             if c then t:SetTexCoord(c[1], c[2], c[3], c[4]) else t:SetTexCoord(0.08, 0.92, 0.08, 0.92) end

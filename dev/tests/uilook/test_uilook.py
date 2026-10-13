@@ -173,6 +173,8 @@ def action_buttons_are_reskinned_not_replaced():
     assert c.eval("local p, rel, rp = ActionButton1.HotKey:GetPoint(1); return p .. '>' .. rp") == "BOTTOM>BOTTOM"
     # Halo cuts the icon round, again whenever the game sets a new one
     assert c.eval("return ns.LookBars.skinned[ActionButton1].round") is True
+    # (round by the portrait disc as a mask on the icon, where the client has masks)
+    assert c.eval("return ActionButton1.CreateMaskTexture == nil or ns.LookBars.skinned[ActionButton1].maskOn") is True
     # the bags and the menu: their art hidden, a tile of the look over each (the button stays the game's)
     c.eval("""
         local bag = CreateFrame('Button', 'CharacterBag0Slot', UIParent); bag:SetSize(30, 30)

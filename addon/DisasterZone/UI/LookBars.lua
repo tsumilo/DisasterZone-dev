@@ -8,7 +8,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/LookBars.lua", ...) then return
 -- The rest of the game's bottom bar belongs to the part too: the bag slots are reskinned like the buttons, the micro
 -- menu and the bags (with the key ring) sit on plates of the look, and the experience and reputation bars are ours
 -- (UI/LookBars.lua XP: the game's status bars retired, not protected): rested experience, numbers on mouse-over.
--- Halo's round icons: the game's round portrait cut (SetPortraitToTexture) after every icon change (masks stripe
+-- Halo's round icons: a mask texture of the game's portrait disc on the icon (the round portrait cut does nothing to
+-- the file ids action icons come as: in game they stayed square in the ring); the hover, pressed, checked and flash
+-- states take the look's shape too (discs in Halo), re-applied after the game's own updates.
+-- (the old note: SetPortraitToTexture, chosen because masks striped on meter rows; it never cut action icons
 -- on this client, the meters found out).
 -- Options (ui.bars.*): keys (show the key binds), macros (macro names), cooldown ("theme" | "numbers" | "sweep"),
 -- range ("icon" red icon | "key" red key bind), xp (our experience / reputation bar).
@@ -86,18 +89,7 @@ local function Skin(b)
     -- after the game's own updates: our range colour, the hidden art
     if b.UpdateUsable then hooksecurefunc(b, "UpdateUsable", function(self) Bars:Range(self) end) end
     if b.Update then hooksecurefunc(b, "Update", function(self) Bars:Art(self) end) end
-    -- Halo: every new icon cut round (the hook runs after the game set it)
-    local icon = b.icon or b.Icon or _G[(b:GetName() or "") .. "IconTexture"]
-    if icon and icon.SetTexture then
-        hooksecurefunc(icon, "SetTexture", function(tex, path)
-            if s.round and path and not s.cutting and SetPortraitToTexture then
-                s.cutting = true
-                pcall(SetPortraitToTexture, tex, path)
-                s.cutting = false
-            end
-        end)
-    end
-    s.icon = icon
+    s.icon = b.icon or b.Icon or _G[(b:GetName() or "") .. "IconTexture"]
     return s
 end
 
@@ -111,6 +103,32 @@ function Bars:Art(b)
     if b.SlotBackground then b.SlotBackground:SetAlpha(0) end
     if b.SlotArt then b.SlotArt:SetAlpha(0) end
     if b.Border then b.Border:SetAlpha(s.look.key == "flat" and 0.5 or 0) end
+    Bars:States(b)
+end
+
+-- The button's states in the look's shape, over the icon: hover (light), pressed (dark), checked (gold), the attack
+-- flash (red), the spell highlight (gold). Discs in Halo, squares in the rest.
+local function StateTex(t, icon, round, r, g, bl, a, blend)
+    if not t or not icon then return end
+    local L = Look()
+    t:SetTexture(round and L.DISC or L.WHITE)
+    t:SetTexCoord(0, 1, 0, 1)
+    t:SetVertexColor(r, g, bl, a)
+    if t.SetBlendMode then t:SetBlendMode(blend or "BLEND") end
+    t:ClearAllPoints()
+    t:SetAllPoints(icon)
+end
+
+function Bars:States(b)
+    local s = skinned[b]
+    if not s or not s.look or not s.icon then return end
+    local round = s.look.key == "halo"
+    local icon = s.icon
+    StateTex(b.HighlightTexture or (b.GetHighlightTexture and b:GetHighlightTexture()), icon, round, 1, 1, 1, 0.18, "ADD")
+    StateTex(b.PushedTexture or (b.GetPushedTexture and b:GetPushedTexture()), icon, round, 0, 0, 0, 0.4)
+    StateTex(b.CheckedTexture or (b.GetCheckedTexture and b:GetCheckedTexture()), icon, round, 1, 0.82, 0, 0.35, "ADD")
+    StateTex(b.Flash, icon, round, 1, 0.15, 0.1, 0.45, "ADD")
+    StateTex(b.SpellHighlightTexture, icon, round, 1, 0.82, 0, 0.45, "ADD")
 end
 
 local function Font(fs, size, r, g, b)
@@ -127,24 +145,33 @@ function Bars:Apply(b, look)
     s.look = look
     local k = look.key
     local icon = s.icon
-    -- the icon: square crop without the game's mask; Halo: cut round (the portrait cut, again on every change)
+    -- the icon: square crop without the game's mask; Halo: our disc mask over the whole button (round, filling the
+    -- ring: the crop zooms past the icon's own border)
     if icon then
         if b.IconMask and s.masked ~= false then
             pcall(icon.RemoveMaskTexture, icon, b.IconMask)
             s.masked = false
         end
-        s.round = k == "halo"
-        if s.round then
-            local path = (b.action and GetActionTexture and GetActionTexture(b.action)) or icon:GetTexture()
-            if path then icon:SetTexture(path) end            -- (the hook cuts it)
-            icon:SetTexCoord(0, 1, 0, 1)
-        else
-            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        end
         icon:ClearAllPoints()
         local inset = (k == "sigil" or k == "gilded") and 2 or ((k == "flat") and 1 or 0)
         icon:SetPoint("TOPLEFT", b, "TOPLEFT", inset, -inset)
         icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -inset, inset)
+        s.round = k == "halo"
+        if s.round then
+            if not s.mask and b.CreateMaskTexture then
+                s.mask = b:CreateMaskTexture()
+                s.mask:SetTexture(L.DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            end
+            if s.mask then
+                s.mask:ClearAllPoints()
+                s.mask:SetAllPoints(icon)
+                if not s.maskOn then pcall(icon.AddMaskTexture, icon, s.mask); s.maskOn = true end
+            end
+            icon:SetTexCoord(0.06, 0.94, 0.06, 0.94)
+        else
+            if s.mask and s.maskOn then pcall(icon.RemoveMaskTexture, icon, s.mask); s.maskOn = false end
+            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        end
     end
     -- ring / edges / sheen
     local round = k == "halo"
@@ -321,13 +348,12 @@ function Bars:Tile(b, look)
     local w, h = b:GetWidth() or 0, b:GetHeight() or 0
     if w <= 0 then w = 32 end
     if h <= 0 then h = 32 end
-    local micro = name:find("MicroButton") ~= nil
+    -- (a square in the middle of the button: the menu's buttons are taller than wide, the key ring thin)
     local size = math.max(14, math.min(w, h) - ((k == "halo") and 3 or 1))
-    if micro then size = math.max(16, math.min(w - 2, h * 0.62)) end
     if name == "KeyRingButton" then size = math.max(16, math.min(h * 0.62, 26)) end
     t.f:ClearAllPoints()
     t.f:SetSize(size, size)
-    t.f:SetPoint("CENTER", b, "CENTER", 0, micro and -h * 0.12 or 0)
+    t.f:SetPoint("CENTER", b, "CENTER", 0, 0)
     if t.g then
         local round = k == "halo"
         t.ring:SetShown(round); t.ringIn:SetShown(round)
@@ -346,6 +372,8 @@ function Bars:Tile(b, look)
         PaintGlyphTile(t, false)
     else
         t.icon:Apply(look, look.icon == "none" and "small" or look.icon)
+        -- (Halo: the same faint light ring as the action buttons and the menu)
+        if k == "halo" then Look().Color(t.icon.ring, { 1, 1, 1, 0.16 }) end
         t.shown = nil
     end
     t.f:Show()
@@ -585,8 +613,7 @@ function Bars:Off()
         s.look = nil
         if s.round then
             s.round = false
-            local path = b.action and GetActionTexture and GetActionTexture(b.action)
-            if path and s.icon then s.icon:SetTexture(path) end
+            if s.mask and s.maskOn and s.icon then pcall(s.icon.RemoveMaskTexture, s.icon, s.mask); s.maskOn = false end
         end
         s.ring:Hide(); s.ringIn:Hide(); s.edge:Paint(nil); s.edge2:Paint(nil); s.sheen:Hide()
         if b.NormalTexture then b.NormalTexture:SetAlpha(1) end
