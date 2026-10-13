@@ -1520,11 +1520,33 @@ local function CleanLootRules(lr)
 end
 Guild.CleanLootRules = function(_, lr) return CleanLootRules(lr) end
 
+-- Discord bridge (Core/Bridge.lua): the GM names the character whose launcher runs the guild's Discord bot (h) and
+-- the Discord channels raids are posted to: g for raids without a team, t[teamId] for a team's raids. Channel ids are
+-- Discord's snowflakes (digits). Rides on the raid leaders record like the loot rules (GM only).
+local function CleanSnowflake(v)
+    return type(v) == "string" and v:match("^%d+$") and #v >= 15 and #v <= 21 and v or nil
+end
+
+local function CleanDiscord(dc)
+    if type(dc) ~= "table" then return nil end
+    local out = { h = dc.h ~= nil and WireKey(dc.h) or nil, g = CleanSnowflake(dc.g) }
+    if type(dc.t) == "table" then
+        local n = 0
+        for id, ch in pairs(dc.t) do
+            if type(id) == "string" and #id <= 32 and CleanSnowflake(ch) and n < 40 then
+                out.t = out.t or {}
+                out.t[id], n = ch, n + 1
+            end
+        end
+    end
+    return out
+end
+
 local function SendRLL(target)
     local rec = LeadersRec(false)
     if not rec or rec.rev == 0 then return false end
     local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by, ar = CleanRules(rec.ar), arb = rec.arBy,
-                  lr = CleanLootRules(rec.lr), lrb = rec.lrBy }
+                  lr = CleanLootRules(rec.lr), lrb = rec.lrBy, dc = CleanDiscord(rec.dc), dcb = rec.dcBy }
     if target then return Send(msg, "WHISPER", target, "ctrl") end
     return Send(msg, "GUILD", nil, "ctrl")
 end
@@ -1567,6 +1589,12 @@ local function OnRaidLeaders(sender, msg, dist)
     local lr = CleanLootRules(msg.lr)
     local lrBy = msg.lrb ~= nil and WireKey(msg.lrb) or nil
     if lr and (Guild:IsGM(sender) or (lrBy and Guild:IsGM(lrBy))) then rec.lr, rec.lrBy = lr, lrBy or sender end
+    local dc = CleanDiscord(msg.dc)
+    local dcBy = msg.dcb ~= nil and WireKey(msg.dcb) or nil
+    if dc and (Guild:IsGM(sender) or (dcBy and Guild:IsGM(dcBy))) then
+        rec.dc, rec.dcBy = dc, dcBy or sender
+        ns:Fire("DISCORD_CHANGED")
+    end
     Recompute()
     ns:Fire("ATTENDANCE_RULES_CHANGED")
     ns:Fire("LOOT_RULES_CHANGED")
@@ -1644,6 +1672,59 @@ function Guild:SetLootRules(lr)
     rec.by = rec.by or Util.PlayerKey()
     SendRLL()
     ns:Fire("LOOT_RULES_CHANGED")
+    return true
+end
+
+-- The Discord set-up { host = key, guild = channel id, teams = { [teamId] = channel id } } (empty while not set).
+function Guild:GetDiscord()
+    local rec = LeadersRec(false)
+    local dc = rec and CleanDiscord(rec.dc) or {}
+    local teams = {}
+    for id, ch in pairs(dc.t or {}) do teams[id] = ch end
+    return { host = dc.h, guild = dc.g, teams = teams, by = rec and rec.dcBy or nil }
+end
+
+-- Is `key` (or another character of its player) the Discord host: the one whose sign-ups for others count?
+function Guild:IsDiscordHost(key)
+    local h = self:GetDiscord().host
+    if not h or type(key) ~= "string" then return false end
+    return h == key or self:SameAccount(h, key) or false
+end
+
+function Guild:CanEditDiscord()
+    return Guild:IsGM(Util.PlayerKey()) or false
+end
+
+-- The GM only: changes the Discord set-up. patch = { host = key|false, guild = id|false, teams = { [id] = ch|false } }
+-- (false clears; absent keeps). Returns ok, err.
+function Guild:SetDiscord(patch)
+    if not ns.loggedIn or not IsInGuild() then return false, "not in a guild" end
+    if not ready then return false, "the guild roster has not loaded yet" end
+    if not Guild:CanEditDiscord() then return false, "only the Guild Master sets up Discord" end
+    if type(patch) ~= "table" then return false, "nothing to change" end
+    local rec = LeadersRec(true)
+    if not rec then return false, "your guild is not known yet" end
+    local dc = CleanDiscord(rec.dc) or {}
+    if patch.host == false then dc.h = nil elseif patch.host ~= nil then
+        dc.h = WireKey(patch.host)
+        if not dc.h then return false, "not a character name" end
+    end
+    if patch.guild == false then dc.g = nil elseif patch.guild ~= nil then
+        dc.g = CleanSnowflake(patch.guild)
+        if not dc.g then return false, "not a Discord channel id" end
+    end
+    for id, ch in pairs(type(patch.teams) == "table" and patch.teams or {}) do
+        dc.t = dc.t or {}
+        if ch == false then dc.t[id] = nil else
+            if not CleanSnowflake(ch) then return false, "not a Discord channel id" end
+            dc.t[id] = ch
+        end
+    end
+    rec.rev = max(floor(Now()), rec.rev + 1)
+    rec.dc, rec.dcBy = CleanDiscord(dc), Util.PlayerKey()
+    rec.by = rec.by or Util.PlayerKey()
+    SendRLL()
+    ns:Fire("DISCORD_CHANGED")
     return true
 end
 

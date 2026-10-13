@@ -62,7 +62,7 @@ local CATS = {
       cards = { "meters", "bossmods", "classtools", "strategy", "mylog" } },
     { key = "interface", label = "Interface", icon = 31, lead = "How everything looks and where it goes.", cards = { "looks", "layout" } },
     { key = "guild", label = "Guild", icon = 26, lead = "The guild's council and how attendance counts: the Guild Master sets them.",
-      cards = { "council", "attendance", "setup" } },
+      cards = { "council", "attendance", "discord", "setup" } },
     { key = "help", label = "Help", icon = 11, small = true, lead = "Tutorials, demo mode and what version you have.",
       cards = { "tutorials", "demo", "about" } },
 }
@@ -136,6 +136,10 @@ local CARDS = {
     -- the GM's attendance margins (Guild:SetAttendanceRules): everyone sees them, the GM changes them
     attendance = { label = "Attendance", build = "BuildAttendance", scope = "guild", icon = 61,
                    lead = "How attendance is counted. The Guild Master sets it for everyone." },
+    -- the guild's Discord bot (Core/Bridge.lua, Guild:SetDiscord): who hosts it, where raids are posted
+    discord = { label = "Discord", build = "BuildDiscord", scope = "guild", icon = 47,
+                lead = "The guild's Discord bot: who runs it and where raids are posted.",
+                visible = function() return SettingsUI:IsGM() or (ns.Bridge and ns.Bridge:IsHostPC()) or false end },
     -- the GM's set-up checklist (UI/WelcomeTour.lua)
     setup = { label = "Guild set-up", build = "BuildSetup", scope = "gm", icon = 64,
               lead = "What is left to set up for your guild. Each open item opens its page.",
@@ -384,7 +388,8 @@ function SettingsUI:OnInit()
     for _, msg in ipairs({ "SETTINGS_CHANGED", "CONFIG_UPDATED", "ROSTER_UPDATED", "PEERS_UPDATED",
                            "DEMO_TOGGLED", "SYNC_STATUS", "DUNGEON_MODE_CHANGED", "GROUP_UPDATED",
                            "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED", "MYLOG_CHANGED", "ATTENDANCE_RULES_CHANGED",
-                           "TOUR_CHANGED", "LOOT_RULES_CHANGED", "RAIDPLAN_CHANGED", "UI_LOOK_CHANGED" }) do
+                           "TOUR_CHANGED", "LOOT_RULES_CHANGED", "RAIDPLAN_CHANGED", "UI_LOOK_CHANGED",
+                           "DISCORD_CHANGED" }) do
         ns:On(msg, changed)
     end
 end
@@ -4126,6 +4131,100 @@ local function CanSetAttendance()
     return G and G.IsGM and ns.Util and G:IsGM(ns.Util.PlayerKey()) and true or false
 end
 
+-- Discord: the host (the character whose launcher runs the bot; Discord sign-ups for others count only from it), the
+-- channel for raids without a team, and one channel per team. The channel names come from the host's launcher
+-- (DZBridgeInbox.channels); on another PC the dropdowns show the ids only.
+local function ChannelOptions(current)
+    local out = { { value = "", text = "Not posted" } }
+    local seen = {}
+    for _, c in ipairs(ns.Bridge and ns.Bridge:GetChannels() or {}) do
+        out[#out + 1] = { value = c.id, text = c.name }
+        seen[c.id] = true
+    end
+    if current and not seen[current] then out[#out + 1] = { value = current, text = "Channel " .. current } end
+    return out
+end
+
+local function SetDiscord(patch)
+    local ok, err = ns.Guild:SetDiscord(patch)
+    if not ok then ns:Print("%s", tostring(err)) end
+    SettingsUI:RefreshDiscord()
+end
+
+function SettingsUI:BuildDiscord(sec)
+    self.dsc = sec
+    sec.notice = self:Notice(sec, "info")
+    sec.status = sec.notice.text
+    local hostRow = self:Row(sec, "Bot host", "The character whose launcher runs the bot. Discord sign-ups count only from it.")
+    local btn = ns.UI:CreateSleekButton(hostRow, "This character", 120, 22, function()
+        SetDiscord({ host = ns.Util.PlayerKey() })
+    end)
+    btn:SetPoint("RIGHT", hostRow, "RIGHT", 0, 0)
+    hostRow.control = btn
+    AddValueText(hostRow)
+    PlaceText(hostRow, 120)
+    sec.hostRow = hostRow
+    self:Dropdown(sec, "Raids without a team", "Where raids that belong to no team are posted.",
+        function() return ChannelOptions(ns.Guild:GetDiscord().guild) end,
+        function() return ns.Guild:GetDiscord().guild or "" end,
+        function(a, b) local v = Value(a, b); SetDiscord({ guild = v ~= "" and v or false }) end)
+    local _, teamRow = self:Dropdown(sec, "Team", "Pick a team, then its channel below.",
+        function()
+            local out = {}
+            for _, t in ipairs(ns.RaidPlan and ns.RaidPlan:GetTeams() or {}) do out[#out + 1] = { value = t.id, text = t.name } end
+            if #out == 0 then out[1] = { value = "", text = "No teams yet" } end
+            return out
+        end,
+        function()
+            if not SettingsUI.dscTeam then
+                local t = ns.RaidPlan and ns.RaidPlan:GetTeams() or {}
+                SettingsUI.dscTeam = t[1] and t[1].id or ""
+            end
+            return SettingsUI.dscTeam
+        end,
+        function(a, b) SettingsUI.dscTeam = Value(a, b); SettingsUI:RequestRefresh() end)
+    sec.teamRow = teamRow
+    self:Dropdown(sec, "Its channel", "Where that team's raids are posted.",
+        function() return ChannelOptions(ns.Guild:GetDiscord().teams[SettingsUI.dscTeam or ""]) end,
+        function() return ns.Guild:GetDiscord().teams[SettingsUI.dscTeam or ""] or "" end,
+        function(a, b)
+            local id = SettingsUI.dscTeam
+            if not id or id == "" then return end
+            local v = Value(a, b)
+            SetDiscord({ teams = { [id] = v ~= "" and v or false } })
+        end)
+    self:EndSection(sec)
+end
+
+function SettingsUI:RefreshDiscord()
+    local sec = self.dsc
+    if not sec then return end
+    local d = ns.Guild:GetDiscord()
+    local gm = ns.Guild:CanEditDiscord()
+    local hasList = ns.Bridge and #ns.Bridge:GetChannels() > 0
+    local text
+    if not gm then
+        text = Grey("Set by the Guild Master.")
+    elseif not hasList then
+        text = "Pick channels on the host's PC:" .. Grey(" its launcher lists the server's channels.")
+    else
+        text = "Every member's addon gets these." .. Grey(" Raids are posted by the host's launcher.")
+    end
+    sec.status:SetText(text)
+    sec.notice:SetNotice(gm and "info" or "readonly", text)
+    sec.hostRow.title:SetText("Bot host: " .. (d.host or Grey("not set")))
+    SetReadOnly(sec.hostRow, not gm, "")
+    for _, row in ipairs(sec.rows) do
+        if row ~= sec.hostRow and row ~= sec.teamRow and row.getValue then
+            local v, shown = row.getValue(), Grey("not posted")
+            for _, o in ipairs(ChannelOptions(v ~= "" and v or nil)) do
+                if o.value == v and v ~= "" then shown = o.text end
+            end
+            SetReadOnly(row, not gm, shown)
+        end
+    end
+end
+
 function SettingsUI:BuildAttendance(sec)
     self.att = sec
     sec.notice = self:Notice(sec, "info")
@@ -4297,6 +4396,14 @@ CARDS.attendance.summary = function()
     local r = (G and G.GetAttendanceRules and G:GetAttendanceRules()) or { o = 5, d = 10 }
     return format("Late after %d min · short drops %d min", tonumber(r.o) or 0, tonumber(r.d) or 0)
 end
+CARDS.discord.summary = function()
+    local d = ns.Guild and ns.Guild.GetDiscord and ns.Guild:GetDiscord() or {}
+    if not d.host then return "Not set up" end
+    local n = 0
+    for _ in pairs(d.teams or {}) do n = n + 1 end
+    return format("Host %s · %s · %d team channel%s", ns.Util.ShortName and ns.Util.ShortName(d.host) or d.host,
+        d.guild and "guild channel set" or "no guild channel", n, n == 1 and "" or "s")
+end
 CARDS.setup.summary = function()
     local W = ns.WelcomeTour
     local list = W and W.Checklist and W:Checklist() or {}
@@ -4358,6 +4465,7 @@ function SettingsUI:Refresh()
     self:RefreshDungeon()
     self:RefreshCouncil()
     self:RefreshAttendance()
+    self:RefreshDiscord()
     self:RefreshTutorials()
     for _, row in ipairs(self.settingRows) do PaintDot(row) end
     self:LayoutPartTiles()

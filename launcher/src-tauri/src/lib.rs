@@ -2,6 +2,7 @@
 
 mod background;
 mod bot;
+mod posts;
 pub mod core;
 
 use crate::core::error::msg;

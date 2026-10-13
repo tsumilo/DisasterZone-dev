@@ -7,9 +7,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Bridge.lua", ...) then return
 --               so the launcher can drop them from its queue at the next save.
 -- Records are read once, at login or /reload. Everyone else gets the result through the normal guild sync.
 --
--- DZBridgeInbox = { v = 1, written = <epoch>, records = { { id, type, at, by, body = { ... } }, ... } }
+-- DZBridgeInbox = { v = 1, written = <epoch>, records = { { id, type, at, by, body = { ... } }, ... },
+--                  channels = { { id = "<snowflake>", name = "raids" }, ... } (the Discord server's text channels) }
 -- DisasterZoneBridgeDB = { applied = { [id] = { t = <when applied>, ok = true|false, why = <text> } },
---                          loaded = <epoch of the last read>, inbox = <the inbox's written stamp> }
+--                          loaded = <epoch of the last read>, inbox = <the inbox's written stamp>,
+--                          snap = <what the bot shows, written at logout on the host PC: see Snapshot> }
 -- A section handles its record type with Bridge:RegisterType(type, fn(record) -> ok, why). Unknown types are
 -- marked not ok, so a newer launcher's records never pile up in its queue.
 local addonName, ns = ...
@@ -67,6 +69,60 @@ function Bridge:Prune(inbox, applied)
     end
 end
 
+-- Is this PC the host's (the launcher writes the inbox here)?
+function Bridge:IsHostPC()
+    return type(DZBridgeInbox) == "table"
+end
+
+-- The Discord server's text channels { { id, name }, ... } (the host's PC only; empty elsewhere).
+function Bridge:GetChannels()
+    local out = {}
+    local list = type(DZBridgeInbox) == "table" and DZBridgeInbox.channels
+    for _, c in ipairs(type(list) == "table" and list or {}) do
+        if type(c) == "table" and type(c.id) == "string" and type(c.name) == "string" then
+            out[#out + 1] = { id = c.id, name = c.name }
+        end
+    end
+    return out
+end
+
+local SNAP_BACK, SNAP_AHEAD = 6 * 3600, 14 * 86400
+local ST_WORD = { A = "accept", T = "tentative", B = "bench", X = "absent" }
+
+-- What the bot needs, read by the launcher from SavedVariables (it can't run the addon's raid logic itself):
+-- { at, me, guild, dc = { host, guild, teams }, teams = { [id] = name },
+--   raids = { { id, t, name, title, note, size, teams = { id, ... }, locked, cancelled, leader,
+--               signups = { { key, st = "accept"|..., class, spec, role, guest }, ... } }, ... } }
+-- Private raids are left out: the bot posts in public channels.
+function Bridge:Snapshot()
+    local RP, G, Util = ns.RaidPlan, ns.Guild, ns.Util
+    local now = Util.Now()
+    local d = G and G.GetDiscord and G:GetDiscord() or {}
+    local out = { at = now, me = Util.PlayerKey(), guild = G and G.GetGuildKey and G:GetGuildKey() or nil,
+                  dc = { host = d.host, guild = d.guild, teams = d.teams or {} }, teams = {}, raids = {} }
+    if not RP then return out end
+    for _, t in ipairs(RP:GetTeams()) do out.teams[t.id] = t.name end
+    for _, v in ipairs(RP:GetRaids(now - SNAP_BACK, now + SNAP_AHEAD, true)) do
+        if not v.pv then
+            local su = {}
+            for key, s in pairs(RP:GetSignups(v.id)) do
+                local specs = s.c and ns.SPECS[s.c]
+                local spec = specs and s.sp and specs[s.sp]
+                su[#su + 1] = { key = key, st = ST_WORD[s.st] or s.st, class = s.c, spec = spec and spec.label or nil,
+                                role = ns.RaidComp and ns.RaidComp:RoleOf(s.c, s.sp) or nil, guest = s.guest or nil,
+                                at = s.at }
+            end
+            table.sort(su, function(a, b) return (a.at or 0) < (b.at or 0) end)
+            out.raids[#out.raids + 1] = {
+                id = v.id, t = v.t, name = RP:GetRaidName(v), title = v.ti, note = v.no, size = v.sz,
+                teams = v.tm or {}, locked = v.lk or nil, cancelled = v.cancelled or nil,
+                leader = RP.GetRaidLeader and RP:GetRaidLeader(v.id) or nil, signups = su,
+            }
+        end
+    end
+    return out
+end
+
 function Bridge:OnLogin()
     local inbox = DZBridgeInbox
     if type(inbox) ~= "table" then return end   -- not the host (no DisasterZone_Bridge folder)
@@ -75,6 +131,11 @@ function Bridge:OnLogin()
     local n = self:Apply(inbox, db.applied)
     db.loaded, db.inbox = time(), inbox.written
     if n > 0 then ns:Print("Loaded %d update%s from Discord.", n, n == 1 and "" or "s") end
+    -- (saved variables are written at logout / reload: the snapshot is made then, on the host's PC only)
+    ns:RegisterEvent("PLAYER_LOGOUT", function()
+        local ok, snap = pcall(Bridge.Snapshot, Bridge)
+        DB().snap = ok and snap or { at = time(), error = tostring(snap) }
+    end)
 end
 
 -- P1 test record: /bridgetest in Discord -> a chat line here after /reload.

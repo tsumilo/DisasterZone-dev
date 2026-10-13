@@ -19,6 +19,7 @@ use twilight_model::application::interaction::application_command::CommandOption
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 use twilight_model::channel::message::MessageFlags;
+use twilight_model::channel::ChannelType;
 use twilight_model::http::interaction::{InteractionResponse, InteractionResponseData, InteractionResponseType};
 use twilight_model::id::marker::{ApplicationMarker, GuildMarker};
 use twilight_model::id::Id;
@@ -147,13 +148,21 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
                         if let Err(e) = bridge::sync(&dir, unix_now()) {
                             eprintln!("bot: bridge sync: {e}");
                         }
+                        // the host's addon wrote a new snapshot: post new raids, edit changed ones
+                        if let Some(snap) = bridge::read_bridge_db(&dir).and_then(|v| v.get("snap").cloned()) {
+                            crate::posts::update(&http, &snap).await;
+                        }
                     }
                 }
                 continue;
             }
         };
         match item {
-            Ok(Event::Ready(r)) => set_status(app, BotStatus::Online { name: r.user.name.clone() }),
+            Ok(Event::Ready(r)) => {
+                set_status(app, BotStatus::Online { name: r.user.name.clone() });
+                refresh_channels(&http, guild_id).await;
+                seen = None; // (post what changed while the bot was offline)
+            }
             Ok(Event::InteractionCreate(i)) => {
                 if let Err(e) = answer(app, &http, app_id, &i.0).await {
                     eprintln!("bot: answer failed: {e}");
@@ -170,6 +179,47 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
         }
     }
     "Discord closed the connection".into()
+}
+
+/// The server's text channels go into the inbox, for the addon's Settings > Discord dropdowns: "category > #channel",
+/// in Discord's own order, without the emoji WoW's fonts can't draw.
+async fn refresh_channels(http: &Client, guild_id: Id<GuildMarker>) {
+    let Ok(resp) = http.guild_channels(guild_id).await else { return };
+    let Ok(list) = resp.model().await else { return };
+    let cats: std::collections::HashMap<_, _> = list
+        .iter()
+        .filter(|c| c.kind == ChannelType::GuildCategory)
+        .map(|c| (c.id, (c.position.unwrap_or(0), plain_name(c.name.as_deref().unwrap_or("")))))
+        .collect();
+    let mut out: Vec<((i32, i32), bridge::Channel)> = list
+        .iter()
+        .filter(|c| c.kind == ChannelType::GuildText)
+        .map(|c| {
+            let cat = c.parent_id.and_then(|p| cats.get(&p));
+            let name = plain_name(c.name.as_deref().unwrap_or(""));
+            let label = match cat {
+                Some((_, cn)) if !cn.is_empty() => format!("{cn} > #{name}"),
+                _ => format!("#{name}"),
+            };
+            // (channels outside a category come first, as in Discord)
+            let key = (cat.map_or(-1, |(p, _)| *p as i32), c.position.unwrap_or(0) as i32);
+            (key, bridge::Channel { id: c.id.get().to_string(), name: label })
+        })
+        .collect();
+    out.sort_by_key(|(k, _)| *k);
+    let list: Vec<bridge::Channel> = out.into_iter().map(|(_, c)| c).collect();
+    if list != bridge::load_channels() {
+        let _ = bridge::save_channels(&list);
+        if let Some(dir) = state::load().flavor_dir() {
+            let _ = bridge::sync(&dir, unix_now());
+        }
+    }
+}
+
+/// A Discord name as WoW can draw it: letters (any language), digits, - _ . ' and spaces; emoji and symbols dropped.
+pub fn plain_name(n: &str) -> String {
+    let kept: String = n.chars().filter(|c| c.is_alphanumeric() || "-_.' ".contains(*c)).collect();
+    kept.trim_matches(|c: char| c == '-' || c == ' ' || c == '_').to_string()
 }
 
 fn fatal_close(f: &CloseFrame<'_>) -> Option<String> {
@@ -191,6 +241,9 @@ fn explain_http(e: &str) -> String {
 }
 
 async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction) -> Result<()> {
+    if let Some(InteractionData::MessageComponent(_)) = &i.data {
+        return reply(http, app_id, i, "Signing up from Discord comes in the next update. For now, sign up in game.".into()).await;
+    }
     let Some(InteractionData::ApplicationCommand(cmd)) = &i.data else { return Ok(()) };
     let text = match cmd.name.as_str() {
         "ping" => ping_text(app),
@@ -208,6 +261,10 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
         }
         _ => "This command is not ready yet.".to_string(),
     };
+    reply(http, app_id, i, text).await
+}
+
+async fn reply(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, text: String) -> Result<()> {
     let resp = InteractionResponse {
         kind: InteractionResponseType::ChannelMessageWithSource,
         data: Some(InteractionResponseData {
@@ -290,6 +347,14 @@ mod tests {
         assert_eq!(fmt_age(150), "2 min ago");
         assert_eq!(fmt_age(7300), "2 h ago");
         assert_eq!(fmt_age(200_000), "2 days ago");
+    }
+
+    #[test]
+    fn channel_names_lose_their_emoji() {
+        assert_eq!(plain_name("\u{1F525}the-spark"), "the-spark");
+        assert_eq!(plain_name("\u{1F4CB}\u{FE0F}casual-protocol"), "casual-protocol");
+        assert_eq!(plain_name("Räd-kanal"), "Räd-kanal");
+        assert_eq!(plain_name("THE SPARK \u{2728}"), "THE SPARK");
     }
 
     #[test]

@@ -100,7 +100,34 @@ fn lua_value(v: &Value, out: &mut String) {
     }
 }
 
-pub fn inbox_lua(records: &[Record], written: u64) -> String {
+/// A Discord text channel the GM can post raids to (listed in the addon's Settings > Discord).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Channel {
+    pub id: String,
+    pub name: String,
+}
+
+fn channels_path() -> PathBuf {
+    queue_path().with_file_name("bridge_channels.json")
+}
+
+pub fn load_channels() -> Vec<Channel> {
+    fs::read(channels_path()).ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default()
+}
+
+pub fn save_channels(c: &[Channel]) -> Result<()> {
+    save_json(&channels_path(), c)
+}
+
+pub fn save_json<T: Serialize + ?Sized>(p: &Path, v: &T) -> Result<()> {
+    fs::create_dir_all(p.parent().unwrap())?;
+    let tmp = p.with_extension("tmp");
+    fs::write(&tmp, serde_json::to_vec_pretty(v).unwrap())?;
+    fs::rename(&tmp, p)?;
+    Ok(())
+}
+
+pub fn inbox_lua(records: &[Record], written: u64, channels: &[Channel]) -> String {
     let mut s = String::from("-- Written by the DisasterZone launcher (host mode). Do not edit: it is rewritten.\n");
     s.push_str(&format!("DZBridgeInbox = {{ v = 1, written = {written}, records = {{\n"));
     for r in records {
@@ -108,7 +135,9 @@ pub fn inbox_lua(records: &[Record], written: u64) -> String {
         lua_value(&serde_json::to_value(r).unwrap(), &mut s);
         s.push_str(",\n");
     }
-    s.push_str("} }\n");
+    s.push_str("}, channels = ");
+    lua_value(&serde_json::to_value(channels).unwrap(), &mut s);
+    s.push_str(" }\n");
     s
 }
 
@@ -140,7 +169,7 @@ pub fn write_inbox(flavor_dir: &Path, records: &[Record], written: u64) -> Resul
         interface_of(&addons)
     );
     write_atomic(&dir.join(format!("{FOLDER}.toc")), &toc)?;
-    write_atomic(&dir.join("Inbox.lua"), &inbox_lua(records, written))
+    write_atomic(&dir.join("Inbox.lua"), &inbox_lua(records, written, &load_channels()))
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -316,19 +345,31 @@ pub fn read_global(text: &str, name: &str) -> Option<Value> {
     p.value()
 }
 
-/// Ids the addon has taken (DisasterZoneBridgeDB.applied) in the newest SavedVariables under a game folder.
-pub fn applied_ids(flavor_dir: &Path) -> BTreeSet<String> {
-    let Ok(accounts) = fs::read_dir(flavor_dir.join("WTF").join("Account")) else { return BTreeSet::new() };
-    let newest = accounts
+/// DisasterZoneBridgeDB from the newest SavedVariables under a game folder.
+pub fn read_bridge_db(flavor_dir: &Path) -> Option<Value> {
+    let accounts = fs::read_dir(flavor_dir.join("WTF").join("Account")).ok()?;
+    let (_, path) = accounts
         .flatten()
         .map(|a| a.path().join("SavedVariables").join("DisasterZone.lua"))
         .filter_map(|p| Some((fs::metadata(&p).ok()?.modified().ok()?, p)))
-        .max();
-    let Some((_, path)) = newest else { return BTreeSet::new() };
-    let text = fs::read(&path).map(|d| String::from_utf8_lossy(&d).into_owned()).unwrap_or_default();
+        .max()?;
+    let text = fs::read(&path).map(|d| String::from_utf8_lossy(&d).into_owned()).ok()?;
     read_global(&text, SV_NAME)
+}
+
+/// Ids the addon has taken (DisasterZoneBridgeDB.applied).
+pub fn applied_ids(flavor_dir: &Path) -> BTreeSet<String> {
+    read_bridge_db(flavor_dir)
         .and_then(|v| v.get("applied").and_then(|a| a.as_object()).map(|a| a.keys().cloned().collect()))
         .unwrap_or_default()
+}
+
+/// A Lua array as read (an object with keys "1", "2", ...) in order; any other value: empty.
+pub fn lua_list(v: Option<&Value>) -> Vec<&Value> {
+    let Some(Value::Object(m)) = v else { return Vec::new() };
+    let mut out: Vec<(usize, &Value)> = m.iter().filter_map(|(k, x)| Some((k.parse().ok()?, x))).collect();
+    out.sort_by_key(|(i, _)| *i);
+    out.into_iter().map(|(_, x)| x).collect()
 }
 
 /// Drop what the game took, rewrite the inbox. Returns the records still waiting.
@@ -405,9 +446,10 @@ DisasterZoneBridgeDB = {
 
     #[test]
     fn inbox_round_trips_through_the_reader() {
-        let lua = inbox_lua(&[rec("dc_1", "hi \"there\" | \\ \n")], 7);
+        let lua = inbox_lua(&[rec("dc_1", "hi \"there\" | \\ \n")], 7, &[Channel { id: "1".into(), name: "raids".into() }]);
         let v = read_global(&lua, "DZBridgeInbox").unwrap();
         assert_eq!(v["written"], json!(7));
+        assert_eq!(lua_list(v.get("channels"))[0]["name"], json!("raids"));
         assert_eq!(v["records"]["1"]["id"], json!("dc_1"));
         assert_eq!(v["records"]["1"]["body"]["text"], json!("hi \"there\" | \\ \n"));
     }
