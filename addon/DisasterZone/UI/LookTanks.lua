@@ -44,6 +44,7 @@ local rows = {}           -- the header's rows (its children), in the order they
 local up = false          -- the rows stack upward (the block sits over the raid frames)
 local pending = false
 local extrasPending = false
+local relayPending = false     -- (a look changed in a fight: the rows are laid out again after it)
 
 ---------------------------------------------------------------------------
 -- Sizes
@@ -354,9 +355,11 @@ end
 local function LayRow(row)
     local cw, ch = Geometry()
     row.left:SetSize(cw, ch)
-    row.mob:ClearAllPoints()
-    row.mob:SetPoint("TOPLEFT", row, "TOPLEFT", cw + HALF_GAP, 0)
-    if not (row:IsProtected() and InCombat()) then
+    -- (the row, its mob half and its x are secure: placed and sized out of combat only; Restyle runs again after)
+    if InCombat() then relayPending = true end
+    if not InCombat() then
+        row.mob:ClearAllPoints()
+        row.mob:SetPoint("TOPLEFT", row, "TOPLEFT", cw + HALF_GAP, 0)
         row:SetSize(RowW(), ch)
         row.mob:SetSize(cw, ch)
         if row.x then
@@ -790,7 +793,8 @@ local function OnEvent(_, event, unit)
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then
-        if pending then LT:Setup() elseif extrasPending then PlaceExtras() end
+        if relayPending then relayPending = false; LT:Restyle()
+        elseif pending then LT:Setup() elseif extrasPending then PlaceExtras() end
         return
     end
     LT:Refresh()
