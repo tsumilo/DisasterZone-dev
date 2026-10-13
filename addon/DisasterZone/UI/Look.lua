@@ -64,15 +64,24 @@ Look.GAME = {
     tick = { MB .. "UI-ExhaustionTickNormal", 32, 32, 0, 0, 32, 32 },
     keyring = { B .. "UI-Button-KeyRing", 32, 64, 0, 0, 18, 39 },
     backpack = { B .. "Button-Backpack-Up", 64, 64, 0, 0, 64, 64 },
-    -- bags: the backpack's frame cut to grow (the header's ring holds a 35 px portrait at 5, 8; a cell is 42 x 41
-    -- with half a pillar on each side, the item 37 px at 2.5, 2; the money box spans x 13 .. w-8, centred 16.5 down
-    -- the footer)
-    bag_hl = { BP, 256, 256, 66, 0, 128, 46 }, bag_hm = { BP, 256, 256, 128, 0, 212, 46 }, bag_hr = { BP, 256, 256, 212, 0, 253, 46 },
-    bag_cell = { BP, 256, 256, 118, 85, 160, 126 },
+    -- bags: the backpack's frame cut to grow (its header has the game's own backpack portrait in the ring; the bank's
+    -- ring is open, the banker under it at 22.5, 25). A cell is the grid's period, 42 x 41: the carved recess
+    -- (124..159 x 92..124 in the file) between half a pillar and half a rail on each side, the item 37 px at 2, 3
+    -- covering the recess and 2 px of the rails round it, as the game's own; the money box's inside is x 17 .. w-10,
+    -- 8 .. 22 down the footer.
+    -- (the middle in two rows: the title bar cut short of the notch in its top line at 184, so the notch doesn't
+    -- repeat; the stone row under it, bag_hs / bank_hs, in its own wider pieces)
+    bag_hl = { BP, 256, 256, 66, 0, 128, 46 }, bag_hm = { BP, 256, 256, 128, 0, 182, 28 }, bag_hr = { BP, 256, 256, 212, 0, 253, 46 },
+    bag_hs = { BP, 256, 256, 128, 28, 212, 46 },
+    bag_cell = { BP, 256, 256, 121, 87, 163, 128 },
     bag_l = { BP, 256, 256, 66, 90, 77, 120 }, bag_r = { BP, 256, 256, 243, 90, 253, 120 },
-    bag_band = { BP, 256, 256, 132, 31, 204, 45 },
-    bag_fl = { BP, 256, 256, 66, 207, 112, 244 }, bag_fm = { BP, 256, 256, 112, 207, 200, 244 }, bag_fr = { BP, 256, 256, 200, 207, 253, 244 },
-    bank_hl = { BANK, 256, 512, 66, 0, 128, 46 }, bank_hm = { BANK, 256, 512, 128, 0, 212, 46 }, bank_hr = { BANK, 256, 512, 212, 0, 253, 46 },
+    -- (the stone round the grid: the game's seamless rock, wrapped, tinted to the backpack's brown (1, .92, .74); the
+    -- backpack's own stone strip has ends that don't meet, a seam at every piece)
+    rock = { "Interface\\FrameGeneral\\UI-Background-Rock", 256, 256, 0, 0, 256, 256 },
+    -- (the footer's middle two grid periods wide: the studs on its rail stay under the pillars)
+    bag_fl = { BP, 256, 256, 66, 207, 112, 244 }, bag_fm = { BP, 256, 256, 112, 207, 196, 244 }, bag_fr = { BP, 256, 256, 200, 207, 253, 244 },
+    bank_hl = { BANK, 256, 512, 66, 0, 128, 46 }, bank_hm = { BANK, 256, 512, 128, 0, 182, 28 }, bank_hr = { BANK, 256, 512, 212, 0, 253, 46 },
+    bank_hs = { BANK, 256, 512, 128, 28, 212, 46 },
     input = { "Interface\\Common\\Common-Input-Border", 128, 32, 0, 0, 128, 20 },
     button = { B .. "UI-Panel-Button-Up", 128, 32, 2, 0, 78, 22 },
     buttonDown = { B .. "UI-Panel-Button-Down", 128, 32, 2, 0, 78, 22 },

@@ -160,6 +160,34 @@ def unit_frames_wear_the_target_frame_the_dragon_for_a_boss_and_game_green():
 
 
 @case
+def the_bars_and_their_ground_run_under_the_joint_into_the_ring():
+    """In game 2026-10-13: a dark strip between the player's bars and its ring (the bars stopped at the inside's
+    edge, the joint's 4 px shadow lay over the world). The bars and the dark ground reach under the solid joint as
+    the game's own bars do, at the far end under the solid line; the empty bars show the ground only."""
+    w, c = classic()
+    r = c.eval_py("""
+        local out = {}
+        for _, k in ipairs({ { 'big', 'right', nil, 'target' }, { 'big', 'left', nil, 'player' },
+                             { 'big', 'left', 184, 'member' }, { 'small', 'left', nil, 'pet' } }) do
+            local h = CreateFrame('Frame', nil, UIParent); h:SetPoint('TOPLEFT')
+            local f = ns.LookUnits:NewFace(h, k[1], 'units', k[2]); f.width = k[3]
+            f:Apply(ns.Look.BY_KEY.classic); f:Set(ns.LookUnits.Fake(k[4], 1))
+            local rl, rr = f.cl.rails.t[1]:GetLeft(), f.cl.rails.t[3]:GetRight()
+            local _, _, _, ta = f.hp.track:GetVertexColor()
+            out[#out + 1] = { f.hp.f:GetLeft() - rl, rr - f.hp.f:GetRight(), f.cl.ground:GetLeft() - rl,
+                              rr - f.cl.ground:GetRight(), f.pp.f:GetLeft() - rl, rr - f.pp.f:GetRight(), ta }
+        end
+        return out""")
+    # (from the rails' ends: target ring right, player mirrored, party and pet ring left)
+    assert r[0][:6] == [4, 2, 4, 2, 4, 2], r[0]
+    assert r[1][:6] == [2, 4, 2, 4, 2, 4], r[1]
+    assert r[2][:6] == [3, 5, 3, 5, 3, 5], r[2]
+    assert r[3][:6] == [2, 4, 2, 4, 2, 4], r[3]
+    assert all(x[6] == 0 for x in r), r
+    w.assert_no_errors()
+
+
+@case
 def raid_cells_are_the_games_cells_in_class_colours_and_frame_the_target():
     w, c = classic()
     r = c.eval_py("""
@@ -245,20 +273,40 @@ def the_bag_window_is_the_backpack_grown_with_a_carved_cell_per_slot():
         local q1, q2, q3 = b.dzQ:GetVertexColor()
         return { n, f.clf.hl:GetTexture(), b:GetWidth(), b:GetLeft() - cell:GetLeft(), cell:GetTop() - b:GetTop(),
                  b.dzQ:IsShown(), q1, q2, q3, ns.LookBars.skinned[b].qs:IsShown(), f.close.cl.tex:IsShown(),
-                 f.sort.cl.text:GetText() }""")
+                 f.sort.cl.text:GetText(), f.clf.port.f:IsShown() }""")
     assert r[0] == 32 and r[1].endswith("UI-BackpackBackground") and r[2] == 37, r
-    assert r[3] == 2.5 and r[4] == 2, r                     # (the item 2.5, 2 inside its cell)
+    assert r[3] == 2 and r[4] == 3, r                       # (the item 2, 3 inside its cell: on the recess)
     assert r[5] is True and abs(r[6] - 0.64) < 0.01 and r[9] is False and r[10] is True and r[11] == "Sort", r
-    # the footer's bag icons, slot count and money on one line, in the money box
+    assert r[12] is False, r                                # (the backpack's portrait is the header art's own)
+    # the grid where the game's is (in game 2026-10-13 the items sat 2 px up and left of their recesses): the first
+    # recess (3 px into a cell) 16 px in from the frame, the last one ending where the right side's pillar starts
+    # (10 px from the edge), the last row's recess ending a pixel above the footer; the stone round it one seamless
+    # wrapped texture, the header's title bar in pieces without its notch. 32 slots in rows of 12: the short row of 8
+    # first, against the right (the game's own bags; last, the footer's studs showed the missing slots), then two full.
+    r = c.eval_py("""
+        local f = ns.LookBags.windows.bags
+        local short, first, last = f.cells[1], f.cells[9], f.cells[32]
+        local right = f.cells[8]
+        return { first:GetLeft() + 3 - f:GetLeft(), f:GetRight() - (right:GetRight() - 4), (last:GetBottom() + 4) - (f:GetBottom() + 37),
+                 f.clf.band:GetTexture(), __MOCK.OBJ[f.clf.band].htile and __MOCK.OBJ[f.clf.band].vtile,
+                 f.clf.hm.t[1]:GetWidth(), f.clf.hs.t[1]:GetHeight(), short:GetLeft() - first:GetLeft(), short:GetTop() - first:GetTop(),
+                 last:GetRight() - right:GetRight() }""")
+    assert r[0] == 16 and r[1] == 10 and r[2] == 1, r
+    assert r[3].endswith("UI-Background-Rock") and r[4] is True and r[5] == 54 and r[6] == 18, r
+    assert r[7] == 4 * 42 and r[8] == 41 and r[9] == 0, r
+    # the footer's bag icons, slot count and money on one line, in the money box (its inside 15 .. 29 px up from
+    # the bottom); the icons with their edge as tall as the inside (in game they lay over its gold lines)
     r = c.eval_py("""
         local f = ns.LookBags.windows.bags
         local _, ic = f.bagIcons[1]:GetCenter()
         local _, sl = f.slots:GetCenter()
         local _, mo = f.money:GetCenter()
         local _, ft = f.ft:GetCenter()
-        return { ic, sl, mo, ft, f:GetBottom() }""")
+        local a, b = f.bagIcons[1], f.bagIcons[2]
+        return { ic, sl, mo, ft, f:GetBottom(), a:GetHeight(), b:GetLeft() - a:GetRight() }""")
     # (the texts hang on the row's centre line by their LEFT / RIGHT points; the harness has no text geometry)
-    assert r[0] == r[3] and abs((r[3] - r[4]) - 20.5) < 0.01, r
+    assert r[0] == r[3] and abs((r[3] - r[4]) - 22) < 0.01, r
+    assert r[5] == 12 and r[6] == 4, r                      # (12 px, 1 px edges: 2 px between the edges)
     # Shelves: the headings carry the main bar's rail
     c.eval("ns.DB:SetSetting('ui.bags.layout', 'shelves'); ns.LookBags:Refresh('bags')")
     r = c.eval_py("local h = ns.LookBags.windows.bags.heads[1]; return { h.crail ~= nil and h.crail.n or 0, h.rule:IsShown() }")

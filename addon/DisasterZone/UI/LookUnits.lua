@@ -295,21 +295,25 @@ end
 ---------------------------------------------------------------------------
 
 local RAIL_W = 150
--- the target frame's rails (from their top): inside x 4..w-7, y 5..45 (a dark ground fills all of it, as the game's
+-- the target frame's rails (from their top): inside x 4..w-2, y 5..45 (a dark ground fills all of it, as the game's
 -- own frame has: nothing of the world shows through); the name band 5..22, health 23..35 and power 35..45 meet under
--- the straight lines between them, never past the rounded outer corners.
-local TF = { band = { 5, 17 }, hp = { 23, 12 }, pp = { 35, 10 }, inL = 4, inR = 7, ground = { 4, 5, 7, 45 } }
+-- the straight lines between them, never past the rounded outer corners. On the ring's side everything runs on
+-- under the solid joint (from 5 px before the rails' end, as the game's own bars do): stopping at the inside's edge
+-- left the joint's shadow (4 px, half see-through) as a dark strip between the bars and the ring.
+local TF = { band = { 5, 17 }, hp = { 23, 12 }, pp = { 35, 10 }, inL = 4, inR = 2, ground = { 4, 5, 2, 45 } }
+local NO_TRACK = { 0, 0, 0, 0 }
 -- per kind: host w, h; the ring's piece, place and size; the rails' piece, ends, place, size; inside bars; portrait
+-- (party / small: the bars and the ground reach under the solid lines at both ends, their shadows covered)
 local CLASSIC = {
     big = { w = RAIL_W - 7 + 77, h = 80, ring = "tf_ring", rx = RAIL_W - 7, ry = 0, rw = 77, rh = 80,
             rails = "tf_bars", ends = { 5, 8 }, bx = 0, by = 14, bw = RAIL_W, bh = 50,
             port = { RAIL_W - 7 + 37, 39, 30 }, level = { RAIL_W - 7 + 60, 62 } },
     party = { w = 184, h = 56, ring = "party_ring", rx = 0, ry = 8, rw = 48, rh = 48,
               rails = "party_bars", ends = { 4, 6 }, bx = 44, by = 10, bw = 140, bh = 30,
-              hp = { 3, 8, 6 }, pp = { 3, 14, 7 }, inR = 8, ground = { 3, 8, 8, 21 }, port = { 24, 32, 18 } },
+              hp = { 3, 8, 6 }, pp = { 3, 14, 7 }, inR = 5, ground = { 3, 8, 5, 21 }, port = { 24, 32, 18 } },
     small = { w = 112, h = 54, ring = "tot_ring", rx = 0, ry = 6, rw = 46, rh = 48,
               rails = "tot_bars", ends = { 4, 6 }, bx = 42, by = 14, bw = 70, bh = 28,
-              hp = { 3, 7, 6 }, pp = { 3, 13, 7 }, inR = 6, ground = { 3, 7, 6, 20 }, port = { 23, 29, 17 } },
+              hp = { 2, 7, 6 }, pp = { 2, 13, 8 }, inR = 4, ground = { 2, 7, 4, 21 }, port = { 23, 29, 17 } },
 }
 Units.CLASSIC = CLASSIC
 -- the name band's colour (the game's selection colours)
@@ -405,8 +409,9 @@ function Face:ApplyClassic(look)
     self.fit, self.fitW = nil, nil
     cl.art:Show()
     local function At(r, x, y) r:SetPoint("TOPLEFT", host, "TOPLEFT", x, -y) end
-    local function Bar(bar, x, y, w2, h2)
+    local function Bar(bar, x, y, w2, h2, track)
         bar.fixedW = true
+        bar.trackC = track
         bar:Apply(look, "gilt", h2)
         bar.f:ClearAllPoints()
         At(bar.f, x, y)
@@ -464,8 +469,9 @@ function Face:ApplyClassic(look)
         hx, hy, hh = c.bx + c.hp[1], c.by + c.hp[2], c.hp[3]
         px, py, ph = c.bx + c.pp[1], c.by + c.pp[2], c.pp[3]
     end
-    Bar(self.hp, X(hx, iw), hy, iw, hh)
-    Bar(self.pp, X(px, iw), py, iw, ph)
+    -- (no track of their own: the ground behind the whole inside is the empty bars' colour, one shade everywhere)
+    Bar(self.hp, X(hx, iw), hy, iw, hh, NO_TRACK)
+    Bar(self.pp, X(px, iw), py, iw, ph, NO_TRACK)
     -- (the dark inside of the rails: x0, y0 from the rails' top left, right inset, bottom)
     local gr = (ckind == "big") and TF.ground or c.ground
     local gw = c.bw - gr[1] - gr[3]
@@ -496,32 +502,37 @@ function Face:ApplyClassic(look)
         cl.nbg:ClearAllPoints()
         At(cl.nbg, bx, c.by + TF.band[1])
         cl.nbg:SetSize(iw, TF.band[2])
+        -- (the words in the inside you can see: it ends where the joint's shadow starts, 7 px before the rails' end)
+        local vw = c.bw - TF.inL - 7
+        local vx = X(c.bx + TF.inL, vw)
         UI:SetTextSize(name, "body")
-        name:SetPoint("LEFT", host, "TOPLEFT", bx + 5, -(c.by + TF.band[1] + TF.band[2] / 2))
-        self.fit = { room = iw - 10 }
+        name:SetPoint("LEFT", host, "TOPLEFT", vx + 5, -(c.by + TF.band[1] + TF.band[2] / 2))
+        self.fit = { room = vw - 10 }
         UI:SetTextSize(value, "small")
-        value:SetPoint("CENTER", host, "TOPLEFT", bx + iw / 2, -(hy + hh / 2))
-        cl.ptext:SetPoint("CENTER", host, "TOPLEFT", bx + iw / 2, -(py + ph / 2))
+        value:SetPoint("CENTER", host, "TOPLEFT", vx + vw / 2, -(hy + hh / 2))
+        cl.ptext:SetPoint("CENTER", host, "TOPLEFT", vx + vw / 2, -(py + ph / 2))
         UI:SetTextSize(cl.ptext, "small")
         level:SetPoint("CENTER", host, "TOPLEFT", X(c.level[1] - 11, 22) + 11, -c.level[2])
         level:SetJustifyH("CENTER")
         level:Show()
-        status:SetPoint("CENTER", host, "TOPLEFT", bx + iw / 2, -(hy + hh / 2))
+        status:SetPoint("CENTER", host, "TOPLEFT", vx + vw / 2, -(hy + hh / 2))
         self.leader:ClearAllPoints()
         self.leader:SetPoint("CENTER", host, "TOPLEFT", X(c.rx + 10, 0), -4)
         self.icon:ClearAllPoints(); self.icon:SetSize(16, 16)
         self.icon:SetPoint("CENTER", host, "TOPLEFT", X(c.port[1], 0), -2)
     else
-        -- party / small: the name over the rails, the numbers at the end of its row
+        -- party / small: the name over the rails, the numbers at the end of its row (over the inside's end, short
+        -- of the rounded end the bars reach under)
         cl.nbg:Hide()
+        local tr = c.bx + c.bw - c.inR - 3
         UI:SetTextSize(name, "small")
         name:SetPoint("BOTTOMLEFT", host, "TOPLEFT", c.bx + 3, -(c.by - 1))
         UI:SetTextSize(value, "small")
-        value:SetPoint("BOTTOMRIGHT", host, "TOPLEFT", c.bx + c.bw - c.inR, -(c.by - 1))
-        self.fit = { room = iw, value = ckind == "party" }
+        value:SetPoint("BOTTOMRIGHT", host, "TOPLEFT", tr, -(c.by - 1))
+        self.fit = { room = tr - c.bx - 3, value = ckind == "party" }
         level:Hide()
         cl.ptext:Hide()
-        status:SetPoint("BOTTOMRIGHT", host, "TOPLEFT", c.bx + c.bw - c.inR, -(c.by - 1))
+        status:SetPoint("BOTTOMRIGHT", host, "TOPLEFT", tr, -(c.by - 1))
         self.leader:ClearAllPoints()
         self.leader:SetPoint("CENTER", host, "TOPLEFT", c.rx + 8, -(c.ry + 2))
         self.icon:ClearAllPoints(); self.icon:SetSize(14, 14)
@@ -613,7 +624,7 @@ function Face:Apply(look)
     local overlap = (k == "halo") and 14 or 0
     bx = (ph > 0) and (ph + 2 - overlap) or 0
     bw = w - bx
-    self.hp.trackC, self.hp.fadeFrom = nil, nil
+    self.hp.trackC, self.hp.fadeFrom, self.pp.trackC = nil, nil, nil
     self.ringOn, self.lit, self.marks = false, nil, nil
     self.ring:Paint(nil); self.glow:Paint(nil)
     local function Bars(x, w2, yHp, yPp)

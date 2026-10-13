@@ -1864,6 +1864,10 @@ STATES = [
     ("Bags - classic one", opened("home", BAGS_STATE.replace("LOOK", "classic").replace("LAYOUT", "one"))),
     ("Bags - classic shelves", opened("home", BAGS_STATE.replace("LOOK", "classic").replace("LAYOUT", "shelves"))),
     ("Bags - classic bags", opened("home", BAGS_STATE.replace("LOOK", "classic").replace("LAYOUT", "bags"))),
+    # (the bank in Classic: the banker in the open ring of the bank's header)
+    ("Bags - classic bank", opened("home", BAGS_STATE.replace("LOOK", "classic").replace("LAYOUT", "one") +
+        "; ns.LookBags:Close('bags'); __MOCK.set_bags({ { -1, 1, 28830, 1 }, { -1, 2, 22838, 10 }, { -1, 3, 23445, 14 }, "
+        "{ -1, 5, 29760, 1 }, { -1, 9, 4865, 5 } }, true); ns.LookBags:Refresh('bank')")),
     ("Settings - Shot timer", demo("ns.SettingsUI:SelectSection('shot')", "settings")),
     ("Shot timer - both, Steady now", opened("home", "ns.MainFrame:Close(); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer - bar, late in the shot", opened("home", "ns.MainFrame:Close(); " + (SHOT_HUD % "1.6").replace("STYLE", "bar"))),
