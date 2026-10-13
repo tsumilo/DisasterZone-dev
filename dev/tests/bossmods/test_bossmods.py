@@ -277,6 +277,13 @@ def settings_combat_has_the_boss_mods_card_and_a_looks_page():
     w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
     c.slash("/dz settings")
     w.tick(0.5)
+    # off (as it comes): the page is one box that says so, Switch on and Try it
+    c.eval("ns.SettingsUI:OpenBossMods('GruulsLair')")
+    w.tick(0.5)
+    assert c.eval("return ns.SettingsUI.cards.bossmods.off:IsVisible() and ns.SettingsUI.cards.bossmods.off.title:GetText()")         == "Boss mods is off"
+    assert c.eval("return ns.SettingsUI.sections.bossmods:IsShown()") is False
+    # on, with More options open
+    c.eval("ns.DB:SetSetting('bossmods.on', true); ns.DB:SetSetting('settingsMore.bossmods', true); ns.SettingsUI:Refresh()")
     c.eval("ns.SettingsUI:OpenBossMods('GruulsLair')")
     w.tick(0.5)
     texts = c.eval_py("local o = {}; local function walk(f) for _, r in ipairs({ f:GetRegions() }) do "

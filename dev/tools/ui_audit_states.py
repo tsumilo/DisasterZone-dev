@@ -1941,11 +1941,37 @@ STATES = [
     ("Settings - Search (look)", opened("settings", "ns.SettingsUI.searchBox:SetText('look'); ns.SettingsUI:Search('look')")),
     ("Settings - Search (nothing)", opened("settings", "ns.SettingsUI.searchBox:SetText('zzz'); ns.SettingsUI:Search('zzz')")),
     ("Settings - Changed rows", opened("settings", "ns.DB:SetSetting('tooltip.maxNames', 8); ns.DB:SetSetting('minimap.hide', true); "
-        "ns.SettingsUI:SelectSection('general'); ns.SettingsUI:Refresh()")),
+        "ns.SettingsUI:SelectSection('tooltips'); ns.SettingsUI:Refresh()")),
     ("Settings - Attendance (member)", opened("settings", "ns.Guild.IsGM = function() return false end; "
         "ns.SettingsUI:SelectSection('attendance'); ns.SettingsUI:Refresh()")),
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
     ("Settings - About", opened("settings", "ns.SettingsUI:SelectSection('about')")),
+    # Settings, the clean-up (mockup "B · Feature tiles"): a group's tiles, a card's page with More options, a page
+    # whose master switch is off (one box), options hidden while the switch they need is off, a search result in a fold
+    ("Settings - Combat tiles", opened("settings", "ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', false); "
+        "ns.DB:SetSetting('bossmods.on', true); ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('combat')")),
+    ("Settings - Combat tiles (off)", opened("settings", "ns.DB:SetSetting('meters.dmg', false); ns.DB:SetSetting('bossmods.on', false); "
+        "ns.DB:SetSetting('mylog.enabled', false); ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('combat')")),
+    ("Settings - Boss mods (off)", opened("settings", "ns.DB:SetSetting('bossmods.on', false); ns.SettingsUI:Refresh(); "
+        "ns.SettingsUI:SelectSection('bossmods')")),
+    ("Settings - Boss mods (on)", opened("settings", "ns.DB:SetSetting('bossmods.on', true); "
+        "ns.DB:SetSetting('settingsMore.bossmods', nil); ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('bossmods')")),
+    ("Settings - Boss mods (more open)", opened("settings", "ns.DB:SetSetting('bossmods.on', true); "
+        "ns.DB:SetSetting('settingsMore.bossmods', true); ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('bossmods')")),
+    ("Settings - Meters (threat off)", opened("settings", "ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', false); "
+        "ns.DB:SetSetting('settingsMore.meters', nil); ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('meters')")),
+    ("Settings - Meters (more open)", opened("settings", "ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true); "
+        "ns.DB:SetSetting('settingsMore.meters', true); ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('meters')")),
+    ("Settings - Search into More options", opened("settings", "ns.DB:SetSetting('meters.thr', true); "
+        "ns.DB:SetSetting('settingsMore.meters', nil); ns.SettingsUI:Refresh(); "
+        "ns.SettingsUI.searchBox:SetText('tank view'); ns.SettingsUI:Search('tank view'); "
+        "for _, e in ipairs(ns.SettingsUI.index) do if e.title == 'Tank view' then ns.SettingsUI:Jump(e) end end")),
+    ("Settings - My Log (off)", opened("settings", "ns.DB:SetSetting('mylog.enabled', false); ns.SettingsUI:Refresh(); "
+        "ns.SettingsUI:SelectSection('mylog')")),
+    ("Settings - Alerts grid", opened("settings", "ns.DB:SetSetting('settingsMore.reach', nil); ns.SettingsUI:Refresh(); "
+        "ns.SettingsUI:SelectSection('reach')")),
+    ("Settings - Combat text (off)", opened("settings", "ns.DB:SetSetting('ui.sct.on', false); ns.Popup:HideAll(); "
+        "ns.SettingsUI:Refresh(); ns.SettingsUI:OpenPart('sct')")),
     # the Welcome tour (UI/WelcomeTour.lua, Data/Tours/Welcome.lua): the one-time offer as the GM (every part), a
     # step of Everyone on Home, a council step on demo data, the GM's last step (the set-up checklist), Settings >
     # Tutorials

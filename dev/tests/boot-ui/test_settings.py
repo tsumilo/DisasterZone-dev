@@ -48,14 +48,9 @@ end
 function T_dd_by_first(root, first)
   for _, e in ipairs(T_dropdowns(root)) do if e[2] == first then return e[1] end end
 end
--- opens the Settings section that holds f (one section shows at a time), as a player would first
+-- opens the Settings page that holds f (one page shows at a time; its More options fold opened), as a player would
 function T_show_section_of(f)
-  local p = f
-  while p do
-    local k = rawget(p, "key")
-    if k and ns.SettingsUI.sections[k] == p then ns.SettingsUI:SelectSection(k); return k end
-    p = p:GetParent()
-  end
+  return ns.SettingsUI:Reveal(f)
 end
 function T_last_popup_text()
   local log = __MOCK.popup_log
@@ -554,16 +549,14 @@ def old_section_names_open_their_cards_and_groups_open_from_the_top():
         assert c.eval("return ns.SettingsUI:GetSection()") == card, old
         assert c.eval("return ns.SettingsUI.cat") == cat, old
         assert c.eval("return ns.SettingsUI.cards[...]:IsVisible()", card) is True, old
-    # a group opens on its first card; the rail lights it and says how it is set
+    # a group opens on its tiles; the rail lights it and says how it is set
     c.eval("ns.SettingsUI:OpenCategory('combat')")
     w.tick(0.1)
-    assert c.eval("return ns.SettingsUI:GetSection()") == "meters"
+    assert c.eval("return ns.SettingsUI.mode") == "tiles"
+    assert c.eval("return ns.SettingsUI:GetSection()") == "combat"
     assert c.eval("return ns.SettingsUI.rail.rows.combat:IsSelected()") is True
     assert "Damage" in c.eval("return ns.SettingsUI.rail.rows.combat.line:GetText()")
-    # the chips jump between the open group's cards
-    chips = c.eval_py("local o = {} for _, ch in ipairs(ns.SettingsUI.head.chips) do "
-                      "if ch:IsShown() then o[#o + 1] = ch.cardKey end end return o")
-    assert chips == ["meters", "classtools", "strategy", "mylog"], chips
+    assert c.eval("return ns.SettingsUI.head.lead:GetText()") == "What runs while you fight."
     no_errors(w)
 
 
@@ -585,7 +578,7 @@ def search_finds_options_with_working_controls_and_jumps_to_them():
     # a click on its name opens its card (the search box empties)
     c.click(c.eval("for _, e in ipairs(ns.SettingsUI.index) do if e.title == 'Warning sound' then return e.result.jump end end"))
     w.tick(0.3)
-    assert c.eval("return ns.SettingsUI.mode") == "cards"
+    assert c.eval("return ns.SettingsUI.mode") == "card"
     assert c.eval("return ns.SettingsUI:GetSection()") == "meters"
     assert c.eval("return ns.SettingsUI.searchBox:GetText()") == ""
     # a class tool's option and a look page's option are found too; nothing matches says so
@@ -631,7 +624,8 @@ def every_look_is_picked_in_interface_looks():
     w.tick(0.2)
     tiles = c.eval_py("local o = {} for _, t in ipairs(ns.SettingsUI.looksSec.partTiles) do "
                       "if t:IsShown() then o[#o + 1] = t.part end end return o")
-    assert tiles == ["units", "group", "cast", "bars", "bags", "minimap", "sct", "meters", "classbars", "timers"], tiles
+    assert tiles == ["units", "group", "cast", "bars", "bags", "minimap", "sct", "bossmods", "meters", "classbars",
+                     "timers"], tiles
     # a part's page: its sample stage, its look tiles, its options; its own look shows on its tile
     c.eval("ns.SettingsUI:OpenPart('units')")
     w.tick(0.2)
@@ -650,10 +644,217 @@ def every_look_is_picked_in_interface_looks():
     link = c.eval("""for _, r in ipairs(ns.SettingsUI.sections.meters.rows) do
         if r.title:GetText() == 'Look' then return r.control end end""")
     assert link is not None
+    c.eval("T_show_section_of(...)", link)          # (it is under More options)
+    assert c.eval("local b = ...; return b:IsVisible()", link) is True
     c.click(link)
     w.tick(0.2)
     assert c.eval("return ns.SettingsUI.mode") == "part" and c.eval("return ns.SettingsUI.part") == "meters"
     assert c.eval("return ns.SettingsUI.sections['look.meters'] ~= nil") is True
+    no_errors(w)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# The clean-up (mockup "B · Feature tiles"): a group's tiles, a card's own page, More options, off means off
+# ------------------------------------------------------------------------------------------------------------------
+SHOWN_TILES = "local o = {} for k, t in pairs(ns.SettingsUI.tiles) do if t:IsVisible() then o[k] = t.sum:GetText() end end return o"
+ROW = """local key, title = ...
+  for _, r in ipairs(ns.SettingsUI.sections[key].rows) do if r.title:GetText() == title then return r end end"""
+
+
+def row_y(c, key, title):
+    """A row's top (its anchor's y in its section) and whether it shows."""
+    return c.eval_py("local r = (function(...) " + ROW + " end)(...); local _, _, _, _, y = r:GetPoint(1); "
+                     "return { y, r:IsShown() }", key, title)
+
+
+@case
+def a_group_opens_as_tiles_and_a_tile_opens_its_card():
+    w, c = settings_client(guild_rank=3, class_file="PALADIN")
+    c.eval("ns.DB:SetSetting('meters.dmg', true)")
+    c.eval("ns.SettingsUI:SelectSection('combat')")
+    w.tick(0.3)
+    tiles = c.eval_py(SHOWN_TILES)
+    assert sorted(tiles) == ["bossmods", "classtools", "meters", "mylog", "strategy"], tiles
+    assert tiles["meters"] == "Damage on · threat off · in a group", tiles
+    assert tiles["bossmods"].startswith("Off · pull timers still work"), tiles
+    assert tiles["mylog"] == "Off · records nothing", tiles
+    # (only the cards with a switch for the whole feature have one on their tile)
+    assert c.eval("return ns.SettingsUI.tiles.meters.switch == nil and ns.SettingsUI.tiles.bossmods.switch ~= nil")
+    # a click on the tile opens the card's page: the way back, its name, its lead line
+    c.click(c.eval("return ns.SettingsUI.tiles.meters"))
+    w.tick(0.2)
+    assert c.eval("return ns.SettingsUI.mode") == "card" and c.eval("return ns.SettingsUI:GetSection()") == "meters"
+    assert c.eval("return ns.SettingsUI.cards.meters.head:IsVisible()") is True
+    assert c.eval("return ns.SettingsUI.head.back:GetText()") == "Combat"
+    assert c.eval("return ns.SettingsUI.head.lead:GetText()").startswith("Damage and threat from your own combat log")
+    assert c.eval("return ns.SettingsUI.tiles.meters:IsVisible()") is False
+    # back to the group's tiles
+    c.click(c.eval("return ns.SettingsUI.head.back"))
+    w.tick(0.2)
+    assert c.eval("return ns.SettingsUI.mode") == "tiles" and c.eval("return ns.SettingsUI.cat") == "combat"
+    # the Guild Master's set-up card is a tile only for the Guild Master; Help is a group of tiles too
+    c.eval("ns.SettingsUI:SelectSection('guild')")
+    assert "setup" not in c.eval_py(SHOWN_TILES)
+    c.eval("ns.SettingsUI:SelectSection('help')")
+    assert sorted(c.eval_py(SHOWN_TILES)) == ["about", "demo", "tutorials"]
+    no_errors(w)
+
+
+@case
+def a_tiles_master_switch_flips_the_feature_in_place():
+    w, c = settings_client(guild_rank=3)
+    c.eval("ns.SettingsUI:SelectSection('combat')")
+    w.tick(0.2)
+    sw = c.eval("return ns.SettingsUI.tiles.bossmods.switch")
+    assert c.eval("local s = ...; return s:GetChecked()", sw) is False
+    c.click(sw)
+    w.tick(0.3)
+    assert setting(c, "bossmods.on") is True
+    assert c.eval("return ns.SettingsUI.mode") == "tiles", "the switch flips it, the tile does not open"
+    assert c.eval("return ns.SettingsUI.tiles.bossmods.sum:GetText()").startswith("On · auto: ")
+    # the card's head switch follows; switched off there, the tile follows back
+    c.eval("ns.SettingsUI:SelectSection('bossmods')")
+    head = c.eval("return ns.SettingsUI.cards.bossmods.head.master")
+    assert c.eval("local h = ...; return h.switch:GetChecked()", head) is True
+    assert strip_codes(c.eval("local h = ...; return h.state:GetText()", head)) == "On"
+    c.click(c.eval("local h = ...; return h.switch", head))
+    w.tick(0.3)
+    assert setting(c, "bossmods.on") is False
+    assert c.eval("return ns.SettingsUI.tiles.bossmods.switch:GetChecked()") is False
+    no_errors(w)
+
+
+@case
+def a_card_switched_off_is_one_box_and_switch_on_brings_its_options():
+    w, c = settings_client(guild_rank=3)
+    c.eval("ns.SettingsUI:SelectSection('bossmods')")
+    w.tick(0.2)
+    card = "ns.SettingsUI.cards.bossmods"
+    assert c.eval("return %s.sec:IsShown()" % card) is False, "no greyed rows"
+    assert c.eval("return %s.off:IsVisible()" % card) is True
+    assert c.eval("return %s.off.title:GetText()" % card) == "Boss mods is off"
+    assert c.eval("return %s.off.try:IsVisible()" % card) is True
+    # its options are not on the page, nor its raid list
+    assert c.eval("local r = (function(...) " + ROW + " end)(...); return r:IsVisible()", "bossmods", "Timer bars") is False
+    # Switch on: the rows come back, the box goes
+    c.click(c.eval("return %s.off.on" % card))
+    w.tick(0.3)
+    assert setting(c, "bossmods.on") is True
+    assert c.eval("return %s.off:IsShown()" % card) is False
+    assert c.eval("return %s.sec:IsVisible()" % card) is True
+    assert c.eval("local r = (function(...) " + ROW + " end)(...); return r:IsVisible()", "bossmods", "Timer bars") is True
+    # My Log off: the box, and it still offers to delete what is stored (only then)
+    c.eval("ns.SettingsUI:SelectSection('mylog')")
+    w.tick(0.2)
+    assert c.eval("return ns.SettingsUI.cards.mylog.off:IsVisible()") is True
+    assert c.eval("return ns.SettingsUI.cards.mylog.off.buttons[2]:IsShown()") is False
+    # a look part with a switch of its own: combat text
+    c.eval("ns.SettingsUI:OpenPart('sct')")
+    w.tick(0.2)
+    assert c.eval("return ns.SettingsUI.parts.sct.off:IsVisible()") is True
+    assert c.eval("return ns.SettingsUI.parts.sct.stage:IsShown() or ns.SettingsUI.parts.sct.sec:IsShown()") is False
+    c.click(c.eval("return ns.SettingsUI.parts.sct.off.on"))
+    w.tick(0.3)
+    assert setting(c, "ui.sct.on") is True
+    assert c.eval("return ns.SettingsUI.parts.sct.sec:IsVisible()") is True
+    no_errors(w, allow=("reload",))
+
+
+@case
+def more_options_fold_the_rest_and_remember_open_or_shut():
+    w, c = settings_client(guild_rank=3)
+    c.eval("ns.DB:SetSetting('bossmods.on', true)")
+    c.eval("ns.SettingsUI:SelectSection('bossmods')")
+    w.tick(0.2)
+    fold = "ns.SettingsUI.sections.bossmods.fold"
+    assert c.eval("return %s:IsVisible()" % fold) is True
+    assert c.eval("return %s.badge.fs:GetText()" % fold) == "9"
+    assert c.eval("return %s.list:GetText()" % fold).startswith("Size, Warning size, Range frame")
+    assert row_y(c, "bossmods", "Range frame")[1] is False
+    raids_top = c.eval("return ns.SettingsUI.sections.bossmods.top")
+    c.click(c.eval("return " + fold))
+    w.tick(0.2)
+    assert setting(c, "settingsMore.bossmods") is True
+    assert row_y(c, "bossmods", "Range frame")[1] is True
+    # (the raid list under the rows moves down past them)
+    assert c.eval("return ns.SettingsUI.sections.bossmods.top") > raids_top + 9 * 40
+    # open stays open on the next visit (and after a relog: an account setting)
+    c.eval("ns.SettingsUI:SelectSection('combat'); ns.SettingsUI:SelectSection('bossmods')")
+    assert row_y(c, "bossmods", "Range frame")[1] is True
+    c.click(c.eval("return " + fold))
+    w.tick(0.2)
+    assert row_y(c, "bossmods", "Range frame")[1] is False
+    assert c.eval("return ns.SettingsUI.sections.bossmods.top") == raids_top
+    no_errors(w)
+
+
+@case
+def a_row_that_needs_a_switch_hides_and_the_rows_under_it_move_up():
+    w, c = settings_client(guild_rank=3)
+    c.eval("ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true)")
+    c.eval("ns.SettingsUI:SelectSection('meters'); ns.SettingsUI:Refresh()")
+    w.tick(0.2)
+    warn = row_y(c, "meters", "Warn me at")
+    show = row_y(c, "meters", "Show them")
+    assert warn[1] is True and show[1] is True
+    # the threat meter off: its warning row is gone (not greyed) and "Show them" takes its place
+    c.click(c.eval("return T_checkbox(T_settings(), 'Show the threat meter')"))
+    w.tick(0.3)
+    assert row_y(c, "meters", "Warn me at")[1] is False
+    assert row_y(c, "meters", "Show them") == [warn[0], True]
+    assert c.eval("local r = (function(...) " + ROW + " end)(...); return r:GetAlpha()", "meters", "Show them") == 1
+    # both meters off: the panels' rows go too
+    c.eval("ns.DB:SetSetting('meters.dmg', false)")
+    w.tick(0.3)
+    assert row_y(c, "meters", "Show them")[1] is False
+    # the fold counts only what would show
+    c.eval("ns.SettingsUI:SetMoreOpen(ns.SettingsUI.sections.meters, true)")
+    assert c.eval("return ns.SettingsUI.sections.meters.fold.badge.fs:GetText()") == "1"      # (Look)
+    assert row_y(c, "meters", "Fights to keep")[1] is False
+    # the drop panel's position needs the drop panel
+    c.eval("ns.DB:SetSetting('alerts.councilPanel', false); ns.SettingsUI:SelectSection('drops'); ns.SettingsUI:Refresh()")
+    assert row_y(c, "drops", "Drop panel position")[1] is False
+    assert row_y(c, "drops", "Glow on BiS loot buttons")[1] is True
+    no_errors(w)
+
+
+@case
+def search_finds_rows_in_a_fold_and_rows_a_switch_hides():
+    w, c = settings_client(guild_rank=3)
+    c.eval("ns.DB:SetSetting('meters.thr', true); ns.DB:SetSetting('settingsMore.meters', nil)")
+    JUMP = "local t = ...; for _, e in ipairs(ns.SettingsUI.index) do if e.title == t then ns.SettingsUI:Jump(e) return end end"
+    c.eval("ns.SettingsUI.searchBox:SetText('tank view'); ns.SettingsUI:Search('tank view')")
+    w.tick(0.2)
+    assert c.eval("for _, e in ipairs(ns.SettingsUI.index) do if e.title == 'Tank view' then return e.result:IsVisible() end end")
+    c.eval(JUMP, "Tank view")
+    w.tick(0.2)
+    # its card, the fold opened, the row shown and lit
+    assert c.eval("return ns.SettingsUI.mode") == "card" and c.eval("return ns.SettingsUI:GetSection()") == "meters"
+    assert setting(c, "settingsMore.meters") is True
+    assert row_y(c, "meters", "Tank view")[1] is True
+    assert c.eval("local r = (function(...) " + ROW + " end)(...); return r.dzFlash and r.dzFlash:IsShown()",
+                  "meters", "Tank view") is True
+    # a row hidden by the switch it needs: the page opens on that switch, lit
+    c.eval("ns.DB:SetSetting('meters.thr', false); ns.SettingsUI:Refresh()")
+    c.eval(JUMP, "Warn me at")
+    w.tick(0.2)
+    assert row_y(c, "meters", "Warn me at")[1] is False
+    assert c.eval("local r = (function(...) " + ROW + " end)(...); return r.dzFlash and r.dzFlash:IsShown()",
+                  "meters", "Show the threat meter") is True
+    # on a page that is switched off: the box, its switch lit
+    c.eval(JUMP, "Timer bars")
+    w.tick(0.2)
+    assert c.eval("return ns.SettingsUI:GetSection()") == "bossmods"
+    assert c.eval("return ns.SettingsUI.cards.bossmods.off:IsVisible()") is True
+    assert c.eval("local m = ns.SettingsUI.cards.bossmods.head.master; return m.dzFlash and m.dzFlash:IsShown()") is True
+    # the master switches are found too, with a working switch
+    c.eval("ns.SettingsUI.searchBox:SetText('record my'); ns.SettingsUI:Search('record my')")
+    w.tick(0.2)
+    sw = c.eval("for _, e in ipairs(ns.SettingsUI.index) do if e.title == 'Record my raid performance' then "
+                "return e.result and e.result.control end end")
+    assert sw is not None
+    c.click(sw)
+    assert setting(c, "mylog.enabled") is True
     no_errors(w)
 
 
