@@ -41,6 +41,12 @@ pub struct Settings {
     pub tray_hint_shown: bool,
     /// set before the launcher restarts after updating itself in the background: start hidden in the tray
     pub start_hidden_once: bool,
+    /// Settings > Host is shown (Ctrl+Shift+H): this PC runs the guild's Discord bot
+    pub host: bool,
+    /// host mode: run the Discord bot (the token is in the OS credential store, not here)
+    pub bot_on: bool,
+    pub bot_app_id: String,
+    pub bot_guild_id: String,
 }
 
 impl Default for Settings {
@@ -63,6 +69,10 @@ impl Default for Settings {
             notified_launcher: String::new(),
             tray_hint_shown: false,
             start_hidden_once: false,
+            host: false,
+            bot_on: false,
+            bot_app_id: String::new(),
+            bot_guild_id: String::new(),
         }
     }
 }

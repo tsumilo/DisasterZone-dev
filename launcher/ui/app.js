@@ -418,6 +418,7 @@ function renderSettings() {
     if (document.activeElement !== f) f.value = s[key] || "";
   }
   $("set-source").placeholder = status.source;
+  renderHost();
   $("about").textContent = "DisasterZone Launcher " + status.launcherVersion + " · releases from " + status.source;
 }
 
@@ -440,6 +441,63 @@ function wireSettings() {
   field("set-cmd", "playCommand");
   field("set-source", "source", true);
   $("btn-open-backups").onclick = () => api.invoke("open_folder", { kind: "backups" }).catch(toast);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Host (the guild's Discord bot runs in this launcher; Settings > Host, shown with Ctrl+Shift+H)
+// ---------------------------------------------------------------------------------------------------------------
+
+let bot = { status: { state: "off" }, tokenSaved: false };
+
+const BOT_TEXT = { off: "Off", connecting: "Connecting to Discord…" };
+
+function renderHost() {
+  const s = status.settings;
+  $("host-rows").classList.toggle("hidden", !s.host);
+  if (!s.host) return;
+  const st = bot.status;
+  $("bot-state").textContent = st.state === "online" ? "Online as " + st.name
+    : st.state === "error" ? "Stopped: " + st.message : BOT_TEXT[st.state] || st.state;
+  $("bot-state").style.color = st.state === "online" ? "rgb(77, 181, 99)" : st.state === "error" ? "rgb(230, 110, 100)" : "";
+  $("set-bot").setAttribute("aria-checked", String(!!s.botOn));
+  for (const [id, key] of [["set-appid", "botAppId"], ["set-guild", "botGuildId"]]) {
+    const f = $(id);
+    if (document.activeElement !== f) f.value = s[key] || "";
+  }
+  $("set-token").placeholder = bot.tokenSaved ? "saved" : "paste the token";
+}
+
+async function saveBot(patch) {
+  try {
+    bot = await api.invoke("set_bot", patch);
+    await loadStatus();
+    renderSettings();
+  } catch (e) {
+    toast(e);
+  }
+}
+
+function wireHost() {
+  $("set-bot").onclick = () => saveBot({ on: !status.settings.botOn });
+  const field = (id, key, arg) => {
+    const f = $(id);
+    f.addEventListener("change", () => { if ((status.settings[key] || "") !== f.value.trim()) saveBot({ [arg]: f.value }); });
+    f.addEventListener("keydown", (e) => { if (e.key === "Enter") f.blur(); });
+  };
+  field("set-appid", "botAppId", "appId");
+  field("set-guild", "botGuildId", "guildId");
+  const tok = $("set-token");
+  tok.addEventListener("change", () => {
+    const v = tok.value.trim();
+    tok.value = "";
+    if (v || bot.tokenSaved) saveBot({ token: v });
+  });
+  tok.addEventListener("keydown", (e) => { if (e.key === "Enter") tok.blur(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "h" && status) {
+      saveSettings({ host: !status.settings.host }).then(() => { if (status.settings.host) showTab("settings"); });
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -487,10 +545,13 @@ async function start() {
   $("btn-check").onclick = runCheck;
   $("btn-play").onclick = play;
   wireSettings();
+  wireHost();
+  await api.listen("bot-status", (e) => { bot.status = e.payload; if (status) renderHost(); });
   await api.listen("progress", (e) => { if (working) showProgress(e.payload); });
   // the tray's background check installed something or found a new release
   await api.listen("state-changed", () => { if (!working) refreshAll(); });
   try {
+    bot = await api.invoke("bot_status");
     await loadStatus();
   } catch (e) {
     toast(e);
@@ -512,7 +573,8 @@ start();
 
 function demoApi() {
   const settings = { wowRoot: "C:\\World of Warcraft", flavor: "_anniversary_", channel: "stable", seenSeq: {}, hold: false,
-    keepBackups: 3, checkOnStart: true, source: null, launchCode: "", playCommand: "", tray: false, autoInstall: false, autostart: false };
+    keepBackups: 3, checkOnStart: true, source: null, launchCode: "", playCommand: "", tray: false, autoInstall: false, autostart: false,
+    host: new URLSearchParams(location.search).has("host"), botOn: false, botAppId: "", botGuildId: "" };
   let installed = { present: true, version: "1.3.4", build: "f2965f70f965709b", assetPack: 7, dev: false, linked: false, rooms: true };
   const backups = [{ id: "20261009-201544-1.3.3", version: "1.3.3", build: "f60fe8911a371447", time: "", reason: "update", savedVariables: 3 }];
   // the real changelog of the last releases (demo-notes.json, from the published 1.3.5 manifest)
@@ -520,6 +582,7 @@ function demoApi() {
   const notesReady = fetch("demo-notes.json").then((r) => r.json()).then((n) => { notes.changelog = n.changelog; }).catch(() => {});
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   let progressFn = null;
+  const demoBot = { status: { state: "off" }, tokenSaved: false };
   return {
     async invoke(cmd, args) {
       await wait(250);
@@ -548,6 +611,15 @@ function demoApi() {
         case "restore": { const b = backups.find((x) => x.id === args.id); installed = { ...installed, version: b.version, build: b.build }; settings.hold = true; return null; }
         case "set_settings": for (const k in args) if (args[k] != null) settings[k] = args[k]; return { ...settings };
         case "set_wow_path": if (args.flavor) settings.flavor = args.flavor; return { ...settings };
+        case "bot_status": return { ...demoBot };
+        case "set_bot": {
+          if (args.on != null) settings.botOn = args.on;
+          if (args.appId != null) settings.botAppId = args.appId;
+          if (args.guildId != null) settings.botGuildId = args.guildId;
+          if (args.token != null) demoBot.tokenSaved = !!args.token;
+          demoBot.status = settings.botOn ? { state: "online", name: "DisasterZone (demo)" } : { state: "off" };
+          return { ...demoBot };
+        }
         case "play": throw "Demo: Play would start Battle.net here.";
         case "open_folder": throw "Demo: this would open the folder.";
       }
