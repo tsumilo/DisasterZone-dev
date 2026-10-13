@@ -223,10 +223,11 @@ r = pala.eval_py("""
     local ST = ns.ShotTimer
     local cur = ST:Current()
     local _, _, _, x = DisasterZoneShotTimer:GetPoint()
-    return { shot = ST.state.last ~= nil, plan = cur ~= nil and #cur.plan.steps > 0,
+    return { shot = ST.state.last ~= nil, plan = cur ~= nil and #cur.plan.steps > 0, cast = ST.state.castEnd > 0,
              shown = DisasterZoneShotTimer:IsShown(), x = x }
 """)
 assert r["shot"] and r["plan"] and r["shown"] and r["x"] == 280, r
+assert r["cast"], "the demo bot presses what the plan says (a reaction after it is due), so Steady Shots get cast"
 pala.slash("/dz demo off")
 w.tick(0.5)
 assert pala.eval("return ns.ShotTimer.active, ns.ShotTimer.state.last == nil") == (False, True)

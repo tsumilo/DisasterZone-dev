@@ -571,7 +571,13 @@ local function DemoShots(on)
             end
             local cur = ShotTimer:Current()
             local st = cur and cur.plan.steps[1]
-            if st and st.at <= now - DEMO_REACTION then
+            -- (a due press is planned at "now" every frame: the reaction counts from when it first became due)
+            local due = st and st.at <= now + 0.001
+            if due and demo.dueKey ~= st.key then demo.dueKey, demo.dueAt = st.key, now end
+            if not due then demo.dueKey = nil end
+            if due and now - demo.dueAt >= DEMO_REACTION then
+                demo.dueKey = nil
+                demo.presses = (demo.presses or 0) + 1
                 if st.key == "kc" then
                     demo.ready.kc, demo.kcUntil = now + state.cd.kc, 0
                 else
