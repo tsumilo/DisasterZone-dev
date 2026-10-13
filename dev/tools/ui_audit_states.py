@@ -3600,3 +3600,28 @@ STATES += [
     ("Wardrobe - empty", wardrobe_view(empty=True)),
     ("Wardrobe - bar", wardrobe_view("ns.MainFrame:Close(); ns.WardrobeUI:UpdateBar()")),
 ]
+
+# Combat text (UI/CombatText.lua + UI/CombatTextLooks.lua): the mockup's Void Reaver pull (the demo pull) in each look,
+# stopped at a moment: AuditCTBox = a named 900 x 540 (mockup px) frame over the stage with Tempest Keep's loading
+# screen behind (ui_look crops to named windows), the target spot / you / alerts spots placed as in the mockup.
+def sct_view(look, t=5.95, place="plate", extra=""):
+    lua = ("ns.MainFrame:Close(); __MOCK.real_geometry = true; ns.DB:SetSetting('ui.sct.place', '%s'); "
+           "ns.DB:SetSetting('ui.sct.look', '%s'); if ns.Popup then ns.Popup:HideAll() end; local CT = ns.CombatTextUI; CT:Restyle(); "
+           "local o = ns.CTPen:Overlay(); local k = o:GetScale(); local H = UIParent:GetHeight(); "
+           "for key, d in pairs(CT.SPOTS) do local f = CT.spots[key]; if f then f:ClearAllPoints(); "
+           "if d.bottom then f:SetPoint('CENTER', UIParent, 'BOTTOM', 0, (d.bottom + 52 - 150) * k) "
+           "else f:SetPoint('CENTER', UIParent, 'TOP', 0, -d.top * k) end end end; "
+           "local bx = _G.AuditCTBox or CreateFrame('Frame', 'AuditCTBox', UIParent); bx:SetFrameStrata('BACKGROUND'); "
+           "bx:ClearAllPoints(); bx:SetPoint('TOP', UIParent, 'TOP', 0, 0); bx:SetSize(940 * k, 540 * k); "
+           "if not bx.bg then bx.bg = bx:CreateTexture(nil, 'BACKGROUND'); bx.bg:SetAllPoints(bx); "
+           "bx.bg:SetTexture(131875); bx.bg:SetTexCoord(38 / 512, 474 / 512, 140 / 512, 385 / 512); "
+           "bx.dim = bx:CreateTexture(nil, 'BORDER'); bx.dim:SetAllPoints(bx); bx.dim:SetColorTexture(0.03, 0.02, 0.055, 0.6) end; "
+           "bx:Show(); for _, f in pairs(CT.spots) do f:SetFrameStrata('BACKGROUND') end; %s CT:QueuePull(false); for i = 1, %d do CT:Tick(1 / 60) end; o:SetScript('OnUpdate', nil)"
+           % (place, look, extra, int(t * 60)))
+    return opened("home", lua)
+
+
+STATES += [("Combat text - %s" % _l, sct_view(_l)) for _l in ("flat", "halo", "sigil", "slate", "gilded", "classic")]
+STATES += [("Combat text - %s ticks" % _l, sct_view(_l, 4.9)) for _l in ("flat", "halo", "sigil", "slate", "gilded")]
+STATES += [("Combat text - %s end" % _l, sct_view(_l, 10.9)) for _l in ("flat", "halo", "sigil", "slate", "gilded", "classic")]
+STATES += [("Combat text - %s alert" % _l, sct_view(_l, 7.95)) for _l in ("flat", "halo", "sigil", "slate", "gilded", "classic")]

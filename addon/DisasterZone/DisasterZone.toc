@@ -104,6 +104,7 @@ Core\Patch.lua
 Core\Ledger.lua
 Core\RaidLog.lua
 Core\CombatLog.lua
+Core\CombatText.lua
 Core\MyLog.lua
 Core\MyLogDemo.lua
 Core\Meter.lua
@@ -265,6 +266,9 @@ UI\LookBars.lua
 UI\LookDock.lua
 UI\LookBags.lua
 UI\LookMinimap.lua
+UI\CombatTextPen.lua
+UI\CombatText.lua
+UI\CombatTextLooks.lua
 UI\PatchUI.lua
 
 # Games (just for fun; never touch loot state)

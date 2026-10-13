@@ -149,6 +149,8 @@ Look.PARTS = {
       replaced = true },
     { key = "bags", name = "Bags", tip = "Your bags, the key ring and the bank in one window each.", replaced = true },
     { key = "minimap", name = "Minimap", tip = "The map, the zone and the clock, and the buttons around it." },
+    -- (drawn by the addon over the world: UI/CombatText.lua; Blizzard = the game's own numbers)
+    { key = "sct", name = "Combat text", tip = "Your hits, the hits you take, heals, procs and alerts as numbers on screen." },
 }
 local PART = {}
 for _, p in ipairs(Look.PARTS) do PART[p.key] = p end

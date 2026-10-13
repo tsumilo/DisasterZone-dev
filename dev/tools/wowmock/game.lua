@@ -427,7 +427,8 @@ M.cvars = { nameplateShowEnemies = "1", autoLootDefault = "0", lootUnderMouse = 
   scriptErrors = "1", taintLog = "0", chatStyle = "classic", portal = "EU", textLocale = "enUS", audioLocale = "enUS",
   useUiScale = "0", uiScale = "1", showToastWindow = "1", autoSelfCast = "1", nameplateShowEnemies = "1",
   UberTooltips = "1", alwaysCompareItems = "0", colorblindMode = "0", profanityFilter = "0", nameplateShowFriends = "0",
-  nameplateShowAll = "0", SpellQueueWindow = "400" }
+  nameplateShowAll = "0", SpellQueueWindow = "400", floatingCombatTextCombatDamage = "1",
+  floatingCombatTextCombatHealing = "1" }
 local CVAR_DEFAULTS = { nameplateShowFriends = "0", nameplateShowEnemies = "1", nameplateShowAll = "0" }
 function GetCVar(name)
   local v = M.cvars[name]

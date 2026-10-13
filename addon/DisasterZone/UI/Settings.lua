@@ -1341,6 +1341,33 @@ function SettingsUI:BuildUI(sec)
             { "clock", "Clock", "", true },
             { "zone", "Zone", "", true },
         },
+        sct = {
+            { "place", "Where numbers go", "On the nameplate of the mob you hit, or in fixed columns beside you.", "plate",
+              { { value = "plate", text = "On the nameplate" }, { value = "columns", text = "Columns" } },
+              tip = "Numbers ride the plate of the mob they hit (enemy nameplates on). A mob without a plate shown, or "
+                  .. "Columns, uses the target spot. Move the spots in Edit layout." },
+            { "size", "Size", "", 1,
+              { { value = 0.7, text = "Small" }, { value = 0.85, text = "Medium" }, { value = 1, text = "Large" },
+                { value = 1.15, text = "Huge" } } },
+            { "hideGame", "Hide the game's numbers", "Its damage and healing numbers stay off while these are on.", true },
+            { "merge", "Merge hits", "Ticks and hits that land together count up as one.", "theme",
+              { { value = "theme", text = "The look's" }, { value = "on", text = "Always" }, { value = "off", text = "Never" } },
+              tip = "The look's: every look merges but Classic, which shows each number like the game." },
+            { "taken", "Hits taken", "", true },
+            { "heals", "Heals on me", "With the healer's name.", true },
+            { "procs", "Procs", "Buffs you gain in combat that last a minute or less.", true },
+            { "alerts", "Spells that light up", "Hammer of Wrath, Execute, Overpower, Revenge, Riposte ...", true },
+            { "lowHealth", "Low health and mana", "", true },
+            { "bests", "New bests", "Your best hit with every spell, kept per character.", true },
+            { "fightEnd", "Fight summary", "When a fight ends: the mob, the time and your DPS.", true },
+            { "autoAttacks", "Auto attacks", "", true },
+            { "minHit", "Hide hits under", "Crits always show.", 0,
+              { { value = 0, text = "Show all" }, { value = 100, text = "100" }, { value = 250, text = "250" },
+                { value = 500, text = "500" }, { value = 1000, text = "1,000" } } },
+            { "minHeal", "Hide heals under", "", 0,
+              { { value = 0, text = "Show all" }, { value = 100, text = "100" }, { value = 250, text = "250" },
+                { value = 500, text = "500" }, { value = 1000, text = "1,000" } } },
+        },
     }
     for _, p in ipairs(Look.PARTS) do
         Head(p.name)
@@ -1351,6 +1378,14 @@ function SettingsUI:BuildUI(sec)
             local path = "ui." .. p.key .. "." .. o[1]
             if type(o[4]) == "boolean" then self:SwitchSetting(sec, o[2], o[3], path, o[4], o.tip)
             else self:DropdownSetting(sec, o[2], o[3], path, o[4], o[5]) end
+        end
+        if p.key == "sct" and ns.CombatTextUI then
+            local row = self:Row(sec, "Try it", "A made-up pull plays on your screen. Nothing is cast or sent.")
+            local try = ns.UI:CreateSleekButton(row, "Try it", 80, 22, function()
+                if not ns.CombatTextUI:TryIt() then ns:Print("Pick a look for Combat text first.") end
+            end)
+            try:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+            row.control = try
         end
     end
     self:EndSection(sec)
