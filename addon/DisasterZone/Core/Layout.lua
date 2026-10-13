@@ -14,6 +14,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Layout.lua", ...) then return
 --     mine = function() -> bool (shown under "My character"; default true), when = "while loot is open" (the
 --     label's note when it is usually hidden), preview = function(on) (show it with made-up content while editing),
 --     scale = { get = fn, set = fn(s) } (a feature's own size setting; else the profile keeps a scale),
+--     box = function() -> the frame to measure (when `frame` itself may be hidden, e.g. a unit watch's button),
 --     protected (secure buttons inside: never moved in combat), noHide (no eye toggle) }
 --
 -- Places are kept in UIParent units from the nearest corner, side or centre of the screen (Layout.AnchorOf), so they
@@ -249,6 +250,14 @@ function Layout:Register(id, def)
 end
 
 function Layout:Item(id) return items[id] end
+
+-- Takes an item off the list (a game frame that a replaced part retired: ours stand in its place).
+function Layout:Unregister(id)
+    if not items[id] then return end
+    items[id] = nil
+    for i = #list, 1, -1 do if list[i].id == id then table.remove(list, i) end end
+    ns:Fire("LAYOUT_CHANGED", "items")
+end
 function Layout:Items() return list end
 
 local function Call(fn, ...)
@@ -291,6 +300,12 @@ function Layout:Rect(id)
     local f = self:Frame(id)
     if not def or not f then return nil end
     if def.kind == "blizzard" then return self.Blizz:Rect(f) end
+    -- (a secure frame hidden by the game's unit watch is measured by its preview, which sits on it: def.box)
+    if def.box then
+        local b = Call(def.box)
+        if b == false then return nil end
+        f = b or f
+    end
     if not f:IsVisible() then return nil end
     local l, b, w, h = f:GetLeft(), f:GetBottom(), f:GetWidth(), f:GetHeight()
     if not l or not b or not w or not h then return nil end

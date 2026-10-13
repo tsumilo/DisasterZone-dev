@@ -40,7 +40,8 @@ local SECTIONS = {
     { key = "meters", label = "Meters" },
     -- class tools (Core/ClassKit.lua): a collapsible card per tool of my class (every class's in demo mode)
     { key = "classtools", label = "Class tools", visible = function() return SettingsUI:HasClassTools() end },
-    -- where every on-screen frame goes: Edit layout and this character's layout profile (Core/Layout.lua)
+    -- the game's frames in the addon's looks (UI/Look.lua) and where every on-screen frame goes (Core/Layout.lua)
+    { key = "ui", label = "UI" },
     { key = "layout", label = "Layout" },
     { key = "window", label = "Window" },
     { key = "council", label = "Loot Council" },
@@ -809,6 +810,7 @@ function SettingsUI:CreatePanel(parent)
     self:BuildMyLog(self.sections.mylog)
     self:BuildMeters(self.sections.meters)
     self:BuildClassTools(self.sections.classtools)
+    self:BuildUI(self.sections.ui)
     self:BuildLayout(self.sections.layout)
     self:BuildWindow(self.sections.window)
     self:BuildCouncil(self.sections.council)
@@ -1245,6 +1247,84 @@ function SettingsUI:BuildTooltips(sec)
     for _, n in ipairs({ 3, 5, 8, 12 }) do nameOptions[#nameOptions + 1] = { value = n, text = tostring(n) } end
     self:DropdownSetting(sec, "Names shown", "Hold Shift over an item to see every name.", "tooltip.maxNames", 5,
         nameOptions)
+    self:EndSection(sec)
+end
+
+-- UI: the game's frames in the addon's looks (UI/Look.lua): one look for everything, then each part's own look and
+-- options. A part switched to or from Blizzard asks for a reload (UI/Look.lua).
+function SettingsUI:BuildUI(sec)
+    sec.y = sec.y - 4
+    local Look = ns.Look
+    Look:Tiles(self, sec)
+    local function Head(text)
+        local h = UI:CreateSectionHeader(sec, text)
+        h:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 10)
+        h:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 10)
+        sec.y = sec.y - 38
+    end
+    local function LookOptions()
+        local out = { { value = "inherit", text = "Same as everything" } }
+        for _, l in ipairs(Look.LOOKS) do out[#out + 1] = { value = l.key, text = l.name } end
+        return out
+    end
+    local OPTS = {
+        units = {
+            { "portrait", "Portrait", "Class icon for players; the game's portrait for the rest.", "class",
+              { { value = "class", text = "Class icon" }, { value = "portrait", text = "Portrait" }, { value = "none", text = "None" } } },
+            { "healthColor", "Health colour", "", "class",
+              { { value = "class", text = "Class" }, { value = "green", text = "Green" }, { value = "gradient", text = "By health" } } },
+            { "healthText", "Health text", "", "both",
+              { { value = "both", text = "14.2k  84%" }, { value = "pct", text = "84%" },
+                { value = "full", text = "14,212 / 16,840" }, { value = "none", text = "None" } } },
+            { "debuffs", "Auras on target", "Your own first, everyone's, or only yours.", "mine",
+              { { value = "mine", text = "Mine first" }, { value = "all", text = "All" }, { value = "onlymine", text = "Only mine" } } },
+            { "timers", "Aura timers", "Seconds left under each aura.", true },
+        },
+        group = {
+            { "healthColor", "Health colour", "", "class",
+              { { value = "class", text = "Class" }, { value = "green", text = "Green" }, { value = "gradient", text = "By health" } } },
+            { "player", "Me in my party", "Your own frame at the top of the party frames.", false },
+            { "range", "Fade out of range", "Party and raid members too far to heal.", true },
+            { "dispel", "Light what I can remove", "A debuff you can dispel colours the frame's edge.", true },
+        },
+        cast = {
+            { "latency", "Latency", "The red end of your own casts: the time the server needs.", true },
+            { "time", "Time", "", "left",
+              { { value = "left", text = "0.6" }, { value = "both", text = "0.6 / 1.5" }, { value = "none", text = "None" } } },
+            { "icon", "Spell icon", "", true },
+            { "target", "Target's cast bar", "", true },
+            { "focus", "Focus's cast bar", "", true },
+        },
+        bars = {
+            { "keys", "Key binds", "", true },
+            { "macros", "Macro names", "", false },
+            { "cooldown", "Cooldowns", "", "theme",
+              { { value = "theme", text = "Sweep and number" }, { value = "sweep", text = "Sweep" },
+                { value = "numbers", text = "Number" } } },
+            { "range", "Out of range", "", "icon", { { value = "icon", text = "Red icon" }, { value = "key", text = "Red key bind" } } },
+            { "xp", "Experience bar", "Your experience and the reputation you watch, in the look.", true },
+        },
+        minimap = {
+            { "shape", "Shape", "The look's own: round for Halo and Gilded, square for the rest.", "theme",
+              { { value = "theme", text = "The look's" }, { value = "round", text = "Round" }, { value = "square", text = "Square" } } },
+            { "buttons", "Addon buttons", "Minimap buttons of other addons.", "edge",
+              { { value = "edge", text = "Round the edge" }, { value = "drawer", text = "In a drawer" },
+                { value = "hover", text = "On mouse-over" } } },
+            { "clock", "Clock", "", true },
+            { "zone", "Zone", "", true },
+        },
+    }
+    for _, p in ipairs(Look.PARTS) do
+        Head(p.name)
+        self:Dropdown(sec, "Look", p.tip, LookOptions,
+            function() return Get("ui." .. p.key .. ".look", "inherit") end,
+            function(a, b) Set("ui." .. p.key .. ".look", Value(a, b)) end)
+        for _, o in ipairs(OPTS[p.key] or {}) do
+            local path = "ui." .. p.key .. "." .. o[1]
+            if type(o[4]) == "boolean" then self:SwitchSetting(sec, o[2], o[3], path, o[4])
+            else self:DropdownSetting(sec, o[2], o[3], path, o[4], o[5]) end
+        end
+    end
     self:EndSection(sec)
 end
 

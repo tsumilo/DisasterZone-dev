@@ -255,6 +255,11 @@ UI\BlessingsBar.lua
 UI\TotemsUI.lua
 UI\TotemBar.lua
 UI\EditMode.lua
+UI\Look.lua
+UI\LookUnits.lua
+UI\LookCast.lua
+UI\LookBars.lua
+UI\LookMinimap.lua
 UI\PatchUI.lua
 
 # Games (just for fun; never touch loot state)

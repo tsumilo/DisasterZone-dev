@@ -161,7 +161,7 @@ def close_all(cl):
                               'DisasterZoneTotems', 'DisasterZoneTotemBar', 'DisasterZoneTotemRange',
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
-                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts' }) do
+                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZAuditFull' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       -- (the shared pop-ups of UI:Toast, which replaced some of the named ones above)
@@ -3232,4 +3232,38 @@ STATES += [
     ("Edit layout - several picked", demo(EDIT + "ns.EditMode:Select({ 'session', 'roll', 'reminder' })")),
     ("Edit layout - dragging", demo(EDIT_DRAG)),
     ("Settings - Layout", opened("settings", "ns.SettingsUI:SelectSection('layout')")),
+]
+
+# UI looks (UI/Look.lua, LookUnits / LookCast): every part's face in the five looks, made-up units
+LOOK_GALLERY = r"""
+ns.MainFrame:Close(); __MOCK.real_geometry = true
+local p = DZLookGallery or CreateFrame('Frame', 'DZLookGallery', UIParent)
+p:SetSize(1240, 640); p:ClearAllPoints(); p:SetPoint('CENTER'); p:Show()
+if not p.bg then p.bg = p:CreateTexture(nil, 'BACKGROUND'); p.bg:SetAllPoints(); p.bg:SetColorTexture(0.16, 0.12, 0.2, 1) end
+local U, C = ns.LookUnits, ns.LookCast
+for i, key in ipairs({ 'flat', 'halo', 'sigil', 'slate', 'gilded' }) do
+  local look = ns.Look.BY_KEY[key]
+  local x = 16 + (i - 1) * 246
+  local function face(kind, side, y, fake, w, xo)
+    local h = CreateFrame('Frame', nil, p); h:SetPoint('TOPLEFT', p, 'TOPLEFT', x + (xo or 0), y)
+    local f = U:NewFace(h, kind, kind == 'cell' and 'group' or 'units', side)
+    f.width = w
+    if fake.auras then f.showAuras = true; f.showCombo = true end
+    f:Apply(look); f:Set(fake); return f
+  end
+  face('big', 'left', -24, U.Fake('player'))
+  face('big', 'right', -94, U.Fake('target'))
+  face('small', 'left', -190, U.Fake('tot'))
+  face('small', 'left', -190, U.Fake('pet'), nil, 116)
+  face('big', 'left', -230, U.Fake('member', 2), 184)
+  for j = 1, 6 do
+    face('cell', 'left', -300 - math.floor((j - 1) / 3) * 40, U.Fake('member', j + 2), 72, ((j - 1) % 3) * 76)
+  end
+  local cb = C:Sample(p, 'player', look); cb:SetPoint('TOPLEFT', p, 'TOPLEFT', x, -400)
+  local ct = C:Sample(p, 'target', look); ct:SetPoint('TOPLEFT', p, 'TOPLEFT', x, -440)
+end
+"""
+STATES += [
+    ("UI looks - gallery", opened("home", LOOK_GALLERY)),
+    ("Settings - UI", opened("settings", "ns.SettingsUI:SelectSection('ui')")),
 ]

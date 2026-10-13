@@ -1313,8 +1313,8 @@ function EM:SetPreviews()
     for _, def in ipairs(Layout():Items()) do
         local want = active and Listed(def) and def.preview and not Layout():IsHidden(def.id)
         if want and not previews[def.id] then
-            local f = Layout():Frame(def.id)
-            if not (f and f:IsShown()) then
+            -- (nothing of it on the screen: a frame not shown, or a holder whose units aren't there)
+            if not Layout():Rect(def.id) then
                 if pcall(def.preview, true) then previews[def.id] = true end
             end
         elseif not want and previews[def.id] then

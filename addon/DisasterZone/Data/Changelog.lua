@@ -6,8 +6,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.4.2", date = "13 October 2026", title = "Edit layout",
+    { version = "1.4.2", date = "13 October 2026", title = "Edit layout and the UI in our looks",
       sections = {
+          { heading = "The game's UI in DisasterZone's looks", area = "look", kind = "new", hi = true,
+            open = "settings/ui", lead = "Flat, Halo, Sigil, Slate or Gilded for the frames you play with.", lines = {
+              "Settings > UI: one look for everything, or a look of its own for each part.",
+              "Unit frames: player, target, target of target, focus and pet, with combo points.",
+              "Party and raid frames in the same looks: range fade, and a light on what you can dispel.",
+              "Cast bars: your latency at the end of your casts, a lock on casts you can't interrupt.",
+              "Action bars keep the game's buttons, in the look's frame, keys and range colour.",
+              "Minimap: round or square, the look's edge, zone and clock; addon buttons tidied away.",
+              "Blizzard stays the default: nothing changes until you pick a look.",
+              "Switching a replaced part back to the game's frames takes a reload (it asks).",
+          } },
           { heading = "Edit layout: everything on your screen, in one place", area = "look", kind = "new", hi = true,
             open = "settings/layout", lead = "Move, line up and mirror every frame at once: /dz edit.", lines = {
               "Every DisasterZone frame gets a box to drag: meters, class tools, pop-ups, loot bars.",
