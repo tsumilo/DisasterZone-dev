@@ -1369,7 +1369,8 @@ def meter_overrides_sit_on_top_of_the_theme():
 def pointing_at_a_theme_tile_previews_it_on_the_panels():
     r = fight_for_themes()
     themed(r, "flat")
-    r.cl.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('meters')")
+    # (Settings > Interface > Looks > Meters: the theme tiles' page)
+    r.cl.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('look.meters')")
     r.tick(0.3)
     names = r.cl.eval_py("""local o = {}
         for _, t in ipairs(ns.MeterTheme.THEMES) do o[#o + 1] = t.name end; return o""")

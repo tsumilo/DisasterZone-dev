@@ -395,7 +395,7 @@ def settings_ui_has_the_combat_text_card_with_try_it():
     c.eval("ns.DB:SetSetting('ui.sct.look', 'flat')")
     c.slash("/dz settings")
     w.tick(0.5)
-    c.eval("ns.SettingsUI:SelectSection('ui')")
+    c.eval("ns.SettingsUI:SelectSection('look.sct')")      # (Settings > Interface > Looks > Combat text)
     w.tick(0.5)
     texts = c.eval_py("local o = {}; local function walk(f) for _, r in ipairs({ f:GetRegions() }) do "
                       "if r.GetText and r:IsVisible() and r:GetText() then o[#o + 1] = r:GetText() end end; "

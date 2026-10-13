@@ -249,7 +249,7 @@ TILE = """
         if f.key == 'gilded' and f.preview and f:IsVisible() then hit = f return end
         for _, c in ipairs({ f:GetChildren() }) do walk(c) end
     end
-    ns.SettingsUI:OpenKit('totems')
+    ns.SettingsUI:OpenPart('classbars')        -- (Settings > Interface > Looks > Class bars: the theme tiles)
     walk(UIParent)
     if not hit then return 'no tile' end
     hit:Click()
