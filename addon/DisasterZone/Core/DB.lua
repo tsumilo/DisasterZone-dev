@@ -53,27 +53,28 @@ local DEFAULTS = {
         -- between bosses); warn = % of my pull point (0 off); tankView "auto" | "always" | "never"; size "small" |
         -- "normal" | "large"
         meters = { dmg = false, thr = false, show = "group", ooc = "fade", keep = 25, split = "all", warn = 85,
-                   sound = true, flash = true, tankView = "auto", locked = true, size = "normal", rate = "fight" },
+                   sound = true, flash = true, tankView = "auto", size = "normal", rate = "fight" },
         -- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): Retribution only. style "bar" | "lane" | "both";
         -- latencyMs 0 = auto; use.exo / use.cons = the optional fillers (off, as in WoWSims' rotation); consMana =
         -- Consecration only above this mana %; reports / pos are kept here too
-        swing = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0,
+        swing = { enabled = true, style = "bar", idle = false, scale = 1, latencyMs = 0,
                   use = { exo = false, cons = false }, consMana = 40,
                   sound = false, mobType = "Demon" },
-        -- Shot timer (Core/ShotTimer.lua, UI/ShotTimerHUD.lua): every Hunter. style / locked / idle / scale /
+        -- Shot timer (Core/ShotTimer.lua, UI/ShotTimerHUD.lua): every Hunter. style / idle / scale /
         -- latencyMs / sound as the swing timer's; use.* = the shots the planner may suggest (all on, as in WoWSims'
         -- rotation); aspects = Viper / Hawk hints, Viper below viperStart %, Hawk again from viperStop %; base =
         -- the ranged weapon's own speed learned from Steady Shot casts [itemID]; reactMs = a cast is only suggested
         -- with this long to press it (0 = WoWSims' bot); reports / pos are kept here too
-        shot = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0, reactMs = 250,
+        shot = { enabled = true, style = "bar", idle = false, scale = 1, latencyMs = 0, reactMs = 250,
                  use = { multi = true, arcane = true, kc = true }, aspects = true, viperStart = 5, viperStop = 25,
                  sound = false },
         -- Blessings (Core/Blessings.lua, UI/BlessingsBar.lua): paladins. bar "group" (party and raid) | "raid" | "off";
         -- warnMin = a blessing counts as running out this many minutes before it ends; free = anyone may assign
         -- me (Pally Power's Free Assignment); symbols = warn under this many Symbols of Kings; pets = pets count
-        -- in their class; pos = the bar's place
+        -- in their class; pos = the bar's place before 1.4.2 (Core/Layout.lua keeps it now; places of frames are moved in
+        -- Edit layout, so there is no "locked" any more)
         bless = { bar = "group", layout = "vertical", warnMin = 5, free = false, symbols = 20, pets = true,
-                  locked = true, scale = 1 },
+                  scale = 1 },
         -- Guild > Map (Core/GuildMap.lua): share "unset" (not asked yet) | "off" | "zone" | "exact"; blizzard: dots on
         -- the game's world map too
         map = { share = "unset", blizzard = true },

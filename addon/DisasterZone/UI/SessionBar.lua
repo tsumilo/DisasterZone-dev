@@ -342,7 +342,7 @@ local function Create()
     local UI = ns.UI
     -- (the place stays under the bar's frame name in settings.windows, as before 1.4)
     local f = UI:CreateHudFrame(FRAME_NAME, {
-        width = BAR.W, height = BAR.H, position = FRAME_NAME, look = "card",
+        width = BAR.W, height = BAR.H, position = FRAME_NAME, look = "card", layout = "session",
         -- (its default spot sits just above the pop-ups' stack, UI.TOAST.TOP: a toast never covers it)
         default = { "TOP", UIParent, "TOP", 0, ns.UI.TOAST.TOP + BAR.H + 6 },
     })
@@ -409,9 +409,10 @@ end
 function SessionBar:Update()
     local state = self:GetState()
     if not state then
-        if bar then bar:Hide() end
+        if bar and not self.previewing then bar:Hide() end
         return
     end
+    self.previewing = nil
     local f = Create()
     local locked = false
     if state == "session" then
@@ -475,7 +476,32 @@ function SessionBar:GetFrame()
     return bar
 end
 
+-- Edit layout: the bar with made-up facts while it isn't up (Core/Layout.lua "session").
+function SessionBar:Preview(on)
+    if not on then
+        if self.previewing then self.previewing = nil; self:Update() end
+        return
+    end
+    if bar and bar:IsShown() then return end
+    local f = Create()
+    self.previewing = true
+    f.title:SetText("Tempest Keep")
+    f.title:SetTextColor(S:Color("GOLD"))
+    f.text:SetText("1:12  \194\183  2 of 4 bosses")
+    for _, c in ipairs({ f.button, f.options, f.att, f.close, f.pill }) do c:Hide() end
+    f:SetWidth(math.max(BAR.MIN_W, floor(BAR.X * 2 + BAR.GAP + (f.title:GetStringWidth() or 90)
+        + (f.text:GetStringWidth() or 120))))
+    f:Show()
+end
+
 function SessionBar:OnInit()
+    ns.Layout:Register("session", { name = "Raid session bar", group = "Loot", order = 10, when = "in a raid",
+        frame = function() return bar end, default = { "TOP", 0, ns.UI.TOAST.TOP + BAR.H + 6 },
+        legacy = function()
+            local p = ns.UI:SavedPosition(FRAME_NAME)
+            if p then return p[1], p[2], p[3], p[4] end
+        end,
+        preview = function(on) SessionBar:Preview(on) end })
     local function update() SessionBar:Update() end
     ns:On("GROUP_RULES_CHANGED", update)
     ns:On("RAIDLOG_CHANGED", update)

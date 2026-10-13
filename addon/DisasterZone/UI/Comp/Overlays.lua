@@ -106,13 +106,44 @@ local toastFrames = {}     -- every toast frame made (reused)
 local shownToasts = {}     -- on screen, top to bottom
 local toastQueue = {}      -- waiting opts
 
--- Places the shown toasts down from the top of the screen.
+-- Where the stack starts: an anchor frame the layout places (Core/Layout.lua "toasts"; Edit layout moves it). It is
+-- hidden; while editing it shows as a card that says what it is.
+function H.ToastAnchor()
+    if T.anchor then return T.anchor end
+    local a = CreateFrame("Frame", "DisasterZoneToastAnchor", UIParent)
+    a:SetSize(T.W, 64)
+    a:SetFrameStrata("DIALOG")
+    a.bg = UI:Fill(a, T.BG, "BACKGROUND")
+    UI:AddEdges(a, "BORDER")
+    local r, g, b = S:Color("GOLD")
+    UI:SetEdgeColor(a, r, g, b, 0.55)
+    a.title = UI:Text(a, "title", "GOLD")
+    a.title:SetPoint("TOPLEFT", a, "TOPLEFT", T.PAD, -T.PAD)
+    a.title:SetText("Pop-ups")
+    a.text = UI:Text(a, "small", "SUB")
+    a.text:SetPoint("TOPLEFT", a.title, "BOTTOMLEFT", 0, -4)
+    a.text:SetText("New loot, invites and reminders stack down from here.")
+    a:SetPoint("TOP", UIParent, "TOP", 0, T.TOP)
+    a:Hide()
+    T.anchor = a
+    if ns.Layout and ns.Layout.Item and ns.Layout:Item("toasts") then ns.Layout:Place("toasts") end
+    return a
+end
+
+if ns.Layout and ns.Layout.Register then
+    ns.Layout:Register("toasts", { name = "Pop-ups", group = "Raid", order = 30, when = "when something happens",
+        frame = function() return H.ToastAnchor() end, default = { "TOP", 0, T.TOP }, noHide = true,
+        preview = function(on) H.ToastAnchor():SetShown(on and true or false) end })
+end
+
+-- Places the shown toasts down from the anchor.
 function H.Restack()
     local prev
+    local a = H.ToastAnchor()
     for _, t in ipairs(shownToasts) do
         t:ClearAllPoints()
         if prev then t:SetPoint("TOP", prev, "BOTTOM", 0, -T.GAP)
-        else t:SetPoint("TOP", UIParent, "TOP", 0, T.TOP) end
+        else t:SetPoint("TOP", a, "TOP", 0, 0) end
         prev = t
     end
 end
@@ -777,7 +808,7 @@ end
 --   onMoved(frame) (after a drag, its place saved), escape (true: Escape closes it; needs a name),
 --   close = true | function(frame) (the flat X, UI.HUD.CLOSE px, top right; true hides the frame),
 --   look = "hud" (default: the HUD slate and edge) | "card" (the pop-ups' dark card with a gold edge) | "none",
---   clamp (true) }
+--   clamp (true), layout (an item id of Core/Layout.lua: the layout places it, Edit layout moves it, no drag) }
 -- frame:SetDragHandle(region) drags it by another frame (a banner); frame:SetLocked(b), :IsLocked(), :SavePlace(),
 -- :RestorePlace(), :ResetPlace() (forgets the saved place and goes to the default).
 -- UI:CreatePopover(w, h, opts) -> panel: what drops from a control (a list, a small editor): the dropdowns' surface
@@ -859,6 +890,9 @@ function HudMethods:SavePlace()
     return UI:SavePosition(self, self.cdlPosKey)
 end
 function HudMethods:RestorePlace()
+    -- (a frame of the layout: Core/Layout.lua places it, from its profile, its old saved place or its default)
+    local L = self.cdlLayout and ns.Layout
+    if L and L:Item(self.cdlLayout) and L:Place(self.cdlLayout) then return true end
     local d = self.cdlDefault
     if self.cdlPosKey then
         if d then return UI:RestorePosition(self, self.cdlPosKey, d[1], d[2] or UIParent, d[3] or d[1], d[4] or 0, d[5] or 0) end
@@ -897,6 +931,12 @@ function UI:CreateHudFrame(name, opts)
     f:EnableMouse(true)
     f.cdlOnMoved = opts.onMoved
     f.cdlIsLocked = opts.isLocked
+    -- opts.layout = an item id of Core/Layout.lua: placed by the layout and moved only in Edit layout (/dz edit)
+    f.cdlLayout = opts.layout
+    if opts.layout then
+        opts.movable = false
+        if ns.Layout and ns.Layout.HookHide then ns.Layout:HookHide(opts.layout, f) end
+    end
     local look = opts.look or "hud"
     if look == "hud" then
         f.bg = UI:Fill(f, "HUD_BG", "BACKGROUND")

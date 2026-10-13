@@ -1,4 +1,7 @@
 <Bindings>
 	<Binding name="CLICK DisasterZoneBlessNext:LeftButton" header="DISASTERZONE" category="ADDONS">
 	</Binding>
+	<Binding name="DISASTERZONE_EDITLAYOUT" category="ADDONS">
+		DisasterZone_ToggleEditLayout()
+	</Binding>
 </Bindings>

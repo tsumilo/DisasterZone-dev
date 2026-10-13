@@ -18,7 +18,7 @@ local strformat = string.format
 local SHORT = { steady = "Steady", multi = "Multi", arcane = "Arcane", kc = "Kill Cmd", hawk = "Hawk", viper = "Viper" }
 
 local D = {
-    prefix = "shot", frameName = "DisasterZoneShotTimer", lockHint = "Shot timer: drag it, then /dz shot lock",
+    prefix = "shot", frameName = "DisasterZoneShotTimer", layoutName = "Shot timer", layoutOrder = 31,
     FILLERS = { multi = true, arcane = true },
     FADE = true,                 -- best right after the shot, still worth it (but late) toward the window's end
 }

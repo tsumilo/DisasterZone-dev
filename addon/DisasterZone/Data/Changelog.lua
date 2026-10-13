@@ -6,6 +6,30 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.2", date = "13 October 2026", title = "Edit layout",
+      sections = {
+          { heading = "Edit layout: everything on your screen, in one place", area = "look", kind = "new", hi = true,
+            open = "settings/layout", lead = "Move, line up and mirror every frame at once: /dz edit.", lines = {
+              "Every DisasterZone frame gets a box to drag: meters, class tools, pop-ups, loot bars.",
+              "The game's own frames too: player, target, cast bar, action bars, minimap, buffs.",
+              "Frames snap to the middle of the screen (gold) and line up with each other (teal).",
+              "Drop a frame between two others and it lands exactly halfway (pink gaps).",
+              "Mirror two frames: move one and the other follows on the far side of the centre.",
+              "Pick several: line up their edges, give them equal gaps or centre them as a group.",
+              "Arrow keys move 1 px, Shift a grid step; hold Alt to place freely; Ctrl+Z undoes.",
+              "Frames that only show sometimes (rolls, the raid bar, reminders) show while you edit.",
+          } },
+          { heading = "Layout profiles", area = "look", kind = "new", open = "settings/layout", lines = {
+              "Each character picks its own profile: Raid, Solo, Healing, whatever you make.",
+              "Share a profile in chat: a guildmate who clicks the link can keep it.",
+              "Settings > Layout, or the minimap: pin Edit layout to the arc.",
+          } },
+          { heading = "No more Locked switches", area = "look", kind = "changed", lines = {
+              "Meters, the swing and shot timers and the class bars move in Edit layout now.",
+              "Their Locked switches are gone; /dz swing unlock (and the others) open Edit layout.",
+              "Where you had put them is kept.",
+          } },
+      } },
     { version = "1.4.1", date = "13 October 2026", title = "Council Bingo, made epic",
       sections = {
           { heading = "Council Bingo: a new card set", area = "games", kind = "new", hi = true, art = "ssc", open = "games",

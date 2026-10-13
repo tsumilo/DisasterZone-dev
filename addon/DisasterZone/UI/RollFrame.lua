@@ -186,7 +186,32 @@ end
 ---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
+-- Edit layout: the frame as it shows in a roll, while none is up (Core/Layout.lua "roll").
+function RollFrame:Preview(on)
+    local f = self:GetFrame()
+    if not on then
+        if self.previewing then
+            self.previewing = nil
+            f.name:SetText("")
+            f:Hide()
+        end
+        return
+    end
+    if f:IsShown() then return end
+    self.previewing = true
+    f.name:SetText("An item up for a roll")
+    f:SetAlpha(1)
+    f:Show()
+end
+
 function RollFrame:OnInit()
+    ns.Layout:Register("roll", { name = "Roll frame", group = "Loot", order = 20, when = "when a roll starts",
+        frame = function() return self.frame end, default = { DEFAULT_POINT, 0, DEFAULT_Y },
+        legacy = function()
+            local p = ns.UI:SavedPosition(FRAME_NAME)
+            if p then return p[1], p[2], p[3], p[4] end
+        end,
+        preview = function(on) RollFrame:Preview(on) end })
     self.responded = {}    -- [sessionID] = "roll" | "pass" (clicked here; the session may lag behind)
     self.respondedCount = 0
 
@@ -256,6 +281,7 @@ function RollFrame:GetFrame()
     -- bottom; the flat X dismisses it (the roll goes on). Its place is kept under its frame name.
     local f = UI:CreateHudFrame(FRAME_NAME, {
         width = FRAME_W, height = FRAME_H, position = FRAME_NAME, look = "card", strata = "DIALOG", toplevel = true,
+        layout = "roll",
         default = { DEFAULT_POINT, _G.UIParent, DEFAULT_POINT, 0, DEFAULT_Y },
         close = function() RollFrame:Dismiss() end,
     })

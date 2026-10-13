@@ -51,7 +51,10 @@ def toasts_stack_down_from_the_top_and_a_key_fills_one_in_place():
         res.soundsAfter = #__MOCK.sounds - snd0
         res.got = UI:GetToast("b") == b
         return res""")
-    assert out["aPts"] == [["TOP", "UIParent", "TOP", 0, -120]], out["aPts"]
+    # (the stack starts at its anchor, which the layout places where the stack always started: TOP 0, -120)
+    assert out["aPts"] == [["TOP", "DisasterZoneToastAnchor", "TOP", 0, 0]], out["aPts"]
+    anchor = c.eval_py("local p, r, rp, x, y = DisasterZoneToastAnchor:GetPoint(1); return { p, r:GetName(), rp, x, y }")
+    assert anchor == ["TOP", "UIParent", "TOP", 0, -120], anchor
     assert out["bPts"][0][0] == "TOP" and out["bPts"][0][2] == "BOTTOM" and out["bPts"][0][4] == -8, out["bPts"]
     assert out["bPts"][0][1] == "DisasterZoneToast1", out["bPts"]
     assert out["strata"] == "DIALOG" and out["w"] == 380, out

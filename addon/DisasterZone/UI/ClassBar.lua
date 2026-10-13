@@ -6,19 +6,21 @@ local addonName, ns = ...
 -- theme's faces (UI/BarFace.lua). Both bars share their frame and its chrome (no panel; a faint glass one while
 -- unlocked, to drag it by), the two layouts (Rail, a column; Strip, a row) with a saved place per layout, the header
 -- cells, the players / party popout's frame, and the common rows of their Settings card. Each bar keeps what it shows
--- and casts.
+-- and casts. Its place is the layout's (Core/Layout.lua, item = the settings prefix, one place per orientation): it
+-- moves in Edit layout (/dz edit), where it shows (cb.preview) even when nothing is assigned yet.
 --
 --   local cb = ns.ClassBar:New(opts)
 --     opts { name = the frame's global name, setting = "bless" (settings prefix), railPos = { point, x, y },
 --            stripPos = { point, x, y } (the default places) }
---   cb:Build() -> frame       the bar's frame (cb.frame): chrome, dragging (unlocked, out of combat) saves its place
+--   cb:Build() -> frame       the bar's frame (cb.frame) and its chrome
+--   cb:RegisterLayout(update, name, order)   its Edit layout item (update() re-runs the bar's Update)
 --   cb:Layout()               "vertical" | "horizontal" (setting <prefix>.layout)
 --   cb:SavePos() / cb:RestorePos() / cb:ApplyChrome()
 --   cb:Secure(parent, name)   a secure button that hears press and release
 --   cb:HeaderIcon(name, unit) a secure header cell with a face (aura, Heroism ...)
 --   cb:Place(head, cells)     head: header cells (the shown ones lead), cells: the rest, on the theme's axis
 --   cb:NewPop(name, width)    the popout's frame: glass, edge, .title, .hint, .rows
---   cb:OnSettings(update)     SETTINGS_CHANGED for <prefix>.* and classbar.theme (not .pos); .locked re-places
+--   cb:OnSettings(update)     SETTINGS_CHANGED for <prefix>.* and classbar.theme (not .pos), EDIT_LAYOUT
 --   ns.ClassBar.Text(parent, size, color)   the bars' small shadowed text (UI:Text)
 --   ns.ClassBar.SettingsHead(S, sec, prefix, label, desc) / SettingsTail(S, sec, prefix)   the Settings card's rows
 local CB = {}
@@ -76,6 +78,7 @@ end
 
 function Bar:RestorePos()
     local frame = self.frame
+    if ns.Layout and ns.Layout:Item(self.setting) and ns.Layout:Place(self.setting) then return end
     frame:ClearAllPoints()
     local pos = self:Get("pos")
     local p = type(pos) == "table" and pos[self:Layout()]
@@ -87,14 +90,39 @@ function Bar:RestorePos()
     end
 end
 
--- No panel: the faces float on the world. While unlocked a faint panel shows what to drag.
+-- No panel: the faces float on the world. While editing the layout a faint panel shows the bar's whole place.
 function Bar:ApplyChrome()
     local frame = self.frame
-    local unlocked = not self:Get("locked", true)
-    frame.bg:SetShown(unlocked)
-    frame.shadow:SetShown(unlocked)
-    for _, e in ipairs(frame.edges or {}) do e:SetShown(unlocked) end
-    frame:EnableMouse(unlocked)
+    local editing = ns.EditMode and ns.EditMode:IsActive() or false
+    frame.bg:SetShown(editing)
+    frame.shadow:SetShown(editing)
+    for _, e in ipairs(frame.edges or {}) do e:SetShown(editing) end
+    frame:EnableMouse(false)
+end
+
+-- Its Edit layout item: one place per orientation, its own Size setting as the scale, shown while editing.
+function Bar:RegisterLayout(update, name, order)
+    local bar, opts = self, self.opts
+    ns.Layout:Register(self.setting, { name = name, group = "Class tools", order = order, protected = true,
+        noHide = true, frame = function() return bar.frame end, variant = function() return bar:Layout() end,
+        mine = function() return ns.ClassKit and ns.ClassKit:IsMine(bar.setting) and true or false end,
+        legacy = function()
+            local pos = bar:Get("pos")
+            local p = type(pos) == "table" and pos[bar:Layout()]
+            if type(p) == "table" and p[1] then return p[1], p[2] or p[1], p[3] or 0, p[4] or 0 end
+        end,
+        default = function()
+            local d = bar:Layout() == "horizontal" and opts.stripPos or opts.railPos
+            return { d[1], d[2], d[3] }
+        end,
+        scale = { get = function() return bar:Scale() end,
+                  set = function(s) ns.DB:SetSetting(bar.setting .. ".scale", s) end },
+        preview = function(on)
+            bar.preview = on and true or nil
+            if InCombatLockdown() then return end
+            update()
+            if bar.frame then bar:RestorePos() end
+        end })
 end
 
 -- A secure button that casts on a click. It takes the press and the release: with "cast on key down" on (the
@@ -131,16 +159,7 @@ function Bar:Build()
     frame.shadow:SetVertexColor(0, 0, 0, 0.55)
     frame.shadow:SetPoint("TOPLEFT", -14, 10)
     frame.shadow:SetPoint("BOTTOMRIGHT", 14, -18)
-    frame:SetMovable(true)
-    frame:RegisterForDrag("LeftButton")
-    local bar = self
-    frame:SetScript("OnDragStart", function(f)
-        if not bar:Get("locked", true) and not InCombatLockdown() then f:StartMoving() end
-    end)
-    frame:SetScript("OnDragStop", function(f)
-        f:StopMovingOrSizing()
-        bar:SavePos()
-    end)
+    frame:EnableMouse(false)
     return frame
 end
 
@@ -172,16 +191,18 @@ function Bar:NewPop(name, width)
     return pop
 end
 
--- Settings: the bar's own (not its saved place) and the account's theme update it; unlocking puts it back in place.
+-- Settings: the bar's own (not its saved place) and the account's theme update it; so do Edit layout opening and
+-- closing (the chrome) and a new layout profile (the place).
 function Bar:OnSettings(update)
     local prefix = "^" .. self.setting
-    local pos, locked = self.setting .. ".pos", self.setting .. ".locked"
+    local pos = self.setting .. ".pos"
     local bar = self
     ns:On("SETTINGS_CHANGED", function(path)
-        if type(path) == "string" and (path:find(prefix) or path == "classbar.theme") and path ~= pos then
-            if bar.frame and path == locked and not InCombatLockdown() then bar:RestorePos() end
-            update()
-        end
+        if type(path) == "string" and (path:find(prefix) or path == "classbar.theme") and path ~= pos then update() end
+    end)
+    ns:On("EDIT_LAYOUT", function() update() end)
+    ns:On("LAYOUT_CHANGED", function(what)
+        if what == "applied" and bar.frame and not InCombatLockdown() then bar:RestorePos() end
     end)
 end
 
@@ -197,9 +218,9 @@ function CB.SettingsHead(S, sec, prefix, label, desc)
     if ns.BarFace then ns.BarFace:SettingsRow(S, sec) end
 end
 
--- Locked and size, and the card's end.
+-- Its place (Edit layout) and size, and the card's end.
 function CB.SettingsTail(S, sec, prefix)
-    S:SwitchSetting(sec, "Locked", "Unlock to drag the bar where you want it.", prefix .. ".locked", true)
+    if S.EditLayoutRow then S:EditLayoutRow(sec) end
     local scales = {}
     for _, n in ipairs({ 0.8, 0.9, 1, 1.15, 1.3 }) do scales[#scales + 1] = { value = n, text = floor(n * 100) .. "%" } end
     S:DropdownSetting(sec, "Size", "", prefix .. ".scale", 1, scales)

@@ -69,11 +69,16 @@ local NAV_TOOLS = {
     { key = "totems", kit = "totems", label = "Totems",
       tip = "ShamanPower: each shaman's totems, Heroism and Earth Shield.",
       open = function() if ns.TotemsUI then ns.TotemsUI:Open() end end },
+    -- (not a planner: Edit layout, for everyone)
+    { key = "editlayout", always = true, label = "Edit layout",
+      tip = "Move, line up and mirror every frame on your screen.",
+      open = function() if ns.EditMode then ns.EditMode:Toggle() end end },
 }
 local TOOL = {}
 for _, t in ipairs(NAV_TOOLS) do TOOL[t.key] = t end
 
 local function ToolAvailable(t)
+    if t ~= nil and t.always then return true end
     return t ~= nil and ns.ClassKit ~= nil and ns.ClassKit:IsMine(t.kit) and true or false
 end
 

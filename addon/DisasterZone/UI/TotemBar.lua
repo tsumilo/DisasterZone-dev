@@ -55,6 +55,7 @@ Bar.Layout = Layout
 function Bar:Wanted()
     if not (ns.ClassKit and ns.ClassKit:IsMine("totems") and ns.ClassKit:IsOn("totems")) then return false end
     local Tm = T()
+    if cb.preview then return Tm:Me() ~= nil end       -- (Edit layout: shown to be moved)
     local mode = Tm.Setting("bar", "group")
     if mode == "off" then return false end
     if mode == "raid" and not (IsInRaid() or Tm:IsDemo()) then return false end
@@ -564,6 +565,7 @@ function Bar:OnLogin()
         if unit == "player" then Bar:UpdateLooks() end
     end)
     cb:OnSettings(function() Bar:Update() end)
+    cb:RegisterLayout(function() Bar:Update() end, "Totem bar", 11)
     self:Update()
 end
 

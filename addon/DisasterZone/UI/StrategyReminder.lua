@@ -437,7 +437,7 @@ end
 
 local function Create()
     -- the slim HUD look of the raid session bar; its place saved under NAME (settings.windows), dragged by the header
-    local f = ns.UI:CreateHudFrame(NAME, { width = WIDTH, height = 60, position = NAME,
+    local f = ns.UI:CreateHudFrame(NAME, { width = WIDTH, height = 60, position = NAME, layout = "reminder",
         default = { "TOP", UIParent, "TOP", 0, -140 } })
     f.cdlName = NAME
     -- header: portrait, boss name, a state tag; drag to move, click to open the board
@@ -481,14 +481,12 @@ local function Create()
             GameTooltip:AddLine("Reminders and raid marks come from the planned raid's strategies, so there are none until "
                 .. "this raid is linked to its planned raid. Raid leaders and the guild council link it in the Raid log.",
                 Style.C.WARN[1], Style.C.WARN[2], Style.C.WARN[3], true)
-            GameTooltip:AddLine("Drag to move.", Style.C.SUB[1], Style.C.SUB[2], Style.C.SUB[3], true)
         else
             if d and not d.linked and not d.practice then
                 GameTooltip:AddLine("No planned raid is linked to this raid session, so there are no names.",
                     Style.C.WARN[1], Style.C.WARN[2], Style.C.WARN[3], true)
             end
-            GameTooltip:AddLine("Click to open the board; drag to move.", Style.C.SUB[1], Style.C.SUB[2], Style.C.SUB[3],
-                true)
+            GameTooltip:AddLine("Click to open the board.", Style.C.SUB[1], Style.C.SUB[2], Style.C.SUB[3], true)
         end
         GameTooltip:Show()
     end)
@@ -658,6 +656,36 @@ end
 
 function Reminder:GetFrame() return frame end
 
+-- Edit layout: a header-only card while no reminder is up (Core/Layout.lua "reminder").
+function Reminder:Preview(on)
+    if not on then
+        if self.previewing then
+            self.previewing = nil
+            if frame and not self:Items() then frame:Hide() elseif frame then self:Refresh() end
+        end
+        return
+    end
+    if frame and frame:IsShown() then return end
+    local f = frame or Create()
+    self.previewing = true
+    f.data = nil
+    f.fading = nil
+    f.header.portrait:Hide()
+    f.header.fs:SetText("Strategy reminder")
+    f.header.tag:SetPill("mute", "ON A PULL")
+    for _, r in ipairs(f.rows) do r:Hide() end
+    f:SetHeight(60)
+    f:SetAlpha(1)
+    f:Show()
+end
+
 function Reminder:OnInit()
+    ns.Layout:Register("reminder", { name = "Strategy reminder", group = "Raid", order = 20, when = "on a boss pull",
+        frame = function() return frame end, default = { "TOP", 0, -140 },
+        legacy = function()
+            local p = ns.UI:SavedPosition(NAME)
+            if p then return p[1], p[2], p[3], p[4] end
+        end,
+        preview = function(on) Reminder:Preview(on) end })
     ns:On("STRATEGY_LIVE", function() Reminder:Refresh() end)
 end

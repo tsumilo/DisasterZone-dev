@@ -507,16 +507,15 @@ function SwingTimer:Refresh()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Slash: /dz swing [on | off | unlock | lock | report | practice]
+-- Slash: /dz swing [on | off | move | report | practice] (move: Edit layout; unlock still opens it)
 -- ---------------------------------------------------------------------------------------------------------------
 ns:RegisterSlash("swing", function(rest)
     rest = (rest or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if rest == "on" or rest == "off" then
         ns.DB:SetSetting("swing.enabled", rest == "on")
         ns:Print("Swing timer %s.", rest == "on" and "on" or "off")
-    elseif rest == "unlock" or rest == "lock" then
-        ns.DB:SetSetting("swing.locked", rest == "lock")
-        ns:Print(rest == "lock" and "Swing timer locked." or "Swing timer unlocked: drag it where you want it, then /dz swing lock.")
+    elseif rest == "move" or rest == "unlock" then
+        if ns.EditMode then ns.EditMode:Open() end
     elseif rest == "practice" then
         if ns.SwingPracticeUI then ns.SwingPracticeUI:Open() end
     elseif rest == "report" then
@@ -531,6 +530,6 @@ ns:RegisterSlash("swing", function(rest)
         ns:Print("Swing timer is %s%s. Latency: world %s ms, measured %s ms, using %d ms.",
             SwingTimer:IsEnabled() and "on" or "off", SwingTimer.active and "" or " (not Retribution)",
             tostring(world or "?"), tostring(meas or "-"), floor((used or 0) * 1000 + 0.5))
-        ns:Print("/dz swing on | off | unlock | lock | report | practice")
+        ns:Print("/dz swing on | off | move | report | practice")
     end
-end, "Swing timer for twisting Retribution Paladins (on | off | unlock | lock | report | practice)")
+end, "Swing timer for twisting Retribution Paladins (on | off | move | report | practice)")

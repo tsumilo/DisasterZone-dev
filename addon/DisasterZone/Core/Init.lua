@@ -248,6 +248,9 @@ local KNOWN_MESSAGES = {
     LIST_UPDATED = true, LISTS_RESET = true, ITEMINFO_READY = true,
     DROP = true, LEDGER_UPDATED = true, PEERS_UPDATED = true,
     SYNC_STATUS = true, SETTINGS_CHANGED = true, DEMO_TOGGLED = true,
+    -- Core/Layout.lua: LAYOUT_CHANGED (what: "profiles" | "profile" | "items" | "hidden" | "applied"), LAYOUT_RECEIVED
+    -- (owner, profile id, data | nil) a shared layout came; UI/EditMode.lua: EDIT_LAYOUT (on) the overlay opened / closed
+    LAYOUT_CHANGED = true, LAYOUT_RECEIVED = true, EDIT_LAYOUT = true,
     -- Core/SwingTimer.lua: SWING_STATE (active) on/off for this character, SWING_VALUES the sim's damage values,
     -- SWING_REPORT (report) a fight ended
     SWING_STATE = true, SWING_VALUES = true, SWING_REPORT = true,

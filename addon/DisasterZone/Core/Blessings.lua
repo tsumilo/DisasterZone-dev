@@ -36,7 +36,7 @@ local P = ns.ClassPlanner:Define(Blessings, {
     class = "PALADIN", isClass = "IsPaladin", records = "pals", prefix = PREFIX, setting = "bless",
     event = "BLESSINGS_CHANGED", tag = "dz-bless", ui = "BlessingsUI",
     kit = { key = "bless", label = "Blessings", class = "PALADIN", order = 10, icon = 25898 },
-    slash = "bless", slashHelp = "Paladin blessings planner (report | auto | unlock | lock)",
+    slash = "bless", slashHelp = "Paladin blessings planner (report | auto | move)",
     noneToAssign = "You can't assign any paladin here.",
 })
 Blessings.D = D

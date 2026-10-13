@@ -462,8 +462,8 @@ function CP:Define(mod, kind)
                 if not mod:Report() then ns:Print("Not in a group.") end
             elseif rest == "auto" then
                 if not mod:AutoAssign() then ns:Print(P.noneToAssign) end
-            elseif rest == "unlock" or rest == "lock" then
-                ns.DB:SetSetting(P.setting .. ".locked", rest == "lock")
+            elseif rest == "move" or rest == "unlock" then
+                if ns.EditMode then ns.EditMode:Open() end      -- (the bar moves in Edit layout)
             elseif ns[P.ui] then
                 ns[P.ui]:Toggle()
             end

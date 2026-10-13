@@ -619,16 +619,15 @@ function ShotTimer:Refresh()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Slash: /dz shot [on | off | unlock | lock | report]
+-- Slash: /dz shot [on | off | move | report] (move: Edit layout; unlock still opens it)
 -- ---------------------------------------------------------------------------------------------------------------
 ns:RegisterSlash("shot", function(rest)
     rest = (rest or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if rest == "on" or rest == "off" then
         ns.DB:SetSetting("shot.enabled", rest == "on")
         ns:Print("Shot timer %s.", rest == "on" and "on" or "off")
-    elseif rest == "unlock" or rest == "lock" then
-        ns.DB:SetSetting("shot.locked", rest == "lock")
-        ns:Print(rest == "lock" and "Shot timer locked." or "Shot timer unlocked: drag it where you want it, then /dz shot lock.")
+    elseif rest == "move" or rest == "unlock" then
+        if ns.EditMode then ns.EditMode:Open() end
     elseif rest == "report" then
         local r = ShotTimer:Reports()[1]
         if not r then ns:Print("No fight recorded yet.") return end
@@ -644,6 +643,6 @@ ns:RegisterSlash("shot", function(rest)
             ShotTimer:IsEnabled() and "on" or "off", ShotTimer.active and "" or " (not a Hunter)",
             floor((h - 1) * 100 + 0.5), CAST.steady / h, tostring(world or "?"), tostring(meas or "-"),
             floor((used or 0) * 1000 + 0.5))
-        ns:Print("/dz shot on | off | unlock | lock | report")
+        ns:Print("/dz shot on | off | move | report")
     end
-end, "Auto Shot / Steady Shot timer for Hunters (on | off | unlock | lock | report)")
+end, "Auto Shot / Steady Shot timer for Hunters (on | off | move | report)")

@@ -535,7 +535,7 @@ def layout(r):
 @case
 def panels_spawn_dock_tab_detach_and_close():
     r = Raid(thr=True)
-    r.cl.eval("ns.DB:SetSetting('meters.locked', false)")
+    r.cl.eval("ns.EditMode:Open()")
     r.tick(0.5)
     assert layout(r) == ["threat/damage"]
     # + : a panel of its own beside the stack
@@ -921,7 +921,7 @@ def the_corner_changes_rows_only_by_how_far_it_is_dragged():
     Threat, which out of combat is just a header: touching the corner set it to 1 row (measured from the panel's own
     edge). Rows now change by the drag's distance; layouts left at 1 row get their default back."""
     r = Raid(thr=True)
-    r.cl.eval("ns.DB:SetSetting('meters.locked', false)")
+    r.cl.eval("ns.EditMode:Open()")
     r.tick(0.5)
     rows = lambda: r.cl.eval("return ns.MeterPanels.Layout().stacks[1].panels[1].rows")
     drag = """
@@ -983,7 +983,7 @@ def a_drag_lasts_until_the_button_is_let_go_even_if_the_client_never_reports_it_
     said no, which this client may say all along: every drag ended on its first frame. Now the stack follows the
     cursor itself and the drag ends on OnDragStop / GLOBAL_MOUSE_UP, or on IsMouseButtonDown only after it said yes."""
     r = Raid(thr=True)
-    r.cl.eval("ns.DB:SetSetting('meters.locked', false); __MOCK.mouse_down = false")
+    r.cl.eval("ns.EditMode:Open(); __MOCK.mouse_down = false")
     r.tick(0.5)
     r.cl.eval("local pf = ns.MeterPanels._Panel('threat'); pf.head:GetScript('OnDragStart')(pf.head)")
     r.cl.eval("__MOCK.cursor = { 700, 500 }")
@@ -1026,7 +1026,7 @@ def docking_is_easy_to_hit_and_a_row_moves_as_one():
         }""")
     assert res == ["below", "above", "below", "none", "none", "right"], res
 
-    r.cl.eval("ns.DB:SetSetting('meters.locked', false)")
+    r.cl.eval("ns.EditMode:Open()")
     r.tick(0.5)
     r.cl.eval("ns.MeterPanels:Spawn(ns.MeterPanels._Panel('damage'), 'healing')")
     assert layout(r) == ["threat/damage", "healing"]
@@ -1071,7 +1071,7 @@ def a_real_drag_onto_a_stack_docks_it():
     stack is o[1], so every target had no stack and EndDrag failed. This drag goes the whole way: header pressed,
     cursor moved (UpdateDrag finds the target), button let go."""
     r = Raid(thr=True)
-    r.cl.eval("ns.DB:SetSetting('meters.locked', false); __MOCK.mouse_down = false")
+    r.cl.eval("ns.EditMode:Open(); __MOCK.mouse_down = false")
     r.tick(0.5)
     r.cl.eval("ns.MeterPanels:Detach(1, 1); ns.MeterPanels:EndDrag()")
     assert layout(r) == ["damage", "threat"]
@@ -1089,7 +1089,7 @@ def tabs_stay_put_between_draws():
     registered. Every draw hid all tabs and showed them again (a hidden frame loses the mouse and a half-done click).
     Now a tab in use is never hidden by a draw, and its clickable area reaches into the gap beside it."""
     r = Raid(thr=True)
-    r.cl.eval("ns.DB:SetSetting('meters.locked', false)")
+    r.cl.eval("ns.EditMode:Open()")
     r.tick(0.5)
     r.cl.eval("""
         local MP = ns.MeterPanels

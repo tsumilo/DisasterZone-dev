@@ -64,6 +64,7 @@ Core\Gems.lua
 Core\Store.lua
 Core\Notify.lua
 Core\Comm.lua
+Core\Layout.lua
 Core\Sync.lua
 Core\DigestSync.lua
 Core\Professions.lua
@@ -253,6 +254,7 @@ UI\ClassBar.lua
 UI\BlessingsBar.lua
 UI\TotemsUI.lua
 UI\TotemBar.lua
+UI\EditMode.lua
 UI\PatchUI.lua
 
 # Games (just for fun; never touch loot state)

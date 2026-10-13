@@ -40,6 +40,8 @@ local SECTIONS = {
     { key = "meters", label = "Meters" },
     -- class tools (Core/ClassKit.lua): a collapsible card per tool of my class (every class's in demo mode)
     { key = "classtools", label = "Class tools", visible = function() return SettingsUI:HasClassTools() end },
+    -- where every on-screen frame goes: Edit layout and this character's layout profile (Core/Layout.lua)
+    { key = "layout", label = "Layout" },
     { key = "window", label = "Window" },
     { key = "council", label = "Loot Council" },
     -- the GM's attendance margins (Guild:SetAttendanceRules): everyone sees them, the GM changes them
@@ -753,6 +755,19 @@ function SettingsUI:RuleDropdown(sec, title, desc, path, default, options, tip)
     return dd, row
 end
 
+-- A row whose button opens Edit layout (/dz edit), where every frame on the screen moves: the class tools' and the
+-- meters' place. Returns the button and the row.
+function SettingsUI:EditLayoutRow(sec, title, desc)
+    local row = self:Row(sec, title or "Position", desc or "Move it in Edit layout, together with every other frame.")
+    local btn = ns.UI:CreateSleekButton(row, "Edit layout", 120, 22, function()
+        if ns.EditMode then ns.EditMode:Open() end
+    end)
+    btn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.control = btn
+    PlaceText(row, 120)
+    return btn, row
+end
+
 ---------------------------------------------------------------------------
 -- The panel
 ---------------------------------------------------------------------------
@@ -794,6 +809,7 @@ function SettingsUI:CreatePanel(parent)
     self:BuildMyLog(self.sections.mylog)
     self:BuildMeters(self.sections.meters)
     self:BuildClassTools(self.sections.classtools)
+    self:BuildLayout(self.sections.layout)
     self:BuildWindow(self.sections.window)
     self:BuildCouncil(self.sections.council)
     self:BuildAttendance(self.sections.attendance)
@@ -1232,6 +1248,34 @@ function SettingsUI:BuildTooltips(sec)
     self:EndSection(sec)
 end
 
+-- Layout: Edit layout, this character's profile, a new one and a share link.
+function SettingsUI:BuildLayout(sec)
+    sec.y = sec.y - 4
+    local L = ns.Layout
+    local open = self:EditLayoutRow(sec, "Edit layout", "Move, line up and mirror every frame on your screen.")
+    open:SetKind("primary")
+    self:Dropdown(sec, "Profile", "Where everything goes. Each character picks its own.",
+        function()
+            local out = {}
+            for _, p in ipairs(L:Profiles()) do out[#out + 1] = { value = p.id, text = p.name } end
+            return out
+        end,
+        function() return L:ActiveId() end,
+        function(a, b) L:Use(Value(a, b)) end)
+    local row = self:Row(sec, "Profiles", "New copies where things are now. Share links it in chat.")
+    local share = ns.UI:CreateSleekButton(row, "Share", 60, 22, function(b)
+        if ns.EditMode then ns.EditMode:Share(b) end
+    end)
+    share:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    local new = ns.UI:CreateSleekButton(row, "New", 56, 22, function()
+        if ns.EditMode then ns.EditMode:PromptNew(function() SettingsUI:Refresh() end) end
+    end)
+    new:SetPoint("RIGHT", share, "LEFT", -6, 0)
+    row.control = share
+    PlaceText(row, 122)
+    self:EndSection(sec)
+end
+
 function SettingsUI:BuildWindow(sec)
     sec.y = sec.y - 4
     self:DropdownSetting(sec, "Open on", "What the window shows when you open it.", "openOn", "home", {
@@ -1396,8 +1440,8 @@ function SettingsUI:BuildMeters(sec)
     Track("both", self:DropdownSetting(sec, "Out of combat", "What the panels do a few seconds after a fight.",
         "meters.ooc", "fade", { { value = "fade", text = "Fade" }, { value = "hide", text = "Hide" },
                                 { value = "stay", text = "Stay" } }))
-    Track("both", self:SwitchSetting(sec, "Lock panels", "Unlock to move, dock and resize them.", "meters.locked", true,
-        "Unlocked, drag a header next to another panel to dock it, or onto its header to make a tab. + on a header adds a panel."))
+    Track("both", self:EditLayoutRow(sec, "Move and dock", "Edit layout unlocks them: drag a header to move, dock or "
+        .. "make a tab."))
     local lrow = self:Row(sec, "Reset layout", "Back to one stack: Threat over Damage done.")
     local lbtn = ns.UI:CreateSleekButton(lrow, "Reset", 120, 22, function()
         if ns.MeterPanels then ns.MeterPanels:ResetLayout() end

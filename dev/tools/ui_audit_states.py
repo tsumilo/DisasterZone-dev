@@ -197,6 +197,7 @@ def close_all(cl):
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.Picker and ns.Picker.Close then pcall(ns.Picker.Close, ns.Picker) end
+      if ns.EditMode and ns.EditMode.IsActive and ns.EditMode:IsActive() then pcall(ns.EditMode.Close, ns.EditMode) end
       -- (My BiS's Equipped views: back to the list, the mock's own links)
       if __WORN_ORIG then GetInventoryItemLink = __WORN_ORIG; __WORN_ORIG = nil end
       if ns.MyBiS and ns.MyBiS.SetWorn then pcall(ns.MyBiS.SetWorn, ns.MyBiS, false) end
@@ -1797,7 +1798,7 @@ STATES = [
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y, L.stacks[1].w = 560, 620, 280; "
         "ns.MeterPanels:Rebuild(); " + METBOX)),
     ("Meters - unlocked, tank view", opened("home", "ns.MainFrame:Close(); " + MET +
-        "ns.DB:SetSetting('meters.locked', false); ns.DB:SetSetting('meters.tankView', 'always'); "
+        "ns.EditMode:Open(); ns.DB:SetSetting('meters.tankView', 'always'); "
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; ns.MeterPanels:Rebuild()")),
     ("Meters - empty", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('meters.dmg', true); "
         "ns.DB:SetSetting('meters.thr', true); ns.DB:SetSetting('meters.show', 'always'); ns.MeterPanels:ResetLayout(); "
@@ -3216,4 +3217,19 @@ from ui_gallery import gallery  # noqa: E402
 STATES += [
     ("Gallery - components", gallery("components")),
     ("Gallery - layouts", gallery("layouts")),
+]
+
+# Edit layout (UI/EditMode.lua, /dz edit) over the demo night: the boxes, a picked frame's toolbar, a drag's guides
+EDIT = ("ns.MainFrame:Close(); __MOCK.real_geometry = true; ns.EditMode:Open(); "
+        # (ui_look crops to named windows under 1900 wide: an invisible one nearly the whole screen)
+        "local fb = DZAuditFull or CreateFrame('Frame', 'DZAuditFull', UIParent); fb:SetSize(1898, 1078); "
+        "fb:SetPoint('CENTER'); fb:Show(); ")
+EDIT_DRAG = (EDIT + "local l, b, w, h = ns.Layout:Rect('session'); __MOCK.cursor = { l + w / 2, b + h / 2 }; "
+             "ns.EditMode:OnMoverDown('session', 'LeftButton'); __MOCK.cursor = { l + w / 2 - 3, b + h / 2 - 260 }; "
+             "ns.EditMode:StepDrag()")
+STATES += [
+    ("Edit layout - open", demo(EDIT + "ns.EditMode:Select({ 'session' })")),
+    ("Edit layout - several picked", demo(EDIT + "ns.EditMode:Select({ 'session', 'roll', 'reminder' })")),
+    ("Edit layout - dragging", demo(EDIT_DRAG)),
+    ("Settings - Layout", opened("settings", "ns.SettingsUI:SelectSection('layout')")),
 ]

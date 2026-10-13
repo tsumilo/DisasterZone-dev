@@ -37,7 +37,7 @@ local P = ns.ClassPlanner:Define(Totems, {
     class = "SHAMAN", isClass = "IsShaman", records = "shamans", prefix = PREFIX, setting = "totems",
     event = "TOTEMS_CHANGED", tag = "dz-totem", ui = "TotemsUI", storeAtLogin = true, skipSpellsInDemo = true,
     kit = { key = "totems", label = "Totems", class = "SHAMAN", order = 10, icon = 8512 },
-    slash = "totems", slashHelp = "Shaman totem planner (report | auto | unlock | lock)",
+    slash = "totems", slashHelp = "Shaman totem planner (report | auto | move)",
     noneToAssign = "You can't assign any shaman here.",
 })
 Totems.D = D

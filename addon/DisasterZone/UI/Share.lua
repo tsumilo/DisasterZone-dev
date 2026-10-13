@@ -36,6 +36,7 @@ local ICON = {
     raid    = "Interface\\Icons\\INV_Misc_Head_Dragon_01",
     team    = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
     board   = "Interface\\Icons\\INV_Misc_Map_01",
+    layout  = "Interface\\Icons\\INV_Misc_Spyglass_03",
     games   = "Interface\\Icons\\INV_Misc_Dice_01",
     events  = "Interface\\Icons\\Ability_DualWield",
     version = "Interface\\Icons\\INV_Misc_Note_01",
@@ -226,6 +227,14 @@ KINDS.board = function(arg)
     local day = ("%s %d %s"):format(date("%a", v.t), tonumber((date("%d", v.t))), date("%b", v.t))
     return { label = BossName(boss) .. " · " .. RP():GetRaidName(v) .. " " .. day, icon = TexIcon(ICON.board),
              known = true }
+end
+
+-- A layout profile (Core/Layout.lua): "layout:<owner>:<profile id>". Only its owner has it: a click asks them for it.
+KINDS.layout = function(arg)
+    local owner, pid = ns.Layout.ParseRef(arg)
+    local p = owner and Util().IsMe(owner) and ns.Layout:Profile(pid)
+    if not p then return { icon = TexIcon(ICON.layout) } end
+    return { label = "Layout: " .. tostring(p.name), icon = TexIcon(ICON.layout), known = true }
 end
 
 KINDS.member = function(arg)
@@ -432,6 +441,22 @@ OPEN.raid = function(arg)
     return true
 end
 
+OPEN.layout = function(arg)
+    local owner, pid = ns.Layout.ParseRef(arg)
+    if not owner then return false end
+    if Util().IsMe(owner) then
+        if not ns.Layout:Profile(pid) then return false, "That layout profile was deleted." end
+        ns.Layout:Use(pid)
+        if ns.EditMode then ns.EditMode:Open() end
+        return true
+    end
+    if ns.Layout:Request(owner, pid) then
+        ns:Print("Asking %s for the layout...", Util().ShortName(owner))
+        return true
+    end
+    return false, "Only a guildmate or someone in your group can send you their layout, and they need to be online."
+end
+
 OPEN.team = function(arg)
     if not OpenRaids("teams") then return false, NOT_IN_GUILD end
     if not RP():GetTeam(arg) then return false, "That team isn't here: it hasn't reached you yet, or it was deleted." end
@@ -566,6 +591,16 @@ end
 ---------------------------------------------------------------------------
 
 local TIPS = {}
+
+TIPS.layout = function(tt, arg)
+    local _, pid = ns.Layout.ParseRef(arg)
+    local p = ns.Layout:Profile(pid)
+    local n = 0
+    for _ in pairs(p.frames or {}) do n = n + 1 end
+    Line(tt, tostring(p.name), "GOLD")
+    Line(tt, ("Your layout profile: %d frames placed"):format(n), "TEXT")
+    Line(tt, "Click to use it and open Edit layout", "SUB")
+end
 
 TIPS.raid = function(tt, arg)
     local occ, tab = SplitRaid(arg)

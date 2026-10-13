@@ -10,7 +10,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterPanels.lua", ...) then ret
 --   older / newer fight, the name opens the fight list. The fight belongs to the panel: every tab shows it.
 --   Body: as tall as its rows, up to the panel's own row limit (the stack's corner sets it, and the width): no empty
 --   boxes; a panel with nothing to show is just its header.
--- Docking (unlocked, meters.locked false): drag the top header to move a stack; drag a lower header (or the top one
+-- Docking (while Edit layout is open, /dz edit: the panels are unlocked and raised over its overlay, and a moving stack
+-- snaps to the screen's centre and the other frames like everything else there): drag the top header to move a stack; drag a lower header (or the top one
 -- with Shift) to pull that panel out; drag a tab out to make it a panel. While dragging, the stack it would join gets a
 -- gold outline and a gold line shows where: over its top or bottom half it joins the stack (one under the other);
 -- beside it, it joins its row (stacks side by side that move together, s.g = the row's number; Shift-drag a top
@@ -97,7 +98,8 @@ local function Setting(path, default)
     return v
 end
 local function Set(path, v) ns.DB:SetSetting("meters." .. path, v) end
-local function Locked() return Setting("locked", true) and true or false end
+-- (unlocked only while Edit layout is open: the meters.locked setting of before 1.4.2 is no longer read)
+local function Locked() return not (ns.EditMode and ns.EditMode:IsActive()) end
 
 local function ViewInfo(v)
     if v == "threat" then return THREAT_VIEW end
@@ -1711,6 +1713,23 @@ local function UpdateDrag()
     end
     local target, g = MP.FindTarget({ l, t, r - l, t - bt }, cx, cy, others, #(d.members or {}) > 0)
     d.target = target
+    -- Edit layout: not docking anywhere, the stack (or its row) snaps like the other frames
+    local EM = ns.EditMode
+    if EM and EM:IsActive() then
+        if target then EM:ClearGuides()
+        else
+            local sx, sy = EM:SnapBox(f, l, t, r - l, t - bt)
+            local ddx, ddy = sx - l, sy - t
+            if ddx ~= 0 or ddy ~= 0 then
+                f:ClearAllPoints()
+                f:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", nx + ddx, ny + ddy)
+                for _, mb in ipairs(d.members or {}) do
+                    mb.frame:ClearAllPoints()
+                    mb.frame:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", nx + ddx + mb.ox, ny + ddy + mb.oy)
+                end
+            end
+        end
+    end
     if target and target.kind == "tab" then
         target.head.frame.head.drop:Show()
         target.head.frame.head.dropText:Show()
@@ -1727,6 +1746,7 @@ function MP:EndDrag()
     local d = drag
     if not d then return end
     drag = nil
+    if ns.EditMode then ns.EditMode:ClearGuides() end
     local f = d.frame
     HideGuides()
     local L = Layout()
@@ -2383,7 +2403,8 @@ end
 -- Right-click on a header: the panel menu.
 function MP:PanelMenu(pf, owner)
     ns.UI:ContextMenu(owner, function(root)
-        root:CreateCheckbox("Lock panels", function() return Locked() end, function() Set("locked", not Locked()) end)
+        root:CreateButton(Locked() and "Move, dock and resize (Edit layout)" or "Done editing the layout",
+            function() if ns.EditMode then ns.EditMode:Toggle() end end)
         root:CreateCheckbox("Fade out of combat", function() return Setting("ooc", "fade") == "fade" end,
             function() Set("ooc", Setting("ooc", "fade") == "fade" and "stay" or "fade") end)
         root:CreateDivider()
@@ -2486,6 +2507,22 @@ local function OnUpdate(_, elapsed)
     Animate(elapsed)
 end
 
+-- The stacks' frames (Edit layout outlines them and lines other frames up with them).
+function MP:StackFrames() return stackFrames end
+
+-- Edit layout opened / closed: unlocked and over its overlay while it is open (the docking needs the mouse).
+function MP:OnEditLayout(on)
+    if not holder then
+        if on then self:UpdateVisibility() end
+        if not holder then return end
+    end
+    holder:SetFrameStrata(on and "FULLSCREEN" or "MEDIUM")
+    holder:SetFrameLevel(on and 5 or 1)
+    for _, f in ipairs(stackFrames) do f:SetFrameLevel(holder:GetFrameLevel() + 1) end
+    self:ApplyLook()
+    self:UpdateVisibility()
+end
+
 function MP:Build()
     if holder then return end
     holder = CreateFrame("Frame", "DisasterZoneMeters", UIParent)
@@ -2542,6 +2579,9 @@ end
 function MP:OnLogin()
     Meter, Threat = ns.Meter, ns.Threat
     self:EnsureViews()
+    ns.Layout:Register("meters", { name = "Meters", group = "Raid", order = 10, kind = "meters", noHide = true,
+        mine = function() return (Meter:IsEnabled() or Threat:IsEnabled()) and true or false end })
+    ns:On("EDIT_LAYOUT", function(on) MP:OnEditLayout(on) end)
     Meter:OnChange(function(what)
         if what == "start" then
             -- a new fight: tabs on an older fight go back to the current one

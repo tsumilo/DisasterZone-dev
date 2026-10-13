@@ -14,14 +14,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingTimerHUD.lua", ...) then r
 --   dots    the last swings: green twisted, gold late, red clipped, grey plain
 --   lane    the planner's next ~7 s: swings, twist windows and every GCD block it placed (fillers in blue)
 -- When auto attack is not running it rests: an empty bar and nothing else moves.
--- Style (settings <prefix>.style): "bar", "lane" or "both". Unlock with /dz swing unlock to drag it.
--- The frame is a UI:CreateHudFrame (no look of its own: the ring is the face; locked by <prefix>.locked, its place kept
--- in <prefix>.pos as before); while unlocked it shows the shared info notice. Texts are UI:Text on the type scale, the
+-- Style (settings <prefix>.style): "bar", "lane" or "both". Moved in Edit layout (/dz edit).
+-- The frame is a UI:CreateHudFrame (no look of its own: the ring is the face; placed by Core/Layout.lua, item <prefix>,
+-- which reads the old <prefix>.pos until it is moved; Edit layout shows it while editing). Texts are UI:Text on the type scale, the
 -- lane the HUD surface (ns.Style HUD_BG), its colours the tokens (D1: the deep gold for the swing ticks). The ring's
 -- 200 strokes and their colours are drawn here: no component draws a swing ring.
 --
 -- A driver D tells the ring what to draw (fields and methods, all required unless marked optional):
---   prefix, frameName, lockHint          settings prefix ("swing"), the frame's global name, the unlocked notice
+--   prefix, frameName, layoutName        settings prefix ("swing" = its layout item), the frame's global name, its name
+--   layoutOrder                          (optional) its place in Edit layout's list
 --   Get(path, default)                   a setting under the prefix
 --   IsActive(), IsDemo(), Practicing()   the tool runs / demo mode / a practice owns the ring (optional)
 --   DefaultPos()                         x, y from the screen's center when nothing is saved (optional)
@@ -91,22 +92,11 @@ local function NewRing(D)
     local function Get(path, default) return D.Get(path, default) end
     local function Practicing() return D.Practicing and D:Practicing() or false end
 
-    -- (where it sits: <prefix>.pos, as before)
-    local function SavePos()
-        local p, _, rp, x, y = frame:GetPoint()
-        ns.DB:SetSetting(D.prefix .. ".pos", { p, rp, floor(x + 0.5), floor(y + 0.5) })
-    end
-
     local function Build()
+        -- (placed by the layout, Core/Layout.lua item D.prefix: moved in Edit layout)
         frame = UI:CreateHudFrame(D.frameName, { width = LANE_W + 40, height = 260, look = "none",
-            position = false, strata = "MEDIUM", isLocked = function() return Get("locked", true) and true or false end,
-            onMoved = SavePos })
-        -- unlocked: a faint wash over its place and the shared notice saying how to lock it
-        local you = S.C.YOU
-        frame.mover = UI:Fill(frame, { you[1], you[2], you[3], 0.15 }, "BACKGROUND", -8)
-        frame.moverText = UI:CreateNotice(frame, "info", D.lockHint)
-        frame.moverText:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-        frame.moverText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+            position = false, strata = "MEDIUM", layout = D.prefix })
+        frame:EnableMouse(false)
 
         -- the ring (kept as frame.bar so Layout's bar/lane switch still works)
         local ring = CreateFrame("Frame", nil, frame)
@@ -264,8 +254,10 @@ local function NewRing(D)
         frame:SetScript("OnUpdate", function() R:Update() end)
     end
 
-    -- Its place: where it was dragged (<prefix>.pos), else the driver's default (which may change, e.g. demo mode).
+    -- Its place: the layout's (Edit layout), else where it was dragged before (<prefix>.pos), else the driver's
+    -- default (which may change, e.g. demo mode).
     local function Place()
+        if ns.Layout and ns.Layout:Item(D.prefix) and ns.Layout:Place(D.prefix) then return end
         local pos = Get("pos")
         frame:ClearAllPoints()
         if type(pos) == "table" and pos[1] then frame:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
@@ -288,10 +280,9 @@ local function NewRing(D)
         if showBar then frame.lane:SetPoint("TOP", frame.bar, "BOTTOM", 0, -14)
         else frame.lane:SetPoint("TOP", frame, "TOP", 0, -20) end
         frame.laneWanted = showLane
-        local locked = Get("locked", true)
-        frame.mover:SetShown(not locked and not practicing)
-        frame.moverText:SetShown(not locked and not practicing)
-        frame:EnableMouse(not locked and not practicing)
+        -- (as big as what shows: Edit layout's box and its snapping go by the frame; practice keeps the room below)
+        if showLane or practicing then frame:SetSize(LANE_W + 40, 260)
+        else frame:SetSize(RING + 24, RING + 44) end
     end
 
     -- The ring's frame (twist practice puts its parts around it).
@@ -300,7 +291,7 @@ local function NewRing(D)
 
     function R:UpdateVisibility()
         if not frame then return end
-        local show = D:IsActive() and (Practicing() or not Get("locked", true) or Get("idle", false)
+        local show = D:IsActive() and (Practicing() or R.preview or Get("idle", false)
             or InCombatLockdown() or UnitAffectingCombat("player") or D:IsDemo())
         frame:SetShown(show and true or false)
     end
@@ -557,6 +548,20 @@ local function NewRing(D)
     -- (reports, values, the place and practice settings change nothing on screen)
     function R:Hook(stateEvent, extraEvents)
         local prefix = "^" .. D.prefix
+        ns.Layout:Register(D.prefix, { name = D.layoutName, group = "Class tools", order = D.layoutOrder or 30,
+            frame = function() return frame end, mine = function() return D:IsActive() and true or false end,
+            legacy = function()
+                local pos = Get("pos")
+                if type(pos) == "table" and pos[1] then return pos[1], pos[2], pos[3], pos[4] end
+            end,
+            default = function()
+                local x, y = 0, -170
+                if D.DefaultPos then x, y = D:DefaultPos() end
+                return { "CENTER", x, y }
+            end,
+            scale = { get = function() return tonumber(Get("scale", 1)) or 1 end,
+                      set = function(v) ns.DB:SetSetting(D.prefix .. ".scale", v) end },
+            preview = function(on) R.preview = on and true or nil; R:Refresh() end })
         ns:On(stateEvent, function() R:Refresh() end)
         for _, e in ipairs(extraEvents or {}) do ns:On(e, function() R:Refresh() end) end
         ns:On("SETTINGS_CHANGED", function(path)
@@ -575,13 +580,13 @@ local function NewRing(D)
 end
 ns.SwingRing = NewRing
 
--- The rows every timer tool's Settings card starts with: look, out of combat, locked, size, latency. `what` names the
+-- The rows every timer tool's Settings card starts with: look, out of combat, its place (Edit layout), size, latency. `what` names the
 -- tool in the latency help ("seal casts").
 function ns.SwingRingSettings(S, sec, prefix, latencyHelp)
     S:DropdownSetting(sec, "Look", "The ring, the plan lane (the next 7 seconds) or both.", prefix .. ".style", "bar", {
         { value = "bar", text = "Ring" }, { value = "lane", text = "Plan lane" }, { value = "both", text = "Both" } })
     S:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", prefix .. ".idle", false)
-    S:SwitchSetting(sec, "Locked", "Unlock to drag it where you want it.", prefix .. ".locked", true)
+    if S.EditLayoutRow then S:EditLayoutRow(sec) end
     local scales = {}
     for _, n in ipairs({ 0.8, 0.9, 1, 1.15, 1.3, 1.5 }) do scales[#scales + 1] = { value = n, text = floor(n * 100) .. "%" } end
     S:DropdownSetting(sec, "Size", "", prefix .. ".scale", 1, scales)
@@ -601,7 +606,7 @@ local ST                         -- ns.SwingTimer
 local SHORT = { cs = "Strike", soc = "Command", exo = "Exorcism", cons = "Consec." }
 
 local D = {
-    prefix = "swing", frameName = "DisasterZoneSwingTimer", lockHint = "Swing timer: drag it, then /dz swing lock",
+    prefix = "swing", frameName = "DisasterZoneSwingTimer", layoutName = "Swing timer", layoutOrder = 30,
     FILLERS = { exo = true, cons = true },
 }
 function D.Get(path, default) return ST.Get(path, default) end
