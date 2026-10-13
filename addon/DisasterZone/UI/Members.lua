@@ -797,6 +797,16 @@ local function mainMenu(owner)
     end)
 end
 
+-- In my raid or party (a "Name-Realm" key; same-realm names also by the short name).
+local function inMyGroup(key)
+    if not (UnitInRaid and UnitInParty) then return false end
+    local short = ns.Util.ShortName(key)
+    for _, n in ipairs({ key, short }) do
+        if UnitInRaid(n) or UnitInParty(n) then return true end
+    end
+    return false
+end
+
 -- Staff (council, officers, the GM) let a player change their main while their raid runs.
 local function canUnlockMains()
     local Guild, me = G(), ns.Util.PlayerKey()
@@ -874,18 +884,15 @@ local function detailWidgets(row)
     end)
     w.whisper:SetPoint("RIGHT", 0, 0)
     ns.UI:AttachTooltip(w.whisper, "Whisper", "Opens a message with the recipe linked.", { anchor = "ANCHOR_TOP" })
-    w.mainBtn = ns.UI:CreateSleekButton(row, "Change", ROW_BTN_W, ROW_BTN_H, function(self)
-        local d = self:GetParent().__cdlData
-        if d and d.canUnlock then unlockMain(d) else mainMenu(self) end
-    end)
+    w.mainBtn = ns.UI:CreateSleekButton(row, "Change", ROW_BTN_W, ROW_BTN_H, function(self) mainMenu(self) end)
     w.mainBtn:SetPoint("RIGHT", 0, 0)
-    ns.UI:AttachTooltip(w.mainBtn, function(self, tt)
-        local d = self:GetParent().__cdlData
-        if not (d and d.canUnlock) then return false end
-        tt:AddLine("Let them change their main", S:RGB("GOLD"))
-        tt:AddLine("Mains are locked while a raid runs. This lets " .. ns.Util.ShortName(d.target)
-            .. " pick another main until their raid ends.", 1, 1, 1, true)
-    end, nil, { anchor = "ANCHOR_TOP" })
+    -- staff, while the raid runs: a lock icon that lets this player change their main (the tooltip says so)
+    w.unlockBtn = ns.UI:CreateTipIconButton(row, ROW_BTN_H, ns.UI.ICON.lock, "Let them change their main", nil,
+        function(self)
+            local d = self:GetParent().__cdlData
+            if d and d.canUnlock then unlockMain(d) end
+        end)
+    w.unlockBtn:SetPoint("RIGHT", 0, 0)
 
     -- an equipment slot: slot name, item icon, item name (quality colour)
     w.slot = ns.UI:Text(row, "small", "SUB")
@@ -980,8 +987,12 @@ local function initDetailRow(row, d)
     w.info:SetShown(isPerson or kind == "team")
     w.teamIcon:SetShown(kind == "team")
     w.whisper:SetShown(kind == "crafter" and d.canWhisper and true or false)
-    w.mainBtn:SetShown(kind == "main" and (d.canChange or d.canUnlock) and true or false)
-    if kind == "main" then w.mainBtn:SetText(d.canUnlock and "Unlock" or "Change") end
+    w.mainBtn:SetShown(kind == "main" and d.canChange and true or false)
+    w.unlockBtn:SetShown(kind == "main" and d.canUnlock and true or false)
+    if kind == "main" and d.canUnlock then
+        w.unlockBtn.tipText = "Mains are locked while the raid runs. This lets " .. ns.Util.ShortName(d.target)
+            .. " pick another main until the raid ends."
+    end
     w.slot:SetShown(isGear)
     w.itemIcon:SetShown(isGear and d.item ~= nil)
     w.item:SetShown(isGear)
@@ -1126,8 +1137,10 @@ local function characterRows(key)
     elseif #others == 0 then
         rows[#rows + 1] = { kind = "note", text = ns.Util.ShortName(key) .. " has no other characters linked to this one." }
     end
-    -- staff: let the player change their main while their raid runs (it is locked then), while they are online
-    local target = not isOwn(key) and canUnlockMains() and onlineCharacter(key)
+    -- staff: let the player change their main while the raid runs (it is locked then): only during a raid session,
+    -- for someone online in my raid (out of a session there is nothing to unlock)
+    local target = not isOwn(key) and canUnlockMains() and P():InRaidSession() and onlineCharacter(key)
+    if target and not inMyGroup(target) then target = nil end
     if target then
         rows[#rows + 1] = { kind = "main", canUnlock = true, target = target, main = #others > 0 and main or nil }
     end

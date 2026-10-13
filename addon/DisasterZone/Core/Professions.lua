@@ -1250,6 +1250,9 @@ local function RaidSessionId()
     return s and (s.id or s.at or true) or nil
 end
 
+-- Is a raid session running (the raid's loot session, Core/GroupRules.lua): mains are locked only then.
+function Prof:InRaidSession() return RaidSessionId() ~= nil end
+
 -- Is my main locked: (locked, why).
 function Prof:IsMainLocked()
     local sid = RaidSessionId()

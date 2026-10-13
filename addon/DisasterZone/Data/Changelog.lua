@@ -62,6 +62,7 @@ ns.CHANGELOG = {
               "Chess: Resign asks first, so a stray click no longer ends your game.",
               "The next raid's countdown and \"Pause pop-ups for an hour\" follow the server's clock.",
               "Members: \"Last seen in\" times follow the server's clock too.",
+              "Members: unlocking someone's main is a lock icon, shown only while a raid runs.",
               "Dungeon run notes are no longer cut in the middle of an accented letter.",
               "Guests and pugs show in their class colour in more places.",
               "The Events and Dungeons pages draw once when you open them, not twice.",

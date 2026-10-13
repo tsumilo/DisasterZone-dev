@@ -642,7 +642,7 @@ def a_new_character_joins_the_main_and_mains_lock_while_a_raid_runs():
     assert a.eval("return DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].a", K("Alfa")) is None
 
     # a raid session runs: my main is locked (the menu too), a plain member can't unlock it, the GM can
-    w.make_raid([a, b])
+    w.make_raid([a, b, g])
     w.tick(5)
     assert a.eval_py("local l, why = %s:IsMainLocked(); return { l, why }" % P) == [True, "locked while the raid runs"]
     res = a.eval_py("local ok, err = %s:SetMain(...); return { ok = ok, err = err }" % P, K("Alto"))
@@ -656,7 +656,7 @@ def a_new_character_joins_the_main_and_mains_lock_while_a_raid_runs():
     b.eval('ns.Comm:Send({ t = "PMU" }, "WHISPER", ..., "member")', K("Alfa"))
     w.tick(3)
     assert a.eval("return (%s:IsMainLocked())" % P) is True
-    # the GM sees an Unlock line on Alfa's card (Alfa is online) and sends it
+    # the GM (in the raid) sees the unlock lock icon on Alfa's card (Alfa is online, in the raid) and sends it
     g.slash("/dz members")
     w.tick(1)
     g.eval("%s:SelectMember(...)" % UI, K("Alfa"))
@@ -673,10 +673,18 @@ def a_new_character_joins_the_main_and_mains_lock_while_a_raid_runs():
     assert a.eval("return (%s:IsMainLocked())" % P) is False
     assert any("lets you change your main" in line for line in a.chat_frame), a.chat_frame[-3:]
     assert a.eval("return %s:SetMain(...)" % P, K("Alto")) is True
-    # the raid ends: nothing locked
+    # the raid ends: nothing locked, and no unlock button on the card any more (it only does something in a raid)
     w.disband()
     w.tick(5)
     assert a.eval("return (%s:IsMainLocked())" % P) is False
+    g.eval("%s:SelectMember(...)" % UI, K("Alfa"))
+    w.tick(0.2)
+    rows = g.eval_py("""local out = {}
+      for _, d in ipairs(ns.MembersUI:GetPanel().right.list:GetData()) do
+        if d.kind == "main" and d.canUnlock then out[#out + 1] = d.target end
+      end
+      return out""") or []
+    assert rows == [], rows
     w.assert_no_errors()
 
 
