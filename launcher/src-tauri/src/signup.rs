@@ -367,3 +367,98 @@ mod tests {
         assert_eq!(spec_name("NOPE", 1), "?");
     }
 }
+
+// ------------------------------------------------------------------------------------------------------------------
+// /raids: the coming raids, their sign-ups and my answer (from the host's last snapshot)
+// ------------------------------------------------------------------------------------------------------------------
+
+/// The text of /raids for a Discord user; `guild` = the server id (for links to the raid posts).
+pub fn raids_text(user: &str, guild: &str, now: u64) -> String {
+    raids_text_from(&snap(), &bridge::load_profiles(), &crate::posts::load_posts(), user, guild, now)
+}
+
+pub fn raids_text_from(
+    snap: &Value,
+    profiles: &bridge::Profiles,
+    posts: &std::collections::BTreeMap<String, crate::posts::Post>,
+    user: &str,
+    guild: &str,
+    now: u64,
+) -> String {
+    let mine: Vec<String> =
+        profiles.get(user).map(|cs| cs.iter().map(|c| c.name.to_lowercase()).collect()).unwrap_or_default();
+    let teams = snap.get("teams").cloned().unwrap_or(Value::Null);
+    let mut lines = Vec::new();
+    for r in lua_list(snap.get("raids")) {
+        let t = r.get("t").and_then(|x| x.as_i64()).unwrap_or(0);
+        if t + 3 * 3600 < now as i64 || r.get("cancelled").and_then(|x| x.as_bool()) == Some(true) {
+            continue;
+        }
+        let id = r.get("id").and_then(|x| x.as_str()).unwrap_or("");
+        let name = r.get("title").or(r.get("name")).and_then(|x| x.as_str()).unwrap_or("Raid");
+        let signups = lua_list(r.get("signups"));
+        let count = |role: &str| {
+            signups.iter().filter(|s| s.get("st").and_then(|x| x.as_str()) == Some("accept") && s.get("role").and_then(|x| x.as_str()) == Some(role)).count()
+        };
+        let accepted = signups.iter().filter(|s| s.get("st").and_then(|x| x.as_str()) == Some("accept")).count();
+        let team: Vec<&str> =
+            lua_list(r.get("teams")).iter().filter_map(|x| x.as_str().and_then(|id| teams.get(id)).and_then(|n| n.as_str())).collect();
+        let me = signups.iter().find_map(|s| {
+            let key = s.get("key")?.as_str()?;
+            let short = key.split('-').next().unwrap_or(key).to_lowercase();
+            mine.contains(&short).then(|| {
+                let st = match s.get("st").and_then(|x| x.as_str()) {
+                    Some("accept") => "accepted",
+                    Some("tentative") => "tentative",
+                    Some("bench") => "on the bench",
+                    _ => "can't come",
+                };
+                format!("**{}** {st}", key.split('-').next().unwrap_or(key))
+            })
+        });
+        let link = posts
+            .get(id)
+            .map(|p| format!(" · [post](https://discord.com/channels/{guild}/{}/{})", p.channel, p.message))
+            .unwrap_or_default();
+        lines.push(format!(
+            "**{name}** · <t:{t}:f>{}\n{accepted} in ({} tanks, {} healers, {} dps) · {}{link}",
+            if team.is_empty() { String::new() } else { format!(" · {}", team.join(", ")) },
+            count("tank"),
+            count("healer"),
+            count("melee") + count("ranged"),
+            me.unwrap_or_else(|| "you haven't answered".into()),
+        ));
+        if lines.len() >= 10 {
+            break;
+        }
+    }
+    if lines.is_empty() {
+        return "No raids planned in the next two weeks.".into();
+    }
+    let age = snap.get("at").and_then(|x| x.as_u64()).map(|a| crate::bot::fmt_age(now.saturating_sub(a))).unwrap_or_default();
+    format!("{}\n-# As of the host's last reload, {age}.", lines.join("\n\n"))
+}
+
+#[cfg(test)]
+mod raids_tests {
+    use super::*;
+
+    #[test]
+    fn raids_show_counts_and_my_answer() {
+        let snap = json!({ "at": 1000, "teams": { "t1": "Main" }, "raids": {
+            "1": { "id": "r1", "t": 5000, "name": "Karazhan", "teams": { "1": "t1" }, "signups": {
+                "1": { "key": "Lee-X", "st": "accept", "role": "tank" },
+                "2": { "key": "Rita-X", "st": "accept", "role": "healer" } } },
+            "2": { "id": "r2", "t": 6000, "name": "Gruul", "cancelled": true } } });
+        let mut p = bridge::Profiles::new();
+        p.insert("9".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3, by: String::new() }]);
+        let mut posts = std::collections::BTreeMap::new();
+        posts.insert("r1".to_string(), crate::posts::Post { channel: "c".into(), message: "m".into(), hash: String::new() });
+        let t = raids_text_from(&snap, &p, &posts, "9", "g", 1060);
+        assert!(t.contains("**Karazhan** · <t:5000:f> · Main"), "{t}");
+        assert!(t.contains("2 in (1 tanks, 1 healers, 0 dps)") && t.contains("**Lee** accepted"), "{t}");
+        assert!(t.contains("discord.com/channels/g/c/m") && !t.contains("Gruul"), "{t}");
+        assert!(t.contains("1 min ago"), "{t}");
+        assert!(raids_text_from(&snap, &p, &posts, "other", "g", 1060).contains("you haven't answered"));
+    }
+}

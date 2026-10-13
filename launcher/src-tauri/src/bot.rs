@@ -125,6 +125,7 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
     // guild commands show up at once (global ones can take an hour); setting the whole list drops old ones
     let commands = [
         CommandBuilder::new("ping", "Check that the DisasterZone bot is online", CommandType::ChatInput).build(),
+        CommandBuilder::new("raids", "The coming raids, their sign-ups and your answer", CommandType::ChatInput).build(),
         CommandBuilder::new("character", "Your characters for raid sign-ups: add, see or remove them", CommandType::ChatInput)
             .build(),
         CommandBuilder::new("bridgetest", "Send a test line to the game (it shows at the host's next /reload)", CommandType::ChatInput)
@@ -284,6 +285,7 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
     let Some(InteractionData::ApplicationCommand(cmd)) = &i.data else { return Ok(()) };
     let text = match cmd.name.as_str() {
         "ping" => ping_text(app),
+        "raids" => crate::signup::raids_text(&user, &i.guild_id.map(|g| g.get().to_string()).unwrap_or_default(), unix_now()),
         "bridgetest" => {
             let text = cmd
                 .options

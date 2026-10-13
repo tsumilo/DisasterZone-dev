@@ -30,7 +30,7 @@ fn posts_path() -> PathBuf {
     dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("DisasterZoneLauncher").join("bridge_posts.json")
 }
 
-fn load_posts() -> BTreeMap<String, Post> {
+pub fn load_posts() -> BTreeMap<String, Post> {
     std::fs::read(posts_path()).ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default()
 }
 
