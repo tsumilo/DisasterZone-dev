@@ -622,6 +622,21 @@ function BiS:SetSlot(phase, sid, which, itemID, list)
     return true
 end
 
+-- 1.4.2 (Discord BiS edits, Core/Bridge.lua): may itemID go in slot sid? Returns the item to store (a token becomes
+-- its piece for that slot), or nil and why.
+function BiS:CheckPick(itemID, sid)
+    itemID = tonumber(itemID) or 0
+    if not IsValidSid(sid) then return nil, "unknown slot" end
+    if not IsValidItemID(itemID) then return nil, "unknown item" end
+    if IsToken(itemID) then
+        local piece = ResolveToken(itemID, sid)
+        if not piece then return nil, ItemLabel(itemID) .. " is a token: pick the item it turns into." end
+        itemID = piece
+    end
+    if not ItemFits(itemID, sid) then return nil, ItemLabel(itemID) .. " doesn't fit the " .. SlotLabel(sid) .. " slot." end
+    return itemID
+end
+
 function BiS:ClearSlot(phase, sid, list)
     if not IsListPhase(phase) or not IsValidSid(sid) then return false end
     if RefuseLocked() then return false end

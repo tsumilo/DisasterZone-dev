@@ -184,9 +184,132 @@ local linksSync = ns.DigestSync and ns.DigestSync.RevList({
     sendList = function(target) SendLinks(target) end,
 })
 
+---------------------------------------------------------------------------
+-- BiS edits from Discord: record "bis" { name, phase, sid, item (0 = clear), which = "main"|"alt" }. The host's
+-- addon routes each one:
+--   my own character      -> my list (BiS:SetSlot)
+--   a member with the addon (Sync:GetPeer) -> db.bisOut[key] = { { id, p, s, i, w }, ... }, whispered to them while
+--                            they are online (BDE { e }); their addon applies it to its own list and answers (BDA { ids })
+--   a member without it   -> the host keeps their list (a Store copy, shared with the council like any list)
+---------------------------------------------------------------------------
+
+local function Pending()
+    local db = DB()
+    db.bisOut = type(db.bisOut) == "table" and db.bisOut or {}
+    return db.bisOut
+end
+
+function Bridge:DeliverBis()
+    if not AmHost() or not ns.Comm then return end
+    for key, list in pairs(Pending()) do
+        if #list == 0 then Pending()[key] = nil
+        elseif ns.Guild:IsOnline(key) then ns.Comm:Send({ t = "BDE", e = list }, "WHISPER", key, "data") end
+    end
+end
+
+-- A list the host keeps for a member without the addon: one slot changed (the council's copy, a higher rev).
+local function EditHostList(key, phase, sid, item, which)
+    local S, Util = ns.Store, ns.Util
+    if not (S and S.Put) then return false, "BiS lists not loaded" end
+    local cur = S:Get(key)
+    local d = type(cur) == "table" and type(cur.data) == "table" and Util.CopyTable(cur.data)
+        or { v = ns.LIST_VERSION or 1, cl = ns.Guild:GetClass(key) or "", sp = "", ph = {}, ob = {}, eq = {} }
+    local slots
+    if phase == 0 then
+        d.pr = type(d.pr) == "table" and d.pr or {}
+        slots = d.pr
+    else
+        d.ph = type(d.ph) == "table" and d.ph or {}
+        d.ph[phase] = type(d.ph[phase]) == "table" and d.ph[phase] or {}
+        slots = d.ph[phase]
+    end
+    local pair = type(slots[sid]) == "table" and slots[sid] or {}
+    local main, alt = tonumber(pair[1]) or 0, tonumber(pair[2]) or 0
+    if which == "alt" then
+        if item ~= 0 and item == main then main = alt end
+        alt = item
+    else
+        if item ~= 0 and item == alt then alt = main end
+        main = item
+    end
+    if main ~= 0 and main == alt then alt = 0 end
+    slots[sid] = (main ~= 0 or alt ~= 0) and { main, alt } or nil
+    if phase ~= 0 and next(slots) == nil then d.ph[phase] = nil end
+    local rev = (type(cur) == "table" and tonumber(cur.rev) or 0) + 1
+    if not S:Put(key, { r = rev, ts = Util.Now(), h = Util.Hash(d), d = d }, "discord") then
+        return false, "the list could not be saved"
+    end
+    return true
+end
+
+Bridge:RegisterType("bis", function(r)
+    local b = type(r.body) == "table" and r.body or {}
+    local key = Bridge:FindMember(b.name)
+    if not key then return false, tostring(b.name) .. " is not in the guild." end
+    local phase, sid, which = tonumber(b.phase), tonumber(b.sid), b.which == "alt" and "alt" or "main"
+    if not phase or phase < 0 or phase > 5 then return false, "unknown phase" end
+    local item = tonumber(b.item) or 0
+    if item ~= 0 then
+        local why
+        item, why = ns.BiS:CheckPick(item, sid)
+        if not item then return false, why end
+    end
+    if ns.Util.IsMe(key) then
+        if not ns.BiS:SetSlot(phase, sid, which, item) then return false, "the list is locked for the raid" end
+        ns.BiS:Commit()
+        return true
+    end
+    if ns.Sync and ns.Sync.GetPeer and ns.Sync:GetPeer(key) then
+        local list = Pending()[key] or {}
+        list[#list + 1] = { id = r.id, p = phase, s = sid, i = item, w = which }
+        Pending()[key] = list
+        Bridge:DeliverBis()
+        return true
+    end
+    return EditHostList(key, phase, sid, item, which)
+end)
+
+-- BDE { e = { { id, p, s, i, w }, ... } }: my list changed in Discord (from the Discord host only).
+local function OnBisEdits(sender, msg, dist)
+    if dist ~= "WHISPER" or type(msg.e) ~= "table" or not ns.Guild:IsDiscordHost(sender) then return end
+    local done, changed = {}, 0
+    for i = 1, 40 do
+        local e = msg.e[i]
+        if type(e) ~= "table" then break end
+        local p, s, item = tonumber(e.p), tonumber(e.s), tonumber(e.i) or 0
+        if type(e.id) == "string" and p and s then
+            if ns.BiS:SetSlot(p, s, e.w == "alt" and "alt" or "main", item) then changed = changed + 1 end
+            done[#done + 1] = e.id
+        end
+    end
+    if changed > 0 then
+        ns.BiS:Commit()
+        ns:Print("Your BiS list was changed in Discord (%d slot%s).", changed, changed == 1 and "" or "s")
+    end
+    if #done > 0 then ns.Comm:Send({ t = "BDA", ids = done }, "WHISPER", sender, "ctrl") end
+end
+
+-- BDA { ids }: a member's addon took these edits.
+local function OnBisAck(sender, msg, dist)
+    if dist ~= "WHISPER" or type(msg.ids) ~= "table" or not AmHost() then return end
+    local list = Pending()[sender]
+    if not list then return end
+    local took = {}
+    for _, id in ipairs(msg.ids) do took[id] = true end
+    for i = #list, 1, -1 do
+        if took[list[i].id] then table.remove(list, i) end
+    end
+    if #list == 0 then Pending()[sender] = nil end
+end
+
 function Bridge:OnInit()
-    if ns.Comm then ns.Comm:Register("DCL", OnLinks) end
+    if ns.Comm then
+        ns.Comm:Register("DCL", OnLinks)
+        ns.Comm:Register("BDE", OnBisEdits)
+        ns.Comm:Register("BDA", OnBisAck)
+    end
     if linksSync then linksSync.Register() end
+    ns:On("ROSTER_UPDATED", function() ns.Util.Debounce("bridge-bis", 10, function() Bridge:DeliverBis() end) end)
 end
 
 ---------------------------------------------------------------------------
@@ -198,7 +321,8 @@ local ST_WORD = { A = "accept", T = "tentative", B = "bench", X = "absent" }
 
 -- What the bot needs, read by the launcher from SavedVariables (it can't run the addon's raid logic itself):
 -- { at, me, guild, dc = { host, guild, teams }, teams = { [id] = name }, roster = { { key, class }, ... },
---   phase, bis = { [key] = { spec, slots = { { sid, slot, id, name, got }, ... } } } (the lists I hold, this phase),
+--   phase, bis = { [key] = { spec, slots = { { sid, slot, id, name, got, alt, altName, altGot }, ... } } }
+--   (the lists I hold, this phase: main pick and alternative),
 --   raids = { { id, t, name, title, note, size, teams = { id, ... }, locked, cancelled, leader,
 --               signups = { { key, st = "accept"|..., class, spec, role, guest }, ... } }, ... } }
 -- Private raids are left out: the bot posts in public channels.
@@ -227,11 +351,19 @@ function Bridge:Snapshot()
         if type(slots) == "table" then
             local list = {}
             for sid = 1, ns.NUM_SLOTS do
-                local id = type(slots[sid]) == "table" and tonumber(slots[sid][1]) or 0
-                if id > 0 then
-                    list[#list + 1] = { sid = sid, slot = ns.SLOTS[sid].label, id = id,
-                                        name = I and I.GetName and I:GetName(id) or nil,
-                                        got = S.IsObtainedBy and S:IsObtainedBy(key, id) or nil }
+                local pair = type(slots[sid]) == "table" and slots[sid] or {}
+                local id, alt = tonumber(pair[1]) or 0, tonumber(pair[2]) or 0
+                if id > 0 or alt > 0 then
+                    local e = { sid = sid, slot = ns.SLOTS[sid].label }
+                    if id > 0 then
+                        e.id, e.name = id, I and I.GetName and I:GetName(id) or nil
+                        e.got = S.IsObtainedBy and S:IsObtainedBy(key, id) or nil
+                    end
+                    if alt > 0 then
+                        e.alt, e.altName = alt, I and I.GetName and I:GetName(alt) or nil
+                        e.altGot = S.IsObtainedBy and S:IsObtainedBy(key, alt) or nil
+                    end
+                    list[#list + 1] = e
                 end
             end
             out.bis[key] = { spec = data.sp ~= "" and data.sp or nil, slots = list }
@@ -261,12 +393,20 @@ end
 function Bridge:OnLogin()
     local inbox = DZBridgeInbox
     if type(inbox) ~= "table" then return end   -- not the host (no DisasterZone_Bridge folder)
-    local db = DB()
-    self:Prune(inbox, db.applied)
-    local n = self:Apply(inbox, db.applied)
-    db.loaded, db.inbox = time(), inbox.written
-    db.claims = nil   -- (1.4.2 dev builds linked with codes)
-    if n > 0 then ns:Print("Loaded %d update%s from Discord.", n, n == 1 and "" or "s") end
+    -- (records name guild members: they wait for the guild roster, which comes in a moment after login)
+    local applied = false
+    local function apply()
+        if applied or not (ns.Guild and ns.Guild.IsReady and ns.Guild:IsReady()) then return end
+        applied = true
+        local db = DB()
+        Bridge:Prune(inbox, db.applied)
+        local n = Bridge:Apply(inbox, db.applied)
+        db.loaded, db.inbox = time(), inbox.written
+        db.claims = nil   -- (1.4.2 dev builds linked with codes)
+        if n > 0 then ns:Print("Loaded %d update%s from Discord.", n, n == 1 and "" or "s") end
+    end
+    apply()
+    ns:On("ROSTER_UPDATED", apply)
     -- (the roster may not be in yet at login: the links are taken once it is)
     if type(inbox.links) == "table" then
         local function take() Bridge:TakeLinks(inbox.links) end
@@ -286,6 +426,8 @@ function Bridge:FindMember(name)
     local G = ns.Guild
     local want = name:lower()
     local short = not want:find("-", 1, true)
+    local me = ns.Util.PlayerKey()
+    if me and (me:lower() == want or (short and me:lower():match("^([^%-]+)") == want)) then return me end
     for _, key in ipairs(G and G.GetMembers and G:GetMembers() or {}) do
         local k = key:lower()
         if k == want or (short and k:match("^([^%-]+)") == want) then return key end

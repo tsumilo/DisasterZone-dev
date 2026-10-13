@@ -499,14 +499,17 @@ pub fn bis_text_from(snap: &Value, profiles: &bridge::Profiles, user: &str, who:
     if slots.is_empty() {
         lines.push("Nothing picked for this phase yet.".into());
     }
+    // one line a slot: the main pick, then the alternative (as the addon's My BiS shows them)
+    let pick = |s: &Value, id_k: &str, name_k: &str, got_k: &str| -> Option<String> {
+        let id = s.get(id_k).and_then(|x| x.as_i64()).filter(|i| *i > 0)?;
+        let item = s.get(name_k).and_then(|x| x.as_str()).map(str::to_string).unwrap_or_else(|| format!("Item {id}"));
+        let got = if s.get(got_k).and_then(|x| x.as_bool()) == Some(true) { " ✓" } else { "" };
+        Some(format!("[{item}](<https://www.wowhead.com/tbc/item={id}>){got}"))
+    };
     for s in slots {
-        let id = s.get("id").and_then(|x| x.as_i64()).unwrap_or(0);
-        let item = s.get("name").and_then(|x| x.as_str()).map(str::to_string).unwrap_or_else(|| format!("Item {id}"));
-        let got = if s.get("got").and_then(|x| x.as_bool()) == Some(true) { " ✓" } else { "" };
-        lines.push(format!(
-            "{}: [{item}](https://www.wowhead.com/tbc/item={id}){got}",
-            s.get("slot").and_then(|x| x.as_str()).unwrap_or("?")
-        ));
+        let main = pick(s, "id", "name", "got").unwrap_or_else(|| "—".into());
+        let alt = pick(s, "alt", "altName", "altGot").map(|a| format!(" · *alt* {a}")).unwrap_or_default();
+        lines.push(format!("**{}**: {main}{alt}", s.get("slot").and_then(|x| x.as_str()).unwrap_or("?")));
     }
     let age = snap.get("at").and_then(|x| x.as_u64()).map(|a| crate::bot::fmt_age(now.saturating_sub(a))).unwrap_or_default();
     lines.push(format!("-# ✓ = has it. As of the host's last reload, {age}."));
@@ -520,15 +523,80 @@ mod bis_tests {
     #[test]
     fn bis_shows_my_main_list() {
         let snap = json!({ "at": 100, "phase": 2, "bis": { "Lee-X": { "spec": "Protection", "slots": {
-            "1": { "sid": 1, "slot": "Head", "id": 29011, "name": "Warbringer Greathelm", "got": true },
+            "1": { "sid": 1, "slot": "Head", "id": 29011, "name": "Warbringer Greathelm", "got": true, "alt": 29068 },
             "2": { "sid": 2, "slot": "Neck", "id": 28244 } } } } });
         let mut p = bridge::Profiles::new();
         p.insert("9".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3, by: String::new() }]);
         let t = bis_text_from(&snap, &p, "9", None, 160);
         assert!(t.starts_with("**Lee** · Protection · Phase 2"), "{t}");
-        assert!(t.contains("Head: [Warbringer Greathelm](https://www.wowhead.com/tbc/item=29011) ✓"), "{t}");
-        assert!(t.contains("Neck: [Item 28244]"), "{t}");
+        assert!(t.contains("**Head**: [Warbringer Greathelm](<https://www.wowhead.com/tbc/item=29011>) ✓ · *alt* [Item 29068]"), "{t}");
+        assert!(t.contains("**Neck**: [Item 28244]"), "{t}");
         assert!(bis_text_from(&snap, &p, "9", Some("rita"), 160).contains("No BiS list for **Rita**"));
         assert!(bis_text_from(&snap, &p, "other", None, 160).contains("Whose list?"));
     }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// /bis set: change one slot of one of my characters' lists (a "bis" record; the host's addon routes it)
+// ------------------------------------------------------------------------------------------------------------------
+
+/// The addon's slots, by number (ns.SLOTS).
+pub const SLOTS: [&str; 17] = [
+    "Head", "Neck", "Shoulder", "Back", "Chest", "Wrist", "Hands", "Waist", "Legs", "Feet", "Ring 1", "Ring 2",
+    "Trinket 1", "Trinket 2", "Main Hand", "Off Hand", "Ranged / Relic",
+];
+
+#[allow(clippy::too_many_arguments)]
+pub fn bis_set(user: &str, name: &str, sid: i64, item: &str, who: Option<&str>, alt: bool, phase: Option<i64>, now: u64) -> String {
+    let chars = bridge::load_profiles().get(user).cloned().unwrap_or_default();
+    let c = match who.map(str::trim).filter(|w| !w.is_empty()) {
+        Some(w) => {
+            let w = w.to_lowercase();
+            chars.iter().find(|c| {
+                let n = c.name.to_lowercase();
+                n == w || n.split('-').next() == Some(w.as_str())
+            })
+        }
+        None => chars.first(),
+    };
+    let Some(c) = c else {
+        return "You can change your own characters' lists only. Make yours with /character.".into();
+    };
+    let Some(slot) = usize::try_from(sid).ok().filter(|s| (1..=17).contains(s)) else { return "Pick a slot.".into() };
+    let clear = matches!(item.trim().to_lowercase().as_str(), "" | "0" | "none" | "empty");
+    let id = if clear {
+        0
+    } else {
+        match crate::items::resolve(item) {
+            Some(id) => id,
+            None => return format!("No item called \"{item}\". Pick one from the list as you type."),
+        }
+    };
+    let snap = snap();
+    let phase = phase.unwrap_or_else(|| snap.get("phase").and_then(|p| p.as_i64()).unwrap_or(1)).clamp(0, 5);
+    let Some(dir) = crate::core::state::load().flavor_dir() else { return "The host has no game folder set.".into() };
+    let r = bridge::Record {
+        id: format!("bis_{now}_{user}_{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+        kind: "bis".into(),
+        at: now,
+        by: name.to_string(),
+        body: json!({ "name": c.name, "phase": phase, "sid": slot, "item": id, "which": if alt { "alt" } else { "main" } }),
+        discord: user.to_string(),
+    };
+    if let Err(e) = bridge::push(&dir, r, now) {
+        return format!("Could not save it: {e}");
+    }
+    let what = if clear {
+        "emptied".to_string()
+    } else {
+        let n = crate::items::name_of(id).unwrap_or_else(|| format!("item {id}"));
+        format!("{} set to [{n}](<https://www.wowhead.com/tbc/item={id}>)", if alt { "alternative" } else { "main pick" })
+    };
+    let ph = if phase == 0 { "Pre-raid".to_string() } else { format!("phase {phase}") };
+    format!(
+        "**{}**'s {} ({ph}): {what}. It reaches the game at the host's next /reload; with the addon, the list changes when {} is next online.",
+        c.name,
+        SLOTS[slot - 1],
+        c.name
+    )
 }

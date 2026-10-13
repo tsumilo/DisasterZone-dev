@@ -2,6 +2,7 @@
 
 mod background;
 mod bot;
+mod items;
 mod posts;
 mod signup;
 pub mod core;

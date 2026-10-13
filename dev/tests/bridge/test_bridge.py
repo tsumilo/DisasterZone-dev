@@ -221,13 +221,14 @@ def a_name_outside_the_guild_joins_as_a_guest():
 def snapshot_carries_my_bis_list():
     w, c = discord_world()
     gina = c["Gina"]
-    gina.eval("ns.BiS:SetSlot(1, 1, 'main', 29068); ns.BiS:Commit()")
+    gina.eval("ns.BiS:SetSlot(1, 1, 'main', 29068); ns.BiS:SetSlot(1, 1, 'alt', 29011); ns.BiS:Commit()")
     gina.eval("DZBridgeInbox = { records = {} }")
     login(gina)
     gina.fire("PLAYER_LOGOUT")
     snap = gina.eval_py("return DisasterZoneBridgeDB.snap")
     mine = snap["bis"][rp.K("Gina")]
     assert mine["slots"][0]["id"] == 29068 and mine["slots"][0]["slot"] == "Head", mine
+    assert mine["slots"][0]["alt"] == 29011, mine
     no_errors(w)
 
 
@@ -270,6 +271,61 @@ def discord_badges_reach_the_guild():
     sam.relog()
     w.tick(15)
     assert sam.eval("return ns.Bridge:GetDiscordName(...)", rp.K("Lee")) == "LeeOnDiscord"
+    no_errors(w)
+
+
+HEAD = 29068   # a plate helm (fits Head)
+
+
+def bis_record(cl, rid, name, item, phase=1, sid=1):
+    cl.eval("local i, n, it, p, s = ...; DZBridgeInbox = { records = { { id = i, type = 'bis', body = "
+            "{ name = n, phase = p, sid = s, item = it, which = 'main' } } } }", rid, name, item, phase, sid)
+    login(cl)
+
+
+@case
+def discord_bis_edit_of_my_own_list():
+    w, c = discord_world()
+    gina = c["Gina"]
+    bis_record(gina, "b1", "Gina", HEAD)
+    assert gina.eval_py("return DisasterZoneBridgeDB.applied.b1")["ok"] is True
+    assert gina.eval("return (ns.BiS:GetSlot(1, 1))") == HEAD
+    bis_record(gina, "b2", "Gina", 28244)   # a necklace in the Head slot: refused with why
+    m = gina.eval_py("return DisasterZoneBridgeDB.applied.b2")
+    assert m["ok"] is False and "doesn't fit" in m["why"], m
+    no_errors(w)
+
+
+@case
+def discord_bis_edit_reaches_a_member_with_the_addon():
+    w, c = discord_world()
+    gina, lee = c["Gina"], c["Lee"]
+    lee.logout()
+    w.tick(3)
+    bis_record(gina, "b1", "lee", HEAD)
+    assert gina.eval_py("return DisasterZoneBridgeDB.applied.b1")["ok"] is True
+    assert len(gina.eval_py("return DisasterZoneBridgeDB.bisOut")[rp.K("Lee")]) == 1
+    lee.login()
+    w.tick(20)
+    assert lee.eval("return (ns.BiS:GetSlot(1, 1))") == HEAD
+    assert gina.eval("local o = DisasterZoneBridgeDB.bisOut; return o[...] == nil", rp.K("Lee"))
+    # (from anyone but the host: ignored)
+    c["Rita"].eval("ns.Comm:Send({ t = 'BDE', e = { { id = 'x', p = 1, s = 1, i = 0, w = 'main' } } }, 'WHISPER', ...)", rp.K("Lee"))
+    w.tick(3)
+    assert lee.eval("return (ns.BiS:GetSlot(1, 1))") == HEAD
+    no_errors(w)
+
+
+@case
+def discord_bis_edit_for_a_member_without_the_addon():
+    w, c = discord_world()
+    gina = c["Gina"]
+    w.add_offline_member("Nomad", "WARRIOR", 3)
+    w.tick(5)
+    bis_record(gina, "b1", "nomad", HEAD)
+    m = gina.eval_py("return DisasterZoneBridgeDB.applied.b1")
+    assert m["ok"] is True, m
+    assert gina.eval("return ns.Store:Get(...).data.ph[1][1][1]", rp.K("Nomad")) == HEAD
     no_errors(w)
 
 

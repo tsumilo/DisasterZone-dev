@@ -17,7 +17,9 @@ use crate::core::bridge;
 use twilight_model::application::command::CommandType;
 use twilight_model::application::interaction::application_command::CommandOptionValue;
 use twilight_model::application::interaction::{Interaction, InteractionData};
-use twilight_util::builder::command::{CommandBuilder, StringBuilder};
+use twilight_model::application::command::{CommandOptionChoice, CommandOptionChoiceValue};
+use twilight_model::application::interaction::InteractionType;
+use twilight_util::builder::command::{CommandBuilder, IntegerBuilder, StringBuilder, SubCommandBuilder};
 use twilight_model::channel::message::MessageFlags;
 use twilight_model::channel::ChannelType;
 use twilight_model::http::interaction::{InteractionResponse, InteractionResponseData, InteractionResponseType};
@@ -126,8 +128,27 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
     let commands = [
         CommandBuilder::new("ping", "Check that the DisasterZone bot is online", CommandType::ChatInput).build(),
         CommandBuilder::new("raids", "The coming raids, their sign-ups and your answer", CommandType::ChatInput).build(),
-        CommandBuilder::new("bis", "A BiS list for this phase (yours, or someone's)", CommandType::ChatInput)
-            .option(StringBuilder::new("character", "Whose list (default: your character)").required(false).max_length(40))
+        CommandBuilder::new("bis", "BiS lists: see one, or change yours", CommandType::ChatInput)
+            .option(
+                SubCommandBuilder::new("show", "A BiS list for this phase (yours, or someone's)")
+                    .option(StringBuilder::new("character", "Whose list (default: your character)").required(false).max_length(40)),
+            )
+            .option(
+                SubCommandBuilder::new("set", "Change a slot of your list")
+                    .option(
+                        IntegerBuilder::new("slot", "Which slot")
+                            .required(true)
+                            .choices(crate::signup::SLOTS.iter().enumerate().map(|(i, s)| (*s, i as i64 + 1))),
+                    )
+                    .option(StringBuilder::new("item", "Start typing the item's name (none = empty the slot)").required(true).autocomplete(true))
+                    .option(StringBuilder::new("character", "Which of your characters (default: your first)").required(false).max_length(40))
+                    .option(
+                        StringBuilder::new("pick", "Main pick (default) or the slot's alternative")
+                            .required(false)
+                            .choices([("Main", "main"), ("Alternative", "alt")]),
+                    )
+                    .option(IntegerBuilder::new("phase", "Which phase (0 = Pre-raid; default: the guild's)").required(false).min_value(0).max_value(5)),
+            )
             .build(),
         CommandBuilder::new("character", "Your characters for raid sign-ups: add, see or remove them", CommandType::ChatInput)
             .build(),
@@ -193,7 +214,12 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
 async fn tell(http: &Client, out: &bridge::Synced) {
     for (r, why) in &out.failed {
         if !r.discord.is_empty() {
-            dm(http, &r.discord, &format!("Your Discord sign-up didn't go through: {why}")).await;
+            let what = match r.kind.as_str() {
+                "bis" => "BiS change",
+                "signup" => "sign-up",
+                _ => "change",
+            };
+            dm(http, &r.discord, &format!("Your {what} from Discord didn't go through: {why}")).await;
         }
     }
 }
@@ -280,6 +306,9 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
             return respond(http, app_id, i, a).await;
         }
         Some(InteractionData::ModalSubmit(m)) => return respond(http, app_id, i, crate::signup::form_sent(&user, m)).await,
+        Some(InteractionData::ApplicationCommand(cmd)) if i.kind == InteractionType::ApplicationCommandAutocomplete => {
+            return item_choices(http, app_id, i, cmd).await;
+        }
         Some(InteractionData::ApplicationCommand(cmd)) if cmd.name == "character" => {
             return respond(http, app_id, i, crate::signup::characters(&user)).await;
         }
@@ -289,11 +318,40 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
     let text = match cmd.name.as_str() {
         "ping" => ping_text(app),
         "bis" => {
-            let who = cmd.options.iter().find_map(|o| match (&o.name[..], &o.value) {
-                ("character", CommandOptionValue::String(t)) => Some(t.clone()),
-                _ => None,
-            });
-            crate::signup::bis_text(&user, who.as_deref(), unix_now())
+            let (sub, opts) = match cmd.options.first() {
+                Some(o) => match &o.value {
+                    CommandOptionValue::SubCommand(v) => (o.name.as_str(), v.as_slice()),
+                    _ => ("show", cmd.options.as_slice()),
+                },
+                None => ("show", &[][..]),
+            };
+            let s = |n: &str| {
+                opts.iter().find_map(|o| match &o.value {
+                    CommandOptionValue::String(t) if o.name == n => Some(t.clone()),
+                    _ => None,
+                })
+            };
+            let int = |n: &str| {
+                opts.iter().find_map(|o| match &o.value {
+                    CommandOptionValue::Integer(v) if o.name == n => Some(*v),
+                    _ => None,
+                })
+            };
+            let alt = s("pick").as_deref() == Some("alt");
+            if sub == "set" {
+                crate::signup::bis_set(
+                    &user,
+                    &name,
+                    int("slot").unwrap_or(0),
+                    &s("item").unwrap_or_default(),
+                    s("character").as_deref(),
+                    alt,
+                    int("phase"),
+                    unix_now(),
+                )
+            } else {
+                crate::signup::bis_text(&user, s("character").as_deref(), unix_now())
+            }
         }
         "raids" => crate::signup::raids_text(&user, &i.guild_id.map(|g| g.get().to_string()).unwrap_or_default(), unix_now()),
         "bridgetest" => {
@@ -334,6 +392,44 @@ async fn respond(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, 
     Ok(())
 }
 
+/// /bis set's item: the items whose name holds what was typed so far.
+async fn item_choices(
+    http: &Client,
+    app_id: Id<ApplicationMarker>,
+    i: &Interaction,
+    cmd: &twilight_model::application::interaction::application_command::CommandData,
+) -> Result<()> {
+    fn focused(opts: &[twilight_model::application::interaction::application_command::CommandDataOption]) -> Option<String> {
+        opts.iter().find_map(|o| match &o.value {
+            CommandOptionValue::Focused(v, _) => Some(v.clone()),
+            CommandOptionValue::SubCommand(v) => focused(v),
+            _ => None,
+        })
+    }
+    let typed = focused(&cmd.options).unwrap_or_default();
+    let mut choices: Vec<CommandOptionChoice> = crate::items::search(&typed)
+        .into_iter()
+        .map(|(id, n)| CommandOptionChoice { name: n, name_localizations: None, value: CommandOptionChoiceValue::String(id.to_string()) })
+        .collect();
+    if "none".starts_with(&typed.to_lowercase()) {
+        choices.truncate(24);
+        choices.push(CommandOptionChoice {
+            name: "(empty the slot)".into(),
+            name_localizations: None,
+            value: CommandOptionChoiceValue::String("none".into()),
+        });
+    }
+    let resp = InteractionResponse {
+        kind: InteractionResponseType::ApplicationCommandAutocompleteResult,
+        data: Some(InteractionResponseData { choices: Some(choices), ..Default::default() }),
+    };
+    http.interaction(app_id)
+        .create_response(i.id, &i.token, &resp)
+        .await
+        .map_err(|e| crate::core::Error::Net(e.to_string()))?;
+    Ok(())
+}
+
 async fn reply(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, text: String) -> Result<()> {
     reply_with(http, app_id, i, text, Vec::new()).await
 }
@@ -345,10 +441,22 @@ async fn reply_with(
     text: String,
     components: Vec<twilight_model::channel::message::Component>,
 ) -> Result<()> {
+    // (a message holds 2000 characters, an embed's text 4096: a long answer, e.g. a BiS list with its links, goes
+    // in an embed; anything longer is cut)
+    let (content, embeds) = if text.chars().count() <= 1900 {
+        (Some(text), None)
+    } else {
+        let mut t: String = text.chars().take(4000).collect();
+        if t.len() < text.len() {
+            t.push('…');
+        }
+        (None, Some(vec![twilight_util::builder::embed::EmbedBuilder::new().description(t).color(0xFF8000).build()]))
+    };
     let resp = InteractionResponse {
         kind: InteractionResponseType::ChannelMessageWithSource,
         data: Some(InteractionResponseData {
-            content: Some(text),
+            content,
+            embeds,
             components: if components.is_empty() { None } else { Some(components) },
             flags: Some(MessageFlags::EPHEMERAL),
             ..Default::default()
