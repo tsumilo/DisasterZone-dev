@@ -275,6 +275,7 @@ local function NewRing(D)
         local style = practicing and "bar" or Get("style", "bar")   -- practice puts its own parts under the ring
         frame:SetScale(tonumber(Get("scale", 1)) or 1)
         local showBar, showLane = style ~= "lane", style ~= "bar"
+        if not practicing and not Get("rotation", true) then showBar, showLane = true, false end   -- no plan: the ring alone
         frame.bar:SetShown(showBar)
         frame.lane:ClearAllPoints()
         if showBar then frame.lane:SetPoint("TOP", frame.bar, "BOTTOM", 0, -14)
@@ -313,6 +314,7 @@ local function NewRing(D)
         ring.glow:SetAlpha(0)
         ring.flash:SetAlpha(0)
         frame.big:SetScale(1)
+        frame.big:Show()
         frame.big.icon:SetTexture(icon)
         frame.big.icon:SetDesaturated(true)
         frame.big.shade:SetAlpha(0)
@@ -416,6 +418,9 @@ local function NewRing(D)
 
         -- the next press in the middle: dimmed until due, a small pop when it changes
         local big = frame.big
+        local showRotation = Practicing() or Get("rotation", true)
+        big:SetShown(showRotation)
+        if not showRotation then first = nil end
         if first then
             local dt = first.at - now
             local waiting = first.key == "wait"
@@ -454,7 +459,7 @@ local function NewRing(D)
             if nowPress then big.hint:SetTextColor(1, 0.86, 0.5) else big.hint:SetTextColor(0.7, 0.66, 0.56) end
         end
         local si = 1
-        for i = 2, #steps do
+        for i = 2, showRotation and #steps or 0 do
             if si > 2 then break end
             local st = steps[i]
             if st.key ~= "wait" then
@@ -585,6 +590,8 @@ ns.SwingRing = NewRing
 function ns.SwingRingSettings(S, sec, prefix, latencyHelp)
     S:DropdownSetting(sec, "Look", "The ring, the plan lane (the next 7 seconds) or both.", prefix .. ".style", "bar", {
         { value = "bar", text = "Ring" }, { value = "lane", text = "Plan lane" }, { value = "both", text = "Both" } })
+    S:SwitchSetting(sec, "Show rotation", "The next presses in the middle of the ring (and the plan lane). Off: only the timer.",
+        prefix .. ".rotation", true)
     S:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", prefix .. ".idle", false)
     if S.EditLayoutRow then S:EditLayoutRow(sec) end
     local scales = {}
