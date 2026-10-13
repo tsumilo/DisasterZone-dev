@@ -90,7 +90,7 @@ function Cast:Apply(f, look)
     local L = Look()
     local def = BARS[f.key]
     local k = look.key
-    local w = def.w
+    local w = (ns.Layout and ns.Layout:Size("cast." .. f.key)) or def.w      -- (stretched in Edit layout)
     local iconOn = L:Opt("cast", "icon", true) and k ~= "slate"
     local h, ih, bh = 22, 20, 20
     if k == "halo" then h, ih, bh = 24, 24, 16
@@ -346,6 +346,7 @@ function Cast:Setup()
             local def = BARS[key]
             ns.Layout:Register("cast." .. key, { name = def.name, group = "Game frames", order = def.order,
                 noHide = true, default = def.default, frame = function() return bars[key] end,
+                stretch = { x = { 120, 640 }, apply = function() if bars[key] then Cast:Apply(bars[key], Look():For("cast")) end end },
                 when = "while casting",
                 mine = function() return Wanted(key) end,
                 preview = function(on) Cast:Preview(key, on) end })

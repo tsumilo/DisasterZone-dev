@@ -30,6 +30,13 @@ ns.CHANGELOG = {
               "Arrow keys move 1 px, Shift a grid step; hold Alt to place freely; Ctrl+Z undoes.",
               "Frames that only show sometimes (rolls, the raid bar, reminders) show while you edit.",
           } },
+          { heading = "Resize anything in Edit layout", area = "look", kind = "new", open = "settings/layout", lines = {
+              "Pull a corner handle to scale a frame; Shift scales from its middle.",
+              "Side handles stretch cast bars and the XP bar wider or narrower.",
+              "Roll the mouse wheel over a picked frame: 5% a notch. Double-click a handle: 100%.",
+              "Pick several and they grow together, gaps and all.",
+              "The game's frames too, in the steps their own Edit Mode allows.",
+          } },
           { heading = "Layout profiles", area = "look", kind = "new", open = "settings/layout", lines = {
               "Each character picks its own profile: Raid, Solo, Healing, whatever you make.",
               "Share a profile in chat: a guildmate who clicks the link can keep it.",

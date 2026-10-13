@@ -518,5 +518,153 @@ def the_minimap_pin_and_slash_words_open_it():
     w.assert_no_errors()
 
 
+# ------------------------------------------------------------------------------------------------------------------
+# Resizing: handles round the selection, the wheel, a double-click back to 100%
+def resize(w, c, hx, hy, dx, dy, shift=False, alt=False, steps=3):
+    """Presses the selection's handle (hx, hy), moves the cursor by dx, dy and lets go."""
+    l, b, r, t = c.eval("local b = ns.EditMode:SelectionBox(); return b.l, b.b, b.r, b.t")
+    x0 = l if hx < 0 else (r if hx > 0 else (l + r) / 2)
+    y0 = b if hy < 0 else (t if hy > 0 else (b + t) / 2)
+    c.eval("__MOCK.cursor = { ... }", x0, y0)
+    c.set_modifiers(shift=shift, alt=alt)
+    c.eval("ns.EditMode:StartResize(...)", hx, hy)
+    for i in range(1, steps + 1):
+        c.eval("__MOCK.cursor = { ... }", x0 + dx * i / steps, y0 + dy * i / steps)
+        w.tick(0.05)
+    c.eval("ns.EditMode:EndDrag()")
+    c.set_modifiers(shift=False, alt=False)
+    w.tick(0.05)
+
+
+STRETCHY = """
+    local f = CreateFrame('Frame', 'DZTestStretch', UIParent)
+    f:SetSize(200, 20)
+    f:Show()
+    ns.Layout:Register('test.stretch', { name = 'Stretchy', group = 'Raid', default = { 'CENTER', 0, -300 },
+        frame = function() return f end,
+        stretch = { x = { 100, 600 }, apply = function() f:SetWidth(ns.Layout:Size('test.stretch') or 200) end } })
+"""
+
+
+@case
+def a_corner_handle_scales_evenly_from_the_opposite_corner():
+    w, c = boot()
+    open_edit(w, c)
+    c.eval("ns.Layout:MoveTo('roll', 600, 400)")
+    c.eval("ns.EditMode:Select({ 'roll' })")
+    l, b, bw, bh = box(c, "roll")
+    resize(w, c, 1, -1, bw * 0.5, 0, alt=True)                     # bottom-right corner, half again as wide
+    l2, b2, bw2, bh2 = box(c, "roll")
+    assert abs(c.eval("return ns.Layout:Scale('roll')") - 1.5) < 0.011
+    assert abs(bw2 - bw * 1.5) < 2 and abs(bh2 - bh * 1.5) < 2, (bw2, bh2)
+    assert abs(l2 - l) < 1 and abs((b2 + bh2) - (b + bh)) < 1, (l2, b2)   # the top-left corner stayed
+    # Shift: from the centre
+    cx, cy = l2 + bw2 / 2, b2 + bh2 / 2
+    resize(w, c, -1, 0, bw2 * 0.25, 0, shift=True, alt=True)       # the left side pulled in: smaller both ways
+    l3, b3, bw3, bh3 = box(c, "roll")
+    assert bw3 < bw2 - 10
+    assert abs((l3 + bw3 / 2) - cx) < 1.5 and abs((b3 + bh3 / 2) - cy) < 1.5
+    # undo: the size before
+    c.eval("ns.EditMode:Undo()")
+    assert abs(box(c, "roll")[2] - bw2) < 1
+    w.assert_no_errors()
+
+
+@case
+def a_side_handle_stretches_a_frame_that_lays_itself_out():
+    w, c = boot()
+    c.eval(STRETCHY)
+    open_edit(w, c)
+    c.eval("ns.EditMode:Select({ 'test.stretch' })")
+    l, b, bw, bh = box(c, "test.stretch")
+    resize(w, c, 1, 0, 120, 0, alt=True)
+    l2, b2, bw2, bh2 = box(c, "test.stretch")
+    assert abs(bw2 - (bw + 120)) < 1.5 and abs(bh2 - bh) < 0.6, (bw2, bh2)    # wider, not taller
+    assert abs(l2 - l) < 1                                                      # the left edge stayed
+    assert entry(c, "test.stretch")["w"] == round(bw + 120)
+    assert abs(c.eval("return ns.Layout:Scale('test.stretch')") - 1) < 0.001
+    # a stretch snaps its moving edge to the screen's centre line
+    resize(w, c, -1, 0, (W / 2 - l2) - 3, 0)
+    assert abs(box(c, "test.stretch")[0] - W / 2) < 0.6
+    # clamped to its range; a double-click on the side: its natural width
+    resize(w, c, 1, 0, 2000, 0, alt=True)
+    assert entry(c, "test.stretch")["w"] == 600
+    c.eval("ns.EditMode:ResetSize(1, 0)")
+    assert abs(box(c, "test.stretch")[2] - 200) < 0.6, (box(c, "test.stretch"), entry(c, "test.stretch"))
+    assert entry(c, "test.stretch").get("w") is None, entry(c, "test.stretch")
+    w.assert_no_errors()
+
+
+@case
+def several_picked_resize_as_one_with_their_gaps():
+    w, c = boot()
+    open_edit(w, c)
+    c.eval("ns.Layout:MoveTo('session', 400, 600); ns.Layout:MoveTo('roll', 400, 300)")
+    c.eval("ns.EditMode:Select({ 'session', 'roll' })")
+    gap0 = box(c, "session")[1] - (box(c, "roll")[1] + box(c, "roll")[3])
+    resize(w, c, 1, 1, 0, 400, alt=True)                    # top-right corner up: the group grows from bottom-left
+    s1, s2 = c.eval("return ns.Layout:Scale('session'), ns.Layout:Scale('roll')")
+    assert abs(s1 - s2) < 0.011 and s1 > 1.2, (s1, s2)
+    gap1 = box(c, "session")[1] - (box(c, "roll")[1] + box(c, "roll")[3])
+    assert abs(gap1 - gap0 * s1) < 3, (gap0, gap1, s1)
+    assert abs(box(c, "roll")[0] - 400) < 1.5 and abs(box(c, "roll")[1] - 300) < 1.5   # the anchor corner stayed
+    w.assert_no_errors()
+
+
+@case
+def the_wheel_steps_five_percent_and_a_double_click_goes_back_to_100():
+    w, c = boot()
+    open_edit(w, c)
+    c.eval("ns.Layout:MoveTo('roll', 600, 400)")
+    c.eval("ns.EditMode:Select({ 'roll' })")
+    l, b, bw, bh = box(c, "roll")
+    c.eval("ns.EditMode:Wheel('roll', 1)")
+    c.eval("ns.EditMode:Wheel('roll', 1)")
+    assert abs(c.eval("return ns.Layout:Scale('roll')") - 1.1) < 0.001
+    l2, b2, bw2, bh2 = box(c, "roll")
+    assert abs((l2 + bw2 / 2) - (l + bw / 2)) < 1 and abs((b2 + bh2 / 2) - (b + bh / 2)) < 1   # about its middle
+    c.eval("ns.EditMode:Wheel('session', 1)")                    # (not picked: nothing)
+    assert abs(c.eval("return ns.Layout:Scale('session')") - 1) < 0.001
+    c.eval("ns.EditMode:ResetSize(1, 1)")
+    assert abs(c.eval("return ns.Layout:Scale('roll')") - 1) < 0.001
+    c.eval("ns.EditMode:Undo()")
+    assert abs(c.eval("return ns.Layout:Scale('roll')") - 1.1) < 0.001
+    # the handles sit round the selection (corners always; sides when the frame is big enough)
+    assert c.eval("return ns.EditMode:HandlesShown()") >= 4
+    c.eval("ns.EditMode:Select({})")
+    assert c.eval("return ns.EditMode:HandlesShown()") == 0
+    w.assert_no_errors()
+
+
+@case
+def the_games_frames_resize_through_their_edit_mode_size():
+    w, c = boot()
+    c.eval(BLIZZ_STUB, 3)
+    c.eval("""
+        Enum = Enum or {}
+        Enum.EditModeSystem = { UnitFrame = 0 }
+        Enum.EditModeUnitFrameSetting = { FrameSize = 7 }
+        EditModeSettingDisplayInfoManager = { systemSettingDisplayInfo = { [0] = {
+            { setting = 7, minValue = 100, maxValue = 200, stepSize = 5 } } } }
+    """)
+    c.eval("ns.Layout:RegisterBlizzard()")
+    open_edit(w, c)
+    lo, hi, step = c.eval("return ns.Layout:ScaleRange('blizz:PlayerFrame')")
+    assert (round(lo, 2), round(hi, 2), round(step, 2)) == (1.0, 2.0, 0.05)
+    c.eval("ns.EditMode:Select({ 'blizz:PlayerFrame' })")
+    l, b, bw, bh = box(c, "blizz:PlayerFrame")
+    saves = c.eval("return __EM.saves")
+    resize(w, c, 1, -1, bw * 0.32, 0, alt=True)
+    assert c.eval("return __EM.saves") > saves
+    s = c.eval_py("return __EM.last.layouts[3].systems[1].settings")
+    assert s and s[0]["setting"] == 7 and s[0]["value"] == 6, s          # 130% = (130 - 100) / 5
+    assert abs(entry(c, "blizz:PlayerFrame")["s"] - 1.3) < 0.001
+    # below its slider's minimum it stops at 100%
+    resize(w, c, 1, -1, -bw, 0, alt=True)
+    s = c.eval_py("return __EM.last.layouts[3].systems[1].settings")
+    assert s[0]["value"] == 0, s
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

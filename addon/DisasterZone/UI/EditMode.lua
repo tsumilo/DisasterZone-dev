@@ -8,7 +8,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/EditMode.lua", ...) then return
 --   a readout of the place from the screen's centre (equal numbers either side = symmetric);
 --   mirrored pairs: move one and its partner follows on the other side of the centre (same height, same size);
 --   a toolbar on the selection (centre, line up, equal gaps, mirror, reset, hide); arrow keys 1 px (Shift: a grid
---   step); a corner grip scales; Ctrl+Z / Ctrl+Y; Esc (deselect, then done).
+--   step); Ctrl+Z / Ctrl+Y; Esc (deselect, then done).
+--   resizing: 8 handles round the selection (one frame or several as a group). A corner scales evenly from the
+--   opposite corner; a side stretches a frame that lays itself out at any width / height (def.stretch: cast bars, the
+--   XP bar), else scales evenly too; Shift: from the centre; the moving edge snaps like a drag (Alt: free); the mouse
+--   wheel on a picked frame: 5% a notch; a double-click on a handle: back to 100% / its natural size. Several picked:
+--   they scale as one, the gaps between them too. The game's frames scale through their Edit Mode size (its steps).
 -- The panel: profile (this character's; new, copy, rename, delete, share), grid, what snaps, my character's frames or
 -- everything, the list with an eye per frame, undo / redo / reset / done.
 -- The meters keep their own docking: while editing they are unlocked and raised over the overlay, and a stack dragged
@@ -351,7 +356,6 @@ local function PaintMover(m)
     end
     local def = Layout():Item(id)
     m.tag:SetShown(on or m:IsMouseOver())
-    m.grip:SetShown(on and #sel == 1 and def and def.kind == "dz" or false)
     m:SetAlpha((def and not Layout():IsMine(id)) and 0.6 or 1)
 end
 
@@ -378,15 +382,8 @@ local function NewMover()
     m.tag.fs = UI:Text(m.tag, "small", "TEXT", { shadow = false })
     m.tag.fs:SetTextColor(0.08, 0.08, 0.08)
     m.tag.fs:SetPoint("LEFT", 4, 0)
-    m.grip = CreateFrame("Button", nil, m)
-    m.grip:SetSize(9, 9)
-    m.grip:SetPoint("BOTTOMRIGHT", m, "BOTTOMRIGHT", 7, -7)
-    m.grip:SetFrameLevel(m:GetFrameLevel() + 6)
-    m.grip.t = m.grip:CreateTexture(nil, "OVERLAY")
-    m.grip.t:SetAllPoints()
-    m.grip.t:SetColorTexture(1, 0.82, 0, 1)
-    m.grip:SetScript("OnMouseDown", function(self) EM:StartScale(self:GetParent().id) end)
-    m.grip:SetScript("OnMouseUp", function() EM:EndDrag() end)
+    m:EnableMouseWheel(true)
+    m:SetScript("OnMouseWheel", function(self, delta) EM:Wheel(self.id, delta) end)
     m:SetScript("OnMouseDown", function(self, button) EM:OnMoverDown(self.id, button) end)
     m:SetScript("OnMouseUp", function() EM:EndDrag() end)
     m:SetScript("OnEnter", function(self) PaintMover(self) end)
@@ -410,26 +407,8 @@ local function TagText(def)
     return t
 end
 
--- Puts a mover on every listed frame that is on the screen, and an outline (no mouse) on each meter stack.
-function EM:Refresh()
-    if not active then return end
-    ReadBoxes()
-    local used = {}
-    for _, def in ipairs(Layout():Items()) do
-        local bx = boxes[def.id]
-        if bx and def.kind ~= "meters" then
-            local m = movers[def.id]
-            if not m then m = NewMover(); movers[def.id] = m end
-            m.id = def.id
-            m.tag.fs:SetText(TagText(def))
-            m.tag:SetSize(floor((m.tag.fs:GetStringWidth() or 60) + 9), 13)
-            PlaceMover(m, bx)
-            m:Show()
-            PaintMover(m)
-            used[def.id] = true
-        end
-    end
-    for id, m in pairs(movers) do if not used[id] then m:Hide() end end
+-- An outline (no mouse) round each meter stack, where it is now.
+local function PlaceOutlines()
     local i = 0
     for k, bx in pairs(boxes) do
         if k:find("^meters:") then
@@ -457,6 +436,30 @@ function EM:Refresh()
         end
     end
     for j = i + 1, #outlines do outlines[j]:Hide() end
+end
+
+-- Puts a mover on every listed frame that is on the screen, and an outline (no mouse) on each meter stack.
+function EM:Refresh()
+    if not active then return end
+    ReadBoxes()
+    local used = {}
+    for _, def in ipairs(Layout():Items()) do
+        local bx = boxes[def.id]
+        if bx and def.kind ~= "meters" then
+            local m = movers[def.id]
+            if not m then m = NewMover(); movers[def.id] = m end
+            m.id = def.id
+            m.tag.fs:SetText(TagText(def))
+            m.tag:SetSize(floor((m.tag.fs:GetStringWidth() or 60) + 9), 13)
+            PlaceMover(m, bx)
+            m:Show()
+            PaintMover(m)
+            used[def.id] = true
+        end
+    end
+    for id, m in pairs(movers) do if not used[id] then m:Hide() end end
+    PlaceOutlines()
+    self:PlaceHandles()
     self:UpdateToolbar()
     self:UpdateList()
 end
@@ -464,6 +467,19 @@ end
 ---------------------------------------------------------------------------
 -- Dragging, scaling, the marquee
 ---------------------------------------------------------------------------
+
+local function SelBox(ids)
+    local l, b, r, t
+    for _, id in ipairs(ids) do
+        local bx = boxes[id]
+        if bx then
+            l, b = min(l or bx.l, bx.l), min(b or bx.b, bx.b)
+            r, t = max(r or bx.r, bx.r), max(t or bx.t, bx.t)
+        end
+    end
+    if not l then return nil end
+    return Box(l, b, r - l, t - b)
+end
 
 local function PushUndo()
     undo[#undo + 1] = Layout():Snapshot()
@@ -514,15 +530,324 @@ function EM:OnMoverDown(id, button)
     self:Refresh()
 end
 
-function EM:StartScale(id)
-    local def = Layout():Item(id)
-    if not def or def.kind ~= "dz" then return end
-    local cx, cy = Cursor()
+---------------------------------------------------------------------------
+-- Resizing: handles round the selection
+---------------------------------------------------------------------------
+
+-- The handles: { key, hx, hy } (-1 left / bottom, 0 middle, 1 right / top).
+local HANDLES = {
+    { "BOTTOMLEFT", -1, -1 }, { "BOTTOM", 0, -1 }, { "BOTTOMRIGHT", 1, -1 }, { "RIGHT", 1, 0 },
+    { "TOPRIGHT", 1, 1 }, { "TOP", 0, 1 }, { "TOPLEFT", -1, 1 }, { "LEFT", -1, 0 },
+}
+local handles = {}
+
+-- What resizes with the selection: the picked ids that scale or stretch.
+local function Sizable()
+    local out = {}
+    for _, id in ipairs(sel) do
+        local cx, cy = Layout():CanStretch(id)
+        if boxes[id] and (Layout():ScaleRange(id) or cx or cy) then out[#out + 1] = id end
+    end
+    return out
+end
+
+-- A side handle stretches when one frame is picked and it lays itself out along that axis.
+local function Stretches(ids, hx, hy)
+    if #ids ~= 1 or (hx ~= 0 and hy ~= 0) then return false end
+    local cx, cy = Layout():CanStretch(ids[1])
+    if hx ~= 0 then return cx end
+    return cy
+end
+
+local function NewHandle(h)
+    local b = CreateFrame("Button", nil, overlay)
+    b:SetSize(14, 14)
+    b:SetFrameLevel(overlay:GetFrameLevel() + 40)
+    b.edge = b:CreateTexture(nil, "ARTWORK")
+    b.edge:SetPoint("CENTER")
+    b.edge:SetSize(9, 9)
+    b.edge:SetColorTexture(0.05, 0.05, 0.06, 1)
+    b.t = b:CreateTexture(nil, "OVERLAY")
+    b.t:SetPoint("CENTER")
+    b.t:SetSize(7, 7)
+    b.t:SetColorTexture(1, 0.82, 0, 1)
+    b.h = h
+    b:SetScript("OnEnter", function(self)
+        self.t:SetSize(9, 9); self.edge:SetSize(11, 11)
+        if SetCursor then pcall(SetCursor, "UI_RESIZE_CURSOR") end
+        local ids = Sizable()
+        local str = Stretches(ids, self.h[2], self.h[3])
+        EM:Hint(str and "Drag to stretch  \194\183  Shift: from the centre  \194\183  double-click: natural size"
+            or "Drag to resize  \194\183  Shift: from the centre  \194\183  Alt: no snapping  \194\183  double-click: 100%")
+    end)
+    b:SetScript("OnLeave", function(self)
+        self.t:SetSize(7, 7); self.edge:SetSize(9, 9)
+        if ResetCursor then pcall(ResetCursor) end
+        if not pickFor then EM:Hint(nil) end
+    end)
+    b:SetScript("OnMouseDown", function(self, button)
+        if button ~= "LeftButton" then return end
+        local now = GetTime and GetTime() or 0
+        if self.last and now - self.last < 0.35 then
+            self.last = nil
+            EM:ResetSize(self.h[2], self.h[3])
+            return
+        end
+        self.last = now
+        EM:StartResize(self.h[2], self.h[3])
+    end)
+    b:SetScript("OnMouseUp", function() EM:EndDrag() end)
+    return b
+end
+
+function EM:PlaceHandles()
+    if not overlay then return end
+    local ids = (active and not (drag and drag.kind ~= "resize")) and Sizable() or {}
+    local sb = drag and drag.kind == "resize" and drag.now or SelBox(ids)
+    for i, h in ipairs(HANDLES) do
+        local b = handles[i]
+        if not b then b = NewHandle(h); handles[i] = b end
+        local side = h[2] == 0 or h[3] == 0
+        -- (a side handle on a frame too small to hold it: only the corners)
+        local room = sb and ((h[2] == 0 and sb.w >= 40) or (h[3] == 0 and sb.h >= 28) or not side)
+        if sb and #ids > 0 and room then
+            b:ClearAllPoints()
+            local x = h[2] < 0 and sb.l - 3 or (h[2] > 0 and sb.r + 3 or sb.cx)
+            local y = h[3] < 0 and sb.b - 3 or (h[3] > 0 and sb.t + 3 or sb.cy)
+            b:SetPoint("CENTER", overlay, "BOTTOMLEFT", x, y)
+            -- (a side that stretches is drawn long: a bar, not a dot)
+            local str = Stretches(ids, h[2], h[3])
+            if str then
+                b.t:SetSize(h[2] ~= 0 and 3 or 14, h[3] ~= 0 and 3 or 14)
+                b.edge:SetSize(h[2] ~= 0 and 5 or 16, h[3] ~= 0 and 5 or 16)
+            elseif not b:IsMouseOver() then
+                b.t:SetSize(7, 7); b.edge:SetSize(9, 9)
+            end
+            b:Show()
+        else
+            b:Hide()
+        end
+    end
+end
+
+-- Before a size changes: its size now goes into the profile (so an undo brings it back).
+local function SeedSizes(ids)
+    for _, id in ipairs(ids) do
+        local e = Layout():Active().frames[Layout():Key(id)] or {}
+        if e.s == nil and Layout():ScaleRange(id) then
+            e.s = Layout():Scale(id)
+            Layout():Active().frames[Layout():Key(id)] = e
+        end
+    end
+end
+
+function EM:StartResize(hx, hy)
     ReadBoxes()
-    local bx = boxes[id]
-    if not bx then return end
+    local ids = Sizable()
+    if #ids == 0 or InCombat() then return end
+    local cx, cy = Cursor()
+    local start, s0, size0 = {}, {}, {}
+    for _, id in ipairs(ids) do
+        start[id] = boxes[id]
+        s0[id] = Layout():Scale(id)
+        local w, h = Layout():Size(id)
+        local f = Layout():Frame(id)
+        size0[id] = { w or (f and f:GetWidth()) or 0, h or (f and f:GetHeight()) or 0 }
+    end
+    SeedSizes(ids)
     PushUndo()
-    drag = { kind = "scale", id = id, x0 = cx, y0 = cy, s0 = Layout():Scale(id), w0 = bx.w }
+    drag = { kind = "resize", hx = hx, hy = hy, x0 = cx, y0 = cy, ids = ids, start = start, s0 = s0, size0 = size0,
+             g = SelBox(ids), stretch = Stretches(ids, hx, hy), ghost = {}, bsize = {}, id = primary or ids[1] }
+    if toolbar then toolbar:Hide() end
+end
+-- (the old corner grip's name)
+function EM:StartScale(id)
+    if id and not IsSel(id) then sel, primary = { id }, id end
+    self:StartResize(1, -1)
+end
+
+-- The factor range every frame in ids can take, from its own scale range.
+local function FactorRange(ids, s0)
+    local lo, hi = 0, math.huge
+    for _, id in ipairs(ids) do
+        local a, b = Layout():ScaleRange(id)
+        if a and s0[id] and s0[id] > 0 then lo = max(lo, a / s0[id]); hi = min(hi, b / s0[id]) end
+    end
+    if hi == math.huge then hi = 1 end
+    return lo, hi
+end
+
+-- Scales the frames in ids by k about (ax, ay): their sizes and the gaps between them (Blizzard frames: ghosts).
+local function ApplyFactor(d, k, ax, ay)
+    local nl, nb, nr, nt
+    for _, id in ipairs(d.ids) do
+        local st = d.start[id]
+        local def = Layout():Item(id)
+        local s = d.s0[id] * k
+        local ncx, ncy = ax + (st.cx - ax) * k, ay + (st.cy - ay) * k
+        local bx
+        if def.kind == "blizzard" then
+            local lo, hi, step = Layout():ScaleRange(id)
+            s = max(lo, min(hi, floor(s / step + 0.5) * step))
+            local r = s / d.s0[id]
+            bx = Box(ncx - st.w * r / 2, ncy - st.h * r / 2, st.w * r, st.h * r)
+            d.ghost[id], d.bsize[id] = bx, s
+            if movers[id] then PlaceMover(movers[id], bx) end
+        else
+            Layout():SetScale(id, s, true)
+            local _, _, w, h = Layout():Rect(id)
+            w, h = w or st.w * k, h or st.h * k
+            Layout():MoveTo(id, ncx - w / 2, ncy - h / 2, true)
+            bx = Box(ncx - w / 2, ncy - h / 2, w, h)
+        end
+        nl, nb = min(nl or bx.l, bx.l), min(nb or bx.b, bx.b)
+        nr, nt = max(nr or bx.r, bx.r), max(nt or bx.t, bx.t)
+    end
+    return Box(nl, nb, nr - nl, nt - nb)
+end
+
+-- The moving edge's snap: the line it catches (UIParent units) or nil.
+local function SnapEdge(axis, v, skip)
+    if IsAltKeyDown() then return nil end
+    local r = Best({ v }, Lines(axis, skip))
+    return r and (v + r.d) or nil
+end
+
+local function UpdateResize(d, cx, cy)
+    local G = d.g
+    local shift = IsShiftKeyDown()
+    local skip = {}
+    for _, id in ipairs(d.ids) do skip[id] = true; local p = Layout():Partner(id); if p then skip[p] = true end end
+    -- the anchor: the opposite side / corner (the centre with Shift); a side's other axis keeps its middle
+    local ax = (shift or d.hx == 0) and G.cx or (d.hx > 0 and G.l or G.r)
+    local ay = (shift or d.hy == 0) and G.cy or (d.hy > 0 and G.b or G.t)
+    -- where the moving edges would go, snapped
+    local ex = d.hx ~= 0 and ((d.hx > 0 and G.r or G.l) + (cx - d.x0)) or nil
+    local ey = d.hy ~= 0 and ((d.hy > 0 and G.t or G.b) + (cy - d.y0)) or nil
+    if ex then ex = SnapEdge("x", ex, skip) or ex end
+    if ey then ey = SnapEdge("y", ey, skip) or ey end
+    local nw = ex and max(4, (ex - ax) * d.hx) or G.w
+    local nh = ey and max(4, (ey - ay) * d.hy) or G.h
+    if shift then
+        if ex then nw = max(4, abs(ex - G.cx) * 2) end
+        if ey then nh = max(4, abs(ey - G.cy) * 2) end
+    end
+    local id = d.ids[1]
+    if d.stretch then
+        local f = Layout():Frame(id)
+        local r = Layout().Ratio(f)
+        local st, sz = d.start[id], d.size0[id]
+        if d.hx ~= 0 then Layout():SetSize(id, sz[1] + (nw - st.w) / r, nil)
+        else Layout():SetSize(id, nil, sz[2] + (nh - st.h) / r) end
+        local _, _, w, h = Layout():Rect(id)
+        w, h = w or st.w, h or st.h
+        local l = d.hx == 0 and st.l or (shift and G.cx - w / 2 or (d.hx > 0 and G.l or G.r - w))
+        local b = d.hy == 0 and st.b or (shift and G.cy - h / 2 or (d.hy > 0 and G.b or G.t - h))
+        Layout():MoveTo(id, l, b, true)
+        d.now = Box(l, b, w, h)
+        local fw, fh = Layout():Size(id)
+        d.label = ("%d \195\151 %d"):format(floor((fw or sz[1]) + 0.5), floor((fh or sz[2]) + 0.5))
+    else
+        -- even scale: the factor from the axis being pulled (a corner: whichever grew or shrank more)
+        local kx, ky = nw / G.w, nh / G.h
+        local k
+        if d.hx == 0 then k = ky elseif d.hy == 0 then k = kx
+        elseif abs(kx - 1) >= abs(ky - 1) then k = kx else k = ky end
+        local lo, hi = FactorRange(d.ids, d.s0)
+        -- (the primary frame lands on whole percents)
+        local pid = IsSel(d.id) and d.s0[d.id] and d.id or d.ids[1]
+        local ps = d.s0[pid]
+        k = max(lo, min(hi, k))
+        if ps and ps > 0 then k = floor(ps * k * 100 + 0.5) / 100 / ps end
+        d.now = ApplyFactor(d, k, ax, ay)
+        d.label = ("%d%%"):format(floor(ps * k * 100 + 0.5))
+        if #d.ids > 1 then d.label = d.label .. ("  \194\183  %d frames"):format(#d.ids) end
+    end
+    -- mirrored partners follow (same size, the other side)
+    for _, i2 in ipairs(d.ids) do
+        local p = Layout():Partner(i2)
+        if p and not IsSel(p) and Layout():Item(i2).kind == "dz" then Layout():FollowMirror(i2, true) end
+    end
+    ReadBoxes()
+    for i2, m in pairs(movers) do if m:IsShown() and boxes[i2] then PlaceMover(m, boxes[i2]) end end
+    DrawGuides(d.id, d.now, skip, nil, nil, nil)
+    Pill(cx + 14, cy - 22, d.label, GOLD, true, true)
+    EM:PlaceHandles()
+end
+
+-- The mouse wheel on a picked frame: 5% a notch, the selection about its middle.
+function EM:Wheel(id, delta)
+    if not IsSel(id) or drag or InCombat() then return end
+    ReadBoxes()
+    local ids = Sizable()
+    if #ids == 0 then return end
+    local s0, start = {}, {}
+    for _, i2 in ipairs(ids) do s0[i2] = Layout():Scale(i2); start[i2] = boxes[i2] end
+    local ps = s0[IsSel(primary) and s0[primary] and primary or ids[1]]
+    local ns2 = floor(ps * 20 + (delta > 0 and 1.5 or -0.5)) / 20       -- (the next 5% step either way)
+    local lo, hi = FactorRange(ids, s0)
+    local k = max(lo, min(hi, ns2 / ps))
+    if abs(k - 1) < 0.001 then return end
+    SeedSizes(ids)
+    PushUndo()
+    local G = SelBox(ids)
+    local d = { ids = ids, start = start, s0 = s0, ghost = {}, bsize = {} }
+    ApplyFactor(d, k, G.cx, G.cy)
+    self:FinishResize(d)
+end
+
+-- A double-click on a handle: back to 100% (a stretching side: its natural width / height).
+function EM:ResetSize(hx, hy)
+    if drag then drag = nil end
+    ReadBoxes()
+    local ids = Sizable()
+    if #ids == 0 or InCombat() then return end
+    SeedSizes(ids)
+    PushUndo()
+    if Stretches(ids, hx, hy) then
+        local id = ids[1]
+        local st = boxes[id]
+        local nw, nh = nil, nil
+        if hx ~= 0 then nw = false else nh = false end
+        Layout():SetSize(id, nw, nh)
+        local _, _, w, h = Layout():Rect(id)
+        if w then Layout():MoveTo(id, st.cx - w / 2, st.cy - h / 2, true) end
+        self:FinishResize({ ids = ids, ghost = {}, bsize = {} })
+        return
+    end
+    local d = { ids = ids, start = {}, s0 = {}, ghost = {}, bsize = {} }
+    for _, id in ipairs(ids) do d.start[id] = boxes[id]; d.s0[id] = Layout():Scale(id) end
+    for _, id in ipairs(ids) do
+        local st = boxes[id]
+        if Layout():Item(id).kind == "blizzard" then
+            local r = 1 / d.s0[id]
+            d.ghost[id] = Box(st.cx - st.w * r / 2, st.cy - st.h * r / 2, st.w * r, st.h * r)
+            d.bsize[id] = 1
+        else
+            Layout():SetScale(id, 1, true)
+            local _, _, w, h = Layout():Rect(id)
+            if w then Layout():MoveTo(id, st.cx - w / 2, st.cy - h / 2, true) end
+        end
+    end
+    self:FinishResize(d)
+end
+
+-- After a resize: the game's frames get their size and place, partners follow, the screen catches up.
+function EM:FinishResize(d)
+    local any = false
+    for id, g in pairs(d.ghost or {}) do
+        Layout():SetScale(id, d.bsize[id], true, true)
+        Layout():MoveTo(id, g.l, g.b, true, g.w, g.h)
+        any = true
+    end
+    for _, id in ipairs(d.ids or {}) do
+        local p = Layout():Partner(id)
+        if p and not IsSel(p) then Layout():FollowMirror(id, true) end
+    end
+    if any then self:CommitBlizz() end
+    self:ClearGuides()
+    self:Refresh()
+    self:Flash()
 end
 
 local function MoveItem(id, l, b)
@@ -572,18 +897,8 @@ local function UpdateDrag()
         ReadBoxes()
         for id, m in pairs(movers) do if m:IsShown() and boxes[id] then PlaceMover(m, boxes[id]) end end
         DrawGuides(d.id, Box(nl, nb, s0.w, s0.h), skip, gx, gy, Layout():Scale(d.id))
-    elseif d.kind == "scale" then
-        local s = max(0.5, min(2, floor(d.s0 * (d.w0 + dx) / d.w0 * 20 + 0.5) / 20))
-        if abs(s - Layout():Scale(d.id)) > 0.001 then
-            Layout():SetScale(d.id, s)
-            if Layout():Partner(d.id) then Layout():FollowMirror(d.id) end
-        end
-        ReadBoxes()
-        local bx = boxes[d.id]
-        if bx then
-            if movers[d.id] then PlaceMover(movers[d.id], bx) end
-            DrawGuides(d.id, bx, { [d.id] = true }, nil, nil, s)
-        end
+    elseif d.kind == "resize" then
+        UpdateResize(d, cx, cy)
     elseif d.kind == "marquee" then
         local x1, x2, y1, y2 = min(d.x0, cx), max(d.x0, cx), min(d.y0, cy), max(d.y0, cy)
         EM:ClearGuides()
@@ -605,9 +920,13 @@ function EM:EndDrag()
     local d = drag
     if not d then return end
     drag = nil
+    if d.kind == "resize" then
+        self:FinishResize(d)
+        return
+    end
     if d.kind == "move" and d.moved then
         local any = false
-        for id, g in pairs(d.ghost) do Layout():MoveTo(id, g.l, g.b, true); any = true end
+        for id, g in pairs(d.ghost) do Layout():MoveTo(id, g.l, g.b, true, g.w, g.h); any = true end
         if any then self:CommitBlizz() end
     elseif d.kind == "move" and not d.moved and #undo > 0 then
         -- (a click: nothing moved)
@@ -671,7 +990,7 @@ local function GlyphButton(parent, key, title, text, onClick)
     b:SetScript("OnEnter", function(self)
         self.hover:Show()
         for _, t in ipairs(self.bars) do t:SetColorTexture(1, 0.82, 0, 1) end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetOwner(self, ns.UI:TowardMiddle(self, "y"))
         GameTooltip:AddLine(title)
         if text then GameTooltip:AddLine(text, 1, 1, 1, true) end
         GameTooltip:Show()
@@ -696,19 +1015,6 @@ local function TextButton(parent, text, onClick)
     UI:SetTextStyle(b:GetFontString(), "small")
     b:SetWidth(floor((b:GetFontString():GetStringWidth() or 40) + 16))
     return b
-end
-
-local function SelBox(ids)
-    local l, b, r, t
-    for _, id in ipairs(ids) do
-        local bx = boxes[id]
-        if bx then
-            l, b = min(l or bx.l, bx.l), min(b or bx.b, bx.b)
-            r, t = max(r or bx.r, bx.r), max(t or bx.t, bx.t)
-        end
-    end
-    if not l then return nil end
-    return Box(l, b, r - l, t - b)
 end
 
 -- Toolbar actions (also the panel's list and the tests).
@@ -889,7 +1195,8 @@ end
 
 function EM:Hint(text)
     if not banner then return end
-    banner.fs:SetText(text or "Edit layout  \194\183  drag anything  \194\183  Esc when done")
+    banner.fs:SetText(text or "Edit layout  \194\183  drag anything  \194\183  pull a handle or roll the wheel to resize"
+        .. "  \194\183  Esc when done")
     banner:SetWidth(floor((banner.fs:GetStringWidth() or 300) + 24))
     if text then banner.bg:SetColorTexture(1, 0.82, 0, 1) else banner.bg:SetColorTexture(1, 0.82, 0, 0.88) end
 end
@@ -1306,6 +1613,8 @@ function EM:RefreshQuiet()
     for id, m in pairs(movers) do
         if m:IsShown() and boxes[id] then PlaceMover(m, boxes[id]) end
     end
+    PlaceOutlines()
+    self:PlaceHandles()
 end
 
 -- Frames that only show sometimes come up with made-up content while editing (and go when it closes).
@@ -1420,6 +1729,12 @@ end
 function EM:Selection() return sel end
 function EM:StepDrag() if drag then UpdateDrag() end end
 function EM:Mover(id) return movers[id] end
+function EM:SelectionBox() ReadBoxes() return SelBox(sel) end
+function EM:HandlesShown()
+    local n = 0
+    for _, b in ipairs(handles) do if b:IsShown() then n = n + 1 end end
+    return n
+end
 function EM:GetPanel() return panel end
 function EM:GetToolbar() return toolbar end
 function EM:Boxes() ReadBoxes() return boxes end
@@ -1434,6 +1749,7 @@ function EM:SnapBox(frame, x, y, w, h)
     for k in pairs(boxes) do if k:find("^meters:") then skip[k] = true end end
     local nl, nb, gx, gy = self:Snap(x * r, (y - h) * r, w * r, h * r, skip, IsAltKeyDown())
     DrawGuides(nil, Box(nl, nb, w * r, h * r), skip, gx, gy, nil)
+    PlaceOutlines()
     return nl / r, nb / r + h
 end
 

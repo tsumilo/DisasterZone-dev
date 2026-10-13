@@ -83,6 +83,8 @@ local function Skin(b)
     s.edge = L.Edges(b, "OVERLAY", 6); s.edge:Place(b, 0)
     s.edge2 = L.Edges(b, "OVERLAY", 7); s.edge2:Place(b, -1)
     s.sheen = L.Tex(b, "OVERLAY", 5)
+    s.bezel = L.Tex(b, "OVERLAY", 7, L.GILT .. "bezel")      -- (Gilded's worked frame)
+    s.bezel:SetPoint("TOPLEFT", b, "TOPLEFT", -1, 1); s.bezel:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 1, -1)
     s.sheen:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2)
     s.sheen:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2)
     skinned[b] = s
@@ -179,8 +181,9 @@ function Bars:Apply(b, look)
     if round then L.Color(s.ring, { 1, 1, 1, 0.14 }); L.Color(s.ringIn, { 0, 0, 0, 1 }) end
     if k == "flat" then s.edge:Paint({ 0, 0, 0, 1 }); s.edge2:Paint(nil)
     elseif k == "sigil" then s.edge:Paint({ 0, 0, 0, 1 }); s.edge2:Paint({ 1, 1, 1, 0.2 })
-    elseif k == "gilded" then s.edge:Paint({ 0, 0, 0, 1 }); s.edge2:Paint(look.rim)
+    elseif k == "gilded" then s.edge:Paint(nil); s.edge2:Paint(nil)
     else s.edge:Paint(nil); s.edge2:Paint(nil) end
+    s.bezel:SetShown(k == "gilded")
     if k == "sigil" then
         s.sheen:SetHeight(b:GetHeight() > 0 and b:GetHeight() / 2 or 16)
         L.Gradient(s.sheen, { 1, 1, 1, 0 }, { 1, 1, 1, 0.18 })
@@ -571,6 +574,7 @@ function Bars:XP()
         if ns.Layout then
             ns.Layout:Register("bars.xp", { name = "Experience bar", group = "Game frames", order = 12, noHide = true,
                 default = { "BOTTOM", 0, 4 }, frame = function() return Bars.xp end,
+                stretch = { x = { 200, 1800 }, apply = function() Bars:XP() end },
                 mine = function() return Bars.xp and Bars.xp:IsShown() or false end })
             ns.Layout:Place("bars.xp")
         end
@@ -580,6 +584,7 @@ function Bars:XP()
     local k = look.key
     local bar = _G.MainActionBar
     local w = (bar and bar:GetWidth() and bar:GetWidth() > 100) and bar:GetWidth() or 520
+    w = (ns.Layout and ns.Layout:Size("bars.xp")) or w                     -- (stretched in Edit layout)
     local h = (k == "slate") and 3 or ((k == "halo") and 8 or 9)
     f:SetSize(w, h * 2 + 6)
     f.panel:Apply((k ~= "halo" and k ~= "slate") and look or nil)

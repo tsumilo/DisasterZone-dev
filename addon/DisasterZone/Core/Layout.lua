@@ -14,11 +14,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Layout.lua", ...) then return
 --     mine = function() -> bool (shown under "My character"; default true), when = "while loot is open" (the
 --     label's note when it is usually hidden), preview = function(on) (show it with made-up content while editing),
 --     scale = { get = fn, set = fn(s) } (a feature's own size setting; else the profile keeps a scale),
+--     stretch = { x = { min, max }, y = { min, max }, apply = fn() } (a frame that lays itself out at any width /
+--       height: Edit layout's side handles stretch it; the feature reads Layout:Size(id) in its own units, nil = its
+--       natural size, and apply() lays it out again),
 --     box = function() -> the frame to measure (when `frame` itself may be hidden, e.g. a unit watch's button),
 --     protected (secure buttons inside: never moved in combat), noHide (no eye toggle) }
+-- Blizzard frames scale through their own Edit Mode size setting (Frame Size, Icon Size, ...: Layout.BLIZZ_SIZE).
 --
 -- Places are kept in UIParent units from the nearest corner, side or centre of the screen (Layout.AnchorOf), so they
--- hold on another resolution or UI scale. A profile: { id, name, by, frames = { [key] = { p, x, y, s, hide } },
+-- hold on another resolution or UI scale. A profile: { id, name, by, frames = { [key] = { p, x, y, s, w, h, hide } },
 -- mirror = { [id] = partner id }, meters = (a copy of meters.layout) }. ns.db.layouts = { v, profiles = { [id] =
 -- profile }, chars = { [character key] = profile id } }: profiles are the account's, each character uses its own.
 -- Blizzard's frames are moved by writing the active Edit Mode layout (C_EditMode.SaveLayouts) and letting the game
@@ -316,9 +320,56 @@ end
 function Layout:Scale(id)
     local def = items[id]
     if not def then return 1 end
+    if def.kind == "blizzard" then
+        local pct = self.Blizz:Size(self:Frame(id))
+        return pct and pct / 100 or 1
+    end
     if def.scale and def.scale.get then return tonumber(Call(def.scale.get)) or 1 end
     local e = self:Entry(id)
     return e and tonumber(e.s) or 1
+end
+
+-- How far an item scales: lo, hi, step (nil: it doesn't). Blizzard frames: their Edit Mode slider's range.
+function Layout:ScaleRange(id)
+    local def = items[id]
+    if not def or def.kind == "meters" then return nil end
+    if def.kind == "blizzard" then
+        local pct, lo, hi, step = self.Blizz:Size(self:Frame(id))
+        if not pct then return nil end
+        return lo / 100, hi / 100, step / 100
+    end
+    return 0.5, 2, 0.01
+end
+
+-- A stretchable item's own width and height (its units, before scale; nil = its natural size).
+function Layout:Size(id)
+    local e = self:Entry(id)
+    if not e then return nil, nil end
+    return tonumber(e.w), tonumber(e.h)
+end
+
+-- Which axes an item stretches on: canX, canY.
+function Layout:CanStretch(id)
+    local def = items[id]
+    local st = def and def.kind == "dz" and def.stretch
+    if type(st) ~= "table" then return false, false end
+    return st.x and true or false, st.y and true or false
+end
+
+-- Sets a stretchable item's width / height (its own units; nil leaves that axis as it is, false = natural again).
+function Layout:SetSize(id, w, h)
+    local def = items[id]
+    local st = def and def.kind == "dz" and def.stretch
+    if type(st) ~= "table" then return false end
+    local key = self:Key(id)
+    local e = self:Active().frames[key] or {}
+    if w == false then e.w = nil
+    elseif w and st.x then e.w = floor(max(st.x[1] or 1, min(st.x[2] or 4000, w)) + 0.5) end
+    if h == false then e.h = nil
+    elseif h and st.y then e.h = floor(max(st.y[1] or 1, min(st.y[2] or 4000, h)) + 0.5) end
+    self:Active().frames[key] = e
+    Call(st.apply)
+    return true
 end
 
 local function SetFrameScale(def, f, s)
@@ -359,10 +410,11 @@ end
 
 -- Moves an item so its box's bottom-left is (l, b), in UIParent units, and keeps that place in the profile.
 -- Blizzard frames: written to the game's Edit Mode layout (Commit applies it).
-function Layout:MoveTo(id, l, b, noCommit)
+-- (w, h: the size it will have, when that isn't the size on the screen yet: a Blizzard frame being resized)
+function Layout:MoveTo(id, l, b, noCommit, w, h)
     local def = items[id]
     if not def then return false end
-    local rl, rb, w, h = self:Rect(id)
+    if not w or not h then local _; _, _, w, h = self:Rect(id) end
     if not w then return false end
     local p, x, y = Layout.AnchorOf(l, b, w, h)
     local e = self:Active().frames[self:Key(id)] or {}
@@ -376,10 +428,23 @@ function Layout:MoveTo(id, l, b, noCommit)
     return self:Place(id)
 end
 
-function Layout:SetScale(id, s)
+-- stay: leave its place to the caller (Edit layout's handles place it themselves); else its top-left stays put.
+-- Blizzard frames: written to the game's Edit Mode layout (in its slider's steps; Commit applies it).
+function Layout:SetScale(id, s, stay, noCommit)
     local def = items[id]
-    if not def or def.kind ~= "dz" then return false end
-    s = max(0.5, min(2, tonumber(s) or 1))
+    if not def then return false end
+    local lo, hi, step = self:ScaleRange(id)
+    if not lo then return false end
+    s = max(lo, min(hi, tonumber(s) or 1))
+    if def.kind == "blizzard" then
+        local pct = floor(s * 100 / (step * 100) + 0.5) * (step * 100)
+        local e = self:Active().frames[self:Key(id)] or {}
+        e.s = pct / 100
+        self:Active().frames[self:Key(id)] = e
+        self.Blizz:SetSize(self:Frame(id), pct)
+        if not noCommit then self.Blizz:Commit() end
+        return true
+    end
     local f = self:Frame(id)
     local l, b, w, h = self:Rect(id)
     local e = self:Active().frames[self:Key(id)] or {}
@@ -387,7 +452,7 @@ function Layout:SetScale(id, s)
     self:Active().frames[self:Key(id)] = e
     SetFrameScale(def, f, s)
     -- (keep its top-left corner where it was)
-    if l and f then
+    if l and f and not stay then
         local _, _, nw, nh = self:Rect(id)
         if nw then self:MoveTo(id, l, b + h - nh) end
     end
@@ -428,9 +493,12 @@ function Layout:Reset(id)
     self:Active().frames[self:Key(id)] = nil
     if def.kind == "blizzard" then
         self.Blizz:ResetAnchor(self:Frame(id))
+        self.Blizz:SetSize(self:Frame(id), 100)
         self.Blizz:Commit()
     else
-        if not def.scale then local f = self:Frame(id); if f then f:SetScale(1) end end
+        if not def.scale then local f = self:Frame(id); if f then f:SetScale(1) end
+        elseif def.scale.set then Call(def.scale.set, 1) end
+        if def.stretch then Call(def.stretch.apply) end
         self:Place(id)
     end
 end
@@ -470,6 +538,20 @@ function Layout:FollowMirror(a, noCommit)
         self:SetScale(b, sa)
         _, _, bw = self:Rect(b)
     end
+    -- (a stretched pair: the same width and height)
+    local ax, ay = self:CanStretch(a)
+    local bx2, by2 = self:CanStretch(b)
+    if (ax and bx2) or (ay and by2) then
+        local wa, ha = self:Size(a)
+        local wb, hb = self:Size(b)
+        if wa ~= wb or ha ~= hb then
+            local nw, nh = nil, nil
+            if ax and bx2 then nw = wa or false end
+            if ay and by2 then nh = ha or false end
+            self:SetSize(b, nw, nh)
+            _, _, bw = self:Rect(b)
+        end
+    end
     local _, _, _, bh = self:Rect(b)
     return self:MoveTo(b, W - l - bw, bt + h - (bh or h), noCommit)
 end
@@ -487,11 +569,13 @@ function Layout:ApplyAll()
                 local e = p.frames[self:Key(def.id)]
                 if e and e.s then Call(def.scale.set, e.s) end
             end
+            if def.stretch then Call(def.stretch.apply) end
             self:Place(def.id)
         elseif def.kind == "blizzard" then
             local e = p.frames[self:Key(def.id)]
             local f = self:Frame(def.id)
             if e and e.p and f then self.Blizz:SetAnchor(f, e.p, e.x, e.y); blizz = true end
+            if e and e.s and f then self.Blizz:SetSize(f, e.s * 100); blizz = true end
         end
     end
     if blizz then self.Blizz:Commit() end
@@ -538,11 +622,15 @@ function Layout:Restore(snap)
             local f = self:Frame(def.id)
             local e = p.frames[self:Key(def.id)]
             if f then f:SetScale(e and tonumber(e.s) or 1) end
+        elseif def.kind == "dz" and def.scale.set then
+            local e = p.frames[self:Key(def.id)]
+            if not (e and e.s) and abs(self:Scale(def.id) - 1) > 0.001 then Call(def.scale.set, 1) end
         end
         if def.kind == "blizzard" then
             local e = p.frames[self:Key(def.id)]
             local f = self:Frame(def.id)
             if f then
+                if e and e.s then self.Blizz:SetSize(f, e.s * 100) end
                 if e and e.p then self.Blizz:SetAnchor(f, e.p, e.x, e.y) else self.Blizz:ResetAnchor(f) end
             end
         end
@@ -634,6 +722,74 @@ function Blizz:SetAnchor(f, p, x, y)
     s.anchorInfo = { point = p, relativeTo = "UIParent", relativePoint = p, offsetX = x, offsetY = y }
     s.anchorInfo2 = nil
     s.isInDefaultPosition = false
+    self.dirty = true
+    return true
+end
+
+-- The size setting of each Edit Mode system (its slider: Frame Size, Icon Size, Bar Size, Size).
+local function SizeSetting(system)
+    local E = Enum
+    if not E or not E.EditModeSystem or system == nil then return nil end
+    local S = E.EditModeSystem
+    local map = {
+        { S.UnitFrame, E.EditModeUnitFrameSetting, "FrameSize" },
+        { S.ActionBar, E.EditModeActionBarSetting, "IconSize" },
+        { S.CastBar, E.EditModeCastBarSetting, "BarSize" },
+        { S.Minimap, E.EditModeMinimapSetting, "Size" },
+        { S.AuraFrame, E.EditModeAuraFrameSetting, "IconSize" },
+        { S.MicroMenu, E.EditModeMicroMenuSetting, "Size" },
+        { S.Bags, E.EditModeBagsSetting, "Size" },
+    }
+    for _, m in ipairs(map) do
+        if m[1] ~= nil and m[1] == system and m[2] and m[2][m[3]] ~= nil then return m[2][m[3]] end
+    end
+    return nil
+end
+Layout.SizeSetting = SizeSetting
+
+-- The slider of f's size setting: setting, min, max, step (the game's own display info).
+local function SizeInfo(f)
+    local setting = f and SizeSetting(f.system)
+    if setting == nil then return nil end
+    local M = EditModeSettingDisplayInfoManager
+    local infos = M and M.systemSettingDisplayInfo and M.systemSettingDisplayInfo[f.system]
+    for _, d in ipairs(infos or {}) do
+        if d.setting == setting and d.minValue and d.maxValue then
+            return setting, d.minValue, d.maxValue, d.stepSize or 1
+        end
+    end
+    return nil
+end
+
+-- f's size in % and its slider's range: pct, min, max, step (nil when its system has no size).
+function Blizz:Size(f)
+    local setting, lo, hi, step = SizeInfo(f)
+    if setting == nil then return nil end
+    local pct = 100
+    local li = self:Load()
+    local s = li and SystemOf(li.layouts[li.activeLayout], f)
+    for _, v in ipairs(s and s.settings or {}) do
+        if v.setting == setting then pct = lo + (tonumber(v.value) or 0) * step end
+    end
+    return max(lo, min(hi, pct)), lo, hi, step
+end
+
+-- Writes f's size (in %, to its slider's step) into the layout (Commit applies it).
+function Blizz:SetSize(f, pct)
+    local setting, lo, hi, step = SizeInfo(f)
+    if setting == nil then return false end
+    local s = SystemOf(self:Editable(), f)
+    if not s then return false end
+    pct = max(lo, min(hi, floor((tonumber(pct) or 100) / step + 0.5) * step))
+    local raw = floor((pct - lo) / step + 0.5)
+    if type(s.settings) ~= "table" then s.settings = {} end
+    for _, v in ipairs(s.settings) do
+        if v.setting == setting then
+            if v.value ~= raw then v.value = raw; self.dirty = true end
+            return true
+        end
+    end
+    s.settings[#s.settings + 1] = { setting = setting, value = raw }
     self.dirty = true
     return true
 end
