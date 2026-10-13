@@ -95,6 +95,8 @@ local function Skin(b)
     s.pill:Hide()
     s.under = L.Tex(b, "OVERLAY", 6)                             -- (Slate: the gold line under an active cell)
     s.under:Hide()
+    s.qs = L.Tex(b, "OVERLAY", -1)                               -- (Classic: the game's action button frame)
+    s.qs:Hide()
     skinned[b] = s
     -- after the game's own updates: our range colour, the hidden art, the state in the look
     if b.UpdateUsable then hooksecurefunc(b, "UpdateUsable", function(self) Bars:Status(self) end) end
@@ -115,7 +117,7 @@ function Bars:Art(b)
     if nt then nt:SetAlpha(0) end
     if b.SlotBackground then b.SlotBackground:SetAlpha(0) end
     if b.SlotArt then b.SlotArt:SetAlpha(0) end
-    if b.Border then b.Border:SetAlpha(s.look.key == "flat" and 0.5 or 0) end
+    if b.Border then b.Border:SetAlpha(s.look.key == "flat" and 0.5 or (s.look.game and 1 or 0)) end
     Bars:States(b)
 end
 
@@ -132,9 +134,32 @@ local function StateTex(t, icon, round, r, g, bl, a, blend)
     t:SetAllPoints(icon)
 end
 
+-- Classic: the game's own state art (the hover and checked glows added on), each the button's size.
+local function GameState(t, key, f, framed, blend)
+    if not t or not f then return end
+    local L = Look()
+    t:SetVertexColor(1, 1, 1, 1)
+    if framed then L:QuickFrame(t, f, key)
+    else
+        L:GameTex(t, key)
+        t:ClearAllPoints()
+        t:SetAllPoints(f)
+    end
+    if t.SetBlendMode then t:SetBlendMode(blend or "BLEND") end
+end
+
 function Bars:States(b)
     local s = skinned[b]
     if not s or not s.look or not s.icon then return end
+    if s.look.game then
+        GameState(b.HighlightTexture or (b.GetHighlightTexture and b:GetHighlightTexture()), "hover", b, false, "ADD")
+        -- (the depressed frame fills its whole file: the game draws it at the button's size, not the frame's)
+        GameState(b.PushedTexture or (b.GetPushedTexture and b:GetPushedTexture()), "pushed", b, false)
+        GameState(b.CheckedTexture or (b.GetCheckedTexture and b:GetCheckedTexture()), "checked", b, false, "ADD")
+        GameState(b.Flash, "flash", b, false)
+        GameState(b.SpellHighlightTexture, "checked", b, false, "ADD")
+        return
+    end
     local round = s.look.key == "halo"
     local icon = s.icon
     StateTex(b.HighlightTexture or (b.GetHighlightTexture and b:GetHighlightTexture()), icon, round, 1, 1, 1, 0.18, "ADD")
@@ -206,6 +231,8 @@ function Bars:Apply(b, look)
         L.Color(s.edge[2], { 1, 1, 1, 0.07 }); L.Color(s.edge[4], { 1, 1, 1, 0.07 })
     else s.edge:Paint(nil); s.edge2:Paint(nil) end
     s.bezel:SetShown(k == "gilded")
+    -- (Classic: the game's action button frame round the icon, 66/36 of the button)
+    if look.game then L:QuickFrame(s.qs, b); s.qs:Show() else s.qs:Hide() end
     s.sheen:ClearAllPoints()
     if k == "sigil" then
         s.sheen:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2); s.sheen:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2)
@@ -245,6 +272,9 @@ function Bars:Apply(b, look)
             hk:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 2, 2); hk:SetJustifyH("LEFT"); Font(hk, "caps", 0.74, 0.72, 0.65)
         elseif k == "gilded" then
             hk:SetPoint("TOPRIGHT", b, "TOPRIGHT", -3, -3); hk:SetJustifyH("RIGHT"); Font(hk, "small", 0.96, 0.9, 0.75)
+        elseif look.game then
+            -- (the game's own: small grey numbers in the top right corner)
+            hk:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2); hk:SetJustifyH("RIGHT"); Font(hk, "small", 0.6, 0.6, 0.6)
         else
             hk:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2); hk:SetJustifyH("RIGHT"); Font(hk, "small", 0.85, 0.85, 0.85)
         end
@@ -393,9 +423,113 @@ local function PaintGlyphTile(t, hover)
     end
 end
 
+-- Classic's menu: the game's own micro buttons (28 x 39 of their 32 x 64 art), standing in their cells; the ones
+-- with no art of their own (guild, PvP, ours) wear the empty character frame with a picture in it.
+local MB = "Interface\\Buttons\\UI-MicroButton-"
+local MICRO_ART = {
+    CharacterMicroButton = { inner = "portrait" }, SpellbookMicroButton = "Spellbook", PlayerSpellsMicroButton = "Spellbook",
+    TalentMicroButton = "Talents", QuestLogMicroButton = "Quest", SocialsMicroButton = "Socials",
+    GuildMicroButton = { inner = "Interface\\Icons\\INV_Shirt_GuildTabard_01" }, WorldMapMicroButton = "World",
+    LFGMicroButton = "LFG", LFDMicroButton = "LFG", PVPMicroButton = { inner = "pvp" }, MainMenuMicroButton = "MainMenu",
+    HelpMicroButton = "Help", dz = { inner = "Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal" },
+}
+local MICRO_CUT = { 2 / 32, 30 / 32, 23 / 64, 62 / 64 }
+local ctiles = {}         -- button -> its Classic tile
+Bars.ctiles = ctiles
+
+local function ClassicArt(name, b)
+    if name == "KeyRingButton" then return "keyring" end
+    if b.dzGlyph == "dz" then return MICRO_ART.dz end
+    return MICRO_ART[name]
+end
+
+function Bars:TileClassic(b, look, name)
+    local L = Look()
+    local art = ClassicArt(name, b)
+    local t = ctiles[b]
+    if not t then
+        t = { b = b }
+        t.f = CreateFrame("Frame", nil, b)
+        t.f:SetFrameLevel(b:GetFrameLevel() + 2)
+        t.art = t.f:CreateTexture(nil, "ARTWORK", nil, 0)
+        t.inner = t.f:CreateTexture(nil, "ARTWORK", nil, 1)
+        t.hl = t.f:CreateTexture(nil, "OVERLAY", nil, 0)
+        t.hl:SetTexture(MB .. "Hilight")
+        t.hl:SetTexCoord(MICRO_CUT[1], MICRO_CUT[2], MICRO_CUT[3], MICRO_CUT[4])
+        if t.hl.SetBlendMode then t.hl:SetBlendMode("ADD") end
+        t.hl:SetAllPoints(t.f)
+        t.hl:Hide()
+        b:HookScript("OnEnter", function() if t.look then t.hl:Show() end end)
+        b:HookScript("OnLeave", function() t.hl:Hide() end)
+        local ct = b.Count or _G[name .. "Count"]
+        if ct and ct.SetParent then ct:SetParent(t.f); ct:SetDrawLayer("OVERLAY", 7) end
+        ctiles[b] = t
+    end
+    t.look = look
+    local w, h = b:GetWidth() or 0, b:GetHeight() or 0
+    if w <= 0 then w = 32 end
+    if h <= 0 then h = 32 end
+    -- (in the Dock the cell is the button's base height: the menu's buttons are squared there)
+    local cell = math.min(w, h)
+    if art == "keyring" then cell = h end                      -- (the key ring is thin: its height sizes it)
+    if ns.LookDock and ns.LookDock.placed[b] then cell = b.dzBase or cell end
+    t.f:ClearAllPoints()
+    t.inner:Hide()
+    if art == "keyring" then
+        local kh = cell * 0.92
+        t.f:SetSize(kh * 18 / 39, kh)
+        Look():GameTex(t.art, "keyring")
+        t.hl:SetShown(false)
+    else
+        local mh = cell + 2
+        t.f:SetSize(mh * 28 / 39, mh)
+        local path = type(art) == "string" and (MB .. art .. "-Up") or "Interface\\Buttons\\UI-MicroButtonCharacter-Up"
+        t.art:SetTexture(path)
+        t.art:SetTexCoord(MICRO_CUT[1], MICRO_CUT[2], MICRO_CUT[3], MICRO_CUT[4])
+        if type(art) == "table" and art.inner then
+            local iw, ih = mh * 28 / 39 * 0.62, mh * 0.5
+            t.inner:ClearAllPoints()
+            t.inner:SetSize(iw, ih)
+            t.inner:SetPoint("TOP", t.f, "TOP", 0, -mh * 0.26)
+            if art.inner == "portrait" then
+                if SetPortraitTexture then pcall(SetPortraitTexture, t.inner, "player") end
+                t.inner:SetTexCoord(0.15, 0.85, 0.1, 0.9)
+            elseif art.inner == "pvp" then
+                local fac = UnitFactionGroup and UnitFactionGroup("player")
+                t.inner:SetTexture("Interface\\Icons\\INV_BannerPVP_0" .. (fac == "Alliance" and "2" or "1"))
+                t.inner:SetTexCoord(0.12, 0.88, 0.08, 0.92)
+            else
+                t.inner:SetTexture(art.inner)
+                t.inner:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            end
+            t.inner:Show()
+        end
+    end
+    t.art:SetAllPoints(t.f)
+    t.f:SetPoint("CENTER", b, "CENTER", 0, 0)
+    t.f:Show()
+    self:TileIconClassic(b)
+end
+
+-- (on the tile tick: the game's art hidden again, dim while the button is disabled)
+function Bars:TileIconClassic(b)
+    local t = ctiles[b]
+    if not t or not t.look then return end
+    HideArt(b)
+    local enabled = not b.IsEnabled or b:IsEnabled()
+    if t.art.SetDesaturated then t.art:SetDesaturated(not enabled) end
+    t.f:SetAlpha(enabled and 1 or 0.6)
+end
+
 function Bars:Tile(b, look)
     local L = Look()
     local name = b.dzName or b:GetName() or ""   -- (dzName: a sample button standing for one of the game's)
+    -- Classic: the menu and the key ring in the game's own art; bag slots go on below (an icon in the action frame)
+    if look.game and ClassicArt(name, b) then
+        if tiles[b] then tiles[b].f:Hide(); tiles[b].look = nil end
+        return self:TileClassic(b, look, name)
+    end
+    if ctiles[b] then ctiles[b].f:Hide(); ctiles[b].look = nil end
     -- (b.dzGlyph: one of our own buttons drawn as a tile: "dz" the DisasterZone letters, { "txt", text }, or a glyph
     -- spec like GLYPHS')
     local g = GLYPHS[name] or (b.dzGlyph == "dz" and { "dz" }) or (type(b.dzGlyph) == "table" and b.dzGlyph) or nil
@@ -523,6 +657,7 @@ tileTick:SetScript("OnUpdate", function(self, dt)
     if self.t < 0.5 then return end
     self.t = 0
     for b in pairs(tiles) do Bars:TileIcon(b) end
+    for b in pairs(ctiles) do Bars:TileIconClassic(b) end
 end)
 
 ---------------------------------------------------------------------------
@@ -711,9 +846,31 @@ function Bars:XP()
         f.rep.f:ClearAllPoints()
         f.rep.f:SetPoint("TOPLEFT", f.main.f, "BOTTOMLEFT", 0, -2)
         f.rep:SetWidthNow(dw)
+        -- Classic: the main bar's metal rail over the bar (its joints are the game's experience segments), the fill
+        -- in its open middle
+        if look.game then
+            if not f.railFrame then
+                f.railFrame = CreateFrame("Frame", nil, f)
+                f.rail = L:GameTile(f.railFrame, "rail", "OVERLAY", 2)
+                f.rail.flipY = true
+            end
+            f.railFrame:SetAllPoints(f)
+            f.railFrame:SetFrameLevel(f.main.f:GetFrameLevel() + 2)
+            f.main:Apply(look, nil, math.max(2, dh - 4))
+            f.main.f:ClearAllPoints()
+            f.main.f:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -2)
+            f.main:SetWidthNow(dw)
+            f.rep.f:ClearAllPoints()
+            f.rep.f:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -(dh + 2))
+            f.rail:Fill(f, 0, 0, dw, dh, dh * 51 / 11, dh)
+            f.railFrame:Show()
+        elseif f.railFrame then
+            f.railFrame:Hide()
+        end
         self:XPUpdate()
         return
     end
+    if f.railFrame then f.railFrame:Hide() end
     if f:GetParent() ~= UIParent then f:SetParent(UIParent); f:SetFrameStrata("LOW") end
     if ns.Layout and not ns.Layout:Item("bars.xp") then
         ns.Layout:Register("bars.xp", { name = "Experience bar", group = "Game frames", order = 12, noHide = true,
@@ -767,7 +924,7 @@ function Bars:Off()
             if s.mask and s.maskOn and s.icon then pcall(s.icon.RemoveMaskTexture, s.icon, s.mask); s.maskOn = false end
         end
         s.ring:Hide(); s.ringIn:Hide(); s.edge:Paint(nil); s.edge2:Paint(nil); s.sheen:Hide()
-        s.pill:Hide(); s.under:Hide(); s.bezelHot:Hide()
+        s.pill:Hide(); s.under:Hide(); s.bezelHot:Hide(); s.qs:Hide()
         if b.NormalTexture then b.NormalTexture:SetAlpha(1) end
         if b.SlotBackground then b.SlotBackground:SetAlpha(0.4) end
         if b.Border then b.Border:SetAlpha(1) end
@@ -786,6 +943,7 @@ function Bars:Off()
         end
     end
     for _, p in pairs(plates) do p:Hide() end
+    for _, t in pairs(ctiles) do t.look = nil; t.f:Hide() end
     for b, t in pairs(tiles) do
         t.look, t.shown = nil, nil
         t.f:Hide()

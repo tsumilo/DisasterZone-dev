@@ -85,12 +85,86 @@ function Cast:Sample(parent, key, look)
     return f
 end
 
+-- Classic: the game's cast bar border (or the shield frame for a cast that can't be interrupted), its spark and the
+-- flash when a cast lands, round our bar (the icon left of it, name left, time right, latency at the end). The fill
+-- stays where it is between the two frames: the shield reaches out over the icon's place.
+-- (the fill and its dark ground fill the border's whole inside: x 9..w-10, y 9..26; the border draws over its edge)
+local CL = { h = 34, bx = 26, fx = 9, fr = 10, fy = 9, fh = 17 }
+local function Classic(f)
+    if f.cl then return f.cl end
+    local L = Look()
+    local cl = {}
+    cl.over = CreateFrame("Frame", nil, f)
+    cl.over:SetAllPoints(f)
+    cl.over:SetFrameLevel(f:GetFrameLevel() + 4)
+    cl.ground = L.Tex(f, "BACKGROUND", 0)
+    cl.border = L:GameSlice3(cl.over, "cast", 12, 12, "ARTWORK", 1)
+    cl.shield = L:GameSlice3(cl.over, "castShield", 50, 12, "ARTWORK", 1)
+    cl.flash = L:GameSlice3(cl.over, "castFlash", 12, 12, "ARTWORK", 2)
+    cl.flash:SetBlend("ADD")
+    f.cl = cl
+    return cl
+end
+
+function Cast:ApplyClassic(f, look, w)
+    local L = Look()
+    local cl = Classic(f)
+    local iconOn = L:Opt("cast", "icon", true)
+    f:SetSize(w, CL.h)
+    f.panel:Apply(nil)
+    for _, s in ipairs(f.studs) do s:Hide() end
+    local bx = iconOn and CL.bx or 0
+    cl.bx, cl.w, cl.iconOn = bx, w, iconOn
+    cl.border:Place(f, bx, 0, w - bx, CL.h)
+    -- (the shield's 50 px end holds its icon box: put it so the fill starts where the border's does)
+    cl.shield:Place(f, bx + CL.fx - 44, CL.fy + CL.fh / 2 - 25.5, w - bx - CL.fx + 44, 48)
+    cl.flash:Place(f, bx, 0, w - bx, CL.h)
+    cl.flash:Show(false)
+    local fw = w - bx - CL.fx - CL.fr
+    cl.ground:ClearAllPoints()
+    cl.ground:SetPoint("TOPLEFT", f, "TOPLEFT", bx + CL.fx, -CL.fy)
+    cl.ground:SetSize(fw, CL.fh)
+    L.Color(cl.ground, { 0, 0, 0, 0.6 })
+    f.bar.trackC = { 0, 0, 0, 0 }           -- (the ground under the fill is cl.ground)
+    f.bar:Apply(look, "gilt", CL.fh)
+    f.bar.f:ClearAllPoints()
+    f.bar.f:SetPoint("TOPLEFT", f, "TOPLEFT", bx + CL.fx, -CL.fy)
+    f.bar:SetWidthNow(fw)
+    f.bar.f:SetFrameLevel(f:GetFrameLevel() + 1)
+    f.icon.f:ClearAllPoints()
+    if iconOn then
+        f.icon:Apply(look, "square")
+        f.icon.f:SetFrameLevel(f:GetFrameLevel() + 2)
+        f.icon.f:Show()
+    else
+        f.icon.f:Hide()
+    end
+    f.name:ClearAllPoints(); f.time:ClearAllPoints()
+    UI:SetTextSize(f.name, "body")
+    f.name:SetPoint("LEFT", f.bar.f, "LEFT", 5, 0)
+    f.time:SetPoint("RIGHT", f.bar.f, "RIGHT", -5, 0)
+    f.name:SetWidth(fw - 46)
+    f.spark:SetTexture(Look().GAME.spark[1])
+    f.spark:SetTexCoord(0, 1, 0, 1)
+    f.spark:SetSize(32, CL.fh + 18)
+    f.spark:SetShown(true)
+    f.core:SetShown(false)
+    f.look = look
+    self:Paint(f)
+end
+
 -- The bar's face in a look.
 function Cast:Apply(f, look)
     local L = Look()
     local def = BARS[f.key]
     local k = look.key
     local w = (ns.Layout and ns.Layout:Size("cast." .. f.key)) or def.w      -- (stretched in Edit layout)
+    if look.game then return self:ApplyClassic(f, look, w) end
+    if f.cl then
+        f.cl.border:Show(false); f.cl.shield:Show(false); f.cl.flash:Show(false); f.cl.ground:Hide()
+        f.bar.trackC = nil
+        f.spark:SetTexture("Interface\\AddOns\\DisasterZone\\Media\\SoftGlow")
+    end
     local iconOn = L:Opt("cast", "icon", true) and k ~= "slate"
     local h, ih, bh = 22, 20, 20
     if k == "halo" then h, ih, bh = 24, 24, 16
@@ -145,7 +219,36 @@ function Cast:Apply(f, look)
     self:Paint(f)
 end
 
+-- Classic's colours: the game's cast bar ones
+local GAME_C = { cast = { 1, 0.7, 0 }, chan = { 0, 1, 0 }, done = { 0, 1, 0 }, fail = { 1, 0, 0 }, ni = { 0.7, 0.7, 0.7 } }
+
+function Cast:PaintClassic(f)
+    local cl = f.cl
+    local c = f.failed and GAME_C.fail or f.done and GAME_C.done or f.ni and GAME_C.ni or f.chan and GAME_C.chan or GAME_C.cast
+    f.bar:SetColor(c[1], c[2], c[3])
+    f.lock:Hide()
+    local ni = f.ni and true or false
+    cl.border:Show(not ni)
+    cl.shield:Show(ni)
+    -- the icon: left of the border, or inside the shield's box
+    f.icon.f:ClearAllPoints()
+    if ni then
+        f.icon.f:SetSize(18, 18)
+        f.icon.f:SetPoint("TOPLEFT", f, "TOPLEFT", cl.bx + CL.fx - 44 + 14, -(CL.fy + CL.fh / 2 - 25.5 + 17))
+        f.icon.f:Show()
+    elseif cl.iconOn then
+        f.icon.f:SetSize(20, 20)
+        f.icon.f:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -(CL.fy + CL.fh / 2 - 10))
+        f.icon.f:Show()
+    else
+        f.icon.f:Hide()
+    end
+    f.spark:SetVertexColor(1, 1, 1, 0.9)
+    f.spark:SetBlendMode("ADD")
+end
+
 function Cast:Paint(f)
+    if f.look and f.look.game and f.cl then return self:PaintClassic(f) end
     local c = f.ni and GREY or (f.failed and RED or GOLD)
     if f.look and f.look.key == "slate" and not f.ni and not f.failed then c = GOLD end
     f.bar:SetColor(c[1], c[2], c[3])
@@ -181,9 +284,10 @@ function Cast:Start(f, fake)
         f.fake = nil
     end
     if not name then return self:Stop(f) end
-    f.s, f.e, f.chan, f.ni, f.failed = s, e, chan, ni and true or false, nil
+    f.s, f.e, f.chan, f.ni, f.failed, f.done = s, e, chan, ni and true or false, nil, nil
     f.fadeAt = nil
     f:SetAlpha(1)
+    if f.cl then f.cl.flash:Show(false) end
     f.name:SetText((f.look and f.look.upper) and name:upper() or name)
     f.icon:SetTexture(icon)
     -- my casts: the time the server needs (world latency) as the end piece
@@ -206,8 +310,16 @@ function Cast:Stop(f, failed)
         f.name:SetText(failed)
         f.bar:SetValue(1)
         self:Paint(f)
+    elseif f.look and f.look.game and f.cl and not f.chan then
+        -- (Classic: a cast that lands fills green and flashes, as the game's does)
+        f.done = true
+        f.bar:SetValue(1)
+        self:Paint(f)
+        f.cl.flash:Show(true)
+        f.cl.flash:SetAlpha(1)
+        f.spark:SetAlpha(0)
     end
-    f.fadeAt = (GetTime and GetTime() or 0) + (failed and 0.6 or 0.15)
+    f.fadeAt = (GetTime and GetTime() or 0) + (failed and 0.6 or (f.done and 0.2 or 0.15))
 end
 
 function Cast:Step(f, dt)
@@ -215,7 +327,7 @@ function Cast:Step(f, dt)
     if f.fadeAt then
         local a = 1 - (now - f.fadeAt) / 0.3
         if now >= f.fadeAt then
-            if a <= 0 then f:Hide(); f.fadeAt = nil; f.failed = nil; f.fake = nil return end
+            if a <= 0 then f:Hide(); f.fadeAt = nil; f.failed = nil; f.done = nil; f.fake = nil return end
             f:SetAlpha(a)
         end
         return

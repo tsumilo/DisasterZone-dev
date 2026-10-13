@@ -35,6 +35,8 @@ Dock.TOKENS = {
     sigil = { G = 3, P = 6, R = 14, xp = 6 },
     slate = { G = 2, P = 3, R = 14, xp = 3 },
     gilded = { G = 4, P = 9, R = 16, xp = 7 },
+    -- (Classic: the game's own 42 px stride, so the main bar's carved wells sit under the buttons)
+    classic = { G = 6, P = 10, R = 14, xp = 11 },
 }
 Dock.SIZES = { 30, 33, 36, 39, 42 }
 Dock.DEFAULT_SIZE = 36
@@ -88,23 +90,27 @@ end
 -- rep, pager = { x, y, w, h }, plateTop }.
 -- The page switcher is a strip half a button wide, G left of the block and its full height: up at its top, the page
 -- in the middle, down at its foot.
+-- Optional in T (Classic): side (more room at both ends, where the end caps stand), menuW / menuG (the menu's columns
+-- as wide as the game's micro buttons, as far apart across as down).
 function Dock.Grid(T, n)
     local S, G, P, R, s = T.S, T.G, T.P, T.R, T.s
+    local side = T.side or 0
+    local mw, mg = T.menuW or S, T.menuG or G
     local rows = max(1, min(3, n.rows or 1))
     local g = { rows = {}, bags = {}, menu = {}, stance = {}, pet = {} }
     local bw, bh = 12 * S + 11 * G, rows * S + (rows - 1) * G
     local bagCols = n.bags > 0 and ceil(n.bags / rows) or 0
     local menuCols = n.menu > 0 and ceil(n.menu / rows) or 0
     local bagW = bagCols > 0 and (bagCols * S + (bagCols - 1) * G) or 0
-    local menuW = menuCols > 0 and (menuCols * S + (menuCols - 1) * G) or 0
+    local menuW = menuCols > 0 and (menuCols * mw + (menuCols - 1) * mg) or 0
     local crown = (n.stance > 0 or n.pet > 0) and (s + R) or 0
     local top = P + crown
-    local bagX = P
+    local bagX = P + side
     local pw0 = n.pager and floor(S * 0.5 + 0.5) or 0
     local pagerX = bagX + (bagW > 0 and bagW + R or 0)
     local blockX = pagerX + (pw0 > 0 and pw0 + max(G, 2) or 0)
     local menuX = blockX + bw + R
-    g.w = (menuW > 0) and (menuX + menuW + P) or (blockX + bw + P)
+    g.w = ((menuW > 0) and (menuX + menuW + P) or (blockX + bw + P)) + side
     g.block = { x = blockX, y = top, w = bw, h = bh }
     if pw0 > 0 then g.pager = { x = pagerX, y = top, w = pw0, h = bh } end
     g.plateTop = top - P
@@ -116,7 +122,7 @@ function Dock.Grid(T, n)
     end
     for i = 1, n.menu do
         local r, c = floor((i - 1) / menuCols), (i - 1) % menuCols
-        g.menu[i] = { menuX + c * (S + G), top + r * (S + G) }
+        g.menu[i] = { menuX + c * (mw + mg), top + r * (S + G) }
     end
     for i = 1, n.stance do g.stance[i] = { blockX + (i - 1) * (s + G), P } end
     local pw = n.pet * s + max(0, n.pet - 1) * G
@@ -222,11 +228,18 @@ local function MenuButtons()
     for _, name in ipairs(MENU) do
         local b = _G[name]
         if b and Shown(b) then
-            if not b.dzSquare then b.dzSquare = true; b:SetWidth(b:GetHeight() or 32) end
+            -- (square in the Dock; Classic: the game's micro button's own shape, 28 x 39)
+            local h = b:GetHeight() or 32
+            local want = floor(h * (Dock.menuRatio or 1) + 0.5)
+            if math.abs((b:GetWidth() or 0) - want) > 0.5 then b:SetWidth(want) end
             out[#out + 1] = b
         end
     end
-    if Dock.dzButton then out[#out + 1] = Dock.dzButton end
+    if Dock.dzButton then
+        local b = Dock.dzButton
+        b:SetWidth(floor((b:GetHeight() or 32) * (Dock.menuRatio or 1) + 0.5))
+        out[#out + 1] = b
+    end
     return out
 end
 
@@ -272,7 +285,7 @@ end
 
 -- the page number's colour per look (the looks' name colour)
 local PAGE_C = { flat = { 0.86, 0.84, 0.78 }, halo = { 0.96, 0.9, 0.72 }, sigil = { 1, 0.82, 0 },
-                 slate = { 0.74, 0.72, 0.65 }, gilded = { 1, 0.84, 0.42 } }
+                 slate = { 0.74, 0.72, 0.65 }, gilded = { 1, 0.84, 0.42 }, classic = { 1, 1, 1 } }
 
 function Dock:Pager(f, box, look)
     local pn = self:PageFrame()
@@ -290,8 +303,8 @@ function Dock:Pager(f, box, look)
     local ah = max(10, floor(min(box.h / 3, aw * 0.8) + 0.5))
     for i, b in ipairs({ pn.UpButton, pn.DownButton }) do
         if b then
-            -- (the game's sleek arrows, not the stone bar's)
-            if b.SwapToAlternateAtlas then pcall(b.SwapToAlternateAtlas, b) end
+            -- (the game's sleek arrows, not the stone bar's; Classic keeps the stone bar's)
+            if b.SwapToAlternateAtlas and not look.game then pcall(b.SwapToAlternateAtlas, b) end
             b:ClearAllPoints()
             b:SetSize(aw, ah)
             b:SetPoint(i == 1 and "TOP" or "BOTTOM", pn, i == 1 and "TOP" or "BOTTOM", 0, 0)
@@ -314,7 +327,9 @@ function Dock:Pager(f, box, look)
     local t = f.pagerTrack
     t:SetTexture(L.WHITE)
     t:ClearAllPoints()
-    if look.key == "halo" then
+    if look.game then
+        t:Hide()
+    elseif look.key == "halo" then
         t:SetSize(1, max(1, box.h - 2 * ah - 8))
         t:SetPoint("CENTER", f, "TOPLEFT", box.x + box.w / 2, -(box.y + box.h / 2))
         L.Color(t, { 0.96, 0.9, 0.72, 0.18 })
@@ -331,12 +346,49 @@ end
 
 local SEAM = { flat = { 0, 0, 0, 0.9 }, sigil = { 1, 0.82, 0, 0.35 }, slate = { 1, 1, 1, 0.1 }, halo = { 0.96, 0.9, 0.72, 0.35 } }
 
+-- Classic's ground: the dark stone under everything, the tooltip's edge round it, a carved groove (a dark line and a
+-- light one) in the middle of each R. The wells and the end caps are drawn by Dock:Classic.
+local function ClassicGround(f, look, w, h, seams, seamTop, seamH)
+    local L = Look()
+    f.floor:Hide()
+    for _, t in ipairs(f.seams) do t:Hide() end
+    f.panel:Apply(look)
+    f.panel.bg:Hide()
+    f.stone = f.stone or L:GameTile(f.plate, "stone", "BACKGROUND", -7)
+    f.stone:Fill(f.plate, 0, 0, w, h, 64, 64)
+    f.grooves = f.grooves or {}
+    local n = 0
+    for _, sx in ipairs(seams or {}) do
+        for side = 0, 1 do
+            n = n + 1
+            local t = f.grooves[n]
+            if not t then t = Tex(f.plate, "BORDER", 3); f.grooves[n] = t end
+            t:SetTexture(L.WHITE)
+            t:ClearAllPoints()
+            t:SetSize(1, max(1, seamH - 4))
+            t:SetPoint("TOPLEFT", f, "TOPLEFT", floor(sx) - 1 + side, -(seamTop + 2))
+            if side == 0 then t:SetVertexColor(0, 0, 0, 0.9) else t:SetVertexColor(0.67, 0.67, 0.67, 0.28) end
+            t:Show()
+        end
+    end
+    for i = n + 1, #f.grooves do f.grooves[i]:Hide() end
+end
+
+local function ClassicOff(f)
+    if f.stone then f.stone:Hide() end
+    if f.wells then f.wells:Hide() end
+    for _, t in ipairs(f.grooves or {}) do t:Hide() end
+    if f.caps then f.caps:Hide() end
+end
+
 local function Ground(f, look, x, y, w, h, seams, seamTop, seamH)
     local L = Look()
     local k = look.key
     f.plate:ClearAllPoints()
     f.plate:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
     f.plate:SetSize(max(1, w), max(1, h))
+    if look.game then return ClassicGround(f, look, w, h, seams, seamTop, seamH) end
+    ClassicOff(f)
     if k == "halo" then
         f.panel:Apply(nil)
         f.floor:ClearAllPoints()
@@ -379,6 +431,45 @@ local function Ground(f, look, x, y, w, h, seams, seamTop, seamH)
     end
 end
 
+-- Classic: the main bar's carved wells under the block's buttons (one S + G piece per button, the button in its
+-- middle) and the end caps (ui.bars.caps: the gryphons by default, the lions, none) standing at the plate's ends,
+-- their feet on its foot, over its padding only.
+function Dock:Classic(f, look, box, cols, rows, T, caps, h)
+    local L = Look()
+    local cell = T.S + T.G
+    f.wells = f.wells or L:GameTile(f.plate, "well", "BACKGROUND", -5)
+    f.wells:Fill(f, box.x - T.G / 2, box.y - T.G / 2, cols * cell, rows * cell, cell, cell)
+    if not caps then
+        if f.caps then f.caps:Hide() end
+        return
+    end
+    local kind = L:Opt("bars", "caps", "gryphon")
+    if kind ~= "gryphon" and kind ~= "lion" then
+        if f.caps then f.caps:Hide() end
+        return
+    end
+    -- (in a frame of their own over the game's buttons: the caps stand in front of the bags and the menu)
+    if not f.capL then
+        f.caps = CreateFrame("Frame", nil, f)
+        f.caps:SetAllPoints(f)
+        f.capL = Tex(f.caps, "OVERLAY", 5)
+        f.capR = Tex(f.caps, "OVERLAY", 5)
+    end
+    local top = _G.MainActionBar or _G.BagsBar
+    f.caps:SetFrameStrata((top and top.GetFrameStrata and top:GetFrameStrata()) or "MEDIUM")
+    f.caps:SetFrameLevel(math.min(9000, ((top and top.GetFrameLevel and top:GetFrameLevel()) or 1) + 40))
+    f.caps:Show()
+    local size = floor(128 * T.S / 36 + 0.5)
+    L:GameTex(f.capL, kind)
+    L:GameTex(f.capR, kind)
+    f.capR:SetTexCoord(1, 0, 0, 1)
+    f.capL:ClearAllPoints(); f.capL:SetSize(size, size)
+    f.capL:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", T.capIn or T.P, 0)
+    f.capR:ClearAllPoints(); f.capR:SetSize(size, size)
+    f.capR:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", -(T.capIn or T.P), 0)
+    f.capL:Show(); f.capR:Show()
+end
+
 ---------------------------------------------------------------------------
 -- Laying it out
 ---------------------------------------------------------------------------
@@ -392,6 +483,19 @@ function Dock:Layout()
     local look = L:For("bars")
     local S = self:Size()
     local T = Dock.Tokens(look.key, S)
+    if look.game then
+        local k = S / 36
+        local caps = L:Opt("bars", "caps", "gryphon")
+        if caps == "gryphon" or caps == "lion" then
+            -- (the cap's body presses on the plate's side: it reaches 26 px over the end, its head may tuck under the
+            -- bags' edge)
+            T.capIn = floor(30 * k + 0.5)
+        end
+        T.menuW, T.menuG = floor((S + 2) * 28 / 39 + 0.5), max(2, T.G - 2)
+        self.menuRatio = T.menuW / S
+    else
+        self.menuRatio = 1
+    end
     local c = self:Contents()
     local repOn = ns.LookBars and ns.LookBars.WatchingRep and ns.LookBars:WatchingRep() or false
     local g = Dock.Grid(T, { rows = #c.rows, bags = #c.bags, menu = #c.menu, stance = #c.stance, pet = #c.pet,
@@ -401,6 +505,7 @@ function Dock:Layout()
     f:Show()
     -- the plate from P over the block to the bottom, the whole width (the crown floats over it)
     Ground(f, look, 0, g.plateTop, g.w, g.h - g.plateTop, g.seams, g.block.y, g.block.h)
+    if look.game then self:Classic(f, look, g.block, 12, #c.rows, T, true, g.h) end
     for i, r in ipairs(c.rows) do
         -- (a bar showing fewer icons keeps its columns: icon j stays in column j)
         for j = 1, 12 do
@@ -421,6 +526,7 @@ function Dock:Layout()
         rail:SetSize(rw + 2 * T.P, rh + 2 * T.P)
         rail:Show()
         Ground(rail, look, 0, 0, rw + 2 * T.P, rh + 2 * T.P, nil, 0, 0)
+        if look.game then self:Classic(rail, look, { x = T.P, y = T.P }, #c.rail, 12, T, false) end
         for ci, r in ipairs(c.rail) do
             for j = 1, 12 do
                 local b = _G[r.prefix .. j]

@@ -12,7 +12,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Look.lua", ...) then return end
 --            and the experience / reputation bar                  replaced (the game's status bars retired)
 --   minimap  the minimap, zone, clock and its buttons             reskinned (UI/LookMinimap.lua)
 -- Looks: blizzard (the default: the game's frames, untouched), flat, halo, sigil, slate, gilded (the names of the
--- meter and class bar themes). Settings: ui.look (everything), ui.<part>.look ("inherit" = ui.look, or a look of its
+-- meter and class bar themes), classic (our frames in the game's own art, Look.GAME). Settings: ui.look (everything), ui.<part>.look ("inherit" = ui.look, or a look of its
 -- own), ui.<part>.<option> (each part's overrides). A part that was replaced keeps its own frames until a reload: the
 -- game doesn't let an addon hand its frames back (Look:NeedsReload).
 --
@@ -38,6 +38,108 @@ Look.WHITE, Look.DISC, Look.SBAR = WHITE, DISC, SBAR
 -- Gilded's worked gold (dev/generators/gen_gilt_media.py): moulding, filigree corners, a square bezel, damask grain
 local GILT = "Interface\\AddOns\\" .. addonName .. "\\Media\\Gilt\\"
 Look.GILT = GILT
+
+-- Classic's art: the game's own textures, with the cuts the mockup measured (dev/art/casc/classic_mockup). A piece is
+-- { file, texture w, texture h, x0, y0, x1, y1 } in the file's pixels; Look:GameTex(t, key) puts one on a texture.
+-- Nothing here ships with the addon: every file is the client's.
+local B, MB, TF, CB = "Interface\\Buttons\\", "Interface\\MainMenuBar\\", "Interface\\TargetingFrame\\", "Interface\\CastingBar\\"
+local BP, BANK = "Interface\\ContainerFrame\\UI-BackpackBackground", "Interface\\ContainerFrame\\UI-Bag-Components-Bank"
+Look.GAME = {
+    -- action buttons: the frame is 66/36 of the button (Look.QuickFrame), the states the game's own
+    quick = { B .. "UI-Quickslot2", 64, 64, 0, 0, 64, 64 },
+    slot = { B .. "UI-Quickslot", 64, 64, 0, 0, 64, 64 },
+    pushed = { B .. "UI-Quickslot-Depress", 64, 64, 0, 0, 64, 64 },
+    hover = { B .. "ButtonHilight-Square", 64, 64, 0, 0, 64, 64 },          -- (ADD)
+    checked = { B .. "CheckButtonHilight", 64, 64, 0, 0, 64, 64 },          -- (ADD)
+    flash = { B .. "UI-QuickslotRed", 64, 64, 0, 0, 64, 64 },
+    autocast = { B .. "UI-AutoCastableOverlay", 64, 64, 0, 0, 64, 64 },
+    alert = { "Interface\\SpellActivationOverlay\\IconAlert", 128, 256, 3, 71, 67, 135 },   -- (ADD; 64 px at 36)
+    -- the main bar: a stone well per button (pillar to pillar: 42 px, the game's stride at 36), the rail (its joints
+    -- every 51 px are the experience bar's segments), the dark stone, the end caps (128, facing right)
+    well = { MB .. "UI-MainMenuBar-Dwarf", 256, 256, 42, 148, 84, 190 },
+    rail = { MB .. "UI-MainMenuBar-Dwarf", 256, 256, 2, 137, 53, 148 },
+    stone = { "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", 64, 64, 0, 0, 64, 64 },
+    gryphon = { MB .. "UI-MainMenuBar-EndCap-Dwarf", 128, 128, 0, 0, 128, 128 },
+    lion = { MB .. "UI-MainMenuBar-EndCap-Human", 128, 128, 0, 0, 128, 128 },
+    tick = { MB .. "UI-ExhaustionTickNormal", 32, 32, 0, 0, 32, 32 },
+    keyring = { B .. "UI-Button-KeyRing", 32, 64, 0, 0, 18, 39 },
+    backpack = { B .. "Button-Backpack-Up", 64, 64, 0, 0, 64, 64 },
+    -- bags: the backpack's frame cut to grow (the header's ring holds a 35 px portrait at 5, 8; a cell is 42 x 41
+    -- with half a pillar on each side, the item 37 px at 2.5, 2; the money box spans x 13 .. w-8, centred 16.5 down
+    -- the footer)
+    bag_hl = { BP, 256, 256, 66, 0, 128, 46 }, bag_hm = { BP, 256, 256, 128, 0, 212, 46 }, bag_hr = { BP, 256, 256, 212, 0, 253, 46 },
+    bag_cell = { BP, 256, 256, 118, 85, 160, 126 },
+    bag_l = { BP, 256, 256, 66, 90, 77, 120 }, bag_r = { BP, 256, 256, 243, 90, 253, 120 },
+    bag_band = { BP, 256, 256, 132, 31, 204, 45 },
+    bag_fl = { BP, 256, 256, 66, 207, 112, 244 }, bag_fm = { BP, 256, 256, 112, 207, 200, 244 }, bag_fr = { BP, 256, 256, 200, 207, 253, 244 },
+    bank_hl = { BANK, 256, 512, 66, 0, 128, 46 }, bank_hm = { BANK, 256, 512, 128, 0, 212, 46 }, bank_hr = { BANK, 256, 512, 212, 0, 253, 46 },
+    input = { "Interface\\Common\\Common-Input-Border", 128, 32, 0, 0, 128, 20 },
+    button = { B .. "UI-Panel-Button-Up", 128, 32, 2, 0, 78, 22 },
+    buttonDown = { B .. "UI-Panel-Button-Down", 128, 32, 2, 0, 78, 22 },
+    buttonHi = { B .. "UI-Panel-Button-Highlight", 128, 32, 2, 0, 78, 22 },
+    close = { B .. "UI-Panel-MinimizeButton-Up", 32, 32, 0, 0, 32, 32 },
+    closeDown = { B .. "UI-Panel-MinimizeButton-Down", 32, 32, 0, 0, 32, 32 },
+    closeHi = { B .. "UI-Panel-MinimizeButton-Highlight", 32, 32, 0, 0, 32, 32 },
+    iconFrame = { "Interface\\Common\\WhiteIconFrame", 64, 64, 0, 0, 64, 64 },
+    gold = { "Interface\\MoneyFrame\\UI-GoldIcon", 16, 16, 0, 0, 16, 16 },
+    silver = { "Interface\\MoneyFrame\\UI-SilverIcon", 16, 16, 0, 0, 16, 16 },
+    copper = { "Interface\\MoneyFrame\\UI-CopperIcon", 16, 16, 0, 0, 16, 16 },
+    -- unit frames: the target frame's rails stretch between their ends (left 5, right 8 px; inside: the name band
+    -- 6 .. 22 from the top, health 23 .. 35, power 35 .. 46, x 4 .. w-8); the ring stays whole, 7 px over the rails'
+    -- end (portrait centre 37, 39 in it, 60 px; the level circle's centre 60, 62). Elite: the dragon's ring is 4 px
+    -- taller (centre 37, 43; level 60, 66). The rails start 14 (elite 18) px under the ring's top.
+    tf_bars = { TF .. "UI-TargetingFrame", 256, 128, 27, 18, 150, 68 },
+    tf_ring = { TF .. "UI-TargetingFrame", 256, 128, 143, 4, 220, 84 },
+    tfe_bars = { TF .. "UI-TargetingFrame-Elite", 256, 128, 27, 18, 150, 68 },
+    tfe_ring = { TF .. "UI-TargetingFrame-Elite", 256, 128, 143, 0, 256, 104 },
+    tfr_ring = { TF .. "UI-TargetingFrame-Rare", 256, 128, 143, 0, 256, 104 },
+    tfre_ring = { TF .. "UI-TargetingFrame-Rare-Elite", 256, 128, 143, 0, 256, 104 },
+    -- target of target / pet / focus small, party: a ring and a short pair of rails (left 4, right 6 px)
+    tot_ring = { TF .. "UI-TargetofTargetFrame", 128, 64, 0, 0, 46, 48 },
+    tot_bars = { TF .. "UI-TargetofTargetFrame", 128, 64, 44, 8, 94, 36 },
+    party_ring = { TF .. "UI-PartyFrame", 128, 64, 0, 2, 48, 50 },
+    party_bars = { TF .. "UI-PartyFrame", 128, 64, 44, 4, 120, 34 },
+    statusbar = { TF .. "UI-StatusBar", 64, 8, 0, 0, 64, 8 },
+    skull = { TF .. "UI-TargetingFrame-Skull", 32, 32, 0, 0, 32, 32 },
+    leader = { "Interface\\GroupFrame\\UI-Group-LeaderIcon", 16, 16, 0, 0, 16, 16 },
+    -- roles: 20 px icons, healer at (20, 0), tank (0, 20), damage (20, 20)
+    roles = { "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES", 64, 64, 0, 0, 40, 40 },
+    circles = { TF .. "UI-Classes-Circles", 256, 256, 0, 0, 256, 256 },
+    -- cast bars: the border stretches between 12 px ends, the fill inside at 9 .. w-10, 10 .. 24; the shield's left
+    -- end is 50 px (the fill at 44 .. w-11, 19 .. 32, the icon 18 px at 14, 17)
+    cast = { CB .. "UI-CastingBar-Border", 256, 64, 24, 14, 231, 48 },
+    castFlash = { CB .. "UI-CastingBar-Flash", 256, 64, 24, 14, 231, 48 },
+    castShield = { CB .. "UI-CastingBar-Small-Shield", 256, 64, 2, 6, 236, 54 },
+    spark = { CB .. "UI-CastingBar-Spark", 32, 32, 0, 0, 32, 32 },
+    -- raid cells
+    raidFill = { "Interface\\RaidFrame\\Raid-Bar-Hp-Fill", 64, 64, 0, 0, 64, 64 },
+    raidBg = { "Interface\\RaidFrame\\Raid-Bar-Hp-Bg", 32, 64, 0, 0, 32, 64 },
+    raidPower = { "Interface\\RaidFrame\\Raid-Bar-Resource-Fill", 32, 8, 0, 0, 32, 8 },
+    raidSelected = { "Interface\\RaidFrame\\Raid-FrameHighlights", 128, 128, 1, 37, 71, 71 },
+    -- the minimap: the ring is 256 px with the map's 140 px circle at (54.5 + 44, 42 - 5) in it
+    mmBorder = { "Interface\\Minimap\\UI-Minimap-Border", 256, 256, 0, 0, 256, 256 },
+    tracking = { "Interface\\Minimap\\MiniMap-TrackingBorder", 64, 64, 0, 0, 64, 64 },
+    zoomIn = { "Interface\\Minimap\\UI-Minimap-ZoomInButton-Up", 32, 32, 0, 0, 32, 32 },
+    zoomOut = { "Interface\\Minimap\\UI-Minimap-ZoomOutButton-Up", 32, 32, 0, 0, 32, 32 },
+    clock = { "Interface\\TimeManager\\ClockBackground", 64, 64, 0, 0, 64, 64 },
+    -- meters: your row's gold
+    questHi = { "Interface\\QuestFrame\\UI-QuestTitleHighlight", 128, 16, 0, 0, 128, 16 },
+    -- the totem bar's element frames (34 x 36: the icon inset 3)
+    totemEarth = { B .. "UI-TotemBar", 128, 256, 0, 172, 34, 208 },
+    totemFire = { B .. "UI-TotemBar", 128, 256, 34, 172, 68, 208 },
+    totemWater = { B .. "UI-TotemBar", 128, 256, 0, 208, 34, 244 },
+    totemAir = { B .. "UI-TotemBar", 128, 256, 34, 136, 68, 172 },
+}
+local GAME = Look.GAME
+
+-- Puts a game piece on a texture (its file and cut). Returns the piece's pixel size.
+function Look:GameTex(t, key, wrapH, wrapV)
+    local p = GAME[key]
+    if not (t and p) then return 0, 0 end
+    t:SetTexture(p[1], wrapH, wrapV)
+    t:SetTexCoord(p[4] / p[2], p[6] / p[2], p[5] / p[3], p[7] / p[3])
+    return p[6] - p[4], p[7] - p[5]
+end
 
 Look.PARTS = {
     { key = "units", name = "Unit frames", tip = "Player, target, target of target, focus and pet.", replaced = true },
@@ -80,6 +182,16 @@ Look.LOOKS = {
       head = { top = { 0.231, 0.169, 0.059, 1 }, bottom = { 0.106, 0.078, 0.031, 1 }, line = { 0.54, 0.42, 0.15, 1 } },
       bar = "gilt", track = { 0, 0, 0, 0.45 }, fillA = 1, icon = "gilt", rim = { 0.66, 0.51, 0.17, 1 },
       nameC = { 1, 0.84, 0.42 }, gap = 3, plate = true, buttonSize = 34 },
+    -- Classic: our layouts in the game's own art (mockup claude.ai/artifact/3MHRTnR18XaYMLqYj5cuHx, 2026-10-13). The
+    -- panels wear the tooltip's edge, bars the game's status bar texture, icons the action button frame; each part
+    -- draws its own game art from Look.GAME (game = true). Health is the game's green (raid cells: class colours)
+    -- unless a part's colour option says else.
+    { key = "classic", name = "Classic", tip = "The game's own art in our layouts: action button frames, the main bar's stone and gryphons, the backpack, the tooltip edge.",
+      panel = { bg = { 0.035, 0.035, 0.075, 0.9 }, edge9 = "tip" },
+      head = { top = { 0.1, 0.1, 0.14, 1 }, bottom = { 0.035, 0.035, 0.075, 1 }, line = { 0.36, 0.36, 0.4, 1 } },
+      bar = "gilt", track = { 0, 0, 0, 0.5 }, fillA = 1, icon = "quick", rim = { 0, 0, 0, 1 },
+      nameC = { 1, 0.82, 0 }, gap = 6, plate = true, buttonSize = 36, game = true, health = "green",
+      healthCell = "class" },                      -- (raid cells in class colours, as the game's raid frames)
 }
 local BY_KEY = {}
 for _, l in ipairs(Look.LOOKS) do BY_KEY[l.key] = l end
@@ -122,6 +234,22 @@ end
 function Look:For(part) return BY_KEY[self:Key(part)] or BY_KEY.blizzard end
 function Look:IsOn(part) return self:Key(part) ~= "blizzard" end
 
+-- One look on everything that has one: every game part (each back to following ui.look) and the addon's own themed
+-- parts whose theme list has it (meters, class bars, the swing and shot timers).
+Look.THEMED = { { kind = "meters", setting = "meters.theme" }, { kind = "classbar", setting = "classbar.theme" },
+                { kind = "ring_swing", setting = "swing.theme" }, { kind = "ring_shot", setting = "shot.theme" } }
+function Look:UseEverywhere(key)
+    if not (ns.DB and BY_KEY[key]) then return end
+    for _, p in ipairs(Look.PARTS) do
+        if Get("ui." .. p.key .. ".look", "inherit") ~= "inherit" then ns.DB:SetSetting("ui." .. p.key .. ".look", "inherit") end
+    end
+    ns.DB:SetSetting("ui.look", key)
+    for _, t in ipairs(Look.THEMED) do
+        local k = ns.Themes and ns.Themes:Kind(t.kind)
+        if not k or (k.byKey and k.byKey[key]) then ns.DB:SetSetting(t.setting, key) end
+    end
+end
+
 -- A part's option (Settings > UI, the part's card).
 function Look:Opt(part, key, default) return Get("ui." .. part .. "." .. key, default) end
 
@@ -159,16 +287,19 @@ end
 -- The look tiles (Settings > UI): a small player frame in each look; Blizzard's says what it is.
 local function PaintTile(tile, t)
     local p = tile.preview
+    -- (the sample shrinks with the tile when the row has to fit more tiles)
+    local k = math.min(1, (tile:GetWidth() or 88) / 88)
+    if k <= 0 then k = 1 end
     if not p.host then
-        p:SetSize(88, 40)
         p.host = CreateFrame("Frame", nil, p)
         p.host:SetPoint("TOPLEFT", p, "TOPLEFT", 0, 0)
-        p.host:SetScale(0.36)
         p.blizz = UI:Text(p, "small", "SUB", { justify = "CENTER" })
         p.blizz:SetPoint("TOP", tile, "TOP", 0, -16)
         p.blizz:SetText("The game's\nown frames")
         p.blizz:SetWordWrap(true)
     end
+    p:SetSize(88 * k, 40)
+    p.host:SetScale(0.36 * k)
     p.blizz:SetShown(t.key == "blizzard")
     if t.key == "blizzard" then if p.face then p.host:Hide() end return end
     if not ns.LookUnits then return end
@@ -278,13 +409,180 @@ local function PillRing(parent, layer, sub)
 end
 Look.PillRing = PillRing
 
+---------------------------------------------------------------------------
+-- Classic's game art: the tooltip's edge round a frame, a game piece tiled over an area, the action button frame
+---------------------------------------------------------------------------
+
+-- The game's backdrop edges (an edge file holds 8 squares: left, right, top, bottom and the four corners; top and
+-- bottom stand up in the file and are turned). out: how far the pieces reach past the frame so the drawn line sits on
+-- its edge.
+local EDGE9 = { tip = { file = "Interface\\Tooltips\\UI-Tooltip-Border", e = 16, out = 4 },
+                dialog = { file = "Interface\\DialogFrame\\UI-DialogBox-Border", e = 32, out = 9 } }
+Look.EDGE9 = EDGE9
+local Edge9Methods = {}
+function Edge9Methods:Show(on)
+    for _, t in ipairs(self.t) do t:SetShown(on and true or false) end
+    self.on = on and true or false
+end
+function Edge9Methods:Paint(r, g, b, a)
+    for _, t in ipairs(self.t) do t:SetVertexColor(r or 1, g or 1, b or 1, a or 1) end
+end
+-- (around frame `to`, its pieces size e; out as above)
+function Edge9Methods:Place(to, e, out)
+    local d = self.d
+    e, out = e or d.e, out or d.out
+    to = to or self.f
+    local L, R, T, Bt, TL, TR, BL, BR = self.t[1], self.t[2], self.t[3], self.t[4], self.t[5], self.t[6], self.t[7], self.t[8]
+    for _, t in ipairs(self.t) do t:ClearAllPoints() end
+    TL:SetSize(e, e); TL:SetPoint("TOPLEFT", to, "TOPLEFT", -out, out)
+    TR:SetSize(e, e); TR:SetPoint("TOPRIGHT", to, "TOPRIGHT", out, out)
+    BL:SetSize(e, e); BL:SetPoint("BOTTOMLEFT", to, "BOTTOMLEFT", -out, -out)
+    BR:SetSize(e, e); BR:SetPoint("BOTTOMRIGHT", to, "BOTTOMRIGHT", out, -out)
+    -- (the sides between the corners, anchored to the frame itself)
+    L:SetPoint("TOPLEFT", to, "TOPLEFT", -out, out - e); L:SetPoint("BOTTOMLEFT", to, "BOTTOMLEFT", -out, e - out); L:SetWidth(e)
+    R:SetPoint("TOPRIGHT", to, "TOPRIGHT", out, out - e); R:SetPoint("BOTTOMRIGHT", to, "BOTTOMRIGHT", out, e - out); R:SetWidth(e)
+    T:SetPoint("TOPLEFT", to, "TOPLEFT", e - out, out); T:SetPoint("TOPRIGHT", to, "TOPRIGHT", out - e, out); T:SetHeight(e)
+    Bt:SetPoint("BOTTOMLEFT", to, "BOTTOMLEFT", e - out, -out); Bt:SetPoint("BOTTOMRIGHT", to, "BOTTOMRIGHT", out - e, -out); Bt:SetHeight(e)
+end
+function Look:Edge9(f, kind, layer, sub)
+    local d = EDGE9[kind or "tip"] or EDGE9.tip
+    local g = { f = f, d = d, t = {} }
+    for k, fn in pairs(Edge9Methods) do g[k] = fn end
+    for i = 1, 8 do
+        local t = f:CreateTexture(nil, layer or "BORDER", nil, sub or 4)
+        t:SetTexture(d.file)
+        local a, b = (i - 1) / 8, i / 8
+        if i == 3 or i == 4 then t:SetTexCoord(a, 1, b, 1, a, 0, b, 0)      -- (the standing piece turned: UL LL UR LR)
+        else t:SetTexCoord(a, b, 0, 1) end
+        g.t[i] = t
+    end
+    g:Place(f)
+    g:Show(false)
+    return g
+end
+
+-- A game piece repeated over an area (a sub-rectangle of a file can't wrap: one texture per piece, the last ones cut).
+-- tile:Fill(to, x, y, w, h, pw, ph) covers w x h at (x, y) of `to` (y down) with pw x ph pieces; :Hide().
+local TileMethods = {}
+function TileMethods:Fill(to, x, y, w, h, pw, ph)
+    local p = GAME[self.key]
+    if not p or w <= 0 or h <= 0 then self:Hide() return end
+    local sw, sh = p[6] - p[4], p[7] - p[5]
+    pw, ph = pw or sw, ph or sh
+    local n = 0
+    local cols, rows = math.ceil(w / pw - 0.001), math.ceil(h / ph - 0.001)
+    for r = 0, rows - 1 do
+        for c = 0, cols - 1 do
+            n = n + 1
+            local t = self.t[n]
+            if not t then
+                t = self.f:CreateTexture(nil, self.layer, nil, self.sub)
+                t:SetTexture(p[1])
+                self.t[n] = t
+            end
+            local tw, th = min(pw, w - c * pw), min(ph, h - r * ph)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", to, "TOPLEFT", x + c * pw, -(y + r * ph))
+            t:SetSize(tw, th)
+            local fx, fy = tw / pw, th / ph
+            local u0, v0 = p[4] / p[2], p[5] / p[3]
+            local u1 = (p[4] + sw * fx) / p[2]
+            local v1 = (p[5] + sh * fy) / p[3]
+            if self.flipY then t:SetTexCoord(u0, u1, v1, v0) else t:SetTexCoord(u0, u1, v0, v1) end
+            if self.color then t:SetVertexColor(self.color[1], self.color[2], self.color[3], self.color[4] or 1) end
+            t:Show()
+        end
+    end
+    for i = n + 1, #self.t do self.t[i]:Hide() end
+    self.n = n
+end
+function TileMethods:Hide() for _, t in ipairs(self.t) do t:Hide() end end
+function TileMethods:SetColor(r, g, b, a) self.color = { r, g, b, a or 1 }; for _, t in ipairs(self.t) do t:SetVertexColor(r, g, b, a or 1) end end
+function Look:GameTile(f, key, layer, sub)
+    local g = { f = f, key = key, layer = layer or "BACKGROUND", sub = sub or 0, t = {} }
+    for k, fn in pairs(TileMethods) do g[k] = fn end
+    return g
+end
+
+-- A game piece that stretches between two fixed ends (a cast bar's border, the target frame's rails): three textures.
+-- s:Place(to, x, y, w, h, k) puts it at (x, y) of `to` (y down), k scaling the ends (1); :Show(on), :SetBlend(mode),
+-- :SetAlpha(a), :SetVertexColor(r, g, b, a), :SetFlipX(on) (the piece mirrored: the player's frame).
+local Slice3Methods = {}
+function Slice3Methods:Place(to, x, y, w, h, k)
+    local p = GAME[self.key]
+    if not p then return end
+    k = k or 1
+    local l, r = self.l * k, self.r * k
+    local u0, u1, v0, v1 = p[4] / p[2], p[6] / p[2], p[5] / p[3], p[7] / p[3]
+    local ul, ur = (p[4] + self.l) / p[2], (p[6] - self.r) / p[2]
+    local L, M, R = self.t[1], self.t[2], self.t[3]
+    local fl = self.flip
+    -- (mirrored: the right end's art draws on the left)
+    local lw, rw = fl and r or l, fl and l or r
+    L:ClearAllPoints(); L:SetPoint("TOPLEFT", to, "TOPLEFT", x, -y); L:SetSize(lw, h)
+    R:ClearAllPoints(); R:SetPoint("TOPLEFT", to, "TOPLEFT", x + w - rw, -y); R:SetSize(rw, h)
+    M:ClearAllPoints(); M:SetPoint("TOPLEFT", to, "TOPLEFT", x + lw, -y); M:SetSize(math.max(0.01, w - lw - rw), h)
+    if fl then
+        L:SetTexCoord(u1, ur, v0, v1); M:SetTexCoord(ur, ul, v0, v1); R:SetTexCoord(ul, u0, v0, v1)
+    else
+        L:SetTexCoord(u0, ul, v0, v1); M:SetTexCoord(ul, ur, v0, v1); R:SetTexCoord(ur, u1, v0, v1)
+    end
+end
+function Slice3Methods:Show(on) for _, t in ipairs(self.t) do t:SetShown(on and true or false) end end
+function Slice3Methods:SetBlend(mode) for _, t in ipairs(self.t) do if t.SetBlendMode then t:SetBlendMode(mode) end end end
+function Slice3Methods:SetAlpha(a) for _, t in ipairs(self.t) do t:SetAlpha(a) end end
+function Slice3Methods:SetVertexColor(r, g, b, a) for _, t in ipairs(self.t) do t:SetVertexColor(r, g, b, a or 1) end end
+function Slice3Methods:SetFlipX(on) self.flip = on and true or false end
+function Look:GameSlice3(f, key, left, right, layer, sub)
+    local s = { key = key, l = left, r = right, t = {} }
+    for k, fn in pairs(Slice3Methods) do s[k] = fn end
+    local p = GAME[key]
+    for i = 1, 3 do
+        local t = f:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
+        if p then t:SetTexture(p[1]) end
+        s.t[i] = t
+    end
+    return s
+end
+
+-- The action button frame (UI-Quickslot2, 66/36 of the button, centred) on texture t round frame f; again when f's
+-- size changes. key: "quick" (default), "slot" (an empty slot), "pushed".
+function Look:QuickFrame(t, f, key)
+    self:GameTex(t, key or "quick")
+    local function Fit()
+        local w, h = f:GetWidth() or 0, f:GetHeight() or 0
+        if w <= 0 then w = 36 end
+        if h <= 0 then h = w end
+        local ox, oy = w * 15 / 36, h * 15 / 36
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", f, "TOPLEFT", -ox, oy)
+        t:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", ox, -oy)
+    end
+    Fit()
+    if not t.dzQuickHooked and f.HookScript then
+        t.dzQuickHooked = true
+        f:HookScript("OnSizeChanged", Fit)
+    end
+end
+
 local PanelMethods = {}
 
 -- Paints a frame's ground in a look (nil or Blizzard: nothing).
 function PanelMethods:Apply(look)
     local p = look and look.panel
+    if self.e9 then self.e9:Show(p and p.edge9 and true or false) end
     if not p then
         self.bg:Hide(); self.edge:Paint(nil); self.outer:Paint(nil); self.inner:Paint(nil)
+        for _, c in ipairs(self.corners) do c:Hide() end
+        if self.gilt then self.gilt:Show(false) end
+        return
+    end
+    -- (Classic: the game's tooltip edge instead of the 1 px lines)
+    if p.edge9 then
+        if not self.e9 then self.e9 = Look:Edge9(self.f, p.edge9, "BORDER", 4) end
+        self.e9:Show(true)
+        Color(self.bg, p.bg)
+        self.edge:Paint(nil); self.outer:Paint(nil); self.inner:Paint(nil)
         for _, c in ipairs(self.corners) do c:Hide() end
         if self.gilt then self.gilt:Show(false) end
         return
@@ -566,7 +864,7 @@ function IconMethods:Apply(look, shape)
         self.edge:Paint(nil); self.edge2:Paint(nil)
     elseif self.shape == "framed" then
         self.edge:Paint({ 0, 0, 0, 1 }); self.edge2:Paint(rim)
-    elseif self.shape == "gilt" then
+    elseif self.shape == "gilt" or self.shape == "quick" then
         self.edge:Paint(nil); self.edge2:Paint(nil)
     else
         self.edge:Paint(self.shape == "small" and nil or rim); self.edge2:Paint(nil)
@@ -579,6 +877,12 @@ function IconMethods:Apply(look, shape)
         self.bezel:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 1, -1)
     end
     if self.bezel then self.bezel:SetShown(self.shape == "gilt") end
+    -- Classic: the action button frame round the icon
+    if self.shape == "quick" and not self.qs then
+        self.qs = f:CreateTexture(nil, "OVERLAY", nil, 3)
+        Look:QuickFrame(self.qs, f)
+    end
+    if self.qs then self.qs:SetShown(self.shape == "quick") end
     self:Refresh()
 end
 

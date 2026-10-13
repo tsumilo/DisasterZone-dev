@@ -151,6 +151,23 @@ local function CreateThemeTiles(UI, parent, kind, opts)
             tile.name:SetTextColor(on and GOLD[1] or 0.85, on and GOLD[2] or 0.82, on and GOLD[3] or 0.75)
         end
     end
+    -- More tiles than the row holds (a new theme joined the list): every tile narrower, the row filled exactly.
+    function strip:Layout()
+        local n = #self.tiles
+        local avail = self:GetWidth() or 0
+        local w = W
+        if n > 0 and avail > 0 and n * W + (n - 1) * G > avail then w = math.floor((avail - (n - 1) * G) / n) end
+        if w == self.tileW then return end
+        self.tileW = w
+        for i, tile in ipairs(self.tiles) do
+            tile:SetWidth(w)
+            tile:ClearAllPoints()
+            tile:SetPoint("TOPLEFT", self, "TOPLEFT", (i - 1) * (w + G), 0)
+        end
+        if opts.paint then for _, tile in ipairs(self.tiles) do opts.paint(tile, tile.theme) end end
+    end
+    strip.tileW = W
+    strip:SetScript("OnSizeChanged", function(self) self:Layout() end)
     strip:Refresh()
     return strip
 end

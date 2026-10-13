@@ -161,7 +161,7 @@ def close_all(cl):
                               'DisasterZoneTotems', 'DisasterZoneTotemBar', 'DisasterZoneTotemRange',
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
-                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZAuditFull', 'DZGroupStage',
+                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZLookLongNames', 'DZAuditFull', 'DZGroupStage',
                               'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
@@ -1852,12 +1852,16 @@ STATES = [
     ("Dock - sigil", opened("home", DOCK_STATE.replace("LOOK", "sigil"))),
     ("Dock - slate", opened("home", DOCK_STATE.replace("LOOK", "slate"))),
     ("Dock - gilded", opened("home", DOCK_STATE.replace("LOOK", "gilded"))),
+    ("Dock - classic", opened("home", DOCK_STATE.replace("LOOK", "classic"))),
     ("Bags - flat one", opened("home", BAGS_STATE.replace("LOOK", "flat").replace("LAYOUT", "one"))),
     ("Bags - halo one", opened("home", BAGS_STATE.replace("LOOK", "halo").replace("LAYOUT", "one"))),
     ("Bags - sigil shelves", opened("home", BAGS_STATE.replace("LOOK", "sigil").replace("LAYOUT", "shelves"))),
     ("Bags - slate shelves", opened("home", BAGS_STATE.replace("LOOK", "slate").replace("LAYOUT", "shelves"))),
     ("Bags - gilded shelves", opened("home", BAGS_STATE.replace("LOOK", "gilded").replace("LAYOUT", "shelves"))),
     ("Bags - gilded bags", opened("home", BAGS_STATE.replace("LOOK", "gilded").replace("LAYOUT", "bags"))),
+    ("Bags - classic one", opened("home", BAGS_STATE.replace("LOOK", "classic").replace("LAYOUT", "one"))),
+    ("Bags - classic shelves", opened("home", BAGS_STATE.replace("LOOK", "classic").replace("LAYOUT", "shelves"))),
+    ("Bags - classic bags", opened("home", BAGS_STATE.replace("LOOK", "classic").replace("LAYOUT", "bags"))),
     ("Settings - Shot timer", demo("ns.SettingsUI:SelectSection('shot')", "settings")),
     ("Shot timer - both, Steady now", opened("home", "ns.MainFrame:Close(); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer - bar, late in the shot", opened("home", "ns.MainFrame:Close(); " + (SHOT_HUD % "1.6").replace("STYLE", "bar"))),
@@ -3332,7 +3336,7 @@ local p = DZLookGallery or CreateFrame('Frame', 'DZLookGallery', UIParent)
 p:SetSize(1240, 640); p:ClearAllPoints(); p:SetPoint('CENTER'); p:Show()
 if not p.bg then p.bg = p:CreateTexture(nil, 'BACKGROUND'); p.bg:SetAllPoints(); p.bg:SetColorTexture(0.16, 0.12, 0.2, 1) end
 local U, C = ns.LookUnits, ns.LookCast
-for i, key in ipairs({ 'flat', 'halo', 'sigil', 'slate', 'gilded' }) do
+for i, key in ipairs(LOOKLIST) do
   local look = ns.Look.BY_KEY[key]
   local x = 16 + (i - 1) * 246
   local function face(kind, side, y, fake, w, xo)
@@ -3379,8 +3383,93 @@ for i, key in ipairs({ 'flat', 'halo', 'sigil', 'slate', 'gilded' }) do
   end
 end
 """
+# Unit frames with long mob names (the numbers sit in the health bar; the name stops before whatever shares its row):
+# the in-game case (Dreadfang Lurker under 3623 66%), a full-health elite (numbers over the bright fill), long small
+# frames, Offline on the small row.
+LOOK_LONG_NAMES = r"""
+ns.MainFrame:Close(); __MOCK.real_geometry = true
+local p = DZLookLongNames or CreateFrame('Frame', 'DZLookLongNames', UIParent)
+p:SetSize(1240, 330); p:ClearAllPoints(); p:SetPoint('CENTER'); p:Show()
+if not p.bg then p.bg = p:CreateTexture(nil, 'BACKGROUND'); p.bg:SetAllPoints(); p.bg:SetColorTexture(0.16, 0.12, 0.2, 1) end
+local U = ns.LookUnits
+local function mob(name, level, hp, hpMax, classif)
+  return { exists = true, name = name, level = level, classif = classif, hp = hp, hpMax = hpMax, pt = 0, pw = 1,
+           pwMax = 1, reaction = 2, isPlayer = false, portrait = 'Interface\\Icons\\Ability_Hunter_Pet_Spider' }
+end
+for i, key in ipairs({ 'flat', 'halo', 'sigil', 'slate', 'gilded' }) do
+  local look = ns.Look.BY_KEY[key]
+  local x = 16 + (i - 1) * 246
+  local function face(kind, side, y, d, w, xo)
+    local h = CreateFrame('Frame', nil, p); h:SetPoint('TOPLEFT', p, 'TOPLEFT', x + (xo or 0), y)
+    local f = U:NewFace(h, kind, 'units', side)
+    f.width = w
+    f:Apply(look); f:Set(d); return f
+  end
+  face('big', 'right', -16, mob('Dreadfang Lurker', 63, 3623, 5490))
+  face('big', 'right', -76, mob('Ashtongue Deathsworn', 70, 9840, 9840, 'elite'))
+  face('big', 'left', -136, mob('Shattered Hand Legionnaire', 70, 21000, 42000, 'elite'))
+  face('small', 'left', -196, mob('Coilfang Myrmidon', 70, 5000, 9000))
+  face('small', 'left', -196, { exists = true, name = 'Shadowmelder', class = 'ROGUE', isPlayer = true, level = 70,
+                                hp = 0, hpMax = 9000, offline = true }, nil, 116)
+  local m = U.Fake('member', 2); m.name = 'Moonwhisperwind'
+  face('big', 'left', -236, m, 184)
+end
+"""
+# Classic (UI/Look.lua look "classic"): every part's face in the game's own art, spaced for the game's bigger frames
+CLASSIC_GALLERY = r"""
+ns.MainFrame:Close(); __MOCK.real_geometry = true
+local p = DZLookGallery or CreateFrame('Frame', 'DZLookGallery', UIParent)
+p:SetSize(1240, 560); p:ClearAllPoints(); p:SetPoint('CENTER'); p:Show()
+if not p.bg then p.bg = p:CreateTexture(nil, 'BACKGROUND'); p.bg:SetAllPoints(); p.bg:SetColorTexture(0.16, 0.12, 0.2, 1) end
+local U, C = ns.LookUnits, ns.LookCast
+local look = ns.Look.BY_KEY['classic']
+local function face(kind, side, x, y, fake, w)
+  local h = CreateFrame('Frame', nil, p); h:SetPoint('TOPLEFT', p, 'TOPLEFT', x, y)
+  local f = U:NewFace(h, kind, kind == 'cell' and 'group' or 'units', side)
+  f.width = w
+  if fake.auras then f.showAuras = true; f.showCombo = true end
+  f:Apply(look); f:Set(fake); return f
+end
+face('big', 'left', 20, -20, U.Fake('player'))
+face('big', 'right', 270, -20, U.Fake('target'))
+face('small', 'left', 300, -140, U.Fake('tot'))
+face('big', 'right', 560, -20, U.Fake('focus'))
+face('small', 'left', 20, -120, U.Fake('pet'))
+for j = 1, 4 do face('big', 'left', 20, -190 - (j - 1) * 64, U.Fake('member', j), 184) end
+for j = 1, 9 do
+  face('cell', 'left', 270 + ((j - 1) % 3) * 92, -220 - math.floor((j - 1) / 3) * 42, U.Fake('member', j + 4), 86)
+end
+local cb = C:Sample(p, 'player', look); cb:SetPoint('TOPLEFT', p, 'TOPLEFT', 270, -360)
+local ct = C:Sample(p, 'target', look); ct:SetPoint('TOPLEFT', p, 'TOPLEFT', 270, -420)
+local icons = { 132340, 132355, 132363, 132326, 135358, 136105 }
+for j, ic in ipairs(icons) do
+  local b = CreateFrame('Button', nil, p); b:SetSize(36, 36)
+  b:SetPoint('TOPLEFT', p, 'TOPLEFT', 860 + (j - 1) * 42, -40)
+  b.icon = b:CreateTexture(nil, 'BACKGROUND'); b.icon:SetAllPoints(); b.icon:SetTexture(ic)
+  b.HotKey = b:CreateFontString(nil, 'OVERLAY', 'GameFontHighlight'); b.HotKey:SetText(tostring(j))
+  b.NormalTexture = b:CreateTexture()
+  ns.LookBars:Apply(b, look)
+end
+local menu = { 'CharacterMicroButton', 'SpellbookMicroButton', 'TalentMicroButton', 'QuestLogMicroButton',
+               'SocialsMicroButton', 'WorldMapMicroButton', 'MainMenuMicroButton', 'HelpMicroButton' }
+for j, n in ipairs(menu) do
+  local b = CreateFrame('Button', nil, p); b:SetSize(28, 36); b.dzName = n
+  b:SetPoint('TOPLEFT', p, 'TOPLEFT', 860 + (j - 1) * 32, -110)
+  ns.LookBars:Tile(b, look)
+end
+local kr = CreateFrame('Button', nil, p); kr:SetSize(18, 36); kr.dzName = 'KeyRingButton'
+kr:SetPoint('TOPLEFT', p, 'TOPLEFT', 860, -170); ns.LookBars:Tile(kr, look)
+for j, ic in ipairs({ 133628, 133633, 133640, 133639 }) do
+  local b = CreateFrame('Button', nil, p); b:SetSize(36, 36); b.dzName = 'CharacterBag' .. (j - 1) .. 'Slot'
+  b.Icon = b:CreateTexture(); b.Icon:SetTexture(ic)
+  b:SetPoint('TOPLEFT', p, 'TOPLEFT', 890 + (j - 1) * 42, -170)
+  ns.LookBars:Tile(b, look)
+end
+"""
 STATES += [
-    ("UI looks - gallery", opened("home", LOOK_GALLERY)),
+    ("UI looks - gallery", opened("home", LOOK_GALLERY.replace("LOOKLIST", "{ 'flat', 'halo', 'sigil', 'slate', 'gilded' }"))),
+    ("UI looks - classic", opened("home", CLASSIC_GALLERY)),
+    ("UI looks - long names", opened("home", LOOK_LONG_NAMES)),
     ("Settings - UI", opened("settings", "ns.SettingsUI:SelectSection('ui')")),
 ]
 
@@ -3430,7 +3519,7 @@ for i = 1, 29 do
 end
 """
 STATES += [("Group frames - " + k, opened("home", GROUP_STATE.replace("LOOK", k)))
-           for k in ("halo", "flat", "sigil", "slate", "gilded")]
+           for k in ("halo", "flat", "sigil", "slate", "gilded", "classic")]
 
 
 # ---------------------------------------------------------------------------------------------------------------

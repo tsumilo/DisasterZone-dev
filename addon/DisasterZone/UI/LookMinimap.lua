@@ -4,6 +4,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/LookMinimap.lua", ...) then ret
 -- look's own edge, zone and clock are drawn round it. Square looks mask it square (GetMinimapShape tells the minimap
 -- button libraries), round ones keep the game's round mask. The mouse wheel zooms (the + and - are gone).
 -- Options (ui.minimap.*): shape ("theme" | "round" | "square"), buttons ("edge" | "drawer" | "hover"), clock, zone.
+-- Classic: the game's own minimap as it is (its ring, zone bar, clock, zoom and tracking are already the game's art);
+-- ours are only the drawer (in the tooltip's edge) and its knob, a round minimap button on the ring.
 local addonName, ns = ...
 
 local MM = ns:NewModule("LookMinimap")
@@ -24,6 +26,7 @@ local skin
 local hidden = {}
 
 local function Shape(look)
+    if look.game then return "round" end
     local opt = Look():Opt("minimap", "shape", "theme")
     if opt == "round" or opt == "square" then return opt end
     return (look.key == "halo" or look.key == "gilded") and "round" or "square"
@@ -106,6 +109,7 @@ end
 
 function MM:Clock()
     if not skin then return end
+    if skin.look and skin.look.game then skin.clock:SetText("") return end      -- (Classic: the game's own clock)
     if not Look():Opt("minimap", "clock", true) then skin.clock:SetText("") return end
     local local_ = GetCVarBool and GetCVarBool("timeMgrUseLocalTime")
     local h, m
@@ -116,6 +120,7 @@ end
 
 function MM:Zone()
     if not skin then return end
+    if skin.look and skin.look.game then skin.zone:SetText(""); skin.sub:SetText("") return end
     local on = Look():Opt("minimap", "zone", true)
     skin.zone:SetText(on and (GetMinimapZoneText and GetMinimapZoneText() or "") or "")
     ZoneColor(skin.zone)
@@ -282,6 +287,57 @@ function MM:Buttons()
     end
 end
 
+-- Classic: the game's frames shown again (as Off does), round, and only the knob and drawer of ours.
+function MM:ApplyClassic(s, look)
+    local L = Look()
+    local map = _G.Minimap
+    for name, was in pairs(hidden) do
+        local f = _G[name]
+        if f then
+            f:SetAlpha(was.alpha or 1)
+            if was.mouse and f.EnableMouse and not (f.IsProtected and f:IsProtected()) then pcall(f.EnableMouse, f, true) end
+        end
+    end
+    local cl = _G.MinimapCluster
+    if cl and cl.BorderTop then cl.BorderTop:SetAlpha(1) end
+    if cl and cl.ZoneTextButton then cl.ZoneTextButton:SetAlpha(1) end
+    if map.SetMaskTexture then pcall(map.SetMaskTexture, map, ROUND_MASK) end
+    MM.shape = "round"
+    s.ring:Hide(); s.ringIn:Hide(); s.edge:Paint(nil); s.inner:Paint(nil)
+    s.head:Hide(); s.headLine:Hide(); s.plaque:Hide(); s.stud:Hide(); s.clockBg:Hide()
+    -- the knob: a minimap button (the tracking border's ring round a dark disc, the dots in gold) on the ring's free
+    -- lower left, where the game puts none of its own
+    local k = s.knob
+    k.panel:Apply(nil)
+    if not k.cl then
+        k.cl = {}
+        k.cl.bg = k:CreateTexture(nil, "BACKGROUND")
+        k.cl.bg:SetTexture("Interface\Minimap\UI-Minimap-Background")
+        k.cl.bg:SetSize(20, 20)
+        k.cl.bg:SetPoint("TOPLEFT", 7, -5)
+        k.cl.ring = k:CreateTexture(nil, "OVERLAY")
+        L:GameTex(k.cl.ring, "tracking")
+        k.cl.ring:SetSize(53, 53)
+        k.cl.ring:SetPoint("TOPLEFT")
+        k.cl.hl = k:CreateTexture(nil, "HIGHLIGHT")
+        k.cl.hl:SetTexture("Interface\Minimap\UI-Minimap-ZoomButton-Highlight")
+        k.cl.hl:SetAllPoints()
+        if k.cl.hl.SetBlendMode then k.cl.hl:SetBlendMode("ADD") end
+    end
+    for _, t in pairs(k.cl) do t:Show() end
+    k:SetSize(31, 31)
+    k.fs:ClearAllPoints()
+    k.fs:SetPoint("CENTER", k, "TOPLEFT", 17, -15)
+    k.fs:SetTextColor(1, 0.82, 0)
+    local r = (map:GetWidth() or 140) / 2 + 4
+    k:ClearAllPoints()
+    k:SetPoint("CENTER", map, "CENTER", -r * 0.72 + 1, -r * 0.72 - 2)
+    s:Show()
+    self:Zone()
+    self:Clock()
+    self:Buttons()
+end
+
 function MM:Apply()
     local L = Look()
     local map = _G.Minimap
@@ -289,6 +345,10 @@ function MM:Apply()
     local look = L:For("minimap")
     local s = Build()
     s.look = look
+    if look.game then return self:ApplyClassic(s, look) end
+    if s.knob.cl then for _, t in pairs(s.knob.cl) do t:Hide() end end
+    s.knob:SetSize(18, 18)
+    s.knob.fs:ClearAllPoints(); s.knob.fs:SetPoint("CENTER", 0, 1)
     for _, n in ipairs(HIDE) do Hide(n) end
     local cl = _G.MinimapCluster
     if cl and cl.BorderTop then cl.BorderTop:SetAlpha(0) end

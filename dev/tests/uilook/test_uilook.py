@@ -84,6 +84,29 @@ def the_face_writes_names_numbers_and_the_options():
     w.assert_no_errors()
 
 
+LONG_MOB = ("{ exists = true, name = 'Dreadfang Lurker', level = 63, hp = 3623, hpMax = 5490, pt = 0, pw = 1, "
+            "pwMax = 1, reaction = 2, isPlayer = false }")
+
+
+@case
+def the_numbers_sit_in_the_bar_and_the_name_never_runs_under_them():
+    # (in game: a long mob name on the Halo target ran under "3623  66%" on the row above the bar)
+    w, c = with_look("flat")
+    c.eval("_G.__H = CreateFrame('Frame', nil, UIParent); _G.__F = ns.LookUnits:NewFace(__H, 'big', 'units', 'right')")
+    for look in ["flat", "halo", "sigil", "gilded"]:
+        c.eval("__F:Apply(ns.Look.BY_KEY.%s); __F:Set(%s)" % (look, LONG_MOB))
+        assert c.eval("local _, rel = __F.value:GetPoint(1); return rel == __F.hp.f") is True, look
+    # Slate's bar is a line: its numbers share the name's row, the name ends before them
+    c.eval("__F:Apply(ns.Look.BY_KEY.slate); __F:Set(%s)" % LONG_MOB)
+    nw, lw, vw, w0 = c.eval_py("return { __F.name:GetWidth(), __F.level:GetStringWidth(), "
+                               "__F.value:GetStringWidth(), __H:GetWidth() }")
+    assert nw + lw + 4 + vw + 8 <= w0 - 16, (nw, lw, vw, w0)
+    # the numbers changing width (full mode) give the name back less room
+    c.eval("ns.DB:SetSetting('ui.units.healthText', 'full'); __F:Set(__F.d)")
+    assert c.eval_py("return __F.name:GetWidth()") < nw
+    w.assert_no_errors()
+
+
 @case
 def every_look_lays_every_kind_out():
     w, c = with_look("flat")

@@ -1256,6 +1256,13 @@ function SettingsUI:BuildUI(sec)
     sec.y = sec.y - 4
     local Look = ns.Look
     Look:Tiles(self, sec)
+    -- one click puts Classic on every part and on the addon's own themed parts (meters, class bars, timers)
+    local row = self:Row(sec, "Classic everywhere", "The game frames, meters, class bars and swing timers in the game's own art.")
+    local all = ns.UI:CreateSleekButton(row, "Use Classic everywhere", 160, 22, function()
+        Look:UseEverywhere("classic")
+        SettingsUI:Refresh()
+    end)
+    all:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     local function Head(text)
         local h = UI:CreateSectionHeader(sec, text)
         h:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 10)
@@ -1271,8 +1278,9 @@ function SettingsUI:BuildUI(sec)
         units = {
             { "portrait", "Portrait", "Class icon for players; the game's portrait for the rest.", "class",
               { { value = "class", text = "Class icon" }, { value = "portrait", text = "Portrait" }, { value = "none", text = "None" } } },
-            { "healthColor", "Health colour", "", "class",
-              { { value = "class", text = "Class" }, { value = "green", text = "Green" }, { value = "gradient", text = "By health" } } },
+            { "healthColor", "Health colour", "The look's: the game's green in Classic, class colours in the rest.", "theme",
+              { { value = "theme", text = "The look's" }, { value = "class", text = "Class" }, { value = "green", text = "Green" },
+                { value = "gradient", text = "By health" } } },
             { "healthText", "Health text", "", "both",
               { { value = "both", text = "14.2k  84%" }, { value = "pct", text = "84%" },
                 { value = "full", text = "14,212 / 16,840" }, { value = "none", text = "None" } } },
@@ -1281,8 +1289,9 @@ function SettingsUI:BuildUI(sec)
             { "timers", "Aura timers", "Seconds left under each aura.", true },
         },
         group = {
-            { "healthColor", "Health colour", "", "class",
-              { { value = "class", text = "Class" }, { value = "green", text = "Green" }, { value = "gradient", text = "By health" } } },
+            { "healthColor", "Health colour", "The look's: the game's green in Classic, class colours in the rest.", "theme",
+              { { value = "theme", text = "The look's" }, { value = "class", text = "Class" }, { value = "green", text = "Green" },
+                { value = "gradient", text = "By health" } } },
             { "player", "Me in my party", "Your own frame at the top of the party frames.", false },
             { "range", "Fade out of range", "Party and raid members too far to heal.", true },
             { "dispel", "Light what I can remove", "A debuff you can dispel colours the frame's edge.", true },
@@ -1307,6 +1316,8 @@ function SettingsUI:BuildUI(sec)
               { { value = 30, text = "Compact (30)" }, { value = 33, text = "Small (33)" }, { value = 36, text = "Normal (36)" },
                 { value = 39, text = "Big (39)" }, { value = 42, text = "Large (42)" } } },
             { "rail", "Bars 4 and 5 at the right edge", "In the Dock's look and size, two columns.", true },
+            { "caps", "End caps", "Classic's Dock: the main bar's gryphons or lions at its ends.", "gryphon",
+              { { value = "gryphon", text = "Gryphons" }, { value = "lion", text = "Lions" }, { value = "none", text = "None" } } },
             { "keys", "Key binds", "", true },
             { "macros", "Macro names", "", false },
             { "cooldown", "Cooldowns", "", "theme",

@@ -440,8 +440,22 @@ function Bags:Paint(b, s, look, S, dim)
             end
         end
     end
+    -- Classic: the cell is the slot (no action frame), the quality the game's white icon border in its colour
+    local sk = LB and LB.skinned and LB.skinned[b]
+    if look.game then
+        if sk and sk.qs then sk.qs:Hide() end
+        if not b.dzQ then
+            b.dzQ = b:CreateTexture(nil, "OVERLAY", nil, 2)
+            Look():GameTex(b.dzQ, "iconFrame")
+            b.dzQ:SetAllPoints(b)
+        end
+        local qc = s.id and s.q and (s.q >= 2 or s.q == 0) and Q[s.q]
+        if qc then b.dzQ:SetVertexColor(qc[1], qc[2], qc[3], 1); b.dzQ:Show() else b.dzQ:Hide() end
+    elseif b.dzQ then
+        b.dzQ:Hide()
+    end
     if b.Count then b.Count:SetAlpha(1) end
-    b.dzJunk:SetShown(s.q == 0 and s.id ~= nil)
+    b.dzJunk:SetShown(s.q == 0 and s.id ~= nil and not look.game)
     b.dzNew:SetShown(s.new and true or false)
     b:SetAlpha(dim and 0.22 or 1)
     if b.icon and b.icon.SetDesaturated then b.icon:SetDesaturated(dim or (s.info and s.info.isLocked) or false) end
@@ -471,7 +485,111 @@ local function Head(f, i)
 end
 
 local HEAD_C = { flat = { 0.91, 0.89, 0.82 }, halo = { 0.96, 0.9, 0.72 }, sigil = { 1, 0.82, 0 },
-                 slate = { 0.7, 0.7, 0.7 }, gilded = { 0.95, 0.81, 0.47 } }
+                 slate = { 0.7, 0.7, 0.7 }, gilded = { 0.95, 0.81, 0.47 }, classic = { 1, 0.82, 0 } }
+
+---------------------------------------------------------------------------
+-- Classic: the game's backpack grown to the layout (Look.GAME bag_*; mockup claude.ai/artifact/3MHRTnR18XaYMLqYj5cuHx).
+-- A carved cell (42 x 41) under every slot with the item (37 px) in it at 2.5, 2; the header's ring holds the bag's
+-- picture, the title on its bar and the red close in its square; the search, the free count, the key ring and a red
+-- Sort button on the stone under it; the footer's money box with the bag icons, the slot count and the money centred
+-- on one line.
+---------------------------------------------------------------------------
+
+local CL = { cw = 42, ch = 41, S = 37, ox = 2.5, oy = 2, head = 46, row = 26, left = 15, right = 14, foot = 37 }
+Bags.CLASSIC = CL
+
+-- The window's art (made once): header, sides, stone, footer, the portrait.
+local function ClassicArt(f)
+    if f.clf then return f.clf end
+    local L = Look()
+    local a = {}
+    a.band = L:GameTile(f, "bag_band", "BACKGROUND", -7)
+    a.l = L:GameTile(f, "bag_l", "BORDER", 0)
+    a.r = L:GameTile(f, "bag_r", "BORDER", 0)
+    a.hl = Tex(f, "BORDER", 1)
+    a.hm = L:GameTile(f, f.kind == "bank" and "bank_hm" or "bag_hm", "BORDER", 1)
+    a.hr = Tex(f, "BORDER", 1)
+    a.fl = Tex(f, "BORDER", 1)
+    a.fm = L:GameTile(f, "bag_fm", "BORDER", 1)
+    a.fr = Tex(f, "BORDER", 1)
+    a.port = L:Icon(f)
+    a.port.f:SetFrameLevel(f:GetFrameLevel() + 1)
+    f.clf = a
+    return a
+end
+
+function Bags:ClassicFrame(f, on)
+    local a = f.clf
+    if not on then
+        if a then
+            a.band:Hide(); a.l:Hide(); a.r:Hide(); a.hm:Hide(); a.fm:Hide()
+            a.hl:Hide(); a.hr:Hide(); a.fl:Hide(); a.fr:Hide(); a.port.f:Hide()
+        end
+        return
+    end
+    local L = Look()
+    a = ClassicArt(f)
+    local W, H = f:GetWidth(), f:GetHeight()
+    local bank = f.kind == "bank"
+    a.band:Fill(f, 8, 40, W - 16, H - 70, 144, 28)          -- (the stone at twice its size: a quarter of the pieces)
+    a.l:Fill(f, 0, 44, 11, H - 44 - 30, 11, 30)
+    a.r:Fill(f, W - 10, 44, 10, H - 44 - 30, 10, 30)
+    L:GameTex(a.hl, bank and "bank_hl" or "bag_hl")
+    a.hl:ClearAllPoints(); a.hl:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0); a.hl:SetSize(62, 46); a.hl:Show()
+    a.hm:Fill(f, 62, 0, W - 62 - 41, 46, 84, 46)
+    L:GameTex(a.hr, bank and "bank_hr" or "bag_hr")
+    a.hr:ClearAllPoints(); a.hr:SetPoint("TOPLEFT", f, "TOPLEFT", W - 41, 0); a.hr:SetSize(41, 46); a.hr:Show()
+    L:GameTex(a.fl, "bag_fl")
+    a.fl:ClearAllPoints(); a.fl:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -(H - CL.foot)); a.fl:SetSize(46, CL.foot); a.fl:Show()
+    a.fm:Fill(f, 46, H - CL.foot, W - 46 - 53, CL.foot, 88, CL.foot)
+    L:GameTex(a.fr, "bag_fr")
+    a.fr:ClearAllPoints(); a.fr:SetPoint("TOPLEFT", f, "TOPLEFT", W - 53, -(H - CL.foot)); a.fr:SetSize(53, CL.foot); a.fr:Show()
+    -- the ring's picture: the backpack, at the bank the banker
+    a.port:Apply(Look().BY_KEY.classic, "round")
+    a.port.ring:Hide(); a.port.ringIn:Hide()
+    a.port.f:ClearAllPoints()
+    a.port.f:SetSize(35, 35)
+    a.port.f:SetPoint("TOPLEFT", f, "TOPLEFT", 5, -8.5)
+    if bank and UnitExists and UnitExists("npc") then a.port:SetPortrait("npc")
+    else a.port:SetTexture(L.GAME.backpack[1]) end
+    a.port.f:Show()
+end
+
+-- The tools in Classic: the red close, a red panel button for Sort, the key ring's own art.
+local function ClassicTool(b, kind)
+    local L = Look()
+    if not b.cl then
+        b.cl = {}
+        if kind == "sort" then
+            b.cl.face = L:GameSlice3(b, "button", 8, 8, "ARTWORK", 0)
+            b.cl.hi = L:GameSlice3(b, "buttonHi", 8, 8, "HIGHLIGHT", 0)
+            b.cl.hi:SetBlend("ADD")
+            b.cl.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            b.cl.text:SetPoint("CENTER", 0, 0)
+            b.cl.text:SetText("Sort")
+        else
+            b.cl.tex = b:CreateTexture(nil, "ARTWORK")
+            b.cl.tex:SetAllPoints()
+            b.cl.hl = b:CreateTexture(nil, "HIGHLIGHT")
+            b.cl.hl:SetAllPoints()
+            if kind == "close" then
+                L:GameTex(b.cl.tex, "close"); L:GameTex(b.cl.hl, "closeHi")
+                if b.cl.hl.SetBlendMode then b.cl.hl:SetBlendMode("ADD") end
+            else
+                L:GameTex(b.cl.tex, "keyring")
+                b.cl.hl:SetTexture(L.WHITE); b.cl.hl:SetVertexColor(1, 1, 1, 0.15)
+            end
+        end
+    end
+    return b.cl
+end
+
+local function ClassicToolShow(b, on)
+    local c = b.cl
+    if not c then return end
+    if c.face then c.face:Show(on); c.hi:Show(on); c.text:SetShown(on) end
+    if c.tex then c.tex:SetShown(on); c.hl:SetShown(on) end
+end
 
 function Bags:Refresh(kind)
     if not kind then
@@ -483,13 +601,24 @@ function Bags:Refresh(kind)
     local L = Look()
     local look = L:For("bags")
     local k = look.key
-    local S = self:Size()
+    local game = look.game and true or false
+    local S = game and CL.S or self:Size()
     local G = GAP[k] or 2
+    -- (a slot's step across and down, and where its button sits in it: Classic's carved cells)
+    local SX, SY, OX, OY = S + G, S + G, 0, 0
+    if game then SX, SY, OX, OY = CL.cw, CL.ch, CL.ox, CL.oy end
     local layout = self:Layout()
     local q = (self.query or ""):lower()
     local slots = self:Slots(kind)
-    -- the ground in the look (Halo: no plate, a light dark ground the rings float on)
-    if k == "halo" then
+    f.cells = f.cells or {}
+    local nCell = 0
+    f.body:ClearAllPoints()
+    if game then f.body:SetPoint("TOPLEFT", CL.left, -(CL.head + CL.row)) else f.body:SetPoint("TOPLEFT", 10, -38) end
+    -- the ground in the look (Halo: no plate, a light dark ground the rings float on; Classic: the backpack's art)
+    if game then
+        f.panel:Apply(nil)
+        f.floor:Hide()
+    elseif k == "halo" then
         f.panel:Apply(nil)
         f.floor:Show(); f.floor:SetColor(0.05, 0.05, 0.06, 0.62)
     else
@@ -507,33 +636,54 @@ function Bags:Refresh(kind)
         local b = self:Button(f, s.bag, s.slot)
         used[b] = true
         b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", f.body, "TOPLEFT", px, -py)
+        b:SetPoint("TOPLEFT", f.body, "TOPLEFT", px + OX, -(py + OY))
         self:Paint(b, s, look, S, not Matches(s, q))
         if not b:IsShown() then b:Show() end
-        w = max(w, px + S)
-        hUsed = max(hUsed, py + S)
+        if game then
+            -- (the carved cell under it)
+            nCell = nCell + 1
+            local t = f.cells[nCell]
+            if not t then t = Tex(f.body, "BACKGROUND", -4); f.cells[nCell] = t end
+            L:GameTex(t, "bag_cell")
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", f.body, "TOPLEFT", px, -py)
+            t:SetSize(CL.cw, CL.ch)
+            t:Show()
+        end
+        w = max(w, px + (game and CL.cw or S))
+        hUsed = max(hUsed, py + (game and CL.ch or S))
     end
     local function Grid(list, x0, y0, ncols)
         for i, s in ipairs(list) do
             local c, r = (i - 1) % ncols, floor((i - 1) / ncols)
-            Put(s, x0 + c * (S + G), y0 + r * (S + G))
+            Put(s, x0 + c * SX, y0 + r * SY)
         end
         local rows = ceil(#list / ncols)
-        return y0 + rows * S + max(0, rows - 1) * G
+        return y0 + rows * SY - (game and 0 or G)
     end
     local function Header(key, name, count, x0, y0, width, extra)
         nHead = nHead + 1
         local h = Head(f, nHead)
         h.key = key
         h:ClearAllPoints()
-        h:SetPoint("TOPLEFT", f.body, "TOPLEFT", x0, -y0)
         h:SetWidth(width)
-        h.t:SetText((k == "sigil" or k == "gilded") and name:upper() or name)
+        h.t:SetText((k == "sigil" or k == "gilded" or game) and name:upper() or name)
         h.t:SetTextColor(hc[1], hc[2], hc[3])
         h.n:SetText(extra or (count .. ""))
+        h:Show()
+        if game then
+            -- (Classic: the name on the first cell's icon edge, the main bar's rail under it, the grid's width)
+            h:SetPoint("TOPLEFT", f.body, "TOPLEFT", x0 + CL.ox, -y0)
+            h.rule:Hide()
+            h.crail = h.crail or L:GameTile(h, "rail", "BORDER", 1)
+            h.crail:Fill(h, -CL.ox, 15, width, 8, 37, 8)
+            return y0 + 25
+        end
+        h:SetPoint("TOPLEFT", f.body, "TOPLEFT", x0, -y0)
+        if h.crail then h.crail:Hide() end
         h.rule:SetTexture(L.WHITE)
         h.rule:SetVertexColor(hc[1], hc[2], hc[3], 0.25)
-        h:Show()
+        h.rule:Show()
         return y0 + 20
     end
     local atVendor = MerchantFrame and MerchantFrame:IsShown() and true or false
@@ -545,10 +695,11 @@ function Bags:Refresh(kind)
             local list = by[sec.key]
             if list and #list > 0 then
                 local folded = Get("ui.bags.fold." .. sec.key, false)
-                local width = cols * S + (cols - 1) * G
+                local width = game and cols * CL.cw or (cols * S + (cols - 1) * G)
                 y = Header(sec.key, sec.name, #list, 0, y, width, folded and (#list .. " (folded)") or nil)
                 if sec.key == "junk" and atVendor then
-                    f.junk:ClearAllPoints(); f.junk:SetPoint("TOPRIGHT", f.body, "TOPLEFT", width, -(y - 19))
+                    f.junk:ClearAllPoints()
+                    f.junk:SetPoint("TOPRIGHT", f.body, "TOPLEFT", width - (game and CL.ox or 0), -(y - (game and 24 or 19)))
                     f.junk.t:SetText("Sell junk")
                     f.junk:Show()
                 end
@@ -557,7 +708,7 @@ function Bags:Refresh(kind)
         end
     elseif layout == "bags" then
         local bagCols = 4
-        local colW = bagCols * S + (bagCols - 1) * G
+        local colW = game and bagCols * CL.cw or (bagCols * S + (bagCols - 1) * G)
         local perRow = kind == "bank" and 4 or 5
         local byBag, order = {}, {}
         for _, s in ipairs(slots) do
@@ -575,7 +726,7 @@ function Bags:Refresh(kind)
             local bottom = Grid(list, cx, yy, bagCols)
             lineH = max(lineH, bottom - cy)
             if i % perRow == 0 then cx, cy, lineH = 0, cy + lineH + 12, 0
-            else cx = cx + colW + 14 end
+            else cx = cx + colW + (game and 10 or 14) end
         end
         y = cy + lineH
     else
@@ -585,10 +736,16 @@ function Bags:Refresh(kind)
     for _, list in pairs(f.buttons) do
         for _, b in pairs(list) do if not used[b] and b:IsShown() then b:Hide() end end
     end
+    for i = nCell + 1, #f.cells do f.cells[i]:Hide() end
     -- size: the body, header and footer
     local bw = max(w, 300)
     f.body:SetSize(bw, max(y, hUsed))
-    f:SetSize(bw + 20, max(y, hUsed) + 38 + 40)
+    if game then
+        f:SetSize(bw + CL.left + CL.right, max(y, hUsed) + CL.head + CL.row + 4 + CL.foot)
+    else
+        f:SetSize(bw + 20, max(y, hUsed) + 38 + 40)
+    end
+    self:ClassicFrame(f, game)
     self:Footer(f, kind, look)
 end
 
@@ -603,6 +760,17 @@ function Bags:Footer(f, kind, look)
     end
     f.free:SetText(free .. " free")
     f.slots:SetText(total .. " slots")
+    local game = look.game and true or false
+    f.ft:ClearAllPoints()
+    if game then
+        -- (the money box: x 13 .. w-8, centred 16.5 px down the 37 px footer; 8 px inside it)
+        f.ft:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 21, CL.foot - 16.5 - 10)
+        f.ft:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, CL.foot - 16.5 - 10)
+        f.ft:SetHeight(20)
+    else
+        f.ft:SetPoint("BOTTOMLEFT", 10, 8); f.ft:SetPoint("BOTTOMRIGHT", -10, 8); f.ft:SetHeight(22)
+    end
+    local isz, istep = game and 16 or 18, game and 20 or 22
     local x = 0
     local ids = kind == "bank" and { 5, 6, 7, 8, 9, 10, 11 } or { 1, 2, 3, 4 }
     for i, bag in ipairs(ids) do
@@ -623,16 +791,20 @@ function Bags:Footer(f, kind, look)
             f.bagIcons[i] = ic
         end
         ic.bag = bag
+        ic:SetSize(isz, isz)
+        if not ic.edge then ic.edge = Look().Edges(ic, "OVERLAY", 1); ic.edge:Place(ic, 1) end
+        ic.edge:Paint(game and { 0, 0, 0, 1 } or nil)
         local inv = C_Container and C_Container.ContainerIDToInventoryID and C_Container.ContainerIDToInventoryID(bag)
         local tex = inv and GetInventoryItemTexture and GetInventoryItemTexture("player", inv)
         ic.t:SetTexture(tex or "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag")
         ic:ClearAllPoints()
         ic:SetPoint("LEFT", f.ft, "LEFT", x, 0)
         ic:Show()
-        x = x + 22
+        x = x + istep
     end
     f.slots:ClearAllPoints()
     f.slots:SetPoint("LEFT", f.ft, "LEFT", x + 6, 0)
+    f.slots:SetTextColor(game and 0.66 or 0.8, game and 0.66 or 0.78, game and 0.66 or 0.72)
     if f.buy then
         local n, full = nil, true
         if GetNumBankSlots then n, full = GetNumBankSlots() end
@@ -665,9 +837,72 @@ local SEARCH_LOOK = {
     gilded = { bg = { 0.08, 0.055, 0.02, 0.7 }, edge = { 0.66, 0.51, 0.17, 1 } },
 }
 
+function Bags:ChromeClassic(f, kind, look)
+    local L = Look()
+    local W = f:GetWidth()
+    local LB = ns.LookBars
+    -- the title on the header's bar (the game's white), right of the ring
+    f.title:SetText(kind == "bank" and "Bank" or "Bags")
+    f.title:SetTextColor(1, 1, 1)
+    f.title:ClearAllPoints()
+    f.title:SetPoint("LEFT", f, "TOPLEFT", 50, -17)
+    -- the tools: their tiles hidden, the game's faces
+    for _, b in ipairs(f.tools) do
+        local t = LB and LB.tiles and LB.tiles[b]
+        if t and t.f then t.f:Hide(); t.look = nil end
+    end
+    ClassicTool(f.close, "close"); ClassicToolShow(f.close, true)
+    f.close:ClearAllPoints()
+    f.close:SetSize(32, 32)
+    f.close:SetPoint("CENTER", f, "TOPLEFT", W - 15, -17)
+    -- the row under the header (centred 13 px down the 26 px stone row): search, free, key ring, Sort
+    local rowY = -(CL.head + CL.row / 2 - 2)
+    local right = W - CL.right - 2
+    ClassicTool(f.sort, "sort"); ClassicToolShow(f.sort, true)
+    f.sort:ClearAllPoints()
+    f.sort:SetSize(56, 22)
+    f.sort.cl.face:Place(f.sort, 0, 0, 56, 22)
+    f.sort.cl.hi:Place(f.sort, 0, 0, 56, 22)
+    f.sort:SetPoint("RIGHT", f, "TOPLEFT", right, rowY)
+    f.sort:SetShown(self:CanSort(kind))
+    local prev = f.sort:IsShown() and f.sort or nil
+    local edge = prev and (right - 56 - 8) or right
+    if f.keys then
+        ClassicTool(f.keys, "keys"); ClassicToolShow(f.keys, true)
+        f.keys:ClearAllPoints()
+        f.keys:SetSize(11, 24)
+        f.keys:SetPoint("RIGHT", f, "TOPLEFT", edge, rowY)
+        f.keys.cl.tex:SetVertexColor(self.keys and 1 or 0.75, self.keys and 0.9 or 0.75, self.keys and 0.6 or 0.75)
+        edge = edge - 11 - 10
+    end
+    f.free:ClearAllPoints()
+    f.free:SetPoint("RIGHT", f, "TOPLEFT", edge, rowY)
+    f.free:SetTextColor(0.66, 0.66, 0.66)
+    edge = edge - (f.free:GetStringWidth() or 40) - 10
+    -- the search: the game's input border, from the cells' left edge
+    local eb = f.search
+    eb:ClearAllPoints()
+    eb:SetHeight(20)
+    eb:SetPoint("LEFT", f, "TOPLEFT", CL.left + 2, rowY)
+    eb:SetPoint("RIGHT", f, "TOPLEFT", edge, rowY)
+    eb.bg:Hide(); eb.edge:Paint(nil)
+    if not eb.cl then eb.cl = L:GameSlice3(eb, "input", 8, 8, "BACKGROUND", 1) end
+    eb.cl:Show(true)
+    eb.cl:Place(eb, -5, 0, max(40, edge - (CL.left + 2)) + 5, 20)     -- (its width from the row: the field is anchored)
+    eb.icon:SetVertexColor(1, 1, 1, 0.8)
+    self:Spinner(f, self.sorting and self.sorting.kind == kind)
+end
+
 function Bags:Chrome(f, kind, look)
     local L = Look()
     local k = look.key
+    if look.game then return self:ChromeClassic(f, kind, look) end
+    -- (back from Classic: its faces hidden, the header's own anchors)
+    for _, b in ipairs(f.tools) do ClassicToolShow(b, false) end
+    if f.search.cl then f.search.cl:Show(false) end
+    f.title:ClearAllPoints(); f.title:SetPoint("LEFT", f.hd, "LEFT", 0, 0)
+    f.free:ClearAllPoints(); f.free:SetPoint("LEFT", f.title, "RIGHT", 8, -1)
+    f.search:SetHeight(22)
     local hc = HEAD_C[k] or HEAD_C.flat
     f.title:SetText((k == "sigil" or k == "gilded") and (kind == "bank" and "BANK" or "BAGS") or (kind == "bank" and "Bank" or "Bags"))
     f.title:SetTextColor(hc[1], hc[2], hc[3])
@@ -719,6 +954,7 @@ function Bags:Spinner(f, on)
     b.k = b.k or 0                           -- (0 = the sort glyph, 1 = the loading glyph)
     b.angle = b.angle or 0
     local t = ns.LookBars and ns.LookBars.tiles and ns.LookBars.tiles[b]
+    if Look():For("bags").game then t = nil end
     -- (on the tile's face, over its ground: the face is a frame above the button, so a texture on the button
     -- itself would spin out of sight)
     if t and t.f and b.spin:GetParent() ~= t.f then

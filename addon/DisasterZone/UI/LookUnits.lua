@@ -10,8 +10,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/LookUnits.lua", ...) then retur
 --   * the game's frames for a replaced part are retired at login (Look:Retire: no events, hidden, under a hidden
 --     parent), never touched for a part left on Blizzard. Switching back needs a reload (Look:NeedsReload).
 -- Kinds and their places (Core/Layout.lua items): uf.player, uf.target, uf.tot, uf.focus, uf.pet, group.party,
--- group.raid. Options (ui.units.* / ui.group.*): portrait (class | portrait | none), healthColor (class | green |
--- gradient), healthText (both | pct | full | none), debuffs (all | mine | onlymine), timers, combo; group: player
+-- group.raid. Options (ui.units.* / ui.group.*): portrait (class | portrait | none), healthColor (theme: the look's,
+-- green in Classic, class in the rest | class | green | gradient), healthText (both | pct | full | none), debuffs (all | mine | onlymine), timers, combo; group: player
 -- (party shows me too), range (fade out of range), dispel (debuffs I can remove light the frame).
 local addonName, ns = ...
 
@@ -40,7 +40,7 @@ local ORDER = { "player", "target", "tot", "focus", "pet" }
 -- sizes per kind: big (player, target, focus, party), small (target of target, pet), cell (raid)
 local W = { big = 214, small = 104, party = 184, cell = 72 }
 -- a raid cell's width and height per look (Halo's capsules are wider: a full name and the deficit fit inside)
-local CELL = { halo = { 84, 32 }, slate = { 72, 30 } }
+local CELL = { halo = { 84, 32 }, slate = { 72, 30 }, classic = { 86, 36 } }
 local function CellSize(look)
     local c = CELL[look and look.key]
     if c then return c[1], c[2] end
@@ -70,10 +70,17 @@ local function Int(v)
 end
 
 -- The health bar's colour for data d on part `part`.
-local function HealthColor(part, d)
-    local mode = Look():Opt(part, "healthColor", "class")
+local function HealthColor(part, d, look, kind)
+    local mode = Look():Opt(part, "healthColor", "theme")
+    look = look or Look():For(part)          -- (the face's own look: previews and the gallery wear one apart)
+    if mode == "theme" then mode = (kind == "cell" and look.healthCell) or look.health or "class" end
     local frac = (d.hpMax and d.hpMax > 0) and (d.hp or 0) / d.hpMax or 0
-    if mode == "green" then return 0.2, 0.8, 0.25 end
+    if mode == "green" then
+        if d.offline or d.dead then return 0.45, 0.45, 0.45 end
+        -- (Classic: the game's own pure green, darkened by its status bar texture)
+        if look.game then return 0, 1, 0 end
+        return 0.2, 0.8, 0.25
+    end
     if mode == "gradient" then
         if frac > 0.5 then return (1 - frac) * 2, 0.85, 0.2 end
         return 1, frac * 2 * 0.85, 0.2
@@ -86,8 +93,10 @@ local function HealthColor(part, d)
     return c[1], c[2], c[3]
 end
 
-local function PowerColor(d)
-    local c = Look().POWER[d.pt or 0] or Look().POWER[0]
+-- (Classic: the game's own power colours)
+local GAME_POWER = { [0] = { 0, 0, 1 }, [1] = { 1, 0, 0 }, [2] = { 1, 0.5, 0.25 }, [3] = { 1, 1, 0 } }
+local function PowerColor(d, look)
+    local c = (look and look.game and GAME_POWER[d.pt or 0]) or Look().POWER[d.pt or 0] or Look().POWER[0]
     return c[1], c[2], c[3]
 end
 
@@ -141,6 +150,7 @@ function Units.Data(unit, d)
         d.far = checked and not inRange or false
     end
     if UnitThreatSituation then d.threat = UnitThreatSituation(unit) end
+    d.selected = UnitIsUnit and UnitExists("target") and UnitIsUnit(unit, "target") and true or false
     -- the first debuff I could remove (the group frames' light)
     local _, me = UnitClass("player")
     local can = DISPEL_CLASS[me]
@@ -274,9 +284,292 @@ function Units:NewFace(host, kind, part, side)
     return F
 end
 
+---------------------------------------------------------------------------
+-- Classic: the game's own frames, sized to ours (Look.GAME; mockup claude.ai/artifact/3MHRTnR18XaYMLqYj5cuHx)
+--   big    the target frame: its rails stretched to RAIL_W, its ring whole (the gold dragon for elites and bosses,
+--          the silver one for rares); the player's mirrored, the ring on the left. Name in the top band (the target's
+--          on its reaction colour, as the game paints it), numbers in the bars, the level in the ring's small circle.
+--   party  the party frame: ring and short rails, the name over them.
+--   small  the target of target's frame (target of target, pet).
+--   cell   the raid frames' own cell: its ground, the textured fill, the yellow frame round your target.
+---------------------------------------------------------------------------
+
+local RAIL_W = 150
+-- the target frame's rails (from their top): inside x 4..w-7, y 5..45 (a dark ground fills all of it, as the game's
+-- own frame has: nothing of the world shows through); the name band 5..22, health 23..35 and power 35..45 meet under
+-- the straight lines between them, never past the rounded outer corners.
+local TF = { band = { 5, 17 }, hp = { 23, 12 }, pp = { 35, 10 }, inL = 4, inR = 7, ground = { 4, 5, 7, 45 } }
+-- per kind: host w, h; the ring's piece, place and size; the rails' piece, ends, place, size; inside bars; portrait
+local CLASSIC = {
+    big = { w = RAIL_W - 7 + 77, h = 80, ring = "tf_ring", rx = RAIL_W - 7, ry = 0, rw = 77, rh = 80,
+            rails = "tf_bars", ends = { 5, 8 }, bx = 0, by = 14, bw = RAIL_W, bh = 50,
+            port = { RAIL_W - 7 + 37, 39, 30 }, level = { RAIL_W - 7 + 60, 62 } },
+    party = { w = 184, h = 56, ring = "party_ring", rx = 0, ry = 8, rw = 48, rh = 48,
+              rails = "party_bars", ends = { 4, 6 }, bx = 44, by = 10, bw = 140, bh = 30,
+              hp = { 3, 8, 6 }, pp = { 3, 14, 7 }, inR = 8, ground = { 3, 8, 8, 21 }, port = { 24, 32, 18 } },
+    small = { w = 112, h = 54, ring = "tot_ring", rx = 0, ry = 6, rw = 46, rh = 48,
+              rails = "tot_bars", ends = { 4, 6 }, bx = 42, by = 14, bw = 70, bh = 28,
+              hp = { 3, 7, 6 }, pp = { 3, 13, 7 }, inR = 6, ground = { 3, 7, 6, 20 }, port = { 23, 29, 17 } },
+}
+Units.CLASSIC = CLASSIC
+-- the name band's colour (the game's selection colours)
+local function BandColor(d)
+    if d.isPlayer then
+        if (d.reaction or 4) <= 3 then return 0.8, 0, 0 end
+        return 0, 0, 0.8
+    end
+    if d.tapped then return 0.5, 0.5, 0.5 end
+    local r = d.reaction or 4
+    if r <= 3 then return 0.8, 0, 0 elseif r == 4 then return 0.85, 0.75, 0 end
+    return 0, 0.8, 0
+end
+
+function Face:ClassicParts()
+    if self.cl then return self.cl end
+    local L = Look()
+    local host = self.host
+    local cl = {}
+    cl.art = CreateFrame("Frame", nil, host)
+    cl.art:SetAllPoints(host)
+    cl.art:SetFrameLevel(host:GetFrameLevel() + 3)
+    cl.ring = cl.art:CreateTexture(nil, "ARTWORK", nil, 1)
+    cl.nbg = L.Tex(host, "BORDER", 1)
+    cl.ground = L.Tex(host, "BACKGROUND", -5)
+    cl.sel = cl.art:CreateTexture(nil, "OVERLAY", nil, 2)
+    Look():GameTex(cl.sel, "raidSelected")
+    cl.sel:SetPoint("TOPLEFT", host, "TOPLEFT", -1, 1)
+    cl.sel:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 1, -1)
+    cl.sel:Hide()
+    cl.ptext = L:Text(self.over, "small", "TEXT", { justify = "CENTER" })
+    cl.ptext:Hide()
+    self.cl = cl
+    return cl
+end
+
+function Face:ClassicOff()
+    local cl = self.cl
+    if not cl then return end
+    cl.art:Hide(); cl.nbg:Hide(); cl.ground:Hide(); cl.sel:Hide(); cl.ptext:Hide()
+    if cl.rails then cl.rails:Show(false) end
+    self.ckind = nil
+end
+
+-- the ring's piece for a unit's classification (big frames)
+local function RingFor(d)
+    local c = d and d.classif
+    if c == "worldboss" or c == "elite" or (d and (d.level or 0) < 0) then return "tfe_ring", "tfe_bars" end
+    if c == "rareelite" then return "tfre_ring", "tfe_bars" end
+    if c == "rare" then return "tfr_ring", "tf_bars" end
+    return "tf_ring", "tf_bars"
+end
+
+function Face:PlaceRing(key, railsKey)
+    local cl, c = self.cl, CLASSIC[self.ckind]
+    if not c then return end
+    local L = Look()
+    local mir = self.mirror
+    local w, h = c.rw, c.rh
+    local y = c.ry
+    -- (the dragon rings are cut 4 px higher and reach further right and down: the ring itself stays put)
+    if key ~= c.ring and self.ckind == "big" then w, h, y = 113, 104, c.ry - 4 end
+    L:GameTex(cl.ring, key)
+    if mir then
+        local p = L.GAME[key]
+        cl.ring:SetTexCoord(p[6] / p[2], p[4] / p[2], p[5] / p[3], p[7] / p[3])
+    end
+    cl.ring:ClearAllPoints()
+    cl.ring:SetSize(w, h)
+    local x = mir and (c.w - c.rx - w) or c.rx
+    cl.ring:SetPoint("TOPLEFT", self.host, "TOPLEFT", x, -y)
+    if railsKey and cl.rails and cl.rails.key ~= railsKey then
+        cl.rails.key = railsKey
+        for _, t in ipairs(cl.rails.t) do t:SetTexture(L.GAME[railsKey][1]) end
+        cl.rails:Place(self.host, mir and (c.w - c.bx - c.bw) or c.bx, c.by, c.bw, c.bh)
+    end
+    self.ringKey = key
+end
+
+function Face:ApplyClassic(look)
+    local L = Look()
+    local host, kind = self.host, self.kind
+    local cl = self:ClassicParts()
+    local ckind = kind == "cell" and "cell" or ((kind == "big" and self.width == W.party) and "party" or kind)
+    self.ckind = ckind
+    self.panel:Apply(nil)
+    self.head:Hide(); self.headLine:Hide()
+    self.ringOn, self.lit, self.marks = false, nil, nil
+    self.ring:Paint(nil); self.glow:Paint(nil)
+    self.hp.trackC, self.hp.fadeFrom = nil, nil
+    local name, value, level, status = self.name, self.value, self.level, self.status
+    for _, r in ipairs({ name, value, level, status, cl.ptext }) do r:ClearAllPoints() end
+    self.fit, self.fitW = nil, nil
+    cl.art:Show()
+    local function At(r, x, y) r:SetPoint("TOPLEFT", host, "TOPLEFT", x, -y) end
+    local function Bar(bar, x, y, w2, h2)
+        bar.fixedW = true
+        bar:Apply(look, "gilt", h2)
+        bar.f:ClearAllPoints()
+        At(bar.f, x, y)
+        bar:SetWidthNow(w2)
+        bar.f:Show()
+    end
+    if ckind == "cell" then
+        local w, h = CellSize(look)
+        if not (host.IsProtected and host:IsProtected() and InCombat()) then host:SetSize(w, h) end
+        self.h = h
+        if cl.rails then cl.rails:Show(false) end
+        cl.ring:Hide(); cl.nbg:Hide(); cl.ptext:Hide()
+        L:GameTex(cl.ground, "raidBg")
+        cl.ground:SetVertexColor(1, 1, 1, 1)
+        cl.ground:ClearAllPoints(); cl.ground:SetAllPoints(host); cl.ground:Show()
+        self.portrait.f:Hide()
+        self.portOn = false
+        Bar(self.hp, 1, 1, w - 2, h - 2)
+        self.hp.fill:SetTexture(L.GAME.raidFill[1])
+        self.pp.f:Hide()
+        UI:SetTextSize(name, "small")
+        name:SetPoint("TOPLEFT", host, "TOPLEFT", 4, -4)
+        self.nameW = w - 8
+        name:SetWidth(self.nameW)
+        status:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -4, 4)
+        value:Hide(); level:Hide()
+        self.icon:ClearAllPoints(); self.icon:SetSize(14, 14); self.icon:SetPoint("CENTER", host, "TOP", 0, 0)
+        self.leader:ClearAllPoints(); self.leader:SetPoint("CENTER", host, "TOPLEFT", 4, 0)
+        if self.d then self:Set(self.d) end
+        return
+    end
+    cl.sel:Hide()
+    local c = CLASSIC[ckind]
+    local mir = ckind == "big" and self.side ~= "right"           -- (the player's frame: the ring on the left)
+    self.mirror = mir
+    local W0 = c.w
+    if not (host.IsProtected and host:IsProtected() and InCombat()) then host:SetSize(W0, c.h) end
+    self.h = c.h
+    local function X(x, w2) return mir and (W0 - x - w2) or x end
+    if not cl.rails then cl.rails = L:GameSlice3(cl.art, c.rails, c.ends[1], c.ends[2], "ARTWORK", 0) end
+    cl.rails.key = nil                                             -- (placed by PlaceRing below)
+    cl.rails.l, cl.rails.r = c.ends[1], c.ends[2]
+    cl.rails:SetFlipX(mir)
+    cl.rails:Show(true)
+    cl.ring:Show()
+    self:PlaceRing(c.ring, c.rails)
+    -- the bars inside the rails
+    local hx, hy, hh, px, py, ph, iw
+    if ckind == "big" then
+        iw = c.bw - TF.inL - TF.inR
+        hx, hy, hh = c.bx + TF.inL, c.by + TF.hp[1], TF.hp[2]
+        px, py, ph = hx, c.by + TF.pp[1], TF.pp[2]
+    else
+        iw = c.bw - c.hp[1] - c.inR
+        hx, hy, hh = c.bx + c.hp[1], c.by + c.hp[2], c.hp[3]
+        px, py, ph = c.bx + c.pp[1], c.by + c.pp[2], c.pp[3]
+    end
+    Bar(self.hp, X(hx, iw), hy, iw, hh)
+    Bar(self.pp, X(px, iw), py, iw, ph)
+    -- (the dark inside of the rails: x0, y0 from the rails' top left, right inset, bottom)
+    local gr = (ckind == "big") and TF.ground or c.ground
+    local gw = c.bw - gr[1] - gr[3]
+    cl.ground:SetTexture(L.WHITE)
+    cl.ground:SetTexCoord(0, 1, 0, 1)
+    cl.ground:SetVertexColor(0, 0, 0, 0.6)
+    cl.ground:ClearAllPoints()
+    At(cl.ground, X(c.bx + gr[1], gw), c.by + gr[2])
+    cl.ground:SetSize(gw, gr[4] - gr[2])
+    cl.ground:Show()
+    -- the portrait: round, under the ring
+    local pc = c.port
+    self.portOn = L:Opt(self.part, "portrait", "class") ~= "none"
+    self.portrait.f:ClearAllPoints()
+    if self.portOn then
+        self.portrait:Apply(look, "round")
+        self.portrait.ring:Hide(); self.portrait.ringIn:Hide()
+        self.portrait.f:SetSize(2 * pc[3], 2 * pc[3])
+        At(self.portrait.f, X(pc[1] - pc[3], 2 * pc[3]), pc[2] - pc[3])
+        self.portrait.f:SetFrameLevel(host:GetFrameLevel() + 1)
+        self.portrait.f:Show()
+    else
+        self.portrait.f:Hide()
+    end
+    -- the words
+    if ckind == "big" then
+        local bx = X(c.bx + TF.inL, iw)
+        cl.nbg:ClearAllPoints()
+        At(cl.nbg, bx, c.by + TF.band[1])
+        cl.nbg:SetSize(iw, TF.band[2])
+        UI:SetTextSize(name, "body")
+        name:SetPoint("LEFT", host, "TOPLEFT", bx + 5, -(c.by + TF.band[1] + TF.band[2] / 2))
+        self.fit = { room = iw - 10 }
+        UI:SetTextSize(value, "small")
+        value:SetPoint("CENTER", host, "TOPLEFT", bx + iw / 2, -(hy + hh / 2))
+        cl.ptext:SetPoint("CENTER", host, "TOPLEFT", bx + iw / 2, -(py + ph / 2))
+        UI:SetTextSize(cl.ptext, "small")
+        level:SetPoint("CENTER", host, "TOPLEFT", X(c.level[1] - 11, 22) + 11, -c.level[2])
+        level:SetJustifyH("CENTER")
+        level:Show()
+        status:SetPoint("CENTER", host, "TOPLEFT", bx + iw / 2, -(hy + hh / 2))
+        self.leader:ClearAllPoints()
+        self.leader:SetPoint("CENTER", host, "TOPLEFT", X(c.rx + 10, 0), -4)
+        self.icon:ClearAllPoints(); self.icon:SetSize(16, 16)
+        self.icon:SetPoint("CENTER", host, "TOPLEFT", X(c.port[1], 0), -2)
+    else
+        -- party / small: the name over the rails, the numbers at the end of its row
+        cl.nbg:Hide()
+        UI:SetTextSize(name, "small")
+        name:SetPoint("BOTTOMLEFT", host, "TOPLEFT", c.bx + 3, -(c.by - 1))
+        UI:SetTextSize(value, "small")
+        value:SetPoint("BOTTOMRIGHT", host, "TOPLEFT", c.bx + c.bw - c.inR, -(c.by - 1))
+        self.fit = { room = iw, value = ckind == "party" }
+        level:Hide()
+        cl.ptext:Hide()
+        status:SetPoint("BOTTOMRIGHT", host, "TOPLEFT", c.bx + c.bw - c.inR, -(c.by - 1))
+        self.leader:ClearAllPoints()
+        self.leader:SetPoint("CENTER", host, "TOPLEFT", c.rx + 8, -(c.ry + 2))
+        self.icon:ClearAllPoints(); self.icon:SetSize(14, 14)
+        self.icon:SetPoint("CENTER", host, "TOPLEFT", c.port[1], -(c.ry))
+    end
+    value:SetShown(ckind ~= "small")
+    if self.fit then self:FitName() end
+    if self.d then self:Set(self.d) end
+end
+
+-- What Set draws that only Classic has: the ring by classification, the name band's colour, the power numbers,
+-- the raid cell's frame round your target.
+function Face:SetClassic(d)
+    local cl = self.cl
+    if self.ckind == "cell" then
+        cl.sel:SetShown(d.selected and true or false)
+        self.name:SetTextColor(1, 1, 1)
+        if d.dead or d.offline then self.name:SetTextColor(0.5, 0.5, 0.5) end
+        return
+    end
+    if self.ckind == "big" then
+        local ring, rails = RingFor(d)
+        if ring ~= self.ringKey then self:PlaceRing(ring, rails) end
+        if self.mirror then cl.nbg:Hide()
+        else
+            local r, g, b = BandColor(d)
+            cl.nbg:SetVertexColor(r, g, b, 0.85)
+            cl.nbg:Show()
+        end
+        local txt = ""
+        if (d.pwMax or 0) > 1 and not d.dead and not d.offline then
+            txt = Short(d.pw) .. " / " .. Short(d.pwMax)
+        end
+        cl.ptext:SetText(txt)
+        cl.ptext:SetShown(txt ~= "")
+        self.level:SetTextColor(1, 0.82, 0)
+    end
+    self.name:SetTextColor(1, 0.82, 0)
+    -- (the portrait's own ring only shows lit: a debuff to remove, aggro)
+    local lit = (d.dispel and Look():Opt("group", "dispel", true)) or (d.threat and d.threat >= 2 and self.kind ~= "big")
+    if not lit then self.portrait.ring:Hide(); self.portrait.ringIn:Hide() end
+end
+
 -- Lays the face out in a look (its sizes are the look's, from the mockup).
 function Face:Apply(look)
     self.look = look
+    if look.game then return self:ApplyClassic(look) end
+    self:ClassicOff()
     local L = Look()
     local host, kind, k = self.host, self.kind, look.key
     local left = self.side ~= "right"
@@ -342,6 +635,8 @@ function Face:Apply(look)
     end
     local name, value, level = self.name, self.value, self.level
     name:ClearAllPoints(); value:ClearAllPoints(); level:ClearAllPoints()
+    -- fit: the name's row (room, from the level's start), whether the level and the numbers share it (sized in Set)
+    self.fit, self.fitW = nil, nil
     self.status:ClearAllPoints()
     UI:SetTextSize(name, kind == "cell" and "small" or (k == "slate" and "emph" or "body"))
     UI:SetTextSize(value, (k == "slate" and kind == "big") and "emph" or "small")
@@ -399,22 +694,26 @@ function Face:Apply(look)
             end
         end
         UI:SetTextSize(name, "small")
-        name:SetWidth(w - 40)
+        self.fit = { room = w - 10, value = true }
         value:Show()
         level:Hide()
     else
-        -- big: per look
+        -- big: per look. The numbers sit in the health bar where it's tall enough (Flat, Halo, Sigil, Gilded), so the
+        -- name has its row to itself; Slate's bar is a line, its numbers share the name's row (fit: Set)
         if k == "flat" then
             Bars(bx, bw - 1, -1, -1 - hpH - 1)
-            name:SetPoint("LEFT", self.hp.f, "LEFT", 22, 0)
             level:SetPoint("LEFT", self.hp.f, "LEFT", 5, 0)
+            name:SetPoint("LEFT", level, "RIGHT", 4, 0)
             value:SetPoint("RIGHT", self.hp.f, "RIGHT", -5, 0)
+            self.fit = { room = bw - 11, level = true, value = true }
         elseif k == "halo" then
             Bars(bx, bw - 2, -17, -17 - hpH - 3)
             local pad = (ph > 0) and 20 or 6
             level:SetPoint("TOPLEFT", host, "TOPLEFT", left and (bx + pad) or (w - bx - bw + 6), -1)
             name:SetPoint("LEFT", level, "RIGHT", 4, 0)
-            value:SetPoint("TOPRIGHT", host, "TOPRIGHT", left and -6 or -(bx + pad), -1)
+            -- (in the pill's far end, clear of its round cap, or of the portrait where it covers that end)
+            value:SetPoint("RIGHT", self.hp.f, "RIGHT", (left or ph == 0) and -8 or -(overlap + 6), 0)
+            self.fit = { room = bw - pad - 6, level = true }
             self.pp.f:ClearAllPoints()
             local inset = 20
             self.pp:SetWidthNow(max(10, bw - inset - 10))
@@ -424,8 +723,9 @@ function Face:Apply(look)
             level:SetPoint("TOPLEFT", host, "TOPLEFT", 8, -6)
             name:SetPoint("LEFT", level, "RIGHT", 4, 0)
             value:SetPoint("TOPRIGHT", host, "TOPRIGHT", -8, -4)
+            self.fit = { room = w - 16, level = true, value = true }
         else
-            -- sigil / gilded: a header strip with the name and the numbers, the bars under it
+            -- sigil / gilded: a header strip with the name, the bars under it (the numbers in the health bar)
             local hh = (k == "gilded") and 15 or 14
             local hx = left and (ph > 0 and ph + 1 or 0) or 0
             self.head:ClearAllPoints()
@@ -441,14 +741,15 @@ function Face:Apply(look)
             Bars(bx + 2, bw - 5, -hh - 3, -hh - 3 - hpH - 2)
             level:SetPoint("LEFT", self.head, "LEFT", 5, 0)
             name:SetPoint("LEFT", level, "RIGHT", 4, 0)
-            value:SetPoint("RIGHT", self.head, "RIGHT", -5, 0)
+            value:SetPoint("RIGHT", self.hp.f, "RIGHT", -5, 0)
+            self.fit = { room = w - (ph > 0 and ph + 1 or 0) - 10, level = true }
         end
-        name:SetWidth(max(40, bw - ((self.width == W.party) and 56 or 80)))
         level:Show()
         value:Show()
         self.status:SetPoint("CENTER", self.hp.f, "CENTER", 0, 0)
     end
     if look.upper and kind == "big" then UI:SetTextSize(name, "caps") end
+    if self.fit then self:FitName() end
     self.name:SetTextColor(look.nameC[1], look.nameC[2], look.nameC[3])
     -- the marks: raid icon on the top edge, the leader crown at the top left
     -- (Halo's cell: both on the name's row, clear of the cell above: the crown before the name, the icon after it)
@@ -476,10 +777,10 @@ function Face:Set(d)
     local part = self.part
     local frac = (d.hpMax and d.hpMax > 0) and (d.hp or 0) / d.hpMax or 0
     if d.dead or d.offline then frac = d.dead and 0 or frac end
-    self.hp:SetColor(HealthColor(part, d))
+    self.hp:SetColor(HealthColor(part, d, look, self.kind))
     self.hp:SetValue(frac)
     if self.pp.f:IsShown() then
-        self.pp:SetColor(PowerColor(d))
+        self.pp:SetColor(PowerColor(d, look))
         self.pp:SetValue((d.pwMax and d.pwMax > 0) and (d.pw or 0) / d.pwMax or 0)
     end
     -- incoming heals: a faint stretch after the fill
@@ -509,7 +810,7 @@ function Face:Set(d)
     self.name:SetText(name)
     if look.nameClass and d.isPlayer and d.class then self.name:SetTextColor(L.ClassColor(d.class))
     elseif look.nameClass and not d.isPlayer then
-        local r, g, b = HealthColor(part, d)
+        local r, g, b = HealthColor(part, d, look)
         self.name:SetTextColor(r, g, b)
     else self.name:SetTextColor(look.nameC[1], look.nameC[2], look.nameC[3]) end
     if self.kind == "cell" and (d.dead or d.offline) then self.name:SetTextColor(0.5, 0.5, 0.5) end
@@ -552,6 +853,7 @@ function Face:Set(d)
     elseif look.key == "slate" then txt = Short(d.hp) .. "  |cffffffff" .. pct .. "%|r"
     else txt = Short(d.hp) .. "  " .. pct .. "%" end
     self.value:SetText(txt)
+    if self.fit then self:FitName() end
     if self.kind == "cell" then
         local st = d.dead and (d.ghost and "Ghost" or "Dead") or (d.offline and "Offline" or "")
         if st == "" and frac < 0.995 and frac > 0 then st = "-" .. Short(d.hpMax - d.hp) end
@@ -586,7 +888,7 @@ function Face:Set(d)
         end
         if round then
             if d.isPlayer and d.class then self.portrait:SetRing(L.ClassColor(d.class))
-            else self.portrait:SetRing(HealthColor(part, d)) end
+            else self.portrait:SetRing(HealthColor(part, d, look)) end
         end
     end
     -- the light: a debuff I can remove, else aggro
@@ -621,6 +923,25 @@ function Face:Set(d)
     end
     if self.showAuras then self:SetAuras(d.auras or {}) end
     if self.showCombo then self:SetCombo(d.combo or 0) end
+    if self.cl and look.game then self:SetClassic(d) end
+end
+
+-- The name ends where the level and numbers on its row leave off (a long name is cut with "..."), never under them.
+function Face:FitName()
+    local fit = self.fit
+    local room = fit.room
+    if fit.level then
+        room = room - (self.skull:IsShown() and 10 or self.level:GetStringWidth()) - 4
+    end
+    if fit.value then
+        local vw = self.value:GetStringWidth() or 0
+        if vw > 0 then room = room - vw - 8 end
+    end
+    room = max(30, floor(room))
+    if room ~= self.fitW then
+        self.fitW = room
+        self.name:SetWidth(room)
+    end
 end
 
 -- Auras under the frame: up to 8, mine first (the option), timers under them.
@@ -640,6 +961,7 @@ function Face:SetAuras(list)
             slot.count:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", 1, -1)
             slot.dur = L:Text(holder, "small", "TEXT", { justify = "CENTER" })
             slot.dur:SetPoint("TOP", holder, "BOTTOM", 0, -1)
+            slot.durC = { slot.dur:GetTextColor() }
             self.auras[i] = slot
         end
         if slot then
@@ -647,9 +969,18 @@ function Face:SetAuras(list)
                 slot.f:SetSize(size, size)
                 slot.f:ClearAllPoints()
                 local left = self.side ~= "right" or true
-                slot.f:SetPoint("TOPLEFT", self.host, "BOTTOMLEFT", (i - 1) * (size + 3) + (left and 0 or 0), -4)
-                slot.icon:Apply(look, look.icon == "none" and "small" or look.icon)
+                -- (Classic: on the rails' inside edge, the game's square aura with its debuff-type border)
+                local x0 = (look.game and self.ckind == "big") and TF.inL or 0
+                slot.f:SetPoint("TOPLEFT", self.host, "BOTTOMLEFT", x0 + (i - 1) * (size + 3) + (left and 0 or 0), -4)
+                slot.icon:Apply(look, look.game and "square" or (look.icon == "none" and "small" or look.icon))
                 slot.icon:SetTexture(a.icon)
+                if look.game then
+                    local c = DEBUFF_COLOR[a.dtype] or { 0.8, 0, 0 }
+                    slot.icon.edge:Paint({ c[1], c[2], c[3], 1 })
+                    slot.dur:SetTextColor(1, 0.82, 0)
+                else
+                    slot.dur:SetTextColor(slot.durC[1] or 1, slot.durC[2] or 1, slot.durC[3] or 1)
+                end
                 if look.icon == "round" then slot.icon:SetRing(a.mine and 1 or 1, a.mine and 0.82 or 1, a.mine and 0 or 1) end
                 slot.f:SetAlpha(a.mine and 1 or 0.75)
                 slot.count:SetText((a.count and a.count > 1) and a.count or "")
@@ -781,7 +1112,7 @@ local CHILD = [[
 
 local function GroupSize(which, look)
     if which == "party" then
-        return W.party, ({ flat = 42, halo = 46, sigil = 46, slate = 38, gilded = 48 })[look.key] or 42
+        return W.party, ({ flat = 42, halo = 46, sigil = 46, slate = 38, gilded = 48, classic = 56 })[look.key] or 42
     end
     return CellSize(look)
 end
