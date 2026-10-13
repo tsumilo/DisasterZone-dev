@@ -43,20 +43,16 @@ def view(look, t):
     return fn
 
 
-# (the renderer draws a scroll frame at its top: the cards above Boss mods are hidden for the picture)
-ABOVE = ("local cv = ns.SettingsUI.CardVisible; if not __bmCV then __bmCV = cv; ns.SettingsUI.CardVisible = function(self, k) "
-         "if k == 'meters' then return false end; return __bmCV(self, k) end end; ns.SettingsUI:LayoutCards(); ")
-
-
+# (Boss mods is a page of its own: Settings > Combat > Boss mods)
 def settings(lua):
-    return S.opened("settings", lua + "; " + ABOVE)
+    return S.opened("settings", lua)
 
 
 def _shift(g):
     # (the options hidden and the raid list laid out from the card's top: the renderer draws no scrolled content)
     g.eval("local SU = ns.SettingsUI; local sec = SU.sections.bossmods; for _, r in ipairs(sec.rows) do r:Hide() end; "
            "for _, d in ipairs({ sec:GetRegions() }) do if d.GetText then d:Hide() end end; "
-           "sec.top = 8; SU:LayoutBossMods()")
+           "if sec.fold then sec.fold:Hide() end; sec.top = 8; SU:LayoutBossMods()")
     return g
 
 

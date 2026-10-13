@@ -955,6 +955,9 @@ local function SlashRaid(rest)
         RaidLog:Start()
     elseif cmd == "options" or cmd == "features" then
         if ns.SessionBar and ns.SessionBar.OpenOptions then ns.SessionBar:OpenOptions() end
+    elseif cmd == "bar" or cmd == "crest" then
+        -- demo mode: the session crest with a made-up night (/dz raid bar idle | between | pull | loot | done | off)
+        if ns.SessionBar and ns.SessionBar.Demo then ns.SessionBar:Demo((rest or ""):match("^%S+%s+(%S+)")) end
     elseif cmd == "end" or cmd == "stop" then
         if not (ns.GroupRules and ns.GroupRules:GetSession()) then
             ns:Print("no raid session is running.")

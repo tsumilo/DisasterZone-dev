@@ -405,6 +405,39 @@ function Live:MySlots()
     return S():GetPlayerSlots(cur.s, cur.a, Me())
 end
 
+-- The current plan's tanks, for the raid frames' tank block (Core/Tanks.lua): { { key, label, mark } } in page /
+-- block / row order. A tank row: a block whose first player column is a tank's (the "Tanks on" template's "Tank"
+-- column, a column for the tank role only, or a block named Tanks); label = its target cell's text, mark = the raid
+-- mark the plan puts on that creature (its portrait's badge), if any.
+function Live:PlanTanks()
+    local out = {}
+    if not cur or cur.practice or not cur.s then return out end
+    local seen = {}
+    for _, p in ipairs(cur.s.p or {}) do
+        for _, k in ipairs(p.k or {}) do
+            local pcol
+            for ci, col in ipairs(k.c or {}) do
+                if col.t == "p" then pcol = ci break end
+            end
+            local col = pcol and k.c[pcol]
+            local tankCol = col and (col.n == "Tank" or col.f == "tank" or k.n == "Tanks")
+            if tankCol then
+                for row = 1, k.r or 0 do
+                    local info = RowInfo(k, row, cur.a or {})
+                    local key = info.player
+                    if key and not seen[key] then
+                        seen[key] = true
+                        local npc = info.target and NpcOfIcon(cur.boss, info.target.i)
+                        local marks = npc and cur.marks and cur.marks[npc]
+                        out[#out + 1] = { key = key, label = info.label, mark = marks and marks[1] or nil }
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+
 -- Seconds until a kicker's interrupt is ready again (0 = ready).
 local function CdLeft(r, now)
     if not r.last or not r.cd then return 0 end

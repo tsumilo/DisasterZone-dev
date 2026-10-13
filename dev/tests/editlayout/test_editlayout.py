@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 """Edit layout (/dz edit, UI/EditMode.lua) and the layout store (Core/Layout.lua), the approved prototype of
 2026-10-13: every on-screen frame in one overlay, snapping to the screen's centre, other frames and equal gaps,
-mirrored pairs, a toolbar on the selection, profiles per character, sharing a profile, and the game's own frames
-moved through its Edit Mode layouts (C_EditMode, stubbed here: the mock has no Edit Mode).
+mirrored pairs, profiles per character, sharing a profile, and the game's own frames moved through its Edit Mode
+layouts (C_EditMode, stubbed here: the mock has no Edit Mode). The quiet look of the same day ("Quiet until picked"):
+dashed outlines until a frame is picked, one slim bar at the top (readout, the picked frames' tools, undo / redo,
+Grid, Snap, Names, Frames, Done) that steps back when a picked frame is under it and while anything is dragged.
 
 Run: luaenv\\Scripts\\python.exe tests\\editlayout\\test_editlayout.py [-k name]
 """
@@ -85,8 +87,15 @@ def every_frame_is_an_item_and_edit_layout_shows_the_ones_that_only_come_sometim
     for id_ in ("toasts", "session", "roll", "reminder"):
         assert box(c, id_) is not None, id_
         assert c.eval("local m = ns.EditMode:Mover(...); return m and m:IsShown() or false", id_) is True, id_
-    # the panel lists them, grouped
+    # the bar is up, the Frames panel waits for its button; opened, it lists them, grouped
+    assert c.eval("return ns.EditMode:GetBar():IsShown()") is True
+    assert c.eval("return ns.EditMode:GetPanel():IsShown()") is False
+    c.eval("ns.EditMode:GetBar().b.frames:Click()")
     assert c.eval("return ns.EditMode:GetPanel():IsShown()") is True
+    rows = c.eval_py("local o = {} for _, r in ipairs(ns.EditMode:GetPanel().rows) do "
+                     "if r:IsShown() then o[#o + 1] = r.fs:GetText() end end return o")
+    for want in ("Raid session crest", "Roll frame", "Pop-ups", "Strategy reminder"):
+        assert any(want in (t or "") for t in rows), (want, rows)
     c.slash("/dz edit")
     w.tick(0.3)
     assert c.eval("return ns.EditMode:IsActive()") is False
@@ -110,6 +119,29 @@ def a_drag_snaps_to_the_screen_centre_and_alt_places_freely():
     drag(w, c, "toasts", 4, 0, alt=True)
     l3, _, _, _ = box(c, "toasts")
     assert abs(l3 - (l2 + 4)) < 0.6, (l2, l3)
+    w.assert_no_errors()
+
+
+@case
+def the_strategy_reminder_card_stays_while_editing_and_moves():
+    # (its own refresh, 4 a second, faded the card out when no reminder was up: gone 2 s in, it couldn't be moved)
+    w, c = boot()
+    open_edit(w, c)
+    l, b, bw, bh = box(c, "reminder")
+    w.tick(3.0)
+    c.eval("ns.EditMode:Refresh()")
+    assert box(c, "reminder") == (l, b, bw, bh)
+    assert c.eval("return ns.StrategyReminder:GetFrame():GetAlpha()") == 1
+    drag(w, c, "reminder", -300, -200, alt=True)
+    l2, b2, _, _ = box(c, "reminder")
+    assert abs(l2 - (l - 300)) < 0.6 and abs(b2 - (b - 200)) < 0.6, (l, b, l2, b2)
+    assert entry(c, "reminder")["p"], entry(c, "reminder")
+    c.slash("/dz edit")
+    w.tick(0.3)
+    assert box(c, "reminder") is None
+    open_edit(w, c)
+    l3, b3, _, _ = box(c, "reminder")
+    assert abs(l3 - l2) < 0.6 and abs(b3 - b2) < 0.6, (l2, b2, l3, b3)
     w.assert_no_errors()
 
 
@@ -193,10 +225,16 @@ def a_mirrored_pair_moves_together_across_the_centre():
     c.eval("ns.Layout:ClearMirror('session')")
     c.eval("ns.EditMode:Select({ 'toasts' })")
     c.eval("ns.EditMode:GetToolbar().b.mirror1:Click()")
+    # (the hint shows under the bar, in the middle)
+    hint = "ns.EditMode:GetBar().hint"
+    assert c.eval("return %s:IsShown()" % hint) is True
+    assert "mirrored" in c.eval("return %s.fs:GetText()" % hint)
+    assert abs(c.eval("return %s:GetTop()" % hint) - (H - 28 - 6)) < 0.6
     c.eval("ns.EditMode:OnMoverDown('roll', 'LeftButton')")
     c.eval("ns.EditMode:EndDrag()")
     assert c.eval("return ns.Layout:Partner('toasts')") == "roll"
     assert c.eval("return ns.Layout:Partner('roll')") == "toasts"
+    assert c.eval("return ns.EditMode:GetBar().hint:IsShown()") is False
     w.assert_no_errors()
 
 
@@ -684,6 +722,286 @@ def the_roll_frame_and_the_session_bar_keep_their_place_after_a_reload():
     l, b, _, _ = box(c, "session")
     assert abs(l - 1400) < 1 and abs(b - 800) < 1, (l, b)
     w.assert_no_errors()
+
+# ------------------------------------------------------------------------------------------------------------------
+# The quiet look: outlines until picked, one slim bar at the top, guides only while dragging
+BAR = "ns.EditMode:GetBar()"
+
+
+def plain(t):
+    """Text without colour codes."""
+    import re
+    return re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", t or "")
+
+
+def readout(c):
+    return plain(c.eval("return %s.read:GetText()" % BAR))
+
+
+def tools(c):
+    """The bar's buttons that show now (their keys in bar.b), sorted."""
+    return c.eval_py("local o = {} for k, b in pairs(%s.b) do if b:IsShown() then o[#o + 1] = k end end "
+                     "table.sort(o) return o" % BAR)
+
+
+def chips(c):
+    """{ id: chip shown } of every mover on the screen."""
+    return c.eval_py("local o = {} for _, d in ipairs(ns.Layout:Items()) do local m = ns.EditMode:Mover(d.id) "
+                     "if m and m:IsShown() then o[d.id] = m.tag:IsShown() end end return o")
+
+
+def signed(v):
+    return ("+%d" % v) if v > 0 else ("%d" % v)
+
+
+@case
+def one_slim_bar_at_the_top_reads_out_the_pick_and_holds_its_tools():
+    w, c = boot()
+    open_edit(w, c)
+    # flush to the top edge, in the middle, 28 tall; no toolbar floating over the frames, no banner
+    top, cx, h = c.eval("local b = %s; return b:GetTop(), (b:GetLeft() + b:GetRight()) / 2, b:GetHeight()" % BAR)
+    assert abs(top - H) < 0.6 and abs(cx - W / 2) < 0.6 and h == 28, (top, cx, h)
+    assert c.eval("return DisasterZoneEditToolbar == nil") is True
+    assert c.eval("return ns.EditMode:GetToolbar() == ns.EditMode:GetBar()") is True
+    assert readout(c) == "Click a frame to pick it"
+    assert tools(c) == sorted(["undo", "redo", "grid", "snap", "names", "frames", "done"]), tools(c)
+    # one picked: its name, its centre from the screen's centre, its size; its tools in the bar
+    c.eval("ns.EditMode:Select({ 'session' })")
+    l, b, bw, bh = box(c, "session")
+    dx, dy = round(l + bw / 2 - W / 2), round(b + bh / 2 - H / 2)
+    assert readout(c) == "Raid session crest  \u00b7  centre %s, %s  \u00b7  100%%" % (signed(dx), signed(dy)), readout(c)
+    assert set(tools(c)) >= {"ch", "cv", "mirror1", "reset", "hide"}, tools(c)
+    assert not set(tools(c)) & {"al", "dh", "mirror2", "unmirror"}, tools(c)
+    assert c.eval("local B = %s; return B.b.ch:GetParent() == B and B.b.reset:GetParent() == B" % BAR) is True
+    # it stays put at the top edge (only its width follows what is picked, centred)
+    assert abs(c.eval("return %s:GetTop()" % BAR) - H) < 0.6
+    # the size reads out after a notch of the wheel
+    c.eval("ns.EditMode:Wheel('session', 1)")
+    assert readout(c).endswith("105%"), readout(c)
+    # several: a count and the line-ups; a pair: Mirror
+    c.eval("ns.EditMode:Select({ 'session', 'roll', 'reminder' })")
+    assert readout(c) == "3 frames picked", readout(c)
+    for k in ("al", "ac", "ar", "at", "am", "ab", "dh", "dv", "ch", "cv"):
+        assert k in tools(c), (k, tools(c))
+    assert "mirror2" not in tools(c) and "mirror1" not in tools(c)
+    c.eval("ns.EditMode:Select({ 'session', 'roll' })")
+    assert "mirror2" in tools(c) and c.eval("return %s.b.dh:IsEnabled()" % BAR) is False
+    # undo / redo follow the history
+    assert c.eval("return %s.b.undo:IsEnabled()" % BAR) is True          # (the wheel)
+    assert c.eval("return %s.b.redo:IsEnabled()" % BAR) is False
+    c.eval("%s.b.undo:Click()" % BAR)
+    assert c.eval("return %s.b.redo:IsEnabled()" % BAR) is True
+    # Done closes
+    c.eval("%s.b.done:Click()" % BAR)
+    assert c.eval("return ns.EditMode:IsActive()") is False
+    w.assert_no_errors()
+
+
+@case
+def the_bar_fits_a_1280_wide_screen_whatever_is_picked():
+    w, c = boot()
+    open_edit(w, c)
+    c.eval("ns.DB:SetSetting('editlayout.all', true); ns.EditMode:SetPreviews(); ns.EditMode:Refresh()")
+    ids = c.eval_py("local o = {} for _, d in ipairs(ns.Layout:Items()) do local m = ns.EditMode:Mover(d.id) "
+                    "if m and m:IsShown() then o[#o + 1] = d.id end end return o")
+    assert len(ids) >= 6, ids
+    widest = 0
+    for i in ids:
+        c.eval("ns.EditMode:Select({ ... })", i)
+        widest = max(widest, c.eval("return %s:GetWidth()" % BAR))
+    for n in (2, 3):
+        c.eval("ns.EditMode:Select({ ... })", *ids[:n])
+        widest = max(widest, c.eval("return %s:GetWidth()" % BAR))
+    # (the mock measures text at 6 units a letter, wider than the game's font: what fits here fits there)
+    assert widest < 1200, widest
+    w.assert_no_errors()
+
+
+@case
+def grid_snap_and_names_switch_from_the_bar():
+    w, c = boot()
+    open_edit(w, c)
+    B = BAR + ".b"
+    c.eval("ns.DB:SetSetting('editlayout.grid', 0); ns.EditMode:Refresh()")
+    assert plain(c.eval("return %s.grid.fs:GetText()" % B)) == "Grid  Off"
+    seen = []
+    for _ in range(4):
+        c.eval("%s.grid:Click()" % B)
+        seen.append(c.eval("return ns.DB:GetSetting('editlayout.grid')"))
+    assert seen == [8, 16, 32, 0], seen
+    c.eval("%s.grid:Click()" % B)
+    assert plain(c.eval("return %s.grid.fs:GetText()" % B)) == "Grid  8"
+    # Snap: all three kinds off; on again, the ones that were on
+    c.eval("ns.DB:SetSetting('editlayout.snapGaps', false); ns.EditMode:Refresh()")
+    assert plain(c.eval("return %s.snap.fs:GetText()" % B)) == "Snap  On"
+    c.eval("%s.snap:Click()" % B)
+    snaps = c.eval("return ns.DB:GetSetting('editlayout.snapScreen'), ns.DB:GetSetting('editlayout.snapFrames'), "
+                   "ns.DB:GetSetting('editlayout.snapGaps')")
+    assert list(snaps) == [False, False, False], snaps
+    assert plain(c.eval("return %s.snap.fs:GetText()" % B)) == "Snap  Off"
+    # (nothing snaps now: 4 px off the centre stays 4 px off; the grid off too)
+    c.eval("ns.DB:SetSetting('editlayout.grid', 0)")
+    l0 = box(c, "toasts")[0]
+    drag(w, c, "toasts", 4, -100)
+    assert abs(box(c, "toasts")[0] - (l0 + 4)) < 0.6
+    c.eval("%s.snap:Click()" % B)
+    snaps = c.eval("return ns.DB:GetSetting('editlayout.snapScreen'), ns.DB:GetSetting('editlayout.snapFrames'), "
+                   "ns.DB:GetSetting('editlayout.snapGaps')")
+    assert list(snaps) == [True, True, False], snaps
+    # Names: every frame's chip, not only the picked one's
+    c.eval("ns.EditMode:Select({ 'session' })")
+    ch = chips(c)
+    assert ch["session"] is True and not any(v for k, v in ch.items() if k != "session"), ch
+    c.eval("%s.names:Click()" % B)
+    assert all(chips(c).values()), chips(c)
+    assert c.eval("return %s.names.lit" % B) is True
+    c.eval("%s.names:Click()" % B)
+    assert sum(1 for v in chips(c).values() if v) == 1
+    w.assert_no_errors()
+
+
+@case
+def frames_opens_a_panel_under_the_bar_with_profiles_snaps_and_the_list():
+    w, c = boot()
+    open_edit(w, c)
+    P = "ns.EditMode:GetPanel()"
+    assert c.eval("return %s:IsShown()" % P) is False
+    c.eval("%s.b.frames:Click()" % BAR)
+    assert c.eval("return %s:IsShown()" % P) is True
+    assert c.eval("return %s.b.frames.lit" % BAR) is True
+    top, right, bar_right = c.eval("return %s:GetTop(), %s:GetRight(), %s:GetRight()" % (P, P, BAR))
+    assert abs(top - (H - 28 - 4)) < 0.6 and abs(right - bar_right) < 1, (top, right, bar_right)
+    texts = c.eval_py("local o = {} local function walk(f) for _, r in ipairs({ f:GetRegions() }) do "
+                      "if r.GetText and r:GetText() and r:IsVisible() then o[#o + 1] = r:GetText() end end "
+                      "for _, ch in ipairs({ f:GetChildren() }) do walk(ch) end end walk(%s) return o" % P)
+    for want in ("Profile", "Default", "Screen centre and edges", "Other frames", "Equal gaps", "My character",
+                 "Everything", "Reset all\u2026", "Raid session crest", "Roll frame"):
+        assert any(want in plain(t) for t in texts), (want, texts)
+    # not undo / redo / grid / done: those are in the bar
+    assert not any(plain(t) in ("Undo", "Redo", "Done", "Grid") for t in texts), texts
+    # one kind switched off in the panel: the bar's Snap still says On (the other two are)
+    c.eval("local cb = %s.snaps[3]; cb:Click()" % P)
+    assert c.eval("return ns.DB:GetSetting('editlayout.snapGaps')") is False
+    assert plain(c.eval("return %s.b.snap.fs:GetText()" % BAR)) == "Snap  On"
+    # a row picks its frame; the panel stays where it opened while the bar grows
+    c.eval("for _, r in ipairs(%s.rows) do if r.id == 'roll' and r:IsShown() then r:Click() end end" % P)
+    assert c.eval_py("return ns.EditMode:Selection()") == ["roll"]
+    assert readout(c).startswith("Roll frame")
+    assert abs(c.eval("return %s:GetRight()" % P) - right) < 0.6
+    # Esc: the panel first, then the pick, then done
+    assert c.eval("return ns.EditMode:OnKey('ESCAPE')") is True
+    assert c.eval("return %s:IsShown()" % P) is False and c.eval("return #ns.EditMode:Selection()") == 1
+    assert c.eval("return %s.b.frames.lit" % BAR) is not True
+    c.eval("ns.EditMode:OnKey('ESCAPE')")
+    assert c.eval("return #ns.EditMode:Selection()") == 0 and c.eval("return ns.EditMode:IsActive()") is True
+    c.eval("ns.EditMode:OnKey('ESCAPE')")
+    assert c.eval("return ns.EditMode:IsActive()") is False
+    w.assert_no_errors()
+
+
+@case
+def the_bar_steps_back_over_a_picked_frame_and_while_dragging():
+    w, c = boot()
+    open_edit(w, c)
+    alpha = "return %s:GetAlpha()" % BAR
+    assert c.eval(alpha) == 1
+    # the session bar moved up under the bar and picked: 32%, full again under the mouse
+    l, b, bw, bh = box(c, "session")
+    c.eval("ns.Layout:MoveTo('session', ...)", l, H - bh - 6)
+    c.eval("ns.EditMode:Select({ 'session' })")
+    w.tick(0.5)
+    assert abs(c.eval(alpha) - 0.32) < 0.01, c.eval(alpha)
+    c.eval("%s.IsMouseOver = function() return true end" % BAR)
+    w.tick(0.5)
+    assert abs(c.eval(alpha) - 1) < 0.01
+    c.eval("%s.IsMouseOver = nil" % BAR)
+    w.tick(0.5)
+    assert abs(c.eval(alpha) - 0.32) < 0.01
+    # (the Frames panel open: full too)
+    c.eval("ns.EditMode:ShowFrames(true)")
+    w.tick(0.5)
+    assert abs(c.eval(alpha) - 1) < 0.01
+    c.eval("ns.EditMode:ShowFrames(false)")
+    # a frame away from the bar picked: full
+    c.eval("ns.EditMode:Select({ 'roll' })")
+    w.tick(0.5)
+    assert abs(c.eval(alpha) - 1) < 0.01
+    # the centre cross and the grid only while something moves
+    c.eval("ns.DB:SetSetting('editlayout.grid', 16); ns.EditMode:DrawGrid()")
+    shown = "local o = DisasterZoneEditMode; return o.axisV:IsShown(), o.axisH:IsShown(), o.gridLayer:IsShown()"
+    assert list(c.eval(shown)) == [False, False, False]
+    l, b, bw, bh = box(c, "roll")
+    c.eval("__MOCK.cursor = { ... }", l + bw / 2, b + bh / 2)
+    c.eval("ns.EditMode:OnMoverDown('roll', 'LeftButton')")
+    w.tick(0.1)
+    assert c.eval(alpha) == 1                          # (a press is not a drag yet)
+    c.eval("__MOCK.cursor = { ... }", l + bw / 2 + 40, b + bh / 2 - 80)
+    w.tick(0.5)
+    assert abs(c.eval(alpha) - 0.18) < 0.01, c.eval(alpha)
+    assert list(c.eval(shown)) == [True, True, True]
+    assert c.eval("return ns.EditMode:Mover('roll').tag:IsShown()") is False      # (out of the guides' way)
+    c.eval("ns.EditMode:EndDrag()")
+    w.tick(0.5)
+    assert abs(c.eval(alpha) - 1) < 0.01
+    assert list(c.eval(shown)) == [False, False, False]
+    assert c.eval("return ns.EditMode:Mover('roll').tag:IsShown()") is True
+    # a resize fades it too
+    c.eval("ns.EditMode:StartResize(1, -1)")
+    w.tick(0.5)
+    assert abs(c.eval(alpha) - 0.18) < 0.01
+    c.eval("ns.EditMode:EndDrag()")
+    w.tick(0.5)
+    # a meter stack dragged by its header (MeterPanels asks EditMode:SnapBox each step) as well
+    c.eval("local f = CreateFrame('Frame', nil, UIParent); f:SetSize(200, 100); "
+           "ns.EditMode:SnapBox(f, 857, 700, 200, 100)")
+    w.tick(0.1)
+    assert c.eval(alpha) < 0.6
+    w.tick(0.6)
+    assert abs(c.eval(alpha) - 1) < 0.01
+    w.assert_no_errors()
+
+
+@case
+def boxes_are_quiet_until_picked():
+    w, c = boot()
+    open_edit(w, c)
+    M = "ns.EditMode:Mover('roll')"
+    edge = ("local e = ns.EditMode:Mover(...).edges[1]; local st = __MOCK.OBJ[e]; local r, g, b, a = e:GetVertexColor(); "
+            "local ulx, uly, llx, lly, urx = e:GetTexCoord(); return e:GetTexture(), st.hwrap, a, urx, e:GetHeight()")
+    # not picked: a faint dashed outline (the dash tile repeated along the edge), no fill, no name
+    tex, wrap, a, right, thick = c.eval(edge, "roll")
+    assert "Media\\Edit\\dash_h" in tex and wrap == "REPEAT" and abs(a - 0.2) < 0.01, (tex, wrap, a)
+    bw = box(c, "roll")[2]
+    assert abs(right - (bw + 6) / 6) < 0.05, (right, bw)                 # (a dash and a gap every 6 units)
+    assert c.eval("return ns.EditMode:Mover(...).edges[3]:GetTexture()", "roll").endswith("dash_v")
+    assert list(c.eval("return %s.state, %s.tag:IsShown(), %s.wash:IsShown()" % (M, M, M))) == ["quiet", False, False]
+    # under the mouse: a gold outline and its name
+    c.eval("local m = %s; m.IsMouseOver = function() return true end; m:GetScript('OnEnter')(m)" % M)
+    assert list(c.eval("return %s.state, %s.tag:IsShown()" % (M, M))) == ["hover", True]
+    c.eval("local m = %s; m.IsMouseOver = nil; m:GetScript('OnLeave')(m)" % M)
+    assert list(c.eval("return %s.state, %s.tag:IsShown()" % (M, M))) == ["quiet", False]
+    # picked: a solid gold edge 1.5 wide, a faint fill, a glow, its name in a dark chip with a gold edge
+    c.eval("ns.EditMode:Select({ 'roll' })")
+    tex, wrap, a, right, thick = c.eval(edge, "roll")
+    assert tex == "Color" and thick == 1.5, (tex, thick)
+    got = c.eval("local m = %s; return m.state, m.tag:IsShown(), m.wash:IsShown(), m.glow[1]:IsShown()" % M)
+    assert list(got) == ["picked", True, True, True], got
+    assert c.eval("return __MOCK.OBJ[%s.tag.bg].color[4]" % M) > 0.9
+    # its mirrored partner: dashed gold
+    c.eval("ns.Layout:SetMirror('roll', 'toasts'); ns.EditMode:Refresh()")
+    assert c.eval("return ns.EditMode:Mover('toasts').state") == "partner"
+    tex, wrap, a, right, thick = c.eval(edge, "toasts")
+    assert "dash_h" in tex and thick == 1.5
+    # the world is dimmed lightly
+    assert c.eval("return __MOCK.OBJ[DisasterZoneEditMode.dim].color[4]") <= 0.12
+    # a chip keeps out from under the bar: a frame at the top has its name under it
+    l, b, bw, bh = box(c, "session")
+    c.eval("ns.Layout:MoveTo('session', ...)", l, H - bh - 6)
+    c.eval("ns.EditMode:Select({ 'session' })")
+    tag_top = c.eval("return ns.EditMode:Mover('session').tag:GetTop()")
+    assert tag_top < H - bh - 6, tag_top
+    w.assert_no_errors()
+
 
 if __name__ == "__main__":
     run_all()

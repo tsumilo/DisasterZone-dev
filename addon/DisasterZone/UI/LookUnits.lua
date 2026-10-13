@@ -143,6 +143,7 @@ function Units.Data(unit, d)
     d.reaction = UnitReaction and UnitReaction(unit, "player") or 4
     d.tapped = UnitIsTapDenied and not (UnitPlayerControlled and UnitPlayerControlled(unit)) and UnitIsTapDenied(unit) or false
     d.leader = UnitIsGroupLeader and UnitIsGroupLeader(unit) or false
+    d.mt = d.isPlayer and ns.Tanks and ns.Tanks:NumberOfUnit(unit) or nil
     d.raidIcon = GetRaidTargetIndex and GetRaidTargetIndex(unit) or nil
     d.heal = UnitGetIncomingHeals and UnitGetIncomingHeals(unit) or nil
     if UnitInRange and (unit:find("^party") or unit:find("^raid")) then
@@ -272,13 +273,26 @@ function Units:NewFace(host, kind, part, side)
     F.leader = over:CreateTexture(nil, "OVERLAY")
     F.leader:SetSize(12, 12)
     F.leader:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+    -- a main tank: the game's shield and their number (Core/Tanks.lua), after the crown
+    F.mt = over:CreateTexture(nil, "OVERLAY")
+    F.mt:SetSize(12, 12)
+    F.mt:SetTexture("Interface\\GroupFrame\\UI-Group-MainTankIcon")
+    F.mt:Hide()
+    F.mtNo = L:Text(over, "small", "GOLD")
+    F.mtNo:Hide()
+    F.statusC = { F.status:GetTextColor() }
     F.skull = over:CreateTexture(nil, "OVERLAY")
     F.skull:SetSize(11, 11)
     F.skull:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
     F.light = L.Edges(over, "OVERLAY", 4)           -- a debuff I can remove / aggro: the frame's edge lights
     F.light:Place(host, 1)
-    F.ring = L.PillRing(host, "BACKGROUND", -7)     -- (Halo's cell: a ring round the capsule lights instead)
+    F.ring = L.PillRing(host, "BACKGROUND", -6)     -- (Halo's cell: a ring round the capsule lights instead)
     F.glow = L.PillRing(host, "BACKGROUND", -8)
+    -- a raid cell I target (white) or point at (faint): an outline past the edge light; Halo: a ring past the rim
+    F.sel = L.Edges(over, "OVERLAY", 5)
+    F.sel:Paint(nil)
+    F.selRing = L.PillRing(host, "BACKGROUND", -7)
+    F.selRing:Paint(nil)
     F.auras = {}
     F.pips = {}
     return F
@@ -548,7 +562,7 @@ end
 function Face:SetClassic(d)
     local cl = self.cl
     if self.ckind == "cell" then
-        cl.sel:SetShown(d.selected and true or false)
+        self:PaintSel()                    -- (the game's yellow frame: my target, faint under the mouse)
         self.name:SetTextColor(1, 1, 1)
         if d.dead or d.offline then self.name:SetTextColor(0.5, 0.5, 0.5) end
         return
@@ -648,6 +662,8 @@ function Face:Apply(look)
     name:ClearAllPoints(); value:ClearAllPoints(); level:ClearAllPoints()
     -- fit: the name's row (room, from the level's start), whether the level and the numbers share it (sized in Set)
     self.fit, self.fitW = nil, nil
+    -- (levelPt: where the level starts on the name's row; the crown and a main tank's mark go there: PlaceMarks)
+    self.levelPt, self.markW = nil, 0
     self.status:ClearAllPoints()
     UI:SetTextSize(name, kind == "cell" and "small" or (k == "slate" and "emph" or "body"))
     UI:SetTextSize(value, (k == "slate" and kind == "big") and "emph" or "small")
@@ -756,6 +772,7 @@ function Face:Apply(look)
             self.fit = { room = w - (ph > 0 and ph + 1 or 0) - 10, level = true }
         end
         level:Show()
+        self.levelPt = { level:GetPoint(1) }
         value:Show()
         self.status:SetPoint("CENTER", self.hp.f, "CENTER", 0, 0)
     end
@@ -825,14 +842,16 @@ function Face:Set(d)
         self.name:SetTextColor(r, g, b)
     else self.name:SetTextColor(look.nameC[1], look.nameC[2], look.nameC[3]) end
     if self.kind == "cell" and (d.dead or d.offline) then self.name:SetTextColor(0.5, 0.5, 0.5) end
-    -- (Halo's cell: the crown and the raid icon share the name's row)
-    local marks = (d.leader and 1 or 0) + (d.raidIcon and 2 or 0)
+    -- (Halo's cell: the crown, a main tank's shield and number, and the raid icon share the name's row)
+    local mt = self.kind ~= "small" and tonumber(d.mt) or nil
+    local marks = (d.leader and 1 or 0) + (d.raidIcon and 2 or 0) + (mt and (4 + 8 * mt) or 0)
     if self.ringOn and marks ~= self.marks then
         self.marks = marks
-        local lead = d.leader and true or false
+        local x = d.leader and 23 or 10
+        if mt then x = x + 12 + (mt >= 10 and 12 or 6) + 1 end
         self.name:ClearAllPoints()
-        self.name:SetPoint("TOPLEFT", self.host, "TOPLEFT", lead and 23 or 10, -5)
-        self.name:SetWidth(self.nameW - (lead and 13 or 0) - (d.raidIcon and 14 or 0))
+        self.name:SetPoint("TOPLEFT", self.host, "TOPLEFT", x, -5)
+        self.name:SetWidth(self.nameW - (x - 10) - (d.raidIcon and 14 or 0))
     end
     local boss = d.classif == "worldboss" or (d.level or 0) < 0
     self.skull:ClearAllPoints()
@@ -868,7 +887,11 @@ function Face:Set(d)
     if self.kind == "cell" then
         local st = d.dead and (d.ghost and "Ghost" or "Dead") or (d.offline and "Offline" or "")
         if st == "" and frac < 0.995 and frac > 0 then st = "-" .. Short(d.hpMax - d.hp) end
+        -- (the tank block's mob half says its own: "88%", "on Dreadhex", "planned": UI/LookTanks.lua)
+        if d.statusText then st = d.statusText end
         self.status:SetText(st)
+        local sc = d.statusColor or self.statusC
+        if sc and sc[1] then self.status:SetTextColor(sc[1], sc[2], sc[3]) end
         self.status:Show()
     else
         self.status:SetText("")
@@ -881,6 +904,8 @@ function Face:Set(d)
         self.icon:Hide()
     end
     self.leader:SetShown(d.leader and self.kind ~= "small" or false)
+    self:SetMainTank(mt)
+    self:PlaceMarks()
     -- the portrait: the class icon for players (and the option), the game's portrait otherwise
     if self.portOn then
         local opt = L:Opt(part, "portrait", "class")
@@ -928,6 +953,9 @@ function Face:Set(d)
     else
         self.light:Paint(nil)
     end
+    self.lightOn = lc ~= nil
+    self.targeted = d.selected and true or false
+    self:PaintSel()
     -- out of range (party / raid)
     if self.kind == "cell" or self.width == W.party then
         self.host:SetAlpha((d.far and L:Opt("group", "range", true)) and 0.45 or 1)
@@ -937,12 +965,106 @@ function Face:Set(d)
     if self.cl and look.game then self:SetClassic(d) end
 end
 
+-- The raid cell I target, and the one under the mouse (raid frames, the tank block): Halo's capsule a white ring past
+-- its rim (past the dispel / aggro ring when that is lit), the other looks a white outline past the edge light,
+-- Classic the game's own yellow frame. Pointing at a cell: the same, faint.
+local SEL_A, HOVER_A = 0.95, 0.4
+function Face:PaintSel()
+    if self.kind ~= "cell" or not self.look then return end
+    -- (a 1 px outline needs more than Halo's 2 px ring to be seen under the mouse)
+    local a = self.targeted and SEL_A or (self.hovered and (self.ringOn and HOVER_A or 0.6) or 0)
+    if self.look.game then
+        self.sel:Paint(nil); self.selRing:Paint(nil)
+        local cl = self.cl
+        if cl and cl.sel then
+            cl.sel:SetShown(a > 0)
+            cl.sel:SetAlpha(a > 0 and (self.targeted and 1 or HOVER_A) or 1)
+        end
+        return
+    end
+    if a <= 0 then self.sel:Paint(nil); self.selRing:Paint(nil) return end
+    if self.ringOn then
+        self.sel:Paint(nil)
+        self.selRing:Place(self.hp.f, self.hp.w or 0, self.h or 0, self.lit and 4 or 3)
+        self.selRing:Paint({ 1, 1, 1, a })
+    else
+        self.selRing:Paint(nil)
+        self.sel:Place(self.host, self.lightOn and 2 or 1)
+        self.sel:Paint({ 1, 1, 1, a })
+    end
+end
+
+function Face:SetTarget(on)
+    on = on and true or false
+    if on == self.targeted then return end
+    self.targeted = on
+    self:PaintSel()
+end
+
+function Face:SetHover(on)
+    on = on and true or false
+    if on == self.hovered then return end
+    self.hovered = on
+    self:PaintSel()
+end
+
+-- A main tank's shield and number (n; nil hides them): Halo's cell on the name's row after the crown (Set leaves the
+-- name room), every other frame beside the crown, or where the crown would be.
+function Face:SetMainTank(n)
+    local show = n ~= nil
+    self.mt:SetShown(show)
+    self.mtNo:SetShown(show)
+    if not show then return end
+    self.mt:ClearAllPoints()
+    if self.ringOn then
+        self.mt:SetPoint("CENTER", self.host, "TOPLEFT", (self.d and self.d.leader) and 28 or 15, -10)
+    elseif self.leader:IsShown() then
+        self.mt:SetPoint("LEFT", self.leader, "RIGHT", 1, 0)
+    else
+        self.mt:SetPoint("CENTER", self.leader, "CENTER", 0, 0)
+    end
+    self.mtNo:ClearAllPoints()
+    self.mtNo:SetPoint("LEFT", self.mt, "RIGHT", 0, 0)
+    self.mtNo:SetText(tostring(n))
+end
+
+-- A frame with a level (player, target, focus): the crown, then a main tank's shield and number, go first on the
+-- name's row and the level and the name move over by their width (they used to sit on the level).
+function Face:PlaceMarks()
+    local lp = self.levelPt
+    self.markW = 0
+    if self.ringOn or not lp or not self.level:IsShown() then return end
+    local crown, mt = self.leader:IsShown(), self.mt:IsShown()
+    local w = 0
+    if crown then w = w + 13 end
+    if mt then w = w + 12 + (self.mtNo:GetStringWidth() or 6) + 7 end
+    self.level:ClearAllPoints()
+    self.level:SetPoint(lp[1], lp[2], lp[3], (lp[4] or 0) + w, lp[5] or 0)
+    self.markW = w
+    if w == 0 then return end
+    local right = self.level
+    if mt then
+        -- (a clear gap and the number in white, so "1" and the gold "70" never read as one number)
+        self.mtNo:ClearAllPoints()
+        self.mtNo:SetPoint("RIGHT", self.level, "LEFT", -7, 0)
+        self.mtNo:SetTextColor(S:Color("TEXT"))
+        self.mt:ClearAllPoints()
+        self.mt:SetPoint("RIGHT", self.mtNo, "LEFT", 0, 0)
+        right = self.mt
+    end
+    if crown then
+        self.leader:ClearAllPoints()
+        self.leader:SetPoint("RIGHT", right, "LEFT", right == self.level and -2 or -1, 0)
+    end
+    if self.fit then self.fitW = nil; self:FitName() end
+end
+
 -- The name ends where the level and numbers on its row leave off (a long name is cut with "..."), never under them.
 function Face:FitName()
     local fit = self.fit
     local room = fit.room
     if fit.level then
-        room = room - (self.skull:IsShown() and 10 or self.level:GetStringWidth()) - 4
+        room = room - (self.skull:IsShown() and 10 or self.level:GetStringWidth()) - 4 - (self.markW or 0)
     end
     if fit.value then
         local vw = self.value:GetStringWidth() or 0
@@ -1093,8 +1215,26 @@ local function StyleButton(b, kind, part, side, width)
         if name == "unit" then Refresh(self) end
     end)
     b:HookScript("OnEnter", OnEnter)
-    b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    b:HookScript("OnLeave", function(self)
+        if GameTooltip then GameTooltip:Hide() end
+        if self.face then self.face:SetHover(false) end
+    end)
+    b:HookScript("OnEnter", function(self) if self.face then self.face:SetHover(true) end end)
 end
+
+-- My target changed: only the raid cells' target marks (no full refresh of 40 cells).
+local function MarkTarget()
+    local has = UnitExists and UnitExists("target")
+    for _, hd in pairs(header) do
+        for i = 1, 40 do
+            local c = hd:GetAttribute("child" .. i)
+            if not c then break end
+            local unit = c:IsShown() and c.face and c:GetAttribute("unit")
+            if unit then c.face:SetTarget(has and UnitIsUnit(unit, "target")) end
+        end
+    end
+end
+Units.MarkTarget = MarkTarget
 
 local function NewUnitButton(key)
     local def = UNITS[key]
@@ -1175,6 +1315,29 @@ local function NewHeader(which, look)
     header[which] = hd
     return hd
 end
+
+-- Party frames in a raid (option group.partyInRaid, off): hidden, as the raid frames show the same people. (A header
+-- told showRaid = false still falls back to the party's units in a raid: GetGroupHeaderType asks IsInGroup(), which a
+-- raid is too, so it showed the other four of my raid group.) The game's own state driver hides it, mid-fight too.
+local PARTY_IN_RAID = "[group:raid] hide; show"
+local visPending = false
+function Units:PartyVisibility()
+    local hd = header.party
+    if not hd then return end
+    if InCombat() then visPending = true return end
+    visPending = false
+    hd:SetAttribute("showPlayer", Look():Opt("group", "player", false) and true or false)
+    local hide = not Look():Opt("group", "partyInRaid", false)
+    hd.dzVisibility = hide and PARTY_IN_RAID or "show"
+    if hide then
+        if RegisterAttributeDriver then RegisterAttributeDriver(hd, "state-visibility", PARTY_IN_RAID)
+        elseif IsInRaid and IsInRaid() then hd:Hide() end
+    else
+        if UnregisterAttributeDriver then UnregisterAttributeDriver(hd, "state-visibility") end
+        hd:Show()
+    end
+end
+function Units:VisibilityPending() return visPending end
 
 -- The made-up frames for previews (Edit layout, demo mode): over the live frame's place.
 local function Preview(key)
@@ -1269,6 +1432,7 @@ local function OnEvent(_, event, unit, extra)
     if event == "PLAYER_TARGET_CHANGED" then
         if frames.target then Refresh(frames.target) end
         if frames.tot then Refresh(frames.tot) end
+        MarkTarget()
         return
     elseif event == "PLAYER_FOCUS_CHANGED" then
         if frames.focus then Refresh(frames.focus) end
@@ -1382,6 +1546,8 @@ function Units:Restyle(part)
             local p = previews[which]
             if p and p:IsShown() then self:ShowPreview(which, true) end
         end
+        self:PartyVisibility()
+        if ns.LookTanks and ns.LookTanks.Restyle then ns.LookTanks:Restyle() end
     end
 end
 
@@ -1472,11 +1638,16 @@ end
 
 function Units:OnLogin()
     self:Setup()
-    ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() if pending then Units:Setup() end end)
+    ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+        if pending then Units:Setup() end
+        if visPending then Units:PartyVisibility() end
+    end)
     ns:On("UI_LOOK_CHANGED", function(part)
         if (part == "units" or part == "group") and not Look():NeedsReload(part) then Units:Restyle(part) end
     end)
     ns:On("DEMO_TOGGLED", function() Units:Demo() end)
+    -- (a main tank's shield and number on their frames)
+    ns:On("TANKS_CHANGED", function() RefreshAll() end)
     self:Demo()
 end
 

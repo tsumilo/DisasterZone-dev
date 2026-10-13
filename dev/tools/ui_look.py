@@ -129,6 +129,8 @@ for _, o in ipairs(M.all_objects) do
       rec.grad = st.gradient
       rec.htile = st.htile
       rec.vtile = st.vtile
+      rec.hwrap = st.hwrap
+      rec.vwrap = st.vwrap
       local m = st.masks and st.masks[1]
       if m and OBJ[m] then rec.mask = OBJ[m].texture and tostring(OBJ[m].texture) or nil end
       -- every mask with its own region (placed where it is on the screen; CLAMPTOWHITE: no mask outside it)
@@ -373,6 +375,19 @@ def texture_image(r, w, h):
             flip_x, flip_y = rr < l, b < t
             x0, x1 = sorted((l * W, rr * W))
             y0, y1 = sorted((t * H, b * H))
+            if ((r.get("hwrap") == "REPEAT" or r.get("vwrap") == "REPEAT")
+                    and (x0 < -0.5 or y0 < -0.5 or x1 > W + 0.5 or y1 > H + 0.5)):
+                # SetTexture(path, "REPEAT", "REPEAT") with tex coords past 0..1: the texture tiled that many times
+                import math
+                ix0, ix1 = math.floor(x0 / W), math.ceil(x1 / W)
+                iy0, iy1 = math.floor(y0 / H), math.ceil(y1 / H)
+                if (ix1 - ix0) * (iy1 - iy0) <= 4096:
+                    big = Image.new("RGBA", ((ix1 - ix0) * W, (iy1 - iy0) * H), (0, 0, 0, 0))
+                    for i in range(ix1 - ix0):
+                        for j in range(iy1 - iy0):
+                            big.paste(src, (i * W, j * H))
+                    src = big
+                    x0, x1, y0, y1 = x0 - ix0 * W, x1 - ix0 * W, y0 - iy0 * H, y1 - iy0 * H
             crop = src.crop((int(round(x0)), int(round(y0)), max(int(round(x0)) + 1, int(round(x1))),
                              max(int(round(y0)) + 1, int(round(y1)))))
             if flip_x:

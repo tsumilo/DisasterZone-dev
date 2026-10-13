@@ -623,9 +623,30 @@ local function Layout(f, d)
     f:SetHeight(-y + PAD - 2)
 end
 
+-- Edit layout's card while no reminder is up: the header only.
+local function ShowPreview(f)
+    f.data = nil
+    f.fading = nil
+    f.alert = nil
+    ns.UI:SetEdgeColor(f, Style:Color("HUD_EDGE"))
+    f.header.portrait:Hide()
+    f.header.fs:SetText("Strategy reminder")
+    f.header.tag:SetPill("mute", "ON A PULL")
+    for _, r in ipairs(f.rows) do r:Hide() end
+    f:SetHeight(60)
+    f:SetAlpha(1)
+    f:Show()
+end
+
 function Reminder:Refresh()
     local d = self:Items()
     if not d then
+        -- (while Edit layout shows the card it stays: faded out, it couldn't be moved)
+        if self.previewing then
+            local f = frame or Create()
+            if f.data or not f:IsShown() or f:GetAlpha() < 1 then ShowPreview(f) end
+            return
+        end
         if frame and frame:IsShown() and not frame.fading then frame.fading = true end
         return
     end
@@ -656,7 +677,7 @@ end
 
 function Reminder:GetFrame() return frame end
 
--- Edit layout: a header-only card while no reminder is up (Core/Layout.lua "reminder").
+-- Edit layout (Core/Layout.lua "reminder"): the reminder that is up, else a header-only card, until it closes.
 function Reminder:Preview(on)
     if not on then
         if self.previewing then
@@ -665,18 +686,8 @@ function Reminder:Preview(on)
         end
         return
     end
-    if frame and frame:IsShown() then return end
-    local f = frame or Create()
     self.previewing = true
-    f.data = nil
-    f.fading = nil
-    f.header.portrait:Hide()
-    f.header.fs:SetText("Strategy reminder")
-    f.header.tag:SetPill("mute", "ON A PULL")
-    for _, r in ipairs(f.rows) do r:Hide() end
-    f:SetHeight(60)
-    f:SetAlpha(1)
-    f:Show()
+    self:Refresh()
 end
 
 function Reminder:OnInit()

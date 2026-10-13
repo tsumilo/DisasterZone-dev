@@ -1,9 +1,10 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BossModSettings.lua", ...) then return end -- DisasterZone UI/BossModSettings.lua
--- Settings > Combat > Boss mods (the card UI/Settings.lua lists as "bossmods"): the main switch (off until turned on;
--- the rows under it grey while it is off), bars, warnings, sounds, the range frame, my role, other roles' alerts,
--- DBM / BigWigs timers, the look (Interface > Looks > Boss mods), Try it, where it sits (Edit layout); then every
--- raid as a row that opens its bosses' alerts, each with its own switch and a tag for what it is (Bar, Warn, You,
--- Range; Tank / Healer).
+-- Settings > Combat > Boss mods (the card UI/Settings.lua lists as "bossmods"; its main switch, off until turned on,
+-- is the card's master switch: on its tile and in its head, and while it is off the page is one box): bars,
+-- warnings, sounds and my role; under More options the sizes, the range frame, other roles' alerts, DBM / BigWigs
+-- timers, the look (Interface > Looks > Boss mods), Try it, where it sits (Edit layout); then every raid as a row
+-- that opens its bosses' alerts, each with its own switch and a tag for what it is (Bar, Warn, You, Range; Tank /
+-- Healer).
 local addonName, ns = ...
 
 local SettingsUI = ns.SettingsUI
@@ -110,47 +111,44 @@ end
 
 function SettingsUI:BuildBossMods(sec)
     sec.y = sec.y - 4
-    local dims = {}
-    local function Dim(_, row) dims[#dims + 1] = row; return row end
-    self:SwitchSetting(sec, "Boss mods", "Timers, warnings and the range frame for every TBC raid boss. Off until you switch it on.",
-        "bossmods.on", false, "Running DBM or BigWigs too? Turn one of them off, or every warning comes twice.")
-    Dim(self:SwitchSetting(sec, "Timer bars", "Casts and phases counting down.", "bossmods.bars", true))
-    Dim(self:SwitchSetting(sec, "Warnings", "Text in the middle of the screen when something happens.", "bossmods.warns", true))
-    Dim(self:SwitchSetting(sec, "Sounds", "The raid warning sound, and an alarm when it's on you.", "bossmods.sounds", true))
-    local sizes = {}
-    for _, v in ipairs({ 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2 }) do sizes[#sizes + 1] = { value = v, text = floor(v * 100 + 0.5) .. "%" } end
-    Dim(self:DropdownSetting(sec, "Size", "The timer bars, the pull countdown and the range frame.", "bossmods.size",
-        ns.BossModUI and ns.BossModUI.SIZE or 0.7, sizes, "Edit layout sizes each one on its own on top of this."))
-    Dim(self:DropdownSetting(sec, "Warning size", "The warnings in the middle, and the last seconds under them.",
-        "bossmods.warnSize", ns.BossModUI and ns.BossModUI.WARN_SIZE or 0.8, sizes))
-    Dim(self:DropdownSetting(sec, "Range frame", "Who is too close, on the fights where you spread out.", "bossmods.range",
-        "auto", { { value = "auto", text = "When the fight needs it" }, { value = "never", text = "Never" } },
-        "It opens by itself for the part of a fight that needs it and closes after. The game hides where raiders "
-            .. "stand inside raids; when it can't measure, the frame stays away."))
-    Dim(self:DropdownSetting(sec, "My role", "Tank and healer alerts only go to that role.", "bossmods.role", "auto",
+    -- (the main switch, bossmods.on, is the card's master: CARDS.bossmods.master in UI/Settings.lua)
+    self:SwitchSetting(sec, "Timer bars", "Casts and phases counting down.", "bossmods.bars", true)
+    self:SwitchSetting(sec, "Warnings", "Text in the middle of the screen when something happens.", "bossmods.warns", true)
+    self:SwitchSetting(sec, "Sounds", "The raid warning sound, and an alarm when it's on you.", "bossmods.sounds", true)
+    self:DropdownSetting(sec, "My role", "Tank and healer alerts only go to that role.", "bossmods.role", "auto",
         { { value = "auto", text = "From my talents" }, { value = "tank", text = "Tank" }, { value = "healer", text = "Healer" },
           { value = "dps", text = "Damage" } }, "From my talents: the raid's main tank flag first, then the tree "
-            .. "with the most points (Feral druids by form)."))
-    Dim(self:SwitchSetting(sec, "Alerts for other roles", "Also show the tank and healer alerts when they're not yours.",
-        "bossmods.roles", false))
-    if ns.BossLearnUI then ns.BossLearnUI:AddSettingsRows(self, sec, Dim) end     -- (learning: UI/BossLearnUI.lua)
-    Dim(self:SwitchSetting(sec, "DBM and BigWigs timers", "See their break timers, and they see yours.", "bossmods.dbm", true,
+            .. "with the most points (Feral druids by form).")
+    if ns.BossLearnUI then ns.BossLearnUI:AddSettingsRows(self, sec) end     -- (learning: UI/BossLearnUI.lua)
+    self:MoreOptions(sec)
+    local sizes = {}
+    for _, v in ipairs({ 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2 }) do sizes[#sizes + 1] = { value = v, text = floor(v * 100 + 0.5) .. "%" } end
+    self:DropdownSetting(sec, "Size", "The timer bars, the pull countdown and the range frame.", "bossmods.size",
+        ns.BossModUI and ns.BossModUI.SIZE or 0.7, sizes, "Edit layout sizes each one on its own on top of this.")
+    self:DropdownSetting(sec, "Warning size", "The warnings in the middle, and the last seconds under them.",
+        "bossmods.warnSize", ns.BossModUI and ns.BossModUI.WARN_SIZE or 0.8, sizes)
+    self:DropdownSetting(sec, "Range frame", "Who is too close, on the fights where you spread out.", "bossmods.range",
+        "auto", { { value = "auto", text = "When the fight needs it" }, { value = "never", text = "Never" } },
+        "It opens by itself for the part of a fight that needs it and closes after. The game hides where raiders "
+            .. "stand inside raids; when it can't measure, the frame stays away.")
+    self:SwitchSetting(sec, "Alerts for other roles", "Also show the tank and healer alerts when they're not yours.",
+        "bossmods.roles", false)
+    self:SwitchSetting(sec, "DBM and BigWigs timers", "See their break timers, and they see yours.", "bossmods.dbm", true,
         "Pull timers are the game's own countdown: everyone sees them whatever they run. Breaks travel in DBM's and "
-            .. "BigWigs' own messages."))
-    local pr = self:Row(sec, "Pull and break", "Leader and assists: /dz pull 10 and /dz break 5. They work with boss mods off.")
-    Dim(nil, pr)
+            .. "BigWigs' own messages.")
+    self:Row(sec, "Pull and break", "Leader and assists: /dz pull 10 and /dz break 5. They work with boss mods off.")
     local lr = self:Row(sec, "Look", "Boss mods wear your UI look. Give them one of their own in Interface > Looks.")
     local lb = ns.UI:CreateSleekButton(lr, "Looks", 90, 22, function() SettingsUI:SelectSection("look.bossmods") end)
     lb:SetPoint("RIGHT", lr, "RIGHT", 0, 0)
     lr.control = lb
     SettingsUI.PlaceText(lr, 90)
-    Dim(nil, lr)
     local tr = self:Row(sec, "Try it", "A made-up Gruul pull plays on your screen. Nothing is read or sent.")
     local tb = ns.UI:CreateSleekButton(tr, "Try it", 80, 22, function() if ns.BossModUI then ns.BossModUI:TryIt() end end, "primary")
     tb:SetPoint("RIGHT", tr, "RIGHT", 0, 0)
     tr.control = tb
     SettingsUI.PlaceText(tr, 80)
-    Dim(nil, select(2, self:EditLayoutRow(sec, "Position", "The bars, the warnings, the countdown and the range frame move in Edit layout.")))
+    self:EditLayoutRow(sec, "Position", "The bars, the warnings, the countdown and the range frame move in Edit layout.")
+    self:EndSection(sec)
     -- the raids
     sec.y = sec.y - 10
     local head = UI:Text(sec, "emph", "GOLD")
@@ -161,6 +159,12 @@ function SettingsUI:BuildBossMods(sec)
     hint:SetText("Switch off any alert you don't want")
     sec.y = sec.y - 22
     sec.top = -sec.y
+    -- (the More options fold above opens and shuts: the list moves with the end of the rows, Settings' Relayout)
+    sec.top0 = sec.top
+    sec.onRelayout = function(shift)
+        sec.top = sec.top0 - shift
+        SettingsUI:LayoutBossMods(true)
+    end
     sec.raids = {}
     for _, rk in ipairs(RAIDS) do
         local bosses = Bosses(rk)
@@ -209,12 +213,6 @@ function SettingsUI:BuildBossMods(sec)
             sec.raids[#sec.raids + 1] = card
         end
     end
-    sec.dims = dims
-    self.refreshers[#self.refreshers + 1] = { Refresh = function()
-        local on = Get("bossmods.on", false)
-        for _, r in ipairs(dims) do if r then r:SetAlpha(on and 1 or 0.42) end end
-        for _, card in ipairs(sec.raids) do card:SetAlpha(on and 1 or 0.42) end
-    end }
     self:LayoutBossMods(true)
 end
 

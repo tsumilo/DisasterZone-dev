@@ -54,6 +54,7 @@
   "Core/RaidComp.lua": 3,
   "Core/RaidInvite.lua": 3,
   "Core/RaidLink.lua": 3,
+  "Core/SessionInfo.lua": 3,
   "Core/GuestBook.lua": 3,
   "Core/RaidLog.lua": 3,
   "Core/DungeonRuns.lua": 3,
@@ -78,6 +79,7 @@
   "Core/StrategyLive.lua": 3,
   "Core/StrategyPractice.lua": 3,
   "Core/StrategyCollab.lua": 3,
+  "Core/Tanks.lua": 3,
 
   "Core/CombatLog.lua": 3,
   "Core/Meter.lua": 3,
@@ -114,8 +116,8 @@
   ["^UI/(MyBiS|PaperDoll|ImportExport|Sim\\w*|KitView|Wardrobe)\\.lua$", "Gear"],
   ["^Sim/", "Gear"],
 
-  ["^Core/(Loot|Roll|Loon|Ledger|Prized|Dungeon)\\.lua$", "Loot"],
-  ["^UI/(Council|LootLog|DropPanel|RollFrame|SessionBar|PrizedUI|LootRulesUI|CouncilRules)\\.lua$", "Loot"],
+  ["^Core/(Loot|Roll|Loon|Ledger|Prized|Dungeon|SessionInfo)\\.lua$", "Loot"],
+  ["^UI/(Council|LootLog|DropPanel|RollFrame|SessionBar|SessionDrawer|PrizedUI|LootRulesUI|CouncilRules)\\.lua$", "Loot"],
 
   ["^Core/(RaidNights|RaidPlan|Attendance|RaidComp|RaidInvite|RaidLink|GuestBook|DungeonRuns|GroupFinder|RaidLog)\\.lua$", "Raids"],
   ["^UI/(RaidGroups|RaidPlanUI|RaidSheet|GuestBook|RaidLeadersUI|AttendanceUI|RaidsTab|DungeonsTab)\\.lua$", "Raids"],

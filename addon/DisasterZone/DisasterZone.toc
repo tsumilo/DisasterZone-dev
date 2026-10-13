@@ -136,10 +136,12 @@ Core\Attendance.lua
 Core\RaidComp.lua
 Core\RaidInvite.lua
 Core\RaidLink.lua
+Core\SessionInfo.lua
 Core\GuestBook.lua
 Core\Strategy.lua
 Core\StrategyObjects.lua
 Core\StrategyLive.lua
+Core\Tanks.lua
 Core\StrategyPractice.lua
 Core\StrategyCollab.lua
 Core\DungeonRuns.lua
@@ -240,6 +242,7 @@ UI\EventTracker.lua
 UI\PollsTab.lua
 UI\Members.lua
 UI\GuildMapUI.lua
+UI\SessionDrawer.lua
 UI\SessionBar.lua
 UI\DropPanel.lua
 UI\RollFrame.lua
@@ -275,6 +278,7 @@ UI\Wardrobe.lua
 UI\EditMode.lua
 UI\Look.lua
 UI\LookUnits.lua
+UI\LookTanks.lua
 UI\LookCast.lua
 UI\LookBars.lua
 UI\DockArt.lua

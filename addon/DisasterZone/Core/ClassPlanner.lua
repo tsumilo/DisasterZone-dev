@@ -185,6 +185,14 @@ function M:ScanRoster(pets, accept)
             end
         end
     end
+    -- nobody set as a main tank yet: the plan's tanks for this boss (Core/Tanks.lua)
+    local flagged = false
+    for _, m in ipairs(out) do if m.tank then flagged = true break end end
+    if not flagged and ns.Tanks and ns.Util then
+        for _, m in ipairs(out) do
+            if not m.pet and ns.Tanks:PlanFor(ns.Util.NormalizeName(m.name)) then m.tank = true end
+        end
+    end
     -- tanks the group roles name too
     for _, m in ipairs(out) do
         if not m.tank and not m.pet then

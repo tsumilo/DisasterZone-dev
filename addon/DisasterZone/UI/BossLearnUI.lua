@@ -1,8 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BossLearnUI.lua", ...) then return end -- DisasterZone UI/BossLearnUI.lua
 -- What boss mods learned, on screen (ns.BossLearnUI; the learning itself is Core/BossLearn.lua). Mockup:
 -- cleanup_template.html section 3 (Settings > Boss mods > Bosses > Gruul).
---   settings   two rows in the boss mods card, after the role rows: "Learn from our pulls" (bossmods.learn) and
---              "Share what we learn" (bossmods.learnShare, dimmed while learning is off)
+--   settings   two rows in the boss mods card's essentials, after My role: "Learn from our pulls" (bossmods.learn)
+--              and "Share what we learn" (bossmods.learnShare, shown only while learning is on)
 --   bosses     each boss in the Bosses list wears a pill ("Learned · 7 pulls", "Learning · 2 of 3", nothing before its
 --              first pull; the developer's "1 fix to review") and opens its page on a click
 --   page       over the cards: per timer the data's numbers as grey ticks on a 0..N s track, what our pulls showed as a
@@ -116,19 +116,20 @@ end
 -- Settings rows (UI/BossModSettings.lua calls this after its role rows)
 ---------------------------------------------------------------------------
 
-function BLU:AddSettingsRows(SU, sec, Dim)
+function BLU:AddSettingsRows(SU, sec)
     local _, row = SU:SwitchSetting(sec, "Learn from our pulls",
         "Timers tighten after 3 clean pulls that agree. Nothing changes during a pull.", "bossmods.learn", true,
         "We measure when each boss really casts in our raids. A pull always runs on the numbers it started with, and a "
             .. "timer never moves more than a quarter away from DBM's and BigWigs'. Off: their numbers only.")
-    if Dim then Dim(nil, row) end
     local _, share = SU:SwitchSetting(sec, "Share what we learn",
         "Your pulls fill the gaps in your guildmates' and theirs in yours. Checked before it counts.",
         "bossmods.learnShare", true, "A few hundred bytes a pull on the guild channel, after the pull, never during one.")
-    SU.refreshers[#SU.refreshers + 1] = { Refresh = function()
-        local on = Get("bossmods.on", false) and Get("bossmods.learn", true)
-        share:SetAlpha(on and 1 or 0.42)
-    end }
+    -- (only while learning is on: hidden, not dimmed)
+    if SU.Needs and SU.IsOn then
+        SU:Needs(share, SU.IsOn("bossmods.learn", true), row)
+    else
+        SU.refreshers[#SU.refreshers + 1] = { Refresh = function() share:SetShown(Get("bossmods.learn", true)) end }
+    end
     return row, share
 end
 
@@ -448,11 +449,14 @@ function BLU:Fill()
     if not def then return end
     local learn = L()
     local dev = learn:IsDev()
-    -- (its width: its own once laid out, else the cards' (Settings: their rows' width and margins) and its 14 px)
+    -- (its width: its own once laid out, else the cards' scroll child's (Settings keeps it the scroll's width) and its
+    -- own 14 px past it)
     local w = floor(f:GetWidth() or 0)
     if w < 300 then
         local SU = ns.SettingsUI
-        w = floor(((SU and SU.BodyWidth and SU:BodyWidth()) or 522) + 24 + 14)
+        local cw = SU and SU.child and tonumber(SU.child:GetWidth()) or 0
+        if cw < 200 then cw = (SU and SU.BodyWidth and SU:BodyWidth()) or 546 end
+        w = floor(cw + 14)
     end
     f.title:SetText(BossName(def))
     local kind, text = self:BossPill(def.key)

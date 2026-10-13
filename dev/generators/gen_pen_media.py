@@ -9,6 +9,8 @@ their edges are anti-aliased, white on clear (tinted in the game):
   Media/Pen/pill.tga          a capsule 256 x 64 (3-sliced: the ends are the 32 px at each side, the middle stretches)
   Media/Pen/pillline.tga      its outline, 3 px
 Run (from dev): luaenv\\Scripts\\python.exe generators\\gen_pen_media.py"""
+import math
+import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -64,8 +66,51 @@ def pill(w, h, line=0):
     return big.resize((w, h), Image.LANCZOS)
 
 
+ARC_STROKE = 0.075            # the session crest's boss ring: stroke as a share of the texture
+ARC_GAP = 6.5                 # degrees of clear gap between two segments (after the round ends)
+
+
+def arc(size, n):
+    """Segment 1 of a ring cut in n (1: the whole ring), centred on the top, round ends; the ring's outer edge 1 px
+    inside the texture. The game turns copies of it round the centre (UI/SessionBar.lua)."""
+    big = Image.new("L", (size * SS, size * SS), 0)
+    d = ImageDraw.Draw(big)
+    w = ARC_STROKE * size * SS
+    rc = (size / 2 - 1) * SS - w / 2            # the stroke's middle line
+    c = size * SS / 2
+    if n <= 1:
+        d.ellipse((c - rc - w / 2, c - rc - w / 2, c + rc + w / 2, c + rc + w / 2), fill=255)
+        d.ellipse((c - rc + w / 2, c - rc + w / 2, c + rc - w / 2, c + rc - w / 2), fill=0)
+        return big.resize((size, size), Image.LANCZOS)
+    cap = math.degrees((w / 2) / rc)
+    half = (360 / n - ARC_GAP - 2 * cap) / 2
+    a0, a1 = -90 - half, -90 + half
+    bb = (c - rc - w / 2, c - rc - w / 2, c + rc + w / 2, c + rc + w / 2)
+    d.arc(bb, a0, a1, fill=255, width=int(round(w)))
+    for a in (a0, a1):
+        x, y = c + rc * math.cos(math.radians(a)), c + rc * math.sin(math.radians(a))
+        d.ellipse((x - w / 2, y - w / 2, x + w / 2, y + w / 2), fill=255)
+    return big.resize((size, size), Image.LANCZOS)
+
+
+def diamond(size, line=0.0):
+    """A square on its point (the session crest's boss pips); line: an outline of that share of the size."""
+    big = Image.new("L", (size * SS, size * SS), 0)
+    d = ImageDraw.Draw(big)
+    c, r = size * SS / 2, size * SS / 2 - SS
+    d.polygon([(c, c - r), (c + r, c), (c, c + r), (c - r, c)], fill=255)
+    if line:
+        k = r - line * size * SS * 1.41
+        d.polygon([(c, c - k), (c + k, c), (c, c + k), (c - k, c)], fill=0)
+    return big.resize((size, size), Image.LANCZOS)
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    for n in range(1, 13):
+        white(arc(256, n)).save(OUT / ("arc%d.tga" % n))
+    white(diamond(64)).save(OUT / "diamond.tga")
+    white(diamond(64, 0.12)).save(OUT / "diamondline.tga")
     white(disc(256)).save(OUT / "disc.tga")
     for name, size, stroke in RINGS:
         white(ring(size, stroke)).save(OUT / (name + ".tga"))

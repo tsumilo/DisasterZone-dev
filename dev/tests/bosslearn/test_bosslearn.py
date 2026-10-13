@@ -726,6 +726,24 @@ def settings_rows_pills_and_the_boss_page():
               "Timers tighten after 3 clean pulls that agree. Nothing changes during a pull."):
         assert t in texts, t
     assert not any(x.startswith("Learning ·") or x.startswith("Learned ·") for x in texts), "a pill before any pull"
+    # (both are essentials, not in More options; sharing is hidden while learning is off)
+    rows = "local o = {}; for _, r in ipairs(ns.SettingsUI.sections.bossmods.rows) do o[r.title:GetText() or ''] = { " \
+           "shown = r:IsShown(), more = r.more and true or false } end; return o"
+    st = c.eval_py(rows)
+    assert st["Learn from our pulls"] == {"shown": True, "more": False}, st.get("Learn from our pulls")
+    assert st["Share what we learn"] == {"shown": True, "more": False}, st.get("Share what we learn")
+    c.eval("for _, r in ipairs(ns.SettingsUI.sections.bossmods.rows) do "
+           "if r.title:GetText() == 'Learn from our pulls' then r.control:Click() end end")
+    w.tick(0.3)
+    assert c.eval("return ns.DB:GetSetting('bossmods.learn')") is False
+    assert c.eval_py(rows)["Share what we learn"]["shown"] is False
+    c.eval("for _, r in ipairs(ns.SettingsUI.sections.bossmods.rows) do "
+           "if r.title:GetText() == 'Learn from our pulls' then r.control:Click() end end")
+    w.tick(0.3)
+    assert c.eval_py(rows)["Share what we learn"]["shown"] is True
+    # (the raid list moves with the More options fold: the heads keep their pills and their way in)
+    c.eval("local sec = ns.SettingsUI.sections.bossmods; ns.SettingsUI:SetMoreOpen(sec, true)")
+    w.tick(0.2)
     seed_pulls(c, 2)
     pill = c.eval_py("return { ns.BossLearnUI:BossPill('GruulsLair:Gruul') }")
     assert pill == ["mute", "Learning · 2 of 3"], pill

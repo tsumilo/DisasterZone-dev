@@ -334,52 +334,177 @@ def prune_drops_old_rosters_and_old_raids():
     w.assert_no_errors()
 
 
-# -- UI: session bar and Raids tab (§51) ---------------------------------------------------------------------------
+# -- UI: the session crest and Raids tab (§51; 1.4.2 the crest: UI/SessionBar.lua + UI/SessionDrawer.lua) -------------
 def bar(cl):
+    """The session crest as this client draws it: shown, its state, the time under the seal, the line (shown, its
+    words, Start raid / End raid, the X), the bosses and the gold count."""
     return cl.eval_py("""local f = ns.SessionBar:GetFrame()
-        if not f then return { shown = false } end
-        -- the zone is the bar's title, the details its grey text, the lock a pill
-        local text = (f.title:GetText() or "") .. " " .. (f.text:GetText() or "") .. (f.pill:IsShown() and " BiS locked" or "")
-        return { shown = f:IsShown(), text = text, button = f.button:IsShown() and f.button:GetText() or nil,
-                 close = f.close:IsShown() }""")
+        if not (f and f:IsShown()) then return { shown = false } end
+        local line = f.line
+        local words = {}
+        if line:IsShown() then
+            for _, fs in ipairs({ line.zone, line.meta }) do if fs:IsShown() then words[#words + 1] = fs:GetText() end end
+            for _, ch in ipairs(line.chips) do if ch:IsShown() then words[#words + 1] = ch.text:GetText() end end
+        end
+        local i = ns.SessionBar:GetInfo() or {}
+        return { shown = true, state = ns.SessionBar:GetState(), time = f.time.text:GetText(), line = line:IsShown(),
+                 text = table.concat(words, " "), start = line.start:IsShown(), ["end"] = line["end"]:IsShown(),
+                 close = line.x:IsShown(), kills = i.kills, total = i.total,
+                 count = f.seal.badge:IsShown() and f.seal.badge.fs:GetText() or nil }""")
+
+
+def feats(cl):
+    f = cl.eval_py("return ns.GroupRules:GetSessionFeatures()")
+    return None if f is None else {k: bool(f[k]) for k in ("loot", "rolls", "lock")}
+
+
+def crest_menu(cl, label):
+    """Right-click the seal and pick the entry ending in `label`."""
+    cl.click(cl.eval("return ns.SessionBar:GetFrame().seal"), "RightButton")
+    m = cl.last_menu()
+    text = next(e["text"] for e in m["children"] if (e.get("text") or "").endswith(label))
+    cl.menu_select(text)
 
 
 @case
-def session_bar_shows_for_everyone_and_the_leader_ends_from_it():
+def session_crest_for_the_leader_and_council_one_pop_up_for_raiders():
     w, c = world()
-    lee, rita = c["Lee"], c["Rita"]
+    lee, bob, gina, rita, sam = c["Lee"], c["Bob"], c["Gina"], c["Rita"], c["Sam"]
     raid(w, c)
-    assert not bar(lee)["shown"], "no bar outside a raid instance without a session"
+    assert not bar(lee)["shown"], "no crest outside a raid instance without a session"
     w.enter_instance("Karazhan", 532)
     w.tick(2)
     b = bar(lee)
-    assert b["shown"] and b["button"] == "Start raid" and b["close"], b
-    assert not bar(rita)["shown"], "only the authority sees the idle bar"
-    lee.click(lee.eval("return ns.SessionBar:GetFrame().button"))
-    w.tick(0.2)
-    # 1.2: Start raid asks what the session runs first (tests/raidlog/test_raid_features.py); everything by default
-    lee.click(lee.eval("return ns.SessionBar:GetStartWindow().startBtn"))
+    assert b["shown"] and b["state"] == "idle" and b["line"] and b["start"] and b["close"], b
+    assert b["time"] == "not started", b
+    # the council and the GM see that nothing runs yet (no buttons); raiders see nothing
+    for x in (bob, gina):
+        b = bar(x)
+        assert b["shown"] and b["state"] == "idle" and not b["start"] and "loot council is off" in b["text"], (x.name, b)
+    assert not bar(rita)["shown"] and not bar(sam)["shown"]
+    # Start raid on the line: one click, what its switches say (everything by default)
+    lee.click(lee.eval("return ns.SessionBar:GetFrame().line.start"))
     w.tick(3)
     rid = session(rita)["id"]
-    for n, x in c.items():
-        b = bar(x)
-        assert b["shown"] and "Karazhan" in b["text"] and "0/11 bosses" in b["text"] and "BiS locked" in b["text"], (n, b)
-        assert b.get("button") == ("End raid" if n == "Lee" else None) and not b["close"], (n, b)
+    assert feats(rita) == {"loot": True, "rolls": True, "lock": True}
+    # raiders get one pop-up (what runs, their list locked); the leader and the council get the crest
+    for x in (rita, sam):
+        assert x.eval("return ns.UI:GetToast('dz-raid-start') ~= nil") is True, x.name
+        assert not bar(x)["shown"], x.name
+    assert lee.eval("return ns.UI:GetToast('dz-raid-start') == nil") is True
+    for n in ("Lee", "Bob", "Gina"):
+        b = bar(c[n])
+        assert b["shown"] and b["state"] == "session" and b["time"] == "0:00", (n, b)
+        assert b["kills"] == 0 and b["total"] == 11 and not b["line"], (n, b)
+    # hover: the line; End raid sits on it only once every boss is down
+    lee.eval("ns.SessionBar:Peek(true)")
+    b = bar(lee)
+    assert b["line"] and "Karazhan" in b["text"] and not b["end"], b
     w.encounter(652, "Attumen the Huntsman")
     w.tick(2)
-    assert "1/11 bosses" in bar(rita)["text"], bar(rita)
-    lee.click(lee.eval("return ns.SessionBar:GetFrame().button"))
+    assert bar(bob)["kills"] == 1
+    # the drawer's End raid asks first
+    lee.eval("ns.SessionBar:ToggleDrawer(true)")
+    assert lee.eval("return ns.SessionDrawer:IsShown()") is True
+    lee.click(lee.eval("return ns.SessionDrawer:GetFrame().pool['btn:danger'][1]"))
     w.tick(0.2)
     assert "DISASTERZONE_CONFIRM_RAID_END" in lee.popups()
     assert session(rita)["id"] == rid, "nothing ends before the confirmation"
     lee.accept_popup("DISASTERZONE_CONFIRM_RAID_END")
     w.tick(3)
-    assert not bar(rita)["shown"] and rec(rita, rid)["endedBy"] == K("Lee")
-    # the leader, still inside, sees the idle bar again; dismissing it hides it until the next instance
-    assert bar(lee).get("button") == "Start raid"
-    lee.click(lee.eval("return ns.SessionBar:GetFrame().close"))
+    assert rec(rita, rid)["endedBy"] == K("Lee")
+    # still inside: the idle crest again; its X hides it until the next instance
+    b = bar(lee)
+    assert b["state"] == "idle" and b["start"], b
+    lee.click(lee.eval("return ns.SessionBar:GetFrame().line.x"))
     w.tick(0.2)
     assert not bar(lee)["shown"]
+    w.assert_no_errors()
+
+
+@case
+def session_crest_settings_hiding_fights_and_the_drawer():
+    w, c = world()
+    lee, bob, rita = c["Lee"], c["Bob"], c["Rita"]
+    raid(w, c)
+    w.enter_instance("Karazhan", 532)
+    w.tick(2)
+    # the line's switches: rolls off, then start
+    lee.click(lee.eval("return ns.SessionBar:GetFrame().line.toggles[2]"))
+    lee.click(lee.eval("return ns.SessionBar:GetFrame().line.start"))
+    w.tick(3)
+    assert feats(rita) == {"loot": True, "rolls": False, "lock": True}
+    # who sees it: "always" gives a raider the light crest (no drawer); "lead" hides the council's; "never" hides it
+    rita.eval("ns.DB:SetSetting('sessionBar.show', 'always')")
+    w.tick(1)
+    assert bar(rita)["state"] == "light"
+    rita.eval("ns.SessionBar:ToggleDrawer(true)")
+    assert rita.eval("return ns.SessionDrawer:IsShown()") is False
+    bob.eval("ns.DB:SetSetting('sessionBar.show', 'lead')")
+    w.tick(1)
+    assert not bar(bob)["shown"]
+    lee.eval("ns.DB:SetSetting('sessionBar.show', 'never')")
+    w.tick(1)
+    assert not bar(lee)["shown"]
+    lee.eval("ns.DB:SetSetting('sessionBar.show', 'auto')")
+    w.tick(1)
+    assert bar(lee)["shown"]
+    # a boss fight: the boss and its time, no line, no drawer; back after it
+    lee.eval("ns.SessionBar:Peek(true); ns.SessionBar:ToggleDrawer(true)")
+    lee.fire("ENCOUNTER_START", 652, "Attumen the Huntsman", 3, 10)
+    w.tick(1)
+    b = bar(lee)
+    assert b["shown"] and not b["line"] and lee.eval("return ns.SessionDrawer:IsShown()") is False, b
+    assert lee.eval("return ns.SessionBar:GetFrame().time.dot:IsShown()") is True
+    lee.fire("ENCOUNTER_END", 652, "Attumen the Huntsman", 3, 10, 1)
+    w.tick(1)
+    assert not lee.eval("return ns.SessionBar:GetFrame().time.dot:IsShown()")
+    # the drawer's switches apply at once; turning the loot council off asks first
+    lee.eval("ns.SessionBar:SetFeature('rolls', true)")
+    w.tick(3)
+    assert feats(rita) == {"loot": True, "rolls": True, "lock": True}
+    lee.eval("ns.SessionBar:SetFeature('loot', false)")
+    w.tick(0.2)
+    assert "DISASTERZONE_CONFIRM_RAID_COUNCIL_OFF" in lee.popups()
+    assert feats(rita)["loot"] is True, "nothing changes before the confirmation"
+    lee.accept_popup("DISASTERZONE_CONFIRM_RAID_COUNCIL_OFF")
+    w.tick(3)
+    assert feats(rita) == {"loot": False, "rolls": True, "lock": False}
+    # right-click > Hide for this raid: gone until the next raid
+    crest_menu(lee, "Hide for this raid")
+    w.tick(0.5)
+    assert not bar(lee)["shown"]
+    w.assert_no_errors()
+
+
+@case
+def session_crest_demo_night():
+    """/dz raid bar <moment> in demo mode: the made-up night in Serpentshrine Cavern, nothing sent."""
+    w, c = world()
+    gina = c["Gina"]
+    gina.slash("/dz raid bar loot")
+    w.tick(0.5)
+    assert not bar(gina)["shown"], "demo mode first"
+    gina.slash("/dz demo on")
+    w.tick(1)
+    gina.slash("/dz raid bar loot")
+    w.tick(0.5)
+    b = bar(gina)
+    assert b["shown"] and b["kills"] == 5 and b["total"] == 6 and b["count"] == "1", b
+    assert "3 drops" in b["text"] and gina.eval("return ns.SessionDrawer:IsShown()") is True, b
+    gina.eval("ns.SessionBar:Pull(10); ns.SessionBar:StartNow(); ns.SessionBar:SetFeature('loot', false)")
+    assert gina.popups() == []
+    gina.slash("/dz raid bar pull")
+    w.tick(0.5)
+    b = bar(gina)
+    assert b["shown"] and not b["line"] and gina.eval("return ns.SessionBar:GetFrame().time.dot:IsShown()") is True
+    gina.slash("/dz raid bar idle")
+    w.tick(0.5)
+    b = bar(gina)
+    assert b["state"] == "idle" and b["start"], b
+    gina.slash("/dz raid bar off")
+    w.tick(0.5)
+    assert not bar(gina)["shown"]
     w.assert_no_errors()
 
 

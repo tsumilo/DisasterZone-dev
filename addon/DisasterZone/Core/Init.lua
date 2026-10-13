@@ -271,6 +271,9 @@ local KNOWN_MESSAGES = {
     -- Addendum D §25: the group's loot rules (Core/GroupRules.lua): the active rules, their source or my
     -- own authority status changed (DB:GetEffective values may differ)
     GROUP_RULES_CHANGED = true,
+    -- Core/SessionInfo.lua: what the raid session crest shows changed (a boss fight began / ended, someone left, the
+    -- demo night changed)
+    SESSION_INFO_CHANGED = true,
     -- Addendum F §38: (locked) GroupRules:IsLocked() changed: the raid's BiS lists were locked / unlocked, or
     -- the lock ended (disband, authority change). Store clears its "changed during lock" flags on false.
     BIS_LOCK_CHANGED = true,
@@ -302,6 +305,8 @@ local KNOWN_MESSAGES = {
     -- raids / strategies / guests / loot
     RAIDINVITE_CHANGED = true, RAIDLOG_CHANGED = true, RAIDPLAN_CHANGED = true, PARTY_INVITE_FAILED = true,
     STRATEGY_CHANGED = true, STRATEGY_DRAFTS_CHANGED = true, STRATEGY_LIVE = true,
+    -- Core/Tanks.lua: the raid's main tanks, their order or the plan's tanks changed
+    TANKS_CHANGED = true,
     GUESTBOOK_CHANGED = true, LOOT_HELD = true, CHANGELOG_READ = true,
     -- the guild's feedback (Core/Feedback.lua): (none) records changed; (error) DisasterZone hit a Lua error
     FEEDBACK_UPDATED = true, FEEDBACK_ERROR = true,
