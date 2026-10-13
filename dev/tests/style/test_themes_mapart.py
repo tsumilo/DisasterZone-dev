@@ -34,7 +34,7 @@ def both_kinds_share_one_registry_with_their_old_keys():
         o.sameMeters = ns.MeterTheme.BY_KEY == T:Kind('meters').byKey
         o.sameBars = ns.BarFace and (ns.BarFace.BY_KEY == T:Kind('classbar').byKey) or 'n/a'
         return o""")
-    assert got["meters"] == {"setting": "meters.theme", "default": "flat", "n": 6, "unknown": "flat",
+    assert got["meters"] == {"setting": "meters.theme", "default": "flat", "n": 7, "unknown": "flat",
                              "cur": "flat"}, got
     assert got["classbar"]["setting"] == "classbar.theme", got
     assert got["classbar"]["default"] == "halo" and got["classbar"]["unknown"] == "halo", got
@@ -83,7 +83,7 @@ def a_tile_click_saves_the_key_and_tiles_keep_their_sizes():
         b.tiles[4]:GetScript('OnClick')(b.tiles[4])
         o.bar = ns.DB:GetSetting('classbar.theme')
         return o""")
-    assert got["mN"] == 6 and got["mW"] == 84 and got["mH"] == 74 and got["mX2"] == 90, got
+    assert got["mN"] == 7 and got["mW"] == 84 and got["mH"] == 74 and got["mX2"] == 90, got
     assert got["bW"] == 96 and got["bH"] == 66 and got["bX2"] == 104, got
     assert got["previewing"] == "sigil", got
     assert got["saved"] == "sigil" and got["picked"] == "sigil" and got["previewAfter"] is False, got

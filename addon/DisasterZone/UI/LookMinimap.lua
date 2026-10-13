@@ -312,7 +312,7 @@ function MM:ApplyClassic(s, look)
     if not k.cl then
         k.cl = {}
         k.cl.bg = k:CreateTexture(nil, "BACKGROUND")
-        k.cl.bg:SetTexture("Interface\Minimap\UI-Minimap-Background")
+        k.cl.bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
         k.cl.bg:SetSize(20, 20)
         k.cl.bg:SetPoint("TOPLEFT", 7, -5)
         k.cl.ring = k:CreateTexture(nil, "OVERLAY")
@@ -320,7 +320,7 @@ function MM:ApplyClassic(s, look)
         k.cl.ring:SetSize(53, 53)
         k.cl.ring:SetPoint("TOPLEFT")
         k.cl.hl = k:CreateTexture(nil, "HIGHLIGHT")
-        k.cl.hl:SetTexture("Interface\Minimap\UI-Minimap-ZoomButton-Highlight")
+        k.cl.hl:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
         k.cl.hl:SetAllPoints()
         if k.cl.hl.SetBlendMode then k.cl.hl:SetBlendMode("ADD") end
     end
