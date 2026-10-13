@@ -49,7 +49,9 @@ local addonName, ns = ...
 --   :SetText(text)             a quiet line at the left, after the tabs (a detail's tool row: "6 accepted")
 --   .primary, .more, .label, .tabButtons
 -- layout.tabs (detail; listdetail with opts.tabs): a strip with the same tab methods; a block tab's count may be
---   a number or { have, of } (a bar along its foot).
+--   a number or { have, of } (a bar along its foot); an item's close = function(key, item) puts an x at the tab's
+--   right (closeTip: its tooltip). Block tabs too wide for the strip all shrink to an equal share of it (the
+--   names cut with "...").
 -- layout regions: .content, .body, .side, .list, .nav, .detail, .banner (.hero), .tabs, .rail, .rule, .scroll;
 --   widths .innerW, .bodyW, .sideW, .listW, .navW, .detailW, .railW
 -- layout:ShowEmpty(opts) / :HideEmpty() / :IsEmptyShown(): UI:CreateEmptyState's opts + region = "content" |
@@ -109,6 +111,7 @@ local Build = {}       -- kind -> function(layout, opts): creates the regions
 -- A block tab (the raid page's tabs on its banner's foot): the name on the left, a count on the right, a bar along
 -- the bottom showing have / of; the open one lit, with a gold top edge.
 local Block = {}
+local CLOSE_W = 22        -- a closable block tab's x and its gap
 
 function Block:SetLabel(t)
     self.label = t
@@ -143,13 +146,52 @@ function Block:Paint()
     else
         self.count:SetText("")
     end
-    local w = max(G.TAB_MIN, floor(14 + UI:TextWidth(self.name) + 24 + UI:TextWidth(self.count) + 16 + 0.5))
+    local w = self:NaturalWidth()
+    local closeW = self.x and self.x:IsShown() and CLOSE_W or 0
+    if self.fitW and self.fitW < w then
+        -- (squeezed into its share of the strip: the name gives up the room)
+        w = self.fitW
+        self.name:SetWidth(max(10, w - 14 - 8 - (self.have and (UI:TextWidth(self.count) + 16) or 0) - closeW))
+    else
+        self.name:SetWidth(0)
+    end
     self:SetWidth(w)
     local share = (have and of and of > 0) and min(1, have / of) or 0
     self.fill:SetShown(share > 0)
     self.fill:SetWidth(max(1, floor(w * share + 0.5)))
     local c = full and S.C.OK or S.C.GOLD
     self.fill:SetColorTexture(c[1], c[2], c[3], on and 1 or (full and 0.5 or 0.35))
+end
+
+-- The width it wants: its name, count and x, at least TAB_MIN.
+function Block:NaturalWidth()
+    self.name:SetWidth(0)
+    local closeW = self.x and self.x:IsShown() and CLOSE_W or 0
+    return max(G.TAB_MIN, floor(14 + UI:TextWidth(self.name) + 24 + UI:TextWidth(self.count) + 16 + closeW + 0.5))
+end
+
+-- An x at the right that closes the tab: onClose() (nil: none); tip, its tooltip.
+function Block:SetClose(onClose, tip)
+    if onClose and not self.x then
+        self.x = UI:CreateCloseButton(self, 14)
+        self.x:SetPoint("RIGHT", -12, 0)
+        self.x:SetFrameLevel(self:GetFrameLevel() + 3)
+        self.x:HookScript("OnEnter", function(x)
+            if x.tip and GameTooltip then
+                GameTooltip:SetOwner(x, "ANCHOR_BOTTOM")
+                GameTooltip:AddLine(x.tip)
+                GameTooltip:Show()
+            end
+        end)
+        self.x:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    end
+    if self.x then
+        self.x:SetScript("OnClick", onClose)
+        self.x.tip = tip
+        self.x:SetShown(onClose ~= nil)
+        self.count:ClearAllPoints()
+        self.count:SetPoint("RIGHT", onClose and -(12 + CLOSE_W) or -16, 0)
+    end
 end
 
 function H.BlockTab(host)
@@ -167,6 +209,8 @@ function H.BlockTab(host)
     c.hl:SetColorTexture(S:Color("HOVER"))
     c.name = UI:Text(c, "title", "TEXT")
     c.name:SetPoint("LEFT", 14, 0)
+    c.name:SetJustifyH("LEFT")
+    c.name:SetWordWrap(false)
     c.count = UI:Text(c, "emph", "TEXT", { justify = "RIGHT" })
     c.count:SetPoint("RIGHT", -16, 0)
     c.fill = c:CreateTexture(nil, "ARTWORK", nil, 2)
@@ -260,6 +304,10 @@ function Tabs:SetTabs(list, onSelect)
         b.key, b.item, b.tip, b.hidden = key, it, it.tip, nil
         b.group = it.group or (it.small and "sub" or "main")
         b.label = it.text or tostring(key)
+        if b.tabKind == "block" then
+            b:SetClose(it.close and function() it.close(key, it) end, it.closeTip)
+        end
+        b.fitW = nil
         b:SetLabel(b.label)
         H.TabCount(b, it.count, it.kind)
         b:Show()
@@ -331,6 +379,23 @@ end
 function Tabs:LayoutTabs()
     local prev, sepN = nil, 0
     local block = self.tabStyle == "block"
+    if block then
+        -- (block tabs wider together than the strip: each gets an equal share of it)
+        local avail = self:GetWidth() or 0
+        if avail < 10 then avail = self.fitWidth or 0 end
+        local shown, want = {}, 0
+        for _, b in ipairs(self.tabButtons) do
+            if not b.hidden and b.tabKind == "block" then
+                shown[#shown + 1] = b
+                want = want + b:NaturalWidth()
+            end
+        end
+        local fit = (avail > 0 and want > avail) and floor(avail / #shown) or nil
+        for _, b in ipairs(shown) do
+            b.fitW = fit
+            b:Paint()
+        end
+    end
     for _, b in ipairs(self.tabButtons) do
         if not b.hidden then
             b:ClearAllPoints()
@@ -628,6 +693,7 @@ function Build.listdetail(L, o)
     if o.banner ~= false then L.banner = H.Banner(L.detail, o.banner, "hero", L.detailW) end
     if o.tabs then
         L.tabs = H.TabStrip(L.detail, o.tabStyle)
+        L.tabs.fitWidth = L.detailW
         L.tabs:SetTabs(o.tabs, o.onTab)
     end
     L.body = H.Region(L.detail)
@@ -669,6 +735,7 @@ function Build.detail(L, o)
     L.banner = H.Banner(L, o.banner, "hero", L.innerW, o.back)
     L.hero = L.banner
     L.tabs = H.TabStrip(L, o.tabStyle)
+    L.tabs.fitWidth = L.innerW          -- (its width before it is laid out: block tabs fit into it)
     if o.tabs then L.tabs:SetTabs(o.tabs, o.onTab) end
     if o.toolbar ~= false then L.toolbar = H.ToolRow(L) end
     L.body = H.Region(L)

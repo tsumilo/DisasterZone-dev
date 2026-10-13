@@ -423,5 +423,34 @@ def the_sheet_posts_several_questions_and_says_which_one_is_missing_something():
     assert out["qs"] == ["yn:Second night?", "one:Start time?"] and out["view"] == "poll", out
     w.assert_no_errors()
 
+
+@case
+def a_question_tab_closes_with_its_x_and_many_tabs_share_the_strip():
+    w, (g, b, c, d, e) = guild()
+    out = g.eval_py("""
+        ns.MainFrame:Open('polls'); ns.PollsUI:OpenNew()
+        ns.PollsUI:SetDraft({ q = "One?", k = "yn", a = { { "g" } } })
+        local one = ns.PollsUI:GetPanel().sheet.layout.tabs:GetTab(1)
+        local xAlone = one.x and one.x:IsShown() or false
+        for i = 2, 5 do
+            ns.PollsUI:AddQuestion()
+            ns.PollsUI:GetState().draft.q = "Q" .. i .. "?"
+        end
+        local tabs = ns.PollsUI:GetPanel().sheet.layout.tabs
+        local total, adds = 0, tabs:GetTab("add") and tabs:GetTab("add"):IsShown() or false
+        for i = 1, 5 do total = total + tabs:GetTab(i):GetWidth() end
+        -- close question 2 while question 5 is open: question 5 (now 4) stays open
+        tabs:GetTab(2).x:Click()
+        local s = ns.PollsUI:GetState()
+        local words = {}
+        for i, e in ipairs(s.draft.qs) do words[i] = i == s.draft.cur and s.draft.q or e.q end
+        return { xAlone = xAlone, adds = adds, total = total, strip = tabs.fitWidth, cur = s.draft.cur,
+                 words = words, n = #s.draft.qs }""")
+    assert out["xAlone"] is False and out["adds"] is False, out      # one question: no x; five: no "+ Question"
+    assert out["total"] <= out["strip"], out                          # the five tabs fit the strip
+    assert out["n"] == 4 and out["cur"] == 4, out
+    assert out["words"] == ["One?", "Q3?", "Q4?", "Q5?"], out
+    w.assert_no_errors()
+
 if __name__ == "__main__":
     run_all()

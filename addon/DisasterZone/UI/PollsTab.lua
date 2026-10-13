@@ -1713,12 +1713,16 @@ function S.AddQuestion()
     panel.sheet.q:SetFocus()
 end
 
-function S.RemoveQuestion()
+-- Takes question i off (default: the open one); the open one stays open unless it was the one.
+function S.RemoveQuestion(i)
     local d = state.draft
     local qs = StoreQuestion(d)
-    if #qs < 2 then return end
-    table.remove(qs, d.cur)
-    LoadQuestion(d, min(d.cur, #qs))
+    i = i or d.cur
+    if #qs < 2 or not qs[i] then return end
+    table.remove(qs, i)
+    local cur = d.cur
+    if i < cur then cur = cur - 1 end
+    LoadQuestion(d, min(cur, #qs))
     state.sheetErr = nil
     S.Refresh(panel.sheet)
 end
@@ -1882,17 +1886,6 @@ function S.Build(v)
     local L0 = v.left
     v.qLab = Label(L0, "Question")
     v.qLab:SetPoint("TOPLEFT", 0, 0)
-    -- (several questions: take this one off)
-    v.qDel = CreateFrame("Button", nil, L0)
-    v.qDel:SetSize(130, 14)
-    v.qDel:SetPoint("TOPRIGHT", 0, 1)
-    v.qDel.fs = UI():Text(v.qDel, "small", C.dim)
-    v.qDel.fs:SetPoint("RIGHT")
-    v.qDel.fs:SetText("Remove this question")
-    v.qDel:SetScript("OnEnter", function(self) self.fs:SetTextColor(St:Color("BAD")) end)
-    v.qDel:SetScript("OnLeave", function(self) self.fs:SetTextColor(St:Color(C.dim)) end)
-    v.qDel:SetScript("OnClick", function() S.RemoveQuestion() end)
-    v.qDel:Hide()
     v.wholeNote = UI():Text(L0, "small", C.dim)
     v.wholeNote:SetText("For every question of the poll:")
     v.wholeNote:Hide()
@@ -2358,21 +2351,22 @@ function S.RefreshPreview(v)
     pv:SetHeight(max(10, y))
 end
 
--- The question tabs: "Question 1" ... (the open one lit; its words as the tip), "+ Question" while there is room.
+-- The question tabs: "Question 1" ... (the open one lit; its words as the tip; an x takes it off while there are
+-- two or more), "+ Question" while there is room. Too many for the strip: they share it (UI/Comp/Layouts.lua).
 function S.FillTabs(v, d)
     local n = d.qs and #d.qs or 1
     local tabs = { selected = d.cur or 1 }
     for i = 1, n do
         local e = (i == (d.cur or 1)) and d or d.qs[i]
         local q = ns.Util.Trim(e.q or "")
-        tabs[i] = { key = i, text = "Question " .. i, tip = q ~= "" and q or "No question written yet." }
+        tabs[i] = { key = i, text = "Question " .. i, tip = q ~= "" and q or "No question written yet.",
+                    close = n > 1 and function() S.RemoveQuestion(i) end or nil, closeTip = "Remove question " .. i }
     end
     if n < P().MAX_QUESTIONS then
         tabs[#tabs + 1] = { key = "add", text = "+  Question",
             tip = "Ask more in the same poll: each question has its own kind and answers." }
     end
     v.layout.tabs:SetTabs(tabs)
-    v.qDel:SetShown(n > 1)
     v.qLab:SetText(n > 1 and ("Question " .. (d.cur or 1)) or "Question")
 end
 

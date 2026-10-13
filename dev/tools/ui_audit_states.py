@@ -1683,6 +1683,11 @@ STATES = [
         "{ q = 'Would you like a second raid night for progression?', k = 'yn' }, "
         "{ q = 'Which nights would suit you best?', k = 'days' }, "
         "{ q = 'What start time (realm time) suits you?', k = 'one', o = { '19:00', '19:30', '20:00', '20:30' } } } })")),
+    # five questions: the tabs share the strip, each with its x
+    ("Polls - new poll, five questions", polls_view(
+        "ns.PollsUI:OpenNew(); ns.PollsUI:SetDraft({ cur = 5, a = { { 'g' } }, qs = { { q = 'One?', k = 'yn' }, "
+        "{ q = 'Two?', k = 'yn' }, { q = 'Three?', k = 'yn' }, { q = 'Four?', k = 'yn' }, "
+        "{ q = 'Which night should we move SSC to?', k = 'one', o = { 'Wednesday', 'Thursday' } } } })")),
     # Home with several polls waiting: one chip for them all
     ("Home - polls waiting", polls_view("ns.MainFrame:Open('home')")),
     # the Events tab (UI/EventsTab.lua) on demo mode's events: the live cup on the banner, the week and my season; a
