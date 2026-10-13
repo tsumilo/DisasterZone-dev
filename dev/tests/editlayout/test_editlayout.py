@@ -123,6 +123,29 @@ def a_drag_snaps_to_the_screen_centre_and_alt_places_freely():
 
 
 @case
+def the_strategy_reminder_card_stays_while_editing_and_moves():
+    # (its own refresh, 4 a second, faded the card out when no reminder was up: gone 2 s in, it couldn't be moved)
+    w, c = boot()
+    open_edit(w, c)
+    l, b, bw, bh = box(c, "reminder")
+    w.tick(3.0)
+    c.eval("ns.EditMode:Refresh()")
+    assert box(c, "reminder") == (l, b, bw, bh)
+    assert c.eval("return ns.StrategyReminder:GetFrame():GetAlpha()") == 1
+    drag(w, c, "reminder", -300, -200, alt=True)
+    l2, b2, _, _ = box(c, "reminder")
+    assert abs(l2 - (l - 300)) < 0.6 and abs(b2 - (b - 200)) < 0.6, (l, b, l2, b2)
+    assert entry(c, "reminder")["p"], entry(c, "reminder")
+    c.slash("/dz edit")
+    w.tick(0.3)
+    assert box(c, "reminder") is None
+    open_edit(w, c)
+    l3, b3, _, _ = box(c, "reminder")
+    assert abs(l3 - l2) < 0.6 and abs(b3 - b2) < 0.6, (l2, b2, l3, b3)
+    w.assert_no_errors()
+
+
+@case
 def the_grid_counts_from_the_centre():
     w, c = boot()
     c.eval("ns.DB:SetSetting('editlayout.grid', 16)")
