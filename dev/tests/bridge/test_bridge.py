@@ -159,8 +159,8 @@ def discord_signup_from_the_host_reaches_the_guild():
     gina, bob, lee, rita = c["Gina"], c["Bob"], c["Lee"], c["Rita"]
     occ = rp.create(bob, i="kara", t=rp.now(bob) + 2 * rp.DAY)
     w.tick(3)
-    gina.eval("local o, k = ...; DZBridgeInbox = { records = { { id = 'dc_1', type = 'signup', by = 'lee', body = { raid = o, key = k, st = 'A', sp = 3 } } } }",
-              occ, rp.K("Lee"))
+    gina.eval("local o, k = ...; DZBridgeInbox = { records = { { id = 'dc_1', type = 'signup', by = 'lee', body = { raid = o, name = k, class = 'WARRIOR', st = 'A', sp = 3 } } } }",
+              occ, "lee")
     login(gina)
     w.tick(3)
     m1 = gina.eval_py("return DisasterZoneBridgeDB.applied.dc_1")
@@ -170,8 +170,8 @@ def discord_signup_from_the_host_reaches_the_guild():
     # a raid it can't take: marked not ok with the reason
     rp.call(bob, "CancelRaid", occ, "one")
     w.tick(3)
-    gina.eval("local o, k = ...; DZBridgeInbox = { records = { { id = 'dc_2', type = 'signup', body = { raid = o, key = k, st = 'T' } } } }",
-              occ, rp.K("Rita"))
+    gina.eval("local o, k = ...; DZBridgeInbox = { records = { { id = 'dc_2', type = 'signup', body = { raid = o, name = k, st = 'T' } } } }",
+              occ, "Rita")
     login(gina)
     m = gina.eval_py("return DisasterZoneBridgeDB.applied.dc_2")
     assert m["ok"] is False and "cancelled" in m["why"], m
@@ -195,23 +195,39 @@ def only_the_host_signs_up_others():
 
 
 @case
-def link_code_reaches_the_host():
+def a_name_outside_the_guild_joins_as_a_guest():
     w, c = discord_world()
-    gina, lee = c["Gina"], c["Lee"]
-    n0 = len(lee.chat_frame)
-    lee.slash("/dz link abc123")
+    gina, bob = c["Gina"], c["Bob"]
+    occ = rp.create(bob, i="kara", t=rp.now(bob) + 2 * rp.DAY)
     w.tick(3)
-    claims = gina.eval_py("return DisasterZoneBridgeDB and DisasterZoneBridgeDB.claims")
-    assert claims["ABC123"]["k"] == rp.K("Lee"), claims
-    lines = printed_since(lee, n0)
-    assert any("Discord host got your code" in l for l in lines), lines
-    assert lee.eval("return DisasterZoneBridgeDB.link == nil")
-    # the snapshot lists a linked character's class and specs
-    gina.eval("DZBridgeInbox = { records = {}, linked = { ... } }", rp.K("Lee"))
+    gina.eval("""local o = ...; DZBridgeInbox = { records = {
+      { id = 'g1', type = 'signup', body = { raid = o, name = 'Pugzor-Thunderstrike', class = 'MAGE', sp = 3, st = 'A' } },
+      { id = 'g2', type = 'signup', body = { raid = o, name = 'Pugtwo-Thunderstrike', class = 'MAGE', st = 'T' } },
+      { id = 'g3', type = 'signup', body = { raid = o, name = 'gina', class = 'MAGE', sp = 2, st = 'A' } } } }""", occ)
+    login(gina)
+    w.tick(3)
+    marks = gina.eval_py("return DisasterZoneBridgeDB.applied")
+    assert marks["g1"]["ok"] is True, marks
+    assert marks["g2"]["ok"] is False and "Guests can only accept" in marks["g2"]["why"], marks
+    assert marks["g3"]["ok"] is True, marks
+    su = rp.signups(bob, occ)
+    assert su["Pugzor-Thunderstrike"]["guest"] is True and su["Pugzor-Thunderstrike"]["c"] == "MAGE", su
+    # Gina is a Paladin in the roster: the Mage spec she typed is dropped, her class stays
+    assert su[rp.K("Gina")]["c"] == "PALADIN" and su[rp.K("Gina")].get("sp") is None, su[rp.K("Gina")]
+    no_errors(w)
+
+
+@case
+def snapshot_carries_the_roster():
+    w, c = discord_world()
+    gina = c["Gina"]
+    gina.eval("DZBridgeInbox = { records = {} }")
     login(gina)
     gina.fire("PLAYER_LOGOUT")
-    ch = gina.eval_py("return DisasterZoneBridgeDB.snap.chars")[rp.K("Lee")]
-    assert ch["class"] == "WARRIOR" and ch["specs"] == ["Arms", "Fury", "Protection"], ch
+    roster = {r["key"]: r["class"] for r in gina.eval_py("return DisasterZoneBridgeDB.snap.roster")}
+    assert roster[rp.K("Lee")] == "WARRIOR" and roster[rp.K("Rita")] == "PRIEST", roster
+    assert gina.eval("return ns.Bridge:FindMember('LEE')") == rp.K("Lee")
+    assert gina.eval("return ns.Bridge:FindMember('Nobody')") is None
     no_errors(w)
 
 

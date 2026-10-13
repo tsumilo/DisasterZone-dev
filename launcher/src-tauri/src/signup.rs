@@ -1,11 +1,20 @@
-//! Signing up from Discord (host mode): /link, the raid post's buttons and the spec picker. A sign-up becomes a
-//! "signup" record in the bridge queue; the host's addon applies it at its next /reload (RaidPlan:SignUpFor, the same
-//! checks as signing up in game) and shares it with the guild. A refusal comes back as a DM (bot.rs).
+//! Signing up from Discord (host mode). A Discord user makes their character once (name, class, spec: a form, then a
+//! spec menu) and the raid posts' buttons sign that character up. No proof is asked; one name belongs to one Discord
+//! user (bridge::owner_of). A sign-up becomes a "signup" record { raid, name, class, sp, st } in the bridge queue; the
+//! host's addon applies it at its next /reload (a guild member as themselves, anyone else as a guest) and shares it
+//! with the guild. A refusal comes back as a DM (bot.rs).
+//!
+//! Custom ids: su:<raid>:<st> post button · mk:<raid>:<st> character form · ms:<raid>:<st>:<name>:<CLASS> spec menu
+//! · sp:<raid> accept menu ("<char>|<spec>" or "new") · pc:<raid>:<st> character menu · ch:rm / ch:add (/character).
+//! <raid> "-" = no raid (making a character from /character).
 
-use crate::core::bridge::{self, lua_list};
+use crate::core::bridge::{self, lua_list, Char};
 use serde_json::{json, Value};
 use std::sync::Mutex;
-use twilight_model::channel::message::component::{ActionRow, Component, SelectMenu, SelectMenuOption, SelectMenuType};
+use twilight_model::application::interaction::modal::{ModalInteractionComponent, ModalInteractionData};
+use twilight_model::channel::message::component::{
+    ActionRow, Button, ButtonStyle, Component, Label, SelectMenu, SelectMenuOption, SelectMenuType, TextInput, TextInputStyle,
+};
 
 /// The newest snapshot the host's addon wrote (DisasterZoneBridgeDB.snap), kept by the bot's watch.
 static SNAP: Mutex<Option<Value>> = Mutex::new(None);
@@ -19,13 +28,38 @@ fn snap() -> Value {
     SNAP.lock().unwrap().clone().unwrap_or(Value::Null)
 }
 
-pub enum Answer {
-    Text(String),
-    Picker(String, Vec<Component>),
+/// The classes and their specs, in the addon's order (ns.SPECS: the spec index is the same number).
+pub const CLASSES: [(&str, &str, &[&str]); 9] = [
+    ("WARRIOR", "Warrior", &["Arms", "Fury", "Protection"]),
+    ("PALADIN", "Paladin", &["Holy", "Protection", "Retribution"]),
+    ("HUNTER", "Hunter", &["Beast Mastery", "Marksmanship", "Survival"]),
+    ("ROGUE", "Rogue", &["Assassination", "Combat", "Subtlety"]),
+    ("PRIEST", "Priest", &["Discipline", "Holy", "Shadow"]),
+    ("SHAMAN", "Shaman", &["Elemental", "Enhancement", "Restoration"]),
+    ("MAGE", "Mage", &["Arcane", "Fire", "Frost"]),
+    ("WARLOCK", "Warlock", &["Affliction", "Demonology", "Destruction"]),
+    ("DRUID", "Druid", &["Balance", "Feral (Cat)", "Feral (Bear)", "Restoration"]),
+];
+
+fn class_info(class: &str) -> Option<(&'static str, &'static [&'static str])> {
+    CLASSES.iter().find(|(c, _, _)| *c == class).map(|(_, n, s)| (*n, *s))
 }
 
-fn short(key: &str) -> &str {
-    key.split('-').next().unwrap_or(key)
+fn spec_name(class: &str, spec: u32) -> &'static str {
+    class_info(class).and_then(|(_, s)| s.get(spec as usize - 1).copied()).unwrap_or("?")
+}
+
+pub enum Answer {
+    /// a new private message
+    Text(String, Vec<Component>),
+    /// replace the private message the menu was on
+    Update(String, Vec<Component>),
+    /// open a form
+    Modal { custom_id: String, title: String, components: Vec<Component> },
+}
+
+fn text(t: impl Into<String>) -> Answer {
+    Answer::Text(t.into(), Vec::new())
 }
 
 fn raid_name(snap: &Value, raid: &str) -> String {
@@ -36,129 +70,293 @@ fn raid_name(snap: &Value, raid: &str) -> String {
         .unwrap_or_else(|| "the raid".into())
 }
 
-const NOT_LINKED: &str =
-    "Link your character first: type **/link** here, then the code it gives you in game (`/dz link CODE`).";
+/// The guild member with this name (snapshot roster): (key, class).
+fn roster_find(snap: &Value, name: &str) -> Option<(String, String)> {
+    let want = name.to_lowercase();
+    let short = !want.contains('-');
+    lua_list(snap.get("roster")).into_iter().find_map(|m| {
+        let key = m.get("key")?.as_str()?;
+        let k = key.to_lowercase();
+        let hit = k == want || (short && k.split('-').next() == Some(want.as_str()));
+        hit.then(|| (key.to_string(), m.get("class").and_then(|c| c.as_str()).unwrap_or("").to_string()))
+    })
+}
 
-pub fn link_cmd(user: &str, now: u64) -> String {
-    let had = bridge::load_links().links.get(user).cloned();
-    match bridge::new_code(user, now) {
-        Ok(code) => {
-            let was = had.map(|k| format!("You are linked to **{}** now; this moves the link.\n", short(&k))).unwrap_or_default();
-            format!(
-                "{was}In game, on your character, type:\n`/dz link {code}`\nThe code works for 7 days. The bot knows you after the host's next /reload."
-            )
-        }
-        Err(e) => format!("Could not make a code: {e}"),
+fn menu(custom_id: String, placeholder: &str, options: Vec<SelectMenuOption>) -> Component {
+    Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![Component::SelectMenu(SelectMenu {
+            id: None,
+            channel_types: None,
+            custom_id,
+            default_values: None,
+            disabled: false,
+            kind: SelectMenuType::Text,
+            max_values: Some(1),
+            min_values: Some(1),
+            options: Some(options),
+            placeholder: Some(placeholder.into()),
+            required: None,
+        })],
+    })
+}
+
+fn option(label: String, value: String, description: Option<String>, default: bool) -> SelectMenuOption {
+    SelectMenuOption { default, description, emoji: None, label, value }
+}
+
+/// The character form: name and class.
+#[allow(deprecated)] // (TextInput::label: the Label around it carries the words)
+fn form(raid: &str, st: &str) -> Answer {
+    let classes = CLASSES.iter().map(|(c, n, _)| option(n.to_string(), c.to_string(), None, false)).collect();
+    Answer::Modal {
+        custom_id: format!("mk:{raid}:{st}"),
+        title: "Your character".into(),
+        components: vec![
+            Component::Label(Label {
+                id: None,
+                label: "Character name".into(),
+                description: Some("As in game. Add -Realm if it's not on our realm.".into()),
+                component: Box::new(Component::TextInput(TextInput {
+                    id: None,
+                    custom_id: "name".into(),
+                    label: None,
+                    max_length: Some(40),
+                    min_length: Some(2),
+                    placeholder: None,
+                    required: Some(true),
+                    style: TextInputStyle::Short,
+                    value: None,
+                })),
+            }),
+            Component::Label(Label {
+                id: None,
+                label: "Class".into(),
+                description: Some("Guild members: the guild roster's class counts.".into()),
+                component: Box::new(match menu("class".into(), "Class", classes) {
+                    Component::ActionRow(mut r) => r.components.remove(0),
+                    c => c,
+                }),
+            }),
+        ],
     }
+}
+
+/// The spec menu for a character being made.
+fn spec_menu(raid: &str, st: &str, name: &str, class: &str, lead: String) -> Answer {
+    let Some((cname, specs)) = class_info(class) else { return text("Unknown class.") };
+    let options = specs.iter().enumerate().map(|(i, s)| option(s.to_string(), (i + 1).to_string(), None, false)).collect();
+    Answer::Text(
+        format!("{lead}**{name}**, {cname}. Which spec?"),
+        vec![menu(format!("ms:{raid}:{st}:{name}:{class}"), "Spec", options)],
+    )
+}
+
+/// The accept menu: every character × spec of the user, and "make another character".
+fn accept_menu(raid: &str, chars: &[Char], snap: &Value) -> Answer {
+    let mut options = Vec::new();
+    for (ci, c) in chars.iter().enumerate() {
+        let Some((cname, specs)) = class_info(&c.class) else { continue };
+        for (si, s) in specs.iter().enumerate() {
+            if options.len() < 24 {
+                options.push(option(format!("{} · {s}", c.name), format!("{ci}|{}", si + 1), Some(cname.into()), ci == 0 && si as u32 + 1 == c.spec));
+            }
+        }
+    }
+    options.push(option("Another character…".into(), "new".into(), Some("Make a new one".into()), false));
+    Answer::Text(format!("Accept **{}**: which character and spec?", raid_name(snap, raid)), vec![menu(format!("sp:{raid}"), "Character and spec", options)])
 }
 
 /// A raid post's button: custom id "su:<raid>:<A|T|X>".
 pub fn button(user: &str, name: &str, custom: &str, now: u64) -> Answer {
-    let mut parts = custom.splitn(3, ':');
-    let (Some("su"), Some(raid), Some(st)) = (parts.next(), parts.next(), parts.next()) else {
-        return Answer::Text("Unknown button.".into());
-    };
-    let Some(key) = bridge::load_links().links.get(user).cloned() else { return Answer::Text(NOT_LINKED.into()) };
+    let parts: Vec<&str> = custom.splitn(3, ':').collect();
+    if custom == "ch:add" {
+        return form("-", "-");
+    }
+    let ["su", raid, st] = parts[..] else { return text("Unknown button.") };
+    let profiles = bridge::load_profiles();
+    let chars = profiles.get(user).cloned().unwrap_or_default();
+    if chars.is_empty() {
+        return form(raid, st);
+    }
     let snap = snap();
-    if st != "A" {
-        return Answer::Text(queue(raid, &key, st, None, user, name, now, &snap));
+    if st == "A" {
+        return accept_menu(raid, &chars, &snap);
     }
-    // Accept: which character and spec
-    let chars = snap.get("chars").cloned().unwrap_or(Value::Null);
-    let me = chars.get(&key);
-    let alts: Vec<String> = me
-        .map(|c| lua_list(c.get("alts")).iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
-        .filter(|v: &Vec<String>| !v.is_empty())
-        .unwrap_or_else(|| vec![key.clone()]);
-    let mut options = Vec::new();
-    for k in &alts {
-        let Some(c) = chars.get(k) else { continue };
-        let last = c.get("last").and_then(|x| x.as_i64());
-        for (i, spec) in lua_list(c.get("specs")).iter().enumerate() {
-            let Some(label) = spec.as_str() else { continue };
-            if options.len() >= 25 {
-                break;
-            }
-            options.push(SelectMenuOption {
-                default: k == &key && last == Some(i as i64 + 1),
-                description: c.get("class").and_then(|x| x.as_str()).map(|cl| cl[..1].to_string() + &cl[1..].to_lowercase()),
-                emoji: None,
-                label: format!("{} · {label}", short(k)),
-                value: format!("{k}|{}", i + 1),
-            });
-        }
+    if chars.len() == 1 {
+        return text(queue(raid, &chars[0], None, st, user, name, now, &snap));
     }
-    if options.is_empty() {
-        // (the snapshot doesn't know the character yet: their last spec, as in game)
-        return Answer::Text(queue(raid, &key, "A", None, user, name, now, &snap));
-    }
-    let menu = Component::SelectMenu(SelectMenu {
-        id: None,
-        channel_types: None,
-        custom_id: format!("sp:{raid}"),
-        default_values: None,
-        disabled: false,
-        kind: SelectMenuType::Text,
-        max_values: Some(1),
-        min_values: Some(1),
-        options: Some(options),
-        placeholder: Some("Character and spec".into()),
-        required: None,
-    });
-    Answer::Picker(
-        format!("Accept **{}**: pick your character and spec.", raid_name(&snap, raid)),
-        vec![Component::ActionRow(ActionRow { id: None, components: vec![menu] })],
-    )
+    let options = chars.iter().enumerate().map(|(i, c)| option(c.name.clone(), i.to_string(), None, i == 0)).collect();
+    Answer::Text("Which character?".into(), vec![menu(format!("pc:{raid}:{st}"), "Character", options)])
 }
 
-/// The spec picker: custom id "sp:<raid>", value "<key>|<spec index>".
-pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64) -> String {
-    let Some(raid) = custom.strip_prefix("sp:") else { return "Unknown menu.".into() };
-    let Some((key, sp)) = values.first().and_then(|v| v.split_once('|')) else { return "Pick one.".into() };
-    let Some(linked) = bridge::load_links().links.get(user).cloned() else { return NOT_LINKED.into() };
+/// A menu choice.
+pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64) -> Answer {
+    let v = values.first().map(String::as_str).unwrap_or("");
+    let parts: Vec<&str> = custom.split(':').collect();
     let snap = snap();
-    // (only the linked character or one of its alts)
-    let ok = key == linked
-        || snap
-            .get("chars")
-            .and_then(|c| c.get(&linked))
-            .map(|c| lua_list(c.get("alts")).iter().any(|a| a.as_str() == Some(key)))
-            .unwrap_or(false);
-    if !ok {
-        return "That character is not yours.".into();
+    let mut profiles = bridge::load_profiles();
+    let chars = profiles.get(user).cloned().unwrap_or_default();
+    match parts[..] {
+        // the spec of a character being made: save it, then sign up
+        ["ms", raid, st, cname, class] => {
+            let Ok(spec) = v.parse::<u32>() else { return text("Pick a spec.") };
+            if let Some(owner) = bridge::owner_of(&profiles, cname).filter(|o| o != user) {
+                let _ = owner;
+                return Answer::Update(format!("**{cname}** is already someone else's. Ask an officer if that's you."), Vec::new());
+            }
+            let c = Char { name: cname.to_string(), class: class.to_string(), spec };
+            let list = profiles.entry(user.to_string()).or_default();
+            list.retain(|x| !x.name.eq_ignore_ascii_case(cname));
+            list.push(c.clone());
+            if let Err(e) = bridge::save_profiles(&profiles) {
+                return Answer::Update(format!("Could not save it: {e}"), Vec::new());
+            }
+            let made = format!("Saved **{cname}** ({}). ", spec_name(class, spec));
+            if raid == "-" {
+                return Answer::Update(format!("{made}The raid posts' buttons use it now."), Vec::new());
+            }
+            Answer::Update(made + &queue(raid, &c, Some(spec), st, user, name, now, &snap), Vec::new())
+        }
+        // accept with one of my characters and a spec
+        ["sp", raid] => {
+            if v == "new" {
+                return form(raid, "A");
+            }
+            let Some((ci, sp)) = v.split_once('|') else { return text("Pick one.") };
+            let (Ok(ci), Ok(sp)) = (ci.parse::<usize>(), sp.parse::<u32>()) else { return text("Pick one.") };
+            let Some(c) = chars.get(ci) else { return text("That character is gone.") };
+            Answer::Update(queue(raid, c, Some(sp), "A", user, name, now, &snap), Vec::new())
+        }
+        // tentative / can't come with one of my characters
+        ["pc", raid, st] => {
+            let Some(c) = v.parse::<usize>().ok().and_then(|i| chars.get(i)) else { return text("Pick one.") };
+            Answer::Update(queue(raid, c, None, st, user, name, now, &snap), Vec::new())
+        }
+        // /character: remove one
+        ["ch", "rm"] => {
+            let Some(i) = v.parse::<usize>().ok().filter(|i| *i < chars.len()) else { return text("Pick one.") };
+            let gone = chars[i].name.clone();
+            if let Some(list) = profiles.get_mut(user) {
+                list.remove(i);
+            }
+            let _ = bridge::save_profiles(&profiles);
+            Answer::Update(format!("Removed **{gone}**."), Vec::new())
+        }
+        _ => text("Unknown menu."),
     }
-    queue(raid, key, "A", sp.parse().ok(), user, name, now, &snap)
+}
+
+/// The character form was sent: "mk:<raid>:<st>".
+pub fn form_sent(user: &str, data: &ModalInteractionData) -> Answer {
+    let parts: Vec<&str> = data.custom_id.split(':').collect();
+    let ["mk", raid, st] = parts[..] else { return text("Unknown form.") };
+    let mut typed = String::new();
+    let mut class = String::new();
+    fn walk(c: &ModalInteractionComponent, typed: &mut String, class: &mut String) {
+        match c {
+            ModalInteractionComponent::Label(l) => walk(&l.component, typed, class),
+            ModalInteractionComponent::ActionRow(r) => r.components.iter().for_each(|x| walk(x, typed, class)),
+            ModalInteractionComponent::TextInput(t) if t.custom_id == "name" => *typed = t.value.clone(),
+            ModalInteractionComponent::StringSelect(s) if s.custom_id == "class" => *class = s.values.first().cloned().unwrap_or_default(),
+            _ => {}
+        }
+    }
+    data.components.iter().for_each(|c| walk(c, &mut typed, &mut class));
+    let name = bridge::tidy_name(&typed);
+    if name.chars().count() < 2 || name.chars().any(|c| !(c.is_alphabetic() || c == '-' || c == '\'')) {
+        return text("That doesn't look like a character name.");
+    }
+    if bridge::owner_of(&bridge::load_profiles(), &name).is_some_and(|o| o != user) {
+        return text(format!("**{name}** is already someone else's. Ask an officer if that's you."));
+    }
+    let snap = snap();
+    let mut lead = String::new();
+    let (name, class) = match roster_find(&snap, &name) {
+        Some((key, rc)) if !rc.is_empty() => {
+            if !class.is_empty() && class != rc {
+                lead = format!("The guild roster says {} is a {}. ", key.split('-').next().unwrap_or(&key), class_info(&rc).map_or("?", |c| c.0));
+            }
+            (key.split('-').next().unwrap_or(&key).to_string(), rc)
+        }
+        _ => {
+            if class.is_empty() {
+                return text("Pick your class too.");
+            }
+            if !name.contains('-') {
+                lead = "Not in the guild roster: you join raids as a guest. ".into();
+            }
+            (name, class)
+        }
+    };
+    spec_menu(raid, st, &name, &class, lead)
+}
+
+/// /character: my characters, with remove and add.
+pub fn characters(user: &str) -> Answer {
+    let chars = bridge::load_profiles().get(user).cloned().unwrap_or_default();
+    let add = Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![Component::Button(Button {
+            id: None,
+            custom_id: Some("ch:add".into()),
+            disabled: false,
+            emoji: None,
+            label: Some("Add a character".into()),
+            style: ButtonStyle::Primary,
+            url: None,
+            sku_id: None,
+        })],
+    });
+    if chars.is_empty() {
+        return Answer::Text("You have no characters yet. Add one, or just press a raid post's Accept.".into(), vec![add]);
+    }
+    let list: Vec<String> = chars.iter().map(|c| format!("• **{}**, {} {}", c.name, spec_name(&c.class, c.spec), class_info(&c.class).map_or("", |x| x.0))).collect();
+    let options = chars.iter().enumerate().map(|(i, c)| option(c.name.clone(), i.to_string(), None, false)).collect();
+    Answer::Text(format!("Your characters:\n{}", list.join("\n")), vec![menu("ch:rm".into(), "Remove a character", options), add])
 }
 
 #[allow(clippy::too_many_arguments)]
-fn queue(raid: &str, key: &str, st: &str, sp: Option<u32>, user: &str, name: &str, now: u64, snap: &Value) -> String {
+fn queue(raid: &str, c: &Char, sp: Option<u32>, st: &str, user: &str, name: &str, now: u64, snap: &Value) -> String {
     let Some(dir) = crate::core::state::load().flavor_dir() else { return "The host has no game folder set.".into() };
+    let sp = sp.unwrap_or(c.spec);
     let r = bridge::Record {
         // (two clicks in one second are two records)
         id: format!("su_{now}_{user}_{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
         kind: "signup".into(),
         at: now,
         by: name.to_string(),
-        body: json!({ "raid": raid, "key": key, "st": st, "sp": sp }),
+        body: json!({ "raid": raid, "name": c.name, "class": c.class, "sp": sp, "st": st }),
         discord: user.to_string(),
     };
     if let Err(e) = bridge::push(&dir, r, now) {
         return format!("Could not save it: {e}");
     }
-    let spec = sp
-        .and_then(|i| {
-            let c = snap.get("chars")?.get(key)?;
-            lua_list(c.get("specs")).get(i as usize - 1)?.as_str().map(|s| format!(" ({s})"))
-        })
-        .unwrap_or_default();
     let what = match st {
         "A" => "Signed up",
         "T" => "Marked tentative",
         _ => "Marked as can't come",
     };
-    format!(
-        "{what}: **{}**{spec} for {}. It reaches the game, and the post, at the host's next /reload.",
-        short(key),
-        raid_name(snap, raid)
-    )
+    let spec = if st == "A" { format!(" ({})", spec_name(&c.class, sp)) } else { String::new() };
+    format!("{what}: **{}**{spec} for {}. It reaches the game, and the post, at the host's next /reload.", c.name, raid_name(snap, raid))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roster_finds_members_by_short_name() {
+        let snap = json!({ "roster": { "1": { "key": "Lee-Thunderstrike", "class": "WARRIOR" } } });
+        assert_eq!(roster_find(&snap, "lee"), Some(("Lee-Thunderstrike".into(), "WARRIOR".into())));
+        assert_eq!(roster_find(&snap, "Lee-Thunderstrike").map(|x| x.1), Some("WARRIOR".into()));
+        assert_eq!(roster_find(&snap, "Leeroy"), None);
+    }
+
+    #[test]
+    fn specs_match_the_addon() {
+        assert_eq!(spec_name("DRUID", 3), "Feral (Bear)");
+        assert_eq!(spec_name("PALADIN", 2), "Protection");
+        assert_eq!(spec_name("NOPE", 1), "?");
+    }
 }

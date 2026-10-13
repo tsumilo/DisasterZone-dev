@@ -33,54 +33,63 @@ pub struct Record {
 }
 
 // ------------------------------------------------------------------------------------------------------------------
-// Links: which character a Discord user is (the game confirms it: addon Core/Bridge.lua, Linking)
+// Profiles: the characters each Discord user made in Discord (name, class, spec). No proof is asked; one name
+// belongs to one Discord user.
 // ------------------------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct Links {
-    /// Discord user id -> character key ("Lee-Thunderstrike")
-    pub links: std::collections::BTreeMap<String, String>,
-    /// code -> (Discord user id, unix time made)
-    pub codes: std::collections::BTreeMap<String, (String, u64)>,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Char {
+    /// as the game writes it: "Lee" or "Lee-Thunderstrike"
+    pub name: String,
+    /// class file: "WARRIOR"
+    pub class: String,
+    /// 1-based index into the class's specs (addon ns.SPECS)
+    pub spec: u32,
 }
 
-const CODE_DAYS: u64 = 7;
+/// Discord user id -> their characters (the first is their main)
+pub type Profiles = std::collections::BTreeMap<String, Vec<Char>>;
 
-fn links_path() -> PathBuf {
-    queue_path().with_file_name("bridge_links.json")
+fn profiles_path() -> PathBuf {
+    queue_path().with_file_name("bridge_profiles.json")
 }
 
-pub fn load_links_at(p: &Path) -> Links {
+pub fn load_profiles_at(p: &Path) -> Profiles {
     fs::read(p).ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default()
 }
 
-pub fn load_links() -> Links {
-    load_links_at(&links_path())
+pub fn load_profiles() -> Profiles {
+    load_profiles_at(&profiles_path())
 }
 
-/// A new code for a Discord user (their older codes go).
-pub fn new_code_at(p: &Path, discord: &str, now: u64) -> Result<String> {
-    let mut l = load_links_at(p);
-    l.codes.retain(|_, (d, at)| d != discord && *at + CODE_DAYS * 86400 > now);
-    const ABC: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let mut seed = now ^ discord.bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
-    let code = loop {
-        let mut c = String::new();
-        for _ in 0..6 {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            c.push(ABC[(seed >> 33) as usize % ABC.len()] as char);
-        }
-        if !l.codes.contains_key(&c) {
-            break c;
-        }
+pub fn save_profiles(p: &Profiles) -> Result<()> {
+    save_json(&profiles_path(), p)
+}
+
+fn short_lower(name: &str) -> String {
+    name.split('-').next().unwrap_or(name).to_lowercase()
+}
+
+/// Who has this character already (another user's claim on "Lee" is refused).
+pub fn owner_of(p: &Profiles, name: &str) -> Option<String> {
+    let want = short_lower(name);
+    p.iter().find(|(_, chars)| chars.iter().any(|c| short_lower(&c.name) == want)).map(|(u, _)| u.clone())
+}
+
+/// A name as WoW writes it: first letter upper, the rest lower ("lEE" -> "Lee"); a realm after '-' is kept as typed.
+pub fn tidy_name(name: &str) -> String {
+    let name = name.trim();
+    let (n, realm) = match name.split_once('-') {
+        Some((n, r)) => (n, Some(r)),
+        None => (name, None),
     };
-    l.codes.insert(code.clone(), (discord.to_string(), now));
-    save_json(p, &l)?;
-    Ok(code)
-}
-
-pub fn new_code(discord: &str, now: u64) -> Result<String> {
-    new_code_at(&links_path(), discord, now)
+    let mut out: String = n.chars().take(1).flat_map(|c| c.to_uppercase()).collect();
+    out.extend(n.chars().skip(1).flat_map(|c| c.to_lowercase()));
+    if let Some(r) = realm.filter(|r| !r.is_empty()) {
+        out.push('-');
+        out.push_str(r);
+    }
+    out
 }
 
 fn queue_path() -> PathBuf {
@@ -181,7 +190,7 @@ pub fn save_json<T: Serialize + ?Sized>(p: &Path, v: &T) -> Result<()> {
     Ok(())
 }
 
-pub fn inbox_lua(records: &[Record], written: u64, channels: &[Channel], linked: &[String]) -> String {
+pub fn inbox_lua(records: &[Record], written: u64, channels: &[Channel]) -> String {
     let mut s = String::from("-- Written by the DisasterZone launcher (host mode). Do not edit: it is rewritten.\n");
     s.push_str(&format!("DZBridgeInbox = {{ v = 1, written = {written}, records = {{\n"));
     for r in records {
@@ -191,8 +200,6 @@ pub fn inbox_lua(records: &[Record], written: u64, channels: &[Channel], linked:
     }
     s.push_str("}, channels = ");
     lua_value(&serde_json::to_value(channels).unwrap(), &mut s);
-    s.push_str(", linked = ");
-    lua_value(&serde_json::to_value(linked).unwrap(), &mut s);
     s.push_str(" }\n");
     s
 }
@@ -216,7 +223,7 @@ fn write_atomic(p: &Path, text: &str) -> Result<()> {
 }
 
 /// Write the bridge folder for these records (the game reads it at its next login or /reload).
-pub fn write_inbox(flavor_dir: &Path, records: &[Record], written: u64, linked: &[String]) -> Result<()> {
+pub fn write_inbox(flavor_dir: &Path, records: &[Record], written: u64) -> Result<()> {
     let addons = flavor_dir.join("Interface").join("AddOns");
     let dir = addons.join(FOLDER);
     fs::create_dir_all(&dir)?;
@@ -225,7 +232,7 @@ pub fn write_inbox(flavor_dir: &Path, records: &[Record], written: u64, linked: 
         interface_of(&addons)
     );
     write_atomic(&dir.join(format!("{FOLDER}.toc")), &toc)?;
-    write_atomic(&dir.join("Inbox.lua"), &inbox_lua(records, written, &load_channels(), linked))
+    write_atomic(&dir.join("Inbox.lua"), &inbox_lua(records, written, &load_channels()))
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -435,12 +442,10 @@ pub struct Synced {
     pub queue: Vec<Record>,
     /// taken but refused: (record, why)
     pub failed: Vec<(Record, String)>,
-    /// new links: (Discord user id, character key)
-    pub linked: Vec<(String, String)>,
 }
 
-/// Drop what the game took, take the link codes it confirmed, rewrite the inbox.
-pub fn sync_at(queue: &Path, links: &Path, flavor_dir: &Path, now: u64) -> Result<Synced> {
+/// Drop what the game took (refusals are handed back), rewrite the inbox.
+pub fn sync_at(queue: &Path, flavor_dir: &Path, now: u64) -> Result<Synced> {
     let db = read_bridge_db(flavor_dir).unwrap_or(Value::Null);
     let applied = db.get("applied").and_then(|a| a.as_object()).cloned().unwrap_or_default();
     let mut out = Synced::default();
@@ -460,35 +465,19 @@ pub fn sync_at(queue: &Path, links: &Path, flavor_dir: &Path, now: u64) -> Resul
     if out.queue.len() != before {
         save_queue_at(queue, &out.queue)?;
     }
-    let mut l = load_links_at(links);
-    let mut changed = false;
-    if let Some(claims) = db.get("claims").and_then(|c| c.as_object()) {
-        for (code, c) in claims {
-            let Some(key) = c.get("k").and_then(|k| k.as_str()) else { continue };
-            if let Some((discord, _)) = l.codes.remove(code) {
-                l.links.insert(discord.clone(), key.to_string());
-                out.linked.push((discord, key.to_string()));
-                changed = true;
-            }
-        }
-    }
-    if changed {
-        save_json(links, &l)?;
-    }
-    let linked: Vec<String> = l.links.values().cloned().collect::<BTreeSet<_>>().into_iter().collect();
-    write_inbox(flavor_dir, &out.queue, now, &linked)?;
+    write_inbox(flavor_dir, &out.queue, now)?;
     Ok(out)
 }
 
 pub fn sync(flavor_dir: &Path, now: u64) -> Result<Synced> {
-    sync_at(&queue_path(), &links_path(), flavor_dir, now)
+    sync_at(&queue_path(), flavor_dir, now)
 }
 
 pub fn push_at(queue: &Path, flavor_dir: &Path, r: Record, now: u64) -> Result<Vec<Record>> {
     let mut q = load_queue_at(queue);
     q.push(r);
     save_queue_at(queue, &q)?;
-    Ok(sync_at(queue, &queue.with_file_name("links.json"), flavor_dir, now)?.queue)
+    Ok(sync_at(queue, flavor_dir, now)?.queue)
 }
 
 pub fn push(flavor_dir: &Path, r: Record, now: u64) -> Result<Vec<Record>> {
@@ -544,12 +533,10 @@ DisasterZoneBridgeDB = {
 
     #[test]
     fn inbox_round_trips_through_the_reader() {
-        let lua = inbox_lua(&[rec("dc_1", "hi \"there\" | \\ \n")], 7, &[Channel { id: "1".into(), name: "raids".into() }],
-            &["Lee-X".to_string()]);
+        let lua = inbox_lua(&[rec("dc_1", "hi \"there\" | \\ \n")], 7, &[Channel { id: "1".into(), name: "raids".into() }]);
         let v = read_global(&lua, "DZBridgeInbox").unwrap();
         assert_eq!(v["written"], json!(7));
         assert_eq!(lua_list(v.get("channels"))[0]["name"], json!("raids"));
-        assert_eq!(lua_list(v.get("linked"))[0], &json!("Lee-X"));
         assert_eq!(v["records"]["1"]["id"], json!("dc_1"));
         assert_eq!(v["records"]["1"]["body"]["text"], json!("hi \"there\" | \\ \n"));
     }
@@ -559,12 +546,11 @@ DisasterZoneBridgeDB = {
         let dir = tempfile::tempdir().unwrap();
         let flavor = dir.path().join("_anniversary_");
         let queue = dir.path().join("q.json");
-        let links = dir.path().join("links.json");
         save_queue_at(&queue, &[rec("dc_2", "x")]).unwrap();
         let sv = flavor.join("WTF/Account/ACCT/SavedVariables");
         fs::create_dir_all(&sv).unwrap();
         fs::write(sv.join("DisasterZone.lua"), SV).unwrap();
-        let out = sync_at(&queue, &links, &flavor, 1).unwrap();
+        let out = sync_at(&queue, &flavor, 1).unwrap();
         assert!(out.queue.is_empty());
         assert_eq!(out.failed.len(), 1);
         assert!(out.failed[0].1.starts_with("unknown type"));
@@ -572,15 +558,19 @@ DisasterZoneBridgeDB = {
     }
 
     #[test]
-    fn codes_are_unique_and_replace_older_ones() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("l.json");
-        let a = new_code_at(&p, "1", 100).unwrap();
-        let b = new_code_at(&p, "1", 101).unwrap();
-        let c = new_code_at(&p, "2", 101).unwrap();
-        assert_eq!(a.len(), 6);
-        let l = load_links_at(&p);
-        assert!(!l.codes.contains_key(&a) && l.codes.contains_key(&b) && l.codes.contains_key(&c));
+    fn one_name_one_owner() {
+        let mut p = Profiles::new();
+        p.insert("1".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3 }]);
+        assert_eq!(owner_of(&p, "lee").as_deref(), Some("1"));
+        assert_eq!(owner_of(&p, "LEE-Thunderstrike").as_deref(), Some("1"));
+        assert_eq!(owner_of(&p, "Rita"), None);
+    }
+
+    #[test]
+    fn names_are_tidied_as_the_game_writes_them() {
+        assert_eq!(tidy_name(" lEE "), "Lee");
+        assert_eq!(tidy_name("élise-Thunderstrike"), "Élise-Thunderstrike");
+        assert_eq!(tidy_name("bob-"), "Bob");
     }
 
     #[test]
@@ -602,17 +592,10 @@ DisasterZoneBridgeDB = {
         let sv = flavor.join("WTF/Account/ACCT/SavedVariables");
         fs::create_dir_all(&sv).unwrap();
         fs::write(sv.join("DisasterZone.lua"), SV).unwrap();
-        let links = dir.path().join("links.json");
-        let code = new_code_at(&links, "42", 12).unwrap();
-        let sv_text = SV.replace("[\"loaded\"]", &format!("[\"claims\"] = {{ [\"{code}\"] = {{ [\"k\"] = \"Lee-X\" }} }},\n\t[\"loaded\"]"));
-        fs::write(sv.join("DisasterZone.lua"), sv_text).unwrap();
-        let out = sync_at(&queue, &links, &flavor, 12).unwrap();
+        let out = sync_at(&queue, &flavor, 12).unwrap();
         let q = out.queue;
         assert_eq!(q.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec!["dc_9"]);
         assert!(out.failed.is_empty()); // (dc_1 was ok)
-        assert_eq!(out.linked, vec![("42".to_string(), "Lee-X".to_string())]);
-        assert_eq!(load_links_at(&links).links["42"], "Lee-X");
-        assert!(load_links_at(&links).codes.is_empty());
         assert_eq!(load_queue_at(&queue).len(), 1);
         let inbox = fs::read_to_string(flavor.join("Interface/AddOns/DisasterZone_Bridge/Inbox.lua")).unwrap();
         assert!(!inbox.contains("dc_1") && inbox.contains("dc_9"));

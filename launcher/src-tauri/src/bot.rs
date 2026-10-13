@@ -125,7 +125,7 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
     // guild commands show up at once (global ones can take an hour); setting the whole list drops old ones
     let commands = [
         CommandBuilder::new("ping", "Check that the DisasterZone bot is online", CommandType::ChatInput).build(),
-        CommandBuilder::new("link", "Link your Discord to your character (gives a code for the game)", CommandType::ChatInput)
+        CommandBuilder::new("character", "Your characters for raid sign-ups: add, see or remove them", CommandType::ChatInput)
             .build(),
         CommandBuilder::new("bridgetest", "Send a test line to the game (it shows at the host's next /reload)", CommandType::ChatInput)
             .option(StringBuilder::new("text", "What the game should print").required(true).max_length(200))
@@ -191,10 +191,6 @@ async fn tell(http: &Client, out: &bridge::Synced) {
         if !r.discord.is_empty() {
             dm(http, &r.discord, &format!("Your Discord sign-up didn't go through: {why}")).await;
         }
-    }
-    for (user, key) in &out.linked {
-        let name = key.split('-').next().unwrap_or(key);
-        dm(http, user, &format!("You're linked to **{name}**. The raid posts' buttons sign you up now.")).await;
     }
 }
 
@@ -269,21 +265,25 @@ fn explain_http(e: &str) -> String {
 async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction) -> Result<()> {
     let user = i.author_id().map(|u| u.get().to_string()).unwrap_or_default();
     let name = i.author().map(|u| u.global_name.clone().unwrap_or_else(|| u.name.clone())).unwrap_or_default();
-    if let Some(InteractionData::MessageComponent(c)) = &i.data {
-        let now = unix_now();
-        if c.custom_id.starts_with("sp:") {
-            let text = crate::signup::select(&user, &name, &c.custom_id, &c.values, now);
-            return reply_with(http, app_id, i, text, Vec::new()).await;
+    let now = unix_now();
+    match &i.data {
+        Some(InteractionData::MessageComponent(c)) => {
+            let a = if c.values.is_empty() {
+                crate::signup::button(&user, &name, &c.custom_id, now)
+            } else {
+                crate::signup::select(&user, &name, &c.custom_id, &c.values, now)
+            };
+            return respond(http, app_id, i, a).await;
         }
-        return match crate::signup::button(&user, &name, &c.custom_id, now) {
-            crate::signup::Answer::Text(t) => reply_with(http, app_id, i, t, Vec::new()).await,
-            crate::signup::Answer::Picker(t, comps) => reply_with(http, app_id, i, t, comps).await,
-        };
+        Some(InteractionData::ModalSubmit(m)) => return respond(http, app_id, i, crate::signup::form_sent(&user, m)).await,
+        Some(InteractionData::ApplicationCommand(cmd)) if cmd.name == "character" => {
+            return respond(http, app_id, i, crate::signup::characters(&user)).await;
+        }
+        _ => {}
     }
     let Some(InteractionData::ApplicationCommand(cmd)) = &i.data else { return Ok(()) };
     let text = match cmd.name.as_str() {
         "ping" => ping_text(app),
-        "link" => crate::signup::link_cmd(&user, unix_now()),
         "bridgetest" => {
             let text = cmd
                 .options
@@ -299,6 +299,27 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
         _ => "This command is not ready yet.".to_string(),
     };
     reply(http, app_id, i, text).await
+}
+
+async fn respond(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, a: crate::signup::Answer) -> Result<()> {
+    use crate::signup::Answer;
+    let (kind, data) = match a {
+        Answer::Text(t, c) => return reply_with(http, app_id, i, t, c).await,
+        Answer::Update(t, c) => (
+            InteractionResponseType::UpdateMessage,
+            InteractionResponseData { content: Some(t), components: Some(c), ..Default::default() },
+        ),
+        Answer::Modal { custom_id, title, components } => (
+            InteractionResponseType::Modal,
+            InteractionResponseData { custom_id: Some(custom_id), title: Some(title), components: Some(components), ..Default::default() },
+        ),
+    };
+    let resp = InteractionResponse { kind, data: Some(data) };
+    http.interaction(app_id)
+        .create_response(i.id, &i.token, &resp)
+        .await
+        .map_err(|e| crate::core::Error::Net(e.to_string()))?;
+    Ok(())
 }
 
 async fn reply(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, text: String) -> Result<()> {
