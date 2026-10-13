@@ -971,7 +971,8 @@ end
 local SEL_A, HOVER_A = 0.95, 0.4
 function Face:PaintSel()
     if self.kind ~= "cell" or not self.look then return end
-    local a = self.targeted and SEL_A or (self.hovered and HOVER_A or 0)
+    -- (a 1 px outline needs more than Halo's 2 px ring to be seen under the mouse)
+    local a = self.targeted and SEL_A or (self.hovered and (self.ringOn and HOVER_A or 0.6) or 0)
     if self.look.game then
         self.sel:Paint(nil); self.selRing:Paint(nil)
         local cl = self.cl
