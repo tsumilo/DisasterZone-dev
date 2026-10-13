@@ -1358,8 +1358,6 @@ function SettingsUI:BuildUI(sec)
             { "procs", "Procs", "Buffs you gain in combat that last a minute or less.", true },
             { "alerts", "Spells that light up", "Hammer of Wrath, Execute, Overpower, Revenge, Riposte ...", true },
             { "lowHealth", "Low health and mana", "", true },
-            { "bests", "New bests", "Your best hit with every spell, kept per character.", true },
-            { "fightEnd", "Fight summary", "When a fight ends: the mob, the time and your DPS.", true },
             { "autoAttacks", "Auto attacks", "", true },
             { "minHit", "Hide hits under", "Crits always show.", 0,
               { { value = 0, text = "Show all" }, { value = 100, text = "100" }, { value = 250, text = "250" },
@@ -1371,6 +1369,11 @@ function SettingsUI:BuildUI(sec)
     }
     for _, p in ipairs(Look.PARTS) do
         Head(p.name)
+        -- (combat text has its own switch, off until turned on: no look for everything turns it on)
+        if p.key == "sct" then
+            self:SwitchSetting(sec, "Show combat text", "Off until you turn it on.", "ui.sct.on", false,
+                "Nothing else turns it on, not even a look for everything. With Blizzard as its look it wears Classic.")
+        end
         self:Dropdown(sec, "Look", p.tip, LookOptions,
             function() return Get("ui." .. p.key .. ".look", "inherit") end,
             function(a, b) Set("ui." .. p.key .. ".look", Value(a, b)) end)
@@ -1381,9 +1384,7 @@ function SettingsUI:BuildUI(sec)
         end
         if p.key == "sct" and ns.CombatTextUI then
             local row = self:Row(sec, "Try it", "A made-up pull plays on your screen. Nothing is cast or sent.")
-            local try = ns.UI:CreateSleekButton(row, "Try it", 80, 22, function()
-                if not ns.CombatTextUI:TryIt() then ns:Print("Pick a look for Combat text first.") end
-            end)
+            local try = ns.UI:CreateSleekButton(row, "Try it", 80, 22, function() ns.CombatTextUI:TryIt() end)
             try:SetPoint("RIGHT", row, "RIGHT", 0, 0)
             row.control = try
         end

@@ -2,7 +2,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/CombatText.lua", ...) then retu
 -- Combat text on screen (ns.CombatTextUI): the stage the six looks draw on (UI/CombatTextLooks.lua, with the pen of
 -- UI/CombatTextPen.lua). Core/CombatText.lua reads the combat log and hands every hit, heal, proc and alert here as
 -- an event (Emit); the look of Settings > UI ("Combat text", ui.sct.look, following ui.look) spawns its numbers.
--- Blizzard = off: the game's own numbers.
+-- Off by default: only its own switch (ui.sct.on) turns it on, whatever look everything else wears; with it on and
+-- the look on Blizzard, it wears Classic (the game's own way).
 -- Anchors (where a number stands, in the mockup's px, y down from the overlay's top left): a hit rides the
 -- nameplate of the mob it hit (nameplate units carry the mob's GUID), 66 px under the plate's centre as in the
 -- mockup; with no plate, or in Columns mode, the target spot. The player's numbers stand round the "you" spot, procs
@@ -331,20 +332,22 @@ CT.plates = plates
 -- The look and the events
 ---------------------------------------------------------------------------
 
+-- The look the numbers wear (Blizzard: Classic, the game's own way).
 function CT:LookKey()
     local L = ns.Look
-    if not L then return "blizzard" end
-    return L:Key("sct")
+    local key = L and L:Key("sct") or "classic"
+    if key == "blizzard" then key = "classic" end
+    return key
 end
 
-function CT:IsOn() return self:LookKey() ~= "blizzard" end
+function CT:IsOn() return ns.Look and ns.Look:Opt("sct", "on", false) == true or false end
 
--- An event from Core/CombatText.lua (or the demo pull): k = out | tick | miss | taken | heal | proc | alert | lowhp
--- | kill, with its fields (amt, spell, icon, school, crit, group / gkey / gname, record, overkill, who, resist, what,
--- pct, dur, name, time, dps, hits, critPct, best, bestAmt, dst).
+-- An event from Core/CombatText.lua (or the demo pull): k = out | tick | miss | taken | heal | proc | alert | lowhp,
+-- with its fields (amt, spell, icon, school, crit, group / gkey / gname, overkill, who, resist, what, pct, dur, peak,
+-- maxHP, dst). Nothing is drawn while combat text is off, but the demo pull (Try it).
 function CT:Emit(ev)
+    if not ev.demo and not self:IsOn() then return end
     local key = ev.look or self:LookKey()
-    if key == "blizzard" then return end
     local looks = ns.CombatTextLooks
     local face = looks and (looks[key] or looks.flat)
     if not face then return end
@@ -362,7 +365,7 @@ function CT:Restyle()
 end
 
 ---------------------------------------------------------------------------
--- The demo pull: the mockup's 13 s Void Reaver pull (Try it, demo mode, Edit layout's preview)
+-- The demo pull: the mockup's Void Reaver pull (Try it, demo mode, Edit layout's preview)
 ---------------------------------------------------------------------------
 
 local I = "Interface\\Icons\\"
@@ -382,7 +385,7 @@ local PULL = {
     { 4.60, "miss", nil, nil, nil, nil, { what = "Parry" } },
     { 4.80, "tick", 218, "Consecration", "Spell_Holy_InnerFire", "holy", { group = "tick", gkey = "demo:cons" } },
     { 5.10, "proc", nil, "Bloodlust", "Spell_Nature_BloodLust", nil, { dur = 40 } },
-    { 5.70, "out", 4812, "Crusader Strike", "Spell_Holy_CrusaderStrike", "phys", { crit = true, record = 4640 } },
+    { 5.70, "out", 4812, "Crusader Strike", "Spell_Holy_CrusaderStrike", "phys", { crit = true } },
     { 6.45, "taken", 3150, "Arcane Orb", "Spell_Arcane_Blast", "arcane", { resist = 812 } },
     { 6.75, "lowhp", nil, nil, nil, nil, { pct = 35 } },
     { 7.60, "alert", nil, "Hammer of Wrath", "Ability_ThunderClap" },
@@ -390,17 +393,14 @@ local PULL = {
     { 8.70, "out", 2640, "Melee", nil, "phys", { crit = true } },
     { 8.75, "out", 1402, "Seal of Command", "Ability_Warrior_InnerRage", "holy", { crit = true } },
     { 9.40, "out", 2010, "Judgement of Command", "Spell_Holy_RighteousFury", "holy" },
-    { 10.20, "out", 5921, "Hammer of Wrath", "Ability_ThunderClap", "holy", { crit = true, overkill = 1380, kill = true } },
-    { 10.45, "kill", nil, nil, nil, nil, { name = "Void Reaver", time = "3:12", dps = 1312, hits = 41, critPct = 31,
-      best = "Crusader Strike", bestAmt = 4812, bestAny = 6240 } },
+    { 10.20, "out", 5921, "Hammer of Wrath", "Ability_ThunderClap", "holy", { crit = true, overkill = 1380 } },
 }
-CT.PULL_LENGTH = 13.2
+CT.PULL_LENGTH = 12
 
 function CT.PullEvent(row)
     local ev = { k = row[2], amt = row[3], spell = row[4], icon = row[5] and (I .. row[5]) or nil, school = row[6],
-                 demo = true, bestAny = 6240, maxHP = 9800 }
+                 demo = true, peak = 6240, maxHP = 9800 }
     if row[7] then for k, v in pairs(row[7]) do ev[k] = v end end
-    if ev.k == "kill" then ev.bestAny = row[7].bestAny end
     return ev
 end
 
@@ -415,9 +415,8 @@ function CT:QueuePull(loop)
     if loop then self.nextLoop = st.clock + self.PULL_LENGTH end
 end
 
--- Settings' Try it, demo mode: the pull once, on the target spot.
+-- Settings' Try it (also while it is off: a look at the chosen look), demo mode: the pull once, on the target spot.
 function CT:TryIt()
-    if not self:IsOn() then return false end
     self:Rescale()
     self:QueuePull(false)
     return true

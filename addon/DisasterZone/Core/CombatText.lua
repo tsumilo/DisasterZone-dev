@@ -1,7 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/CombatText.lua", ...) then return end -- DisasterZone Core/CombatText.lua
--- Combat text (ns.CombatText): reads the combat log (Core/CombatLog.lua) while the "Combat text" part of Settings >
--- UI has a look, and turns what happens to me and my pet into the stage's events (UI/CombatText.lua):
---   out    my hits and my pet's (and my heals on others), with crit, school, icon, overkill / kill; hits of one
+-- Combat text (ns.CombatText): reads the combat log (Core/CombatLog.lua) while combat text is turned on (Settings >
+-- UI > Combat text, ui.sct.on: off by default, and only that switch turns it on), and turns what happens to me and
+-- my pet into the stage's events (UI/CombatText.lua):
+--   out    my hits and my pet's (and my heals on others), with crit, school, icon, overkill; hits of one
 --          spell within MERGE s on one mob (or at the target spot) join as a "multi" group (Windfury's extra swing is
 --          named: "Melee + Windfury"); ticks (periodic damage and the ground spells of GROUND) join as a "tick" group
 --   miss   my misses on a mob (Dodge, Parry ...), and a hit on me that missed (mine = true)
@@ -9,12 +10,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/CombatText.lua", ...) then re
 --   proc   a buff I gain in combat that lasts a minute or less (my own long buffs, seals, are left out)
 --   alert  a reactive spell I know becomes usable in combat (Hammer of Wrath, Execute, Overpower, Revenge ...)
 --   lowhp  my health under 35% (mana under 25%) in combat, again only after it went back over 50%
---   kill   when combat ends after a mob I hit died: its name, the fight's time, my DPS, hits, crit rate, best hit
--- Bests: my best hit with every spell, saved per character (ns.db.sct[character].best[spell] = { amt, n }); a hit
--- over the old best, once the spell was seen 10 times, is a new best (ev.record = the old one).
--- Options (ui.sct.*): place plate | columns, size, hideGame (the game's own damage and healing numbers off while ours
--- are on; put back as they were), taken, heals, procs, alerts, lowHealth, fightEnd, bests, merge theme | on | off
--- (theme: every look but Classic), autoAttacks, minHit, minHeal.
+-- ev.peak: my biggest hit of the fight so far (Slate's hairlines are measured against it).
+-- Options (ui.sct.*): on, place plate | columns, size, hideGame (the game's own damage and healing numbers off while
+-- ours are on; put back as they were), taken, heals, procs, alerts, lowHealth, merge theme | on | off (theme: every
+-- look but Classic), autoAttacks, minHit, minHeal.
 local addonName, ns = ...
 
 local CTE = ns:NewModule("CombatText")
@@ -80,55 +79,6 @@ function CTE:Merging()
     if m == "on" then return true elseif m == "off" then return false end
     local ui = UIx()
     return not (ui and ui:LookKey() == "classic")
-end
-
----------------------------------------------------------------------------
--- Bests (per character)
----------------------------------------------------------------------------
-
-local function Store(create)
-    local db = ns.db
-    local key = ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey()
-    if not (db and key) then return nil end
-    if type(db.sct) ~= "table" then
-        if not create then return nil end
-        db.sct = {}
-    end
-    local t = db.sct[key]
-    if type(t) ~= "table" then
-        if not create then return nil end
-        t = { best = {}, any = 0 }
-        db.sct[key] = t
-    end
-    if type(t.best) ~= "table" then t.best = {} end
-    return t
-end
-CTE.Store = Store
-
--- Counts a hit; returns the old best when it beats it (a spell seen at least 10 times).
-function CTE:NoteBest(spell, amt)
-    if not spell or not amt or amt <= 0 then return nil end
-    local s = Store(true)
-    if not s then return nil end
-    local e = s.best[spell]
-    if not e then
-        s.best[spell] = { amt, 1 }
-        if amt > (s.any or 0) then s.any = amt end
-        return nil
-    end
-    e[2] = (e[2] or 0) + 1
-    local old
-    if amt > (e[1] or 0) then
-        if e[2] > 10 then old = e[1] end
-        e[1] = amt
-    end
-    if amt > (s.any or 0) then s.any = amt end
-    return old
-end
-
-function CTE:BestAny()
-    local s = Store(false)
-    return s and s.any and s.any > 0 and s.any or nil
 end
 
 ---------------------------------------------------------------------------
@@ -206,12 +156,13 @@ local DAMAGE = { SWING_DAMAGE = 1, RANGE_DAMAGE = 2, SPELL_DAMAGE = 2, SPELL_PER
 local MISSED = { SWING_MISSED = 1, RANGE_MISSED = 2, SPELL_MISSED = 2, SPELL_PERIODIC_MISSED = 2, DAMAGE_SHIELD_MISSED = 2 }
 local HEALS = { SPELL_HEAL = true, SPELL_PERIODIC_HEAL = true }
 
+-- The fight's biggest hit so far (a new fight starts when combat does).
 local function Fight()
-    if not fight and InCombat() then fight = { start = Now(), dmg = 0, hits = 0, crits = 0, bestAmt = 0, hit = {} } end
+    if not fight and InCombat() then fight = { peak = 0 } end
     return fight
 end
 
-local function OutHit(sub, src, dst, dstName, spellId, spellName, school, amt, overkill, resisted, crit)
+local function OutHit(sub, src, dst, spellId, spellName, school, amt, overkill, resisted, crit)
     local isPet = src ~= me
     local swing = sub == "SWING_DAMAGE"
     if swing then
@@ -219,22 +170,13 @@ local function OutHit(sub, src, dst, dstName, spellId, spellName, school, amt, o
         spellName = isPet and "Pet" or "Melee"
     end
     local f = Fight()
-    if f then
-        f.dmg = f.dmg + amt
-        f.hits = f.hits + 1
-        if crit then f.crits = f.crits + 1 end
-        if not isPet and amt > f.bestAmt then f.bestAmt, f.best = amt, spellName end
-        f.hit[dst] = amt
-        f.lastName = dstName
-    end
+    if f and amt > f.peak then f.peak = amt end
     local minHit = tonumber(Opt("minHit", 0)) or 0
     if amt < minHit and not crit then return end
     local ev = { k = "out", amt = amt, spell = spellName, school = swing and "phys" or School(school),
                  icon = (not swing) and Icon(spellId, spellName) or nil, crit = crit and true or nil, dst = dst,
-                 pet = isPet or nil, bestAny = CTE:BestAny() }
-    if overkill and overkill > 0 then ev.overkill, ev.kill = overkill, true end
-    if not isPet and Opt("bests", true) then ev.record = CTE:NoteBest(spellName, amt) end
-    if ev.record and ev.bestAny and amt > ev.bestAny then ev.bestAny = amt end
+                 pet = isPet or nil, peak = f and f.peak or amt }
+    if overkill and overkill > 0 then ev.overkill = overkill end
     local merging = CTE:Merging()
     local periodic = sub == "SPELL_PERIODIC_DAMAGE"
     local ui = UIx()
@@ -252,11 +194,11 @@ local function OutHit(sub, src, dst, dstName, spellId, spellName, school, amt, o
     Buffer((swing and (isPet and "pet" or "melee") or tostring(spellName)) .. ":" .. tostring(on), ev)
 end
 
-local function OnCLEU(_, _, sub, _, src, srcName, _, _, dst, dstName, _, _, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22)
+local function OnCLEU(_, _, sub, _, src, srcName, _, _, dst, _, _, _, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22)
     if not me then me = UnitGUID and UnitGUID("player") end
     local mine = src == me or (pet and src == pet)
     local onMe = dst == me
-    if not mine and not onMe and sub ~= "UNIT_DIED" and sub ~= "PARTY_KILL" then return end
+    if not mine and not onMe then return end
     local d = DAMAGE[sub]
     if d then
         local spellId, spellName, school, amt, overkill, resisted, crit
@@ -272,7 +214,7 @@ local function OnCLEU(_, _, sub, _, src, srcName, _, _, dst, dstName, _, _, a12,
         if amt <= 0 then return end
         overkill = tonumber(overkill)
         if mine and not onMe then
-            OutHit(sub, src, dst, dstName, spellId, spellName, school, amt, overkill, tonumber(resisted), crit)
+            OutHit(sub, src, dst, spellId, spellName, school, amt, overkill, tonumber(resisted), crit)
         elseif onMe and Opt("taken", true) then
             local swing = d == 1
             local r = tonumber(resisted)
@@ -326,14 +268,6 @@ local function OnCLEU(_, _, sub, _, src, srcName, _, _, dst, dstName, _, _, a12,
     end
     if sub == "SPELL_AURA_APPLIED" and onMe and a15 == "BUFF" then
         CTE:Proc(a12, a13, src)
-        return
-    end
-    if sub == "UNIT_DIED" or sub == "PARTY_KILL" then
-        local f = fight
-        if f and dst and f.hit[dst] then
-            f.killed, f.killedGUID = dstName, dst
-            if sub == "PARTY_KILL" and src == me then f.killingBlow = f.hit[dst] end
-        end
     end
 end
 CTE.OnCLEU = OnCLEU
@@ -358,7 +292,7 @@ function CTE:Proc(spellId, spellName, src)
 end
 
 ---------------------------------------------------------------------------
--- Alerts, low health, the fight's end
+-- Alerts, low health
 ---------------------------------------------------------------------------
 
 function CTE:LearnSpells()
@@ -420,45 +354,46 @@ function CTE:CheckLow(unit, power)
     end
 end
 
-local function Clock(s)
-    s = floor(s + 0.5)
-    return string.format("%d:%02d", floor(s / 60), s % 60)
-end
-
-function CTE:EndFight()
-    local f = fight
-    fight = nil
-    if not f or not f.killed or not Opt("fightEnd", true) or not self:IsOn() then return end
-    local secs = max(1, Now() - f.start)
-    Emit({ k = "kill", name = f.killed, dst = f.killedGUID, time = Clock(secs), dps = f.dmg / secs, hits = f.hits,
-           critPct = f.hits > 0 and floor(f.crits / f.hits * 100 + 0.5) or 0, best = f.best or "Melee",
-           bestAmt = f.bestAmt, bestAny = max(self:BestAny() or 0, f.bestAmt), killingBlow = f.killingBlow })
-end
-
 ---------------------------------------------------------------------------
 -- The game's own numbers
 ---------------------------------------------------------------------------
 
-local GAME_CVARS = { "floatingCombatTextCombatDamage", "floatingCombatTextCombatHealing" }
+-- The game's numbers: the CVars this client's own options write (Blizzard_SettingsDefinitions_Frame, Classic
+-- CombatOverrides.lua): the _v2 damage, periodic, pet and healing numbers over the mobs (the names without _v2 do
+-- nothing on this client), and enableFloatingCombatText, the game's scrolling text over your head (hits taken,
+-- heals, procs). Each is saved the first time it is turned off and put back as it was when ours go off.
+local GAME_CVARS = { "floatingCombatTextCombatDamage_v2", "floatingCombatTextCombatLogPeriodicSpells_v2",
+                     "floatingCombatTextPetMeleeDamage_v2", "floatingCombatTextPetSpellDamage_v2",
+                     "floatingCombatTextCombatHealing_v2", "enableFloatingCombatText" }
+CTE.GAME_CVARS = GAME_CVARS
+
+local function CVar(cv)
+    if C_CVar and C_CVar.GetCVar then return C_CVar.GetCVar(cv) end
+    return GetCVar and GetCVar(cv)
+end
+local function SetCV(cv, v)
+    if C_CVar and C_CVar.SetCVar then return pcall(C_CVar.SetCVar, cv, v) end
+    if SetCVar then return pcall(SetCVar, cv, v) end
+end
 
 function CTE:ApplyGameNumbers()
-    if not (GetCVar and SetCVar) then return end
     local s = ns.db
     if not s then return end
     local hide = self:IsOn() and Opt("hideGame", true)
-    s.sctSaved = type(s.sctSaved) == "table" and s.sctSaved or nil
+    if type(s.sctSaved) ~= "table" then s.sctSaved = nil end
     if hide then
-        if not s.sctSaved then
-            local saved = {}
-            for _, cv in ipairs(GAME_CVARS) do saved[cv] = GetCVar(cv) end
-            s.sctSaved = saved
-        end
+        local saved = s.sctSaved or {}
         for _, cv in ipairs(GAME_CVARS) do
-            if GetCVar(cv) ~= nil and GetCVar(cv) ~= "0" then pcall(SetCVar, cv, "0") end
+            local v = CVar(cv)
+            if v ~= nil then
+                if saved[cv] == nil then saved[cv] = v end
+                if v ~= "0" then SetCV(cv, "0") end
+            end
         end
+        s.sctSaved = saved
     elseif s.sctSaved then
         for cv, v in pairs(s.sctSaved) do
-            if v ~= nil and GetCVar(cv) ~= nil then pcall(SetCVar, cv, v) end
+            if CVar(cv) ~= nil then SetCV(cv, v) end
         end
         s.sctSaved = nil
     end
@@ -473,7 +408,7 @@ function CTE:Refresh()
     local on = self:IsOn()
     if ns.CombatLog then ns.CombatLog:SetSubscribed("combattext", OnCLEU, on) end
     listening = on
-    if not InCombat() then self:ApplyGameNumbers() end
+    self:ApplyGameNumbers()
 end
 function CTE:IsListening() return listening end
 
@@ -484,11 +419,9 @@ function CTE:OnLogin()
     self:Refresh()
     ns:RegisterEvent("UNIT_PET", function(_, unit) if unit == "player" then pet = UnitGUID("pet") end end)
     ns:RegisterEvent("SPELLS_CHANGED", function() CTE:LearnSpells() end)
-    ns:RegisterEvent("PLAYER_REGEN_DISABLED", function()
-        fight = { start = Now(), dmg = 0, hits = 0, crits = 0, bestAmt = 0, hit = {} }
-    end)
+    ns:RegisterEvent("PLAYER_REGEN_DISABLED", function() fight = { peak = 0 } end)
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
-        CTE:EndFight()
+        fight = nil
         CTE:ApplyGameNumbers()
     end)
     ns:RegisterEvent("UNIT_HEALTH", function(_, unit)

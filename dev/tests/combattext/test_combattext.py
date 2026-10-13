@@ -2,16 +2,17 @@
 """Combat text (Core/CombatText.lua, UI/CombatText.lua, UI/CombatTextLooks.lua, UI/CombatTextPen.lua): the numbers of
 the mockup claude.ai/artifact/LeZxS4KRZhKGsQXUbLRCiE in the six UI looks.
 
-Covers: off on Blizzard (the game's numbers, the combat log not read); my hits as numbers after the merge wait, with
+Covers: off by default whatever look everything wears (its own switch, ui.sct.on; the combat log not read, the game's
+combat text left alone), on with Blizzard as its look wearing Classic; my hits as numbers after the merge wait, with
 crit, school, icon and overkill; Windfury's extra swing joining the hit before it ("Melee + Windfury", counting up);
 periodic ticks and ground spells (Consecration) as one tick group per spell and mob; misses on the mob and on me;
 hits taken with partial resists; heals on me with the healer (overhealing left out, Hide heals under); my heals on
-others; procs (short buffs in combat, my own long ones left out); new bests after 10 hits of a spell, saved per
-character; low health once until it recovers; the fight summary when combat ends after a mob I hit died; reactive
-spells lighting up; the nameplate anchor (66 px under the plate) and the target spot without one or in Columns mode;
-filters (auto attacks, Hide hits under); the game's own numbers hidden and put back; Edit layout's three spots and
-their preview; the demo pull (Try it, demo mode) in every look with no errors and no new regions the second time;
-Settings > UI's Combat text card with Try it.
+others; procs (short buffs in combat, my own long ones left out); the fight's biggest hit as Slate's scale; low health
+once until it recovers; reactive spells lighting up; the nameplate anchor (66 px under the plate) and the target spot
+without one or in Columns mode; filters (auto attacks, Hide hits under); the game's own combat text (this client's
+_v2 CVars and the text over your head) hidden at once, also in combat, and put back as it was; Edit layout's three
+spots and their preview; the demo pull (Try it, also while off; demo mode) in every look with no errors and the
+pool reused; Settings > UI's Combat text card with its switch and Try it.
 
 Run: luaenv\\Scripts\\python.exe tests\\combattext\\test_combattext.py [-k name]
 """
@@ -34,7 +35,8 @@ class Pull:
 
     def __init__(self, look="flat", plate=False, **opts):
         w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
-        c.eval("__MOCK.real_geometry = true; ns.DB:SetSetting('ui.sct.look', ...)", look)
+        c.eval("__MOCK.real_geometry = true; ns.DB:SetSetting('ui.sct.look', ...); ns.DB:SetSetting('ui.sct.on', true)",
+               look)
         for k, v in opts.items():
             c.eval("ns.DB:SetSetting(...)", "ui.sct." + k, v)
         w.tick(0.5)
@@ -78,12 +80,11 @@ class Pull:
     def log(self):
         out = self.c.eval_py("local o = {}; for i, e in ipairs(__ctlog) do o[i] = { k = e.k, amt = e.amt, "
                               "spell = e.spell, crit = e.crit, group = e.group, gname = e.gname, gkey = e.gkey, "
-                              "school = e.school, record = e.record, overkill = e.overkill, who = e.who, "
+                              "school = e.school, overkill = e.overkill, who = e.who, "
                               "resist = e.resist, what = e.what, mine = e.mine, pct = e.pct, dur = e.dur, "
-                              "name = e.name, hits = e.hits, best = e.best, bestAmt = e.bestAmt, icon = e.icon, "
-                              "hit = e.hit and e.hit.id } end; return o")
+                              "peak = e.peak, icon = e.icon, hit = e.hit and e.hit.id } end; return o")
         keys = ("k", "amt", "spell", "crit", "group", "gname", "gkey", "school", "record", "overkill", "who", "resist",
-                "what", "mine", "pct", "dur", "name", "hits", "best", "bestAmt", "icon", "hit")
+                "what", "mine", "pct", "dur", "peak", "icon", "hit")
         return [{k: e.get(k) for k in keys} for e in (out or [])]
 
     def kinds(self):
@@ -95,33 +96,62 @@ class Pull:
 
 # ------------------------------------------------------------------------------------------------------------------
 @case
-def blizzard_is_off_the_game_keeps_its_numbers():
+def off_by_default_whatever_look_everything_wears():
     w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
-    assert c.eval("return ns.CombatTextUI:LookKey()") == "blizzard"
+    assert c.eval("return ns.CombatTextUI:IsOn()") is False
+    c.eval("ns.Look:UseEverywhere('gilded'); if ns.Popup then ns.Popup:HideAll() end")
+    w.tick(0.5)
+    assert c.eval("return ns.CombatTextUI:IsOn()") is False
     assert c.eval("return ns.CombatText:IsListening()") is False
     assert c.eval("return ns.CombatLog:IsSubscribed('combattext')") is False
-    assert c.eval("return ns.CombatTextUI:TryIt()") is False
-    assert c.eval("return GetCVar('floatingCombatTextCombatDamage')") == "1"
+    assert c.eval("return GetCVar('floatingCombatTextCombatDamage_v2')") == "1"
+    assert c.eval("return GetCVar('enableFloatingCombatText')") == "1"
+    c.eval("ns.CombatTextUI:Emit({ k = 'out', amt = 100 })")
+    assert c.eval("return #ns.CombatTextUI.st.sprites") == 0
+    # Try it shows the look even while off
+    assert c.eval("return ns.CombatTextUI:TryIt()") is True
+    w.tick(2)
+    assert c.eval("return #ns.CombatTextUI.st.sprites") > 0
     w.assert_no_errors()
 
 
 @case
-def a_look_listens_and_hides_the_games_numbers_until_it_is_off_again():
+def turned_on_with_blizzard_as_its_look_it_wears_classic():
+    w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
+    c.eval("ns.DB:SetSetting('ui.sct.on', true)")
+    w.tick(0.5)
+    assert c.eval("return ns.Look:Key('sct')") == "blizzard"
+    assert c.eval("return ns.CombatTextUI:IsOn()") is True
+    assert c.eval("return ns.CombatTextUI:LookKey()") == "classic"
+    assert c.eval("return ns.CombatLog:IsSubscribed('combattext')") is True
+    w.assert_no_errors()
+
+@case
+def on_it_hides_the_games_combat_text_at_once_and_puts_it_back_off():
     p = Pull("halo")
     c = p.c
+    c.eval("ns.DB:SetSetting('ui.sct.on', false)")
+    c.eval("SetCVar('floatingCombatTextPetMeleeDamage_v2', '0')")     # (one the player had off already)
+    c.eval("ns.DB:SetSetting('ui.sct.on', true)")                       # (turned on in combat: at once)
+    assert c.eval("return InCombatLockdown()") is True
     assert c.eval("return ns.CombatLog:IsSubscribed('combattext')") is True
-    p.c.set_combat(False)
-    p.tick(0.5)
-    c.eval("ns.CombatText:Refresh()")
-    assert c.eval("return GetCVar('floatingCombatTextCombatDamage')") == "0"
-    assert c.eval("return GetCVar('floatingCombatTextCombatHealing')") == "0"
-    c.eval("ns.DB:SetSetting('ui.sct.look', 'blizzard')")
+    for cv in ("floatingCombatTextCombatDamage_v2", "floatingCombatTextCombatHealing_v2",
+               "floatingCombatTextCombatLogPeriodicSpells_v2", "floatingCombatTextPetSpellDamage_v2",
+               "enableFloatingCombatText"):
+        assert c.eval("return GetCVar(...)", cv) == "0", cv
+    c.eval("ns.DB:SetSetting('ui.sct.on', false)")
     p.tick(0.5)
     assert c.eval("return ns.CombatLog:IsSubscribed('combattext')") is False
-    assert c.eval("return GetCVar('floatingCombatTextCombatDamage')") == "1"
-    assert c.eval("return GetCVar('floatingCombatTextCombatHealing')") == "1"
+    for cv in ("floatingCombatTextCombatDamage_v2", "floatingCombatTextCombatHealing_v2",
+               "floatingCombatTextCombatLogPeriodicSpells_v2", "floatingCombatTextPetSpellDamage_v2",
+               "enableFloatingCombatText"):
+        assert c.eval("return GetCVar(...)", cv) == "1", cv
+    assert c.eval("return GetCVar('floatingCombatTextPetMeleeDamage_v2')") == "0"
+    # Hide the game's numbers off: they stay as they are
+    c.eval("ns.DB:SetSetting('ui.sct.hideGame', false); ns.DB:SetSetting('ui.sct.on', true)")
+    p.tick(0.5)
+    assert c.eval("return GetCVar('floatingCombatTextCombatDamage_v2')") == "1"
     p.w.assert_no_errors()
-
 
 @case
 def my_hit_waits_for_the_merge_then_shows_with_its_crit_school_and_icon():
@@ -235,56 +265,23 @@ def short_buffs_in_combat_show_as_procs_long_ones_of_mine_do_not():
 
 
 @case
-def a_new_best_counts_after_ten_hits_and_is_kept_per_character():
-    p = Pull("gilded")
-    for _ in range(10):
-        p.spell(35395, "Crusader Strike", 4000, school=1)
-        p.tick(0.3)
-    assert not [e for e in p.log() if e["record"]]
-    p.spell(35395, "Crusader Strike", 4812, crit=True, school=1)
-    p.tick(0.3)
-    last = p.log()[-1]
-    assert (last["amt"], last["record"]) == (4812, 4000), last
-    best = p.c.eval_py("return ns.db.sct[ns.Util.PlayerKey()].best['Crusader Strike']")
-    assert best == [4812, 11], best
-    p.c.eval("ns.DB:SetSetting('ui.sct.bests', false)")
-    p.spell(35395, "Crusader Strike", 6000, school=1)
-    p.tick(0.3)
-    assert p.log()[-1]["record"] is None
-    p.w.assert_no_errors()
-
-
-@case
-def overkill_marks_the_killing_hit_and_the_fight_ends_with_a_summary():
+def overkill_marks_the_killing_hit_and_nothing_sums_the_fight_up():
     p = Pull("slate")
     p.swing(1284)
     p.spell(35395, "Crusader Strike", 3412, crit=True, school=1)
     p.tick(0.3)
     p.spell(27180, "Hammer of Wrath", 5921, crit=True, overkill=1380)
-    p.ev("PARTY_KILL", p.me, "Alice", ME_FLAGS, p.boss, "Void Reaver", BOSS_FLAGS)
     p.ev("UNIT_DIED", "", "", 0, p.boss, "Void Reaver", BOSS_FLAGS)
     p.tick(0.3)
-    kb = [e for e in p.log() if e["spell"] == "Hammer of Wrath"][0]
+    p.c.set_combat(False)
+    p.tick(0.3)
+    log = p.log()
+    kb = [e for e in log if e["spell"] == "Hammer of Wrath"][0]
     assert kb["overkill"] == 1380
-    p.c.set_combat(False)
-    p.tick(0.3)
-    k = [e for e in p.log() if e["k"] == "kill"]
-    assert len(k) == 1, p.kinds()
-    k = k[0]
-    assert (k["name"], k["hits"], k["best"], k["bestAmt"]) == ("Void Reaver", 3, "Hammer of Wrath", 5921), k
+    assert [e["peak"] for e in log if e["k"] == "out"] == [1284, 3412, 5921]     # (Slate's scale: the fight's biggest)
+    assert {e["k"] for e in log} == {"out"}, log
+    assert p.c.eval("return ns.db.sct == nil") is True                          # (no bests are kept)
     p.w.assert_no_errors()
-
-
-@case
-def no_summary_when_nothing_i_hit_died():
-    p = Pull("flat")
-    p.swing(1000)
-    p.tick(0.3)
-    p.c.set_combat(False)
-    p.tick(0.3)
-    assert "kill" not in p.kinds()
-    p.w.assert_no_errors()
-
 
 @case
 def low_health_once_until_it_recovers():
@@ -368,7 +365,7 @@ def the_demo_pull_plays_in_every_look_and_reuses_its_regions():
 @case
 def demo_mode_plays_the_pull():
     w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
-    c.eval("ns.DB:SetSetting('ui.sct.look', 'gilded')")
+    c.eval("ns.DB:SetSetting('ui.sct.look', 'gilded'); ns.DB:SetSetting('ui.sct.on', true)")
     w.tick(0.5)
     c.slash("/dz demo on")
     w.tick(1)
@@ -403,8 +400,10 @@ def settings_ui_has_the_combat_text_card_with_try_it():
     texts = c.eval_py("local o = {}; local function walk(f) for _, r in ipairs({ f:GetRegions() }) do "
                       "if r.GetText and r:IsVisible() and r:GetText() then o[#o + 1] = r:GetText() end end; "
                       "for _, k in ipairs({ f:GetChildren() }) do walk(k) end end; walk(UIParent); return o")
-    for t in ("Combat text", "Where numbers go", "Hide the game's numbers", "Try it", "New bests"):
+    for t in ("Combat text", "Show combat text", "Where numbers go", "Hide the game's numbers", "Try it"):
         assert t in texts, t
+    for t in ("New bests", "Fight summary"):
+        assert t not in texts, t
     w.assert_no_errors()
 
 

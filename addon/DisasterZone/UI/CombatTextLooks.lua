@@ -2,14 +2,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/CombatTextLooks.lua", ...) then
 -- The six looks of the combat text (ns.CombatTextLooks), ported line by line from the mockup
 -- (claude.ai/artifact/LeZxS4KRZhKGsQXUbLRCiE; dev/art/casc/sct_mockup/sct_template.html), so they move and look as
 -- shown there. Each look spawns numbers for the stage's events (UI/CombatText.lua): out (my hits; group "tick" =
--- ticks that count up in place, "multi" = hits that land together), miss, taken, heal, proc, alert, lowhp, kill.
+-- ticks that count up in place, "multi" = hits that land together), miss, taken, heal, proc, alert, lowhp.
 -- A number draws itself every frame with the pen (UI/CombatTextPen.lua) in coordinates local to its anchor, in the
 -- mockup's px: the hit point of the mob (its nameplate), you, the alerts spot, or the screen's top left.
 --   flat    rolling totals: hits that land together count up as one line
 --   halo    crit rings: a ring fires out of a crit; ticks land round the target on a ring
 --   sigil   stamp and shatter: numbers slam down, a crit's tile breaks into shards; tally pips for ticks
---   slate   hairlines and a receipt: a feed beside the target, each hit's size as a hairline, a fight receipt
---   gilded  new records: per-spell bests in a gilded banner, gold sparks, big crits in a cartouche
+--   slate   hairlines: a feed beside the target, each hit's size as a hairline (against the fight's biggest hit)
+--   gilded  gold and sparks: gold, silver and gem numbers, sparks off crits, big crits in a cartouche
 --   classic the game's damage font and its scrolling text over your head, reactive alerts in the button's glow
 local addonName, ns = ...
 
@@ -103,8 +103,6 @@ F.out = function(st, ev)
     local x0, y0, crit = st:Lane(ev), HIT.y, ev.crit
     local life = crit and 1.75 or 1.25
     local col, str = School(ev), fmt(ev.amt)
-    local best = ev.record and ("Best " .. (ev.spell or "")) or nil
-    local was = ev.record and ("was " .. fmt(ev.record)) or nil
     local over = ev.overkill and (fmt(ev.overkill) .. " overkill") or nil
     local pet = ev.pet and 0.8 or 1
     local fill = {}
@@ -123,12 +121,7 @@ F.out = function(st, ev)
             local r = clamp(1 - t / 0.5)
             if r > 0 then c:Rect(x0 - w / 2, y + sz * 0.5 + 2, w * r, 2, W, 0.9 * r) end
         end
-        local ly = y + sz * 0.5 + 15
-        if best then
-            c:R(); c:RT(best, "Friz", 11, GOLD, 1); c:RT(was, "Friz", 11, GREYT, 1); c:RD(x0, ly, 6)
-            ly = ly + 15
-        end
-        if over then c:Text(over, x0, ly, "Friz", 11, GREYT, 1) end
+        if over then c:Text(over, x0, y + sz * 0.5 + 15, "Friz", 11, GREYT, 1) end
     end }, ev.hit)
 end
 F.tick = function(st, ev)
@@ -220,19 +213,6 @@ F.lowhp = function(st, ev)
         c:Text(label, ME.x, ME.y - 26, "Friz", 12, tc, 1)
     end }, st.you)
 end
-F.kill = function(st, ev)
-    local sub = C("#a29fae")
-    local dps = fmt(ev.dps) .. " dps"
-    st:Add({ life = 2.4, draw = function(c, s)
-        local t = s.age
-        c.a = fade(t, s.life, 0.15) * fin(t, 0.12)
-        c:R(); c:RT(ev.name or "", "Friz", 13, W); c:RT(ev.time or "", "ArialN", 14, sub); c:RT(dps, "ArialN", 14, GOLD)
-        flatChip(c, MID.x, MID.y, c:RW(10) + 22, 30)
-        c:R(); c:RT(ev.name or "", "Friz", 13, W); c:RT(ev.time or "", "ArialN", 14, sub); c:RT(dps, "ArialN", 14, GOLD)
-        c:RD(MID.x, MID.y, 10)
-    end }, st.top)
-end
-
 ---------------------------------------------------------------------------
 -- Halo: crit rings
 ---------------------------------------------------------------------------
@@ -284,11 +264,6 @@ HALO.crit = function(st, ev)
     local x0, y0 = st:Lane(ev) * 0.6, HIT.y - 6
     local col, str = School(ev), fmt(ev.amt)
     HALO.ring(st, ev.hit, x0, y0, 1, RINGC)
-    if ev.record then
-        HALO.ring(st, ev.hit, x0, y0, 1.5, GOLD, 0.12)
-        HALO.ring(st, ev.hit, x0, y0, 2.1, GOLD, 0.26)
-    end
-    local was = ev.record and ("was " .. fmt(ev.record)) or nil
     local over = ev.overkill and (fmt(ev.overkill) .. " overkill") or nil
     local fill = {}
     st:Add({ life = 1.7, draw = function(c, s)
@@ -301,12 +276,7 @@ HALO.crit = function(st, ev)
         if ev.icon then c:RI(ev.icon, floor(24 * sc + 0.5), "round") end
         c:RT(str, "Friz", floor(30 * sc + 0.5), Mix(W, col, t / 0.3, fill), 1, nil, GLOWC, 0.85)
         c:RD(x0, y, 7)
-        local ly = y + 30
-        if was then
-            c:Text("BEST EVER", x0, ly, "Friz", 11, GOLD, 1)
-            c:Text(was, x0, ly + 15, "Friz", 11, PALE2, 1)
-        end
-        if over then c:Text(over, x0, ly, "Friz", 11, PALE2, 1) end
+        if over then c:Text(over, x0, y + 30, "Friz", 11, PALE2, 1) end
     end }, ev.hit)
 end
 HALO.tick = function(st, ev)
@@ -459,28 +429,6 @@ HALO.lowhp = function(st, ev)
         c:Img(Pen.LOWHP, Wd / 2, Hd / 2, Wd, Hd, red, 0.9 * fade(t, s.life, 0.3) * (0.55 + 0.45 * sin(t * 7)))
     end }, st.screen)
 end
-HALO.kill = function(st, ev)
-    st:Add({ life = 1.1, draw = function(c, s)
-        local k = s.age / s.life
-        local r, a
-        if k < 0.38 then
-            r = 20 + 260 * (1 - easeIn(k / 0.38)); a = 0.35 + 0.65 * (k / 0.38)
-        else
-            local q = (k - 0.38) / 0.62
-            r = 20 + 320 * easeOut(q); a = 1 - q
-        end
-        c.a = a
-        c:Arc(BOSS.x, BOSS.y - 10, r, r * 0.62, 0, TAU, 2.5, HGOLD, 1, true)
-    end }, ev.hit)
-    local line = (ev.time or "") .. "  \194\183  " .. fmt(ev.dps) .. " dps"
-    st:Add({ life = 2.4, draw = function(c, s)
-        local t = s.age
-        c.a = fade(t, s.life, 0.15) * fin(t - 0.35, 0.2)
-        c:Text(ev.name or "", MID.x, MID.y - 6, "Friz", 18, GOLD, 1, nil, HGOLD, 0.7)
-        c:Text(line, MID.x, MID.y + 16, "Friz", 12, PALE, 1)
-    end }, st.top)
-end
-
 ---------------------------------------------------------------------------
 -- Sigil: stamp and shatter
 ---------------------------------------------------------------------------
@@ -602,7 +550,6 @@ SIGIL.crit = function(st, ev)
     local col, str = School(ev), fmt(ev.amt)
     local life = 1.9
     local brk = life - 0.42
-    local was = ev.record and ("WAS " .. fmt(ev.record)) or nil
     local over = ev.overkill and ("OVERKILL " .. fmt(ev.overkill)) or nil
     st:Add({ life = life, draw = function(c, s)
         local t = s.age
@@ -616,16 +563,11 @@ SIGIL.crit = function(st, ev)
         local w, h = c:RW(8) + 36, 48
         if t < brk then
             tile(c, 0, 0, w, h, SGOLD, 0.8, SGOLD, 0.32)
-            if ev.record then Edge(c, -w / 2 - 4, -h / 2 - 4, w + 9, h + 9, SGOLD, 0.55) end
             c:R()
             if ev.icon then c:RI(ev.icon, 26, "framed") end
             c:RT(str, "Friz", 30, col, 2)
             c:RD(0, 1, 8)
             sigTag(c, "CRIT", -w / 2 + 22, -h / 2)
-            if was then
-                sigTag(c, "NEW BEST", w / 2 - 36, -h / 2, 9, C("#111111"), W, 0.45, SGOLD, 0.95)
-                c:Text(was, 0, h / 2 + 13, "Friz", 9, C("#d6cfb4"), 1)
-            end
             if over then c:Text(over, 0, h / 2 + 13, "Friz", 9, C("#d6cfb4"), 1) end
             dust(c, w, h, t, 0.1)
         else
@@ -770,30 +712,8 @@ SIGIL.lowhp = function(st, ev)
             ev.mana and C("#4678ff") or C("#ff4632"), 0.45)
     end }, st.you)
 end
-SIGIL.kill = function(st, ev)
-    local life = 2.4
-    local brk = life - 0.45
-    local line = Caps((ev.name or "") .. "  \194\183  " .. (ev.time or "") .. "  \194\183  " .. fmt(ev.dps) .. " dps")
-    st:Add({ life = life, draw = function(c, s)
-        local t = s.age
-        local S = stamp(t, 2.4, 0.11)
-        c.a = S.a
-        c:Translate(MID.x + S.dx, MID.y + S.dy)
-        c:Scale(S.sc)
-        local w, h = 300, 60
-        if t < brk then
-            tile(c, 0, 0, w, h, SGOLD, 0.85, SGOLD, 0.3)
-            c:Text("S L A I N", 0, -6, "Friz", 28, SGOLD, 2)
-            c:Text(line, 0, 18, "Friz", 9, C("#cfcbd8"), 0)
-            dust(c, w, h, t, 0.11)
-        else
-            shards(c, w, h, (t - brk) / (life - brk))
-        end
-    end }, st.top)
-end
-
 ---------------------------------------------------------------------------
--- Slate: hairlines and a receipt
+-- Slate: hairlines
 ---------------------------------------------------------------------------
 
 local SLATE = {}
@@ -848,16 +768,16 @@ SLATE.inLine = function(st, line)
     line.draw = function(c, s) slateDraw(c, s, IX, IY, ITRACKW) end
     return slatePush(st, "in", st.you, line)
 end
-local function BestAny(ev) return ev.bestAny or 6240 end
+-- (a hit's hairline: its share of the fight's biggest hit so far)
+local function Peak(ev) return ev.peak or ev.amt or 1 end
 SLATE.out = function(st, ev)
     if ev.group then return SLATE.tick(st, ev) end
     local melee = ev.spell == "Melee" or not ev.icon
-    local tag = (ev.record and ("best \194\183 was " .. fmt(ev.record)))
-        or (ev.overkill and ("crit \194\183 " .. fmt(ev.overkill) .. " overkill"))
+    local tag = (ev.overkill and ((ev.crit and "crit \194\183 " or "") .. fmt(ev.overkill) .. " overkill"))
         or (ev.crit and "crit") or nil
     SLATE.outLine(st, ev, { amt = fmt(ev.amt), name = ev.spell or "Melee", ncol = melee and SNAME or MyClassColor(),
-        frac = (ev.amt or 0) / BestAny(ev), col = ev.crit and W or SAMT,
-        hcol = (ev.record or ev.crit) and GOLD or W, ha = ev.record and 1 or (ev.crit and 0.85 or 0.45), tag = tag })
+        frac = (ev.amt or 0) / Peak(ev), col = ev.crit and W or SAMT,
+        hcol = ev.crit and GOLD or W, ha = ev.crit and 0.85 or 0.45, tag = tag })
 end
 SLATE.tick = function(st, ev)
     local g = st.groups[ev.gkey]
@@ -870,7 +790,7 @@ SLATE.tick = function(st, ev)
         g.line = SLATE.outLine(st, ev, { life = 3.2, get = function()
             L2.amt = fmt(g.shown)
             L2.name = (g.spell or first.spell or "") .. (g.n > 1 and ("  \195\151" .. g.n) or "")
-            L2.frac = g.total / BestAny(first)
+            L2.frac = g.total / max(Peak(first), g.total)
             return L2
         end, update = function(s, dt) g.shown = g.shown + (g.total - g.shown) * min(1, dt * 11) end })
         g.line.g, g.line.gkey = g, ev.gkey
@@ -922,37 +842,8 @@ SLATE.alert = function(st, ev)
         c:Rect(MID.x - 70, MID.y + 11, 140, 2, GOLD, 0.5 + 0.5 * abs(sin(t * 5)))
     end }, st.top)
 end
-SLATE.kill = function(st, ev)
-    for _, l in ipairs(st:Feed("out", ev.hit)) do
-        if not l.ending then l.ending = true; l.life = l.age + 0.25 end
-    end
-    local bg = C("#0d0d11")
-    local bestAmt = fmt(ev.bestAmt)
-    local frac = (ev.bestAmt or 0) / (ev.bestAny or 6240)
-    st:Add({ life = 2.6, draw = function(c, s)
-        local t = s.age
-        local x, y, w, h = OX - 52, OY - 118 + 8 * (1 - easeOut(t / 0.3)), 250, 86
-        c.a = fade(t, s.life, 0.15) * fin(t - 0.15, 0.2)
-        c:Rect(x, y, w, h, bg, 0.8)
-        Edge(c, x, y, w, h, W, 0.1)
-        c:Text(ev.name or "", x + 12, y + 17, "Friz", 13, W, 0, "LEFT")
-        c:Text(ev.time or "", x + w - 12, y + 17, "ArialN", 15, SSUB, 0, "RIGHT")
-        c:Rect(x + 12, y + 31, w - 24, 1, W, 0.08)
-        c:R()
-        c:RT(fmt(ev.dps), "ArialN", 15, W); c:RT("dps", "ArialN", 13, SSUB)
-        c:RT(tostring(ev.hits or 0), "ArialN", 15, W); c:RT("hits", "ArialN", 13, SSUB)
-        c:RT((ev.critPct or 0) .. "%", "ArialN", 15, W); c:RT("crit", "ArialN", 13, SSUB)
-        c:RD(x + 12, y + 46, 5, "LEFT")
-        c:R(); c:RT("best", "ArialN", 13, SSUB); c:RT(ev.best or "", "ArialN", 14, MyClassColor())
-        c:RT(bestAmt, "ArialN", 15, GOLD)
-        c:RD(x + 12, y + 68, 6, "LEFT")
-        local fw = (w - 24) * easeOut((t - 0.3) / 0.5) * clamp(frac)
-        if fw > 0 then c:Rect(x + 12, y + 78, fw, 2, GOLD, 1) end
-    end }, ev.hit)
-end
-
 ---------------------------------------------------------------------------
--- Gilded: new records
+-- Gilded: gold and sparks
 ---------------------------------------------------------------------------
 
 local GILD = {}
@@ -1032,23 +923,6 @@ local function medal(c, x, y, n, pulse)
     c:GText(tostring(n), x, y + 1, 12 * (1 + 0.25 * pulse * pulse), GP.gold, "Friz", "CENTER", nil, 1)
 end
 
-GILD.banner = function(st, title, sub, life, shower)
-    local x, y = MID.x, MID.y
-    if shower then
-        sparks(st, st.top, x, y + 30, 34, st.clock * 7 + 3, pi / 2, 1.2, 20, 80, 240, 1.0, 320)
-        sparks(st, st.top, x, y, 22, st.clock * 3 + 1)
-    end
-    st:Add({ life = life, draw = function(c, s)
-        local t = s.age
-        local sc = t < 0.18 and (0.6 + 0.4 * easeOut(t / 0.18)) or 1
-        c.a = fade(t, life, 0.2) * fin(t, 0.1)
-        c:Translate(x, y)
-        c:Scale(sc)
-        cartouche(c, 0, 0, 380, 64, 24)
-        c:GText(title, 0, -9, 28, GP.gold, "Morpheus", "CENTER", (t - 0.2) / 0.6, 2)
-        c:Text(sub, 0, 17, "Friz", 12, GPALE, 0)
-    end }, st.top)
-end
 GILD.out = function(st, ev)
     if ev.group then return GILD.tick(st, ev) end
     local crit = ev.crit
@@ -1061,9 +935,6 @@ GILD.out = function(st, ev)
     local over = ev.overkill and (fmt(ev.overkill) .. " overkill") or nil
     local pet = ev.pet and 0.8 or 1
     if crit then sparks(st, ev.hit, x0, y0, big and 30 or 18, (ev.amt or 1) * 0.031) end
-    if ev.record then
-        GILD.banner(st, "New Record", (ev.spell or "") .. " " .. str .. "   \194\183   was " .. fmt(ev.record), 1.9, true)
-    end
     st:Add({ life = life, draw = function(c, s)
         local t = s.age
         local y = y0 - (big and 30 or (crit and 50 or 66)) * easeOut(t / life)
@@ -1173,11 +1044,6 @@ GILD.lowhp = function(st, ev)
         c:Img(Pen.LOWHP, Wd / 2, Hd / 2, Wd, Hd, red, fade(t, s.life, 0.3) * (0.55 + 0.45 * sin(t * 7)))
     end }, st.screen)
 end
-GILD.kill = function(st, ev)
-    local kb = ev.killingBlow and ("   \194\183   killing blow " .. fmt(ev.killingBlow)) or ""
-    GILD.banner(st, (ev.name or "") .. " slain", (ev.time or "") .. "   \194\183   " .. fmt(ev.dps) .. " dps" .. kb, 2.4, true)
-end
-
 ---------------------------------------------------------------------------
 -- Classic: the game's own way
 ---------------------------------------------------------------------------
@@ -1210,9 +1076,6 @@ CLASSIC.out = function(st, ev)
     local crit = ev.crit
     local life = crit and 1.6 or 1.4
     local pet = ev.pet and 0.8 or 1
-    if ev.record then
-        CLASSIC.fct(st, "New best: " .. (ev.spell or "") .. " " .. str, C("#ffd100"), 18, 2.2, 0)
-    end
     st:Add({ life = life, draw = function(c, s)
         local t = s.age
         local y = HIT.y - 6 - (crit and 48 or 62) * (t / life)
@@ -1265,9 +1128,8 @@ CLASSIC.alert = function(st, ev)
         c:Text(call, MID.x, MID.y + 46, "Friz", 24, CYELLOW, 1)
     end }, st.top)
 end
-CLASSIC.kill = function(st, ev) CLASSIC.fct(st, "Killing Blow!", C("#ffd100"), 24, 2.2, 0) end
 
 -- Looks by key (the UI looks' keys)
 L.ORDER = { "flat", "halo", "sigil", "slate", "gilded", "classic" }
 L.SIGNATURE = { flat = "Rolling totals", halo = "Crit rings", sigil = "Stamp and shatter",
-                slate = "Hairlines and a receipt", gilded = "New records", classic = "Reactive alerts" }
+                slate = "Hairlines", gilded = "Gold and sparks", classic = "Reactive alerts" }
