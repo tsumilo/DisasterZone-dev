@@ -191,6 +191,7 @@ local LAYERS = { "BACKGROUND", "BORDER", "ARTWORK", "OVERLAY" }
 function Pen:Begin(h, x, y)
     c.h = h
     c.ox, c.oy, c.sc, c.a, c.add, c.n = x or 0, y or 0, 1, 1, false, 0
+    c.bx0 = nil
     for _, k in ipairs(KINDS) do c[k] = 0 end
     sp = 0
     return c
@@ -244,6 +245,17 @@ function c:Pop()
 end
 function c:Translate(x, y) self.ox = self.ox + x * self.sc; self.oy = self.oy + y * self.sc end
 function c:Scale(s) self.sc = self.sc * s end
+
+-- The box this drawing's readable parts (texts, icons) cover, in the host's units (the stage keeps numbers apart
+-- with it); faint parts don't count.
+function c:Box(x0, y0, x1, y1)
+    if self.a < 0.25 then return end
+    if not self.bx0 then self.bx0, self.by0, self.bx1, self.by1 = x0, y0, x1, y1 return end
+    if x0 < self.bx0 then self.bx0 = x0 end
+    if y0 < self.by0 then self.by0 = y0 end
+    if x1 > self.bx1 then self.bx1 = x1 end
+    if y1 > self.by1 then self.by1 = y1 end
+end
 
 local function Slot(self)
     local n = self.n
@@ -592,6 +604,11 @@ function c:Text(s, x, y, font, size, col, ow, align, glow, glowA)
     fs:SetTextColor(col[1], col[2], col[3], 1)
     fs:SetAlpha(self.a)
     local px, py = self.ox + x * sc, self.oy + y * sc
+    if self.a >= 0.25 then
+        local w = self:W(font, size, s, ow) * sc
+        local l = (align == "LEFT" and px) or (align == "RIGHT" and px - w) or (px - w / 2)
+        self:Box(l, py - z / 2, l + w, py + z / 2)
+    end
     if k.x ~= px or k.y ~= py or k.al ~= align then
         fs:ClearAllPoints()
         fs:SetPoint(ALIGN[align] or "CENTER", self.h, "TOPLEFT", px, -py)
@@ -683,6 +700,7 @@ local function IconTex(self, u, tex, cx, cy, sz, inset, round, coords)
     local sc = self.sc
     local s = (sz - 2 * inset) * sc
     local px, py = self.ox + cx * sc, self.oy + cy * sc
+    self:Box(px - s / 2, py - s / 2, px + s / 2, py + s / 2)
     if k.x ~= px or k.y ~= py or k.s ~= s then
         t:ClearAllPoints()
         t:SetPoint("CENTER", self.h, "TOPLEFT", px, -py)
@@ -774,6 +792,7 @@ function c:GText(s, x, y, size, pal, face, align, shine, ow)
     local px, py = self.ox + x * sc, self.oy + y * sc
     align = align or "CENTER"
     local left = (align == "LEFT" and px) or (align == "RIGHT" and px - w) or (px - w / 2)
+    self:Box(left, py - z / 2, left + w, py + z / 2)
     local fresh = k.s ~= s or k.z ~= z or k.p ~= path
     if fresh then
         u.base:SetFont(path, z, OW[ow or 2])

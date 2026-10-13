@@ -204,7 +204,7 @@ end
 local IsItemInRange = (C_Item and C_Item.IsItemInRange) or _G.IsItemInRange
 
 function UI:Measure(yd)
-    R.yd, R.n, R.noPos = yd, 0, false
+    R.yd, R.n, R.noPos = yd, 0, false; R.blocked = false
     local dots, near = R.dots, R.near
     for i = #dots, 1, -1 do dots[i] = nil end
     for i = #near, 1, -1 do near[i] = nil end
@@ -244,7 +244,8 @@ function UI:Measure(yd)
                 dist = d2 ^ 0.5
                 close = dist < yd
                 answered = true
-            elseif item and IsItemInRange then
+            elseif item and IsItemInRange and not (InCombatLockdown and InCombatLockdown()) then
+                -- friendly item checks are protected in combat (verified in Ramparts 2026-10-13: nil + "Interface action failed")
                 local r = IsItemInRange(item, u)
                 if r ~= nil then answered = true; close = r end
             end
@@ -258,7 +259,13 @@ function UI:Measure(yd)
             end
         end
     end
-    if not answered and #list > 0 then BM().rangeMode = "none" return nil end
+    if not answered and #list > 0 then
+        -- nothing could measure (instance + combat): say so rather than an empty "nobody near" frame
+        BM().rangeMode = "none"
+        R.blocked = true
+        return R
+    end
+    R.blocked = false
     BM().rangeMode = "distances"
     table.sort(near, function(p, q) return (p.d or 0) < (q.d or 0) end)
     return R
@@ -272,7 +279,7 @@ local DEMO_RAID = { { "Victhar", "WARRIOR" }, { "Moonwhisper", "DRUID" }, { "Que
 local function rnd(s) local x = sin(s * 12.9898 + 4.1414) * 43758.5453; return x - floor(x) end
 local function io(k) k = max(0, min(1, k)); return k < 0.5 and 4 * k * k * k or 1 - ((-2 * k + 2) ^ 3) / 2 end
 function UI:DemoRange(yd, t)
-    R.yd, R.n, R.noPos = yd, 0, false
+    R.yd, R.n, R.noPos = yd, 0, false; R.blocked = false
     local dots, near = R.dots, R.near
     for i = #dots, 1, -1 do dots[i] = nil end
     for i = #near, 1, -1 do near[i] = nil end

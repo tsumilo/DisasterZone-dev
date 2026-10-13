@@ -86,6 +86,7 @@ end
 local LGREY, LRED, LGREEN = C("#b9b6c4"), C("#ff6a5e"), C("#5fe05a")
 local function RangeList(c, R, x, y, w, font)
     font = font or "ArialN"
+    if R.blocked then c:Text("Range can't be measured in combat here", x, y, font, 13, LGREY, 1, "LEFT") return end
     local n = 0
     for _, d in ipairs(R.near or {}) do
         n = n + 1

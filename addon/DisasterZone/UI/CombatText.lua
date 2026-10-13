@@ -161,15 +161,65 @@ function st:Step(dt)
     end
 end
 
-function st:Render()
+-- Keeping numbers apart: each frame, a number whose box (last frame's, from the pen) overlaps an older one's is
+-- given a push away from it, mostly up or down, and eases there; pushes only grow while it lives, so nothing
+-- bounces back into the crowd. Wide things (banners) and the screen's own drawings are left where they are.
+local PAD, PUSH_MAX, WIDE = 3, 70, 320
+
+local function Spread(list, dt)
+    local n = #list
+    for i = 1, n do
+        local a = list[i]
+        if a.bx0 and not a.under and a.at ~= st.screen and a.bx1 - a.bx0 < WIDE then
+            local ax0, ay0 = a.bx0 + (a.nx or 0), a.by0 + (a.ny or 0)
+            local ax1, ay1 = a.bx1 + (a.nx or 0), a.by1 + (a.ny or 0)
+            for j = 1, n do
+                local b = list[j]
+                -- (the younger of the two moves: the older one is already being read)
+                if b ~= a and b.bx0 and not b.under and b.at ~= st.screen and b.bx1 - b.bx0 < WIDE
+                    and (b.age > a.age or (b.age == a.age and j < i)) then
+                    local bx0, by0 = b.bx0 + (b.nx or 0), b.by0 + (b.ny or 0)
+                    local bx1, by1 = b.bx1 + (b.nx or 0), b.by1 + (b.ny or 0)
+                    local px = min(ax1, bx1) - max(ax0, bx0) + PAD
+                    local py = min(ay1, by1) - max(ay0, by0) + PAD
+                    if px > 0 and py > 0 then
+                        local acy, bcy = (ay0 + ay1) / 2, (by0 + by1) / 2
+                        if px < py * 0.5 then
+                            local d = ((ax0 + ax1) / 2 < (bx0 + bx1) / 2) and -1 or 1
+                            a.tx = max(-PUSH_MAX, min(PUSH_MAX, (a.tx or 0) + d * px))
+                        else
+                            local d = (acy <= bcy) and -1 or 1
+                            a.ty = max(-PUSH_MAX, min(PUSH_MAX, (a.ty or 0) + d * py))
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local k = min(1, dt * 12)
+    for i = 1, n do
+        local s = list[i]
+        if s.tx or s.ty then
+            s.nx = (s.nx or 0) + ((s.tx or 0) - (s.nx or 0)) * k
+            s.ny = (s.ny or 0) + ((s.ty or 0) - (s.ny or 0)) * k
+        end
+    end
+end
+
+function st:Render(dt)
     local c = Pen.c
+    Spread(self.sprites, dt or 1 / 60)
     for pass = 1, 2 do
         local under = pass == 1
         for _, s in ipairs(self.sprites) do
             if (s.under and true or false) == under and s.host then
                 local x, y = s.at:Pos(self)
-                Pen:Begin(s.host, x, y)
+                local nx, ny = s.nx or 0, s.ny or 0
+                Pen:Begin(s.host, x + nx, y + ny)
                 local ok, err = pcall(s.draw, c, s, self)
+                -- (the box without the push: Spread adds it back)
+                if c.bx0 then s.bx0, s.by0, s.bx1, s.by1 = c.bx0 - nx, c.by0 - ny, c.bx1 - nx, c.by1 - ny
+                else s.bx0 = nil end
                 Pen:End()
                 if not ok then s.life = 0; CT:Report(err) end
             end
@@ -187,7 +237,7 @@ end
 local function OnUpdate(_, elapsed)
     local dt = min(0.05, elapsed or 0)
     st:Step(dt)
-    st:Render()
+    st:Render(dt)
     if #st.sprites == 0 and #st.queue == 0 and not CT.previewing then CT:Sleep() end
 end
 
@@ -212,7 +262,7 @@ function CT:IsAwake() return awake end
 -- One step by hand (tests): dt seconds, then draw.
 function CT:Tick(dt)
     st:Step(dt or 1 / 60)
-    st:Render()
+    st:Render(dt or 1 / 60)
 end
 
 ---------------------------------------------------------------------------
