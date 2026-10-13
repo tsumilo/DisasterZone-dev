@@ -244,6 +244,30 @@ end
 
 local KIND_WORD = { one = "One answer", many = "Several answers", yn = "Yes or no", days = "Pick days" }
 
+-- (1.4.1) A poll of several questions: how many (nil for one question).
+local function QCount(p)
+    local _, n = P():QuestionOf(p)
+    return n
+end
+
+-- What a poll is, on the lists: "One answer", or "3 questions".
+local function PollWord(p)
+    local n = QCount(p)
+    return n and (n .. " questions") or KIND_WORD[p.k]
+end
+
+-- The question to open a poll on: the first one I haven't answered while it's open, else its first one here.
+local function StartQuestion(p)
+    local Pl = P()
+    if not QCount(p) then return p end
+    if Pl:IsOpen(p) and Pl:AsksMe(p) then
+        for _, q in ipairs((Pl:Questions(p))) do
+            if q and not Pl:MyVote(q) then return q end
+        end
+    end
+    return Pl:Lead(p)
+end
+
 -- "today 20:00", "tomorrow", "Sun 20:00", "Fri 17 Oct"
 local function When(t, withTime)
     local now = ns.Util.Now()
@@ -332,7 +356,13 @@ end
 ---------------------------------------------------------------------------
 
 local KIND_ICON = { one = "Interface\\Icons\\INV_Scroll_03", many = "Interface\\Icons\\INV_Misc_Note_05",
-                    yn = "Interface\\Icons\\INV_Misc_Coin_01", days = "Interface\\Icons\\INV_Misc_PocketWatch_01" }
+                    yn = "Interface\\Icons\\INV_Misc_Coin_01", days = "Interface\\Icons\\INV_Misc_PocketWatch_01",
+                    multi = "Interface\\Icons\\INV_Misc_Book_09" }
+
+-- A poll's icon on the lists: its kind's, or the book of a poll of several questions.
+local function ListIcon(p)
+    return QCount(p) and KIND_ICON.multi or (KIND_ICON[p.k] or KIND_ICON.one)
+end
 local THEMES = { "kara", "gruul", "mag", "ssc", "tk", "hyjal", "bt", "za", "swp" }
 
 -- A poll's art: the theme of the first team it asks, else one picked from its id (so it stays put).
@@ -442,17 +472,32 @@ local function Banner(b)
 end
 
 -- Fills a banner for poll p. mode "list" (the poll waiting for me on the list) | "page" (the poll's own page).
+-- (1.4.1) A poll of several questions: on the list as a whole (who answered every question, Answer opens the first
+-- one I haven't); on its page as the question that is open, "Question 2 of 3" over it.
 local function FillBanner(b, p, mode)
     local Pl = P()
+    local qi, qn = Pl:QuestionOf(p)
+    local whole = qn and mode == "list"
     b.pid = p.id
     b.building = true
     b:SetArt(ArtKey(p))
-    b:SetIcon(KIND_ICON[p.k] or KIND_ICON.one)
+    b:SetIcon(whole and KIND_ICON.multi or (KIND_ICON[p.k] or KIND_ICON.one))
     local open = Pl:IsOpen(p)
-    b:SetKicker(mode == "list" and ("Waiting for you · " .. KIND_WORD[p.k] .. " · closes " .. When(p.cl, true)) or nil)
+    if mode == "list" then
+        b:SetKicker("Waiting for you · " .. PollWord(p) .. " · closes " .. When(p.cl, true))
+    else
+        b:SetKicker(qn and ("Question " .. qi .. " of " .. qn) or nil)
+    end
     b:SetTitle(p.q)
     local res = Pl:Results(p)
-    local meta = { KIND_WORD[p.k] }
+    if whole then
+        local answered, total, waiting = Pl:AnsweredAllCount(p)
+        local votes = {}
+        for _, slot in ipairs(p.m) do votes[slot] = res.votes[slot] end
+        for _, slot in ipairs(waiting) do votes[slot] = nil end
+        res = { answered = answered, total = total, waiting = waiting, votes = votes }
+    end
+    local meta = { whole and PollWord(p) or KIND_WORD[p.k] }
     meta[#meta + 1] = (IsMe(p.by) and "asked by you" or ("asked by " .. Name(p.by)))
     meta[#meta + 1] = TargetsWord(p)
     if mode == "page" and p.k == "days" then meta[#meta + 1] = Plural(#p.o, "day") end
@@ -494,15 +539,15 @@ local function FillBanner(b, p, mode)
     b:SetTools((mode == "page" and Pl:CanManage(p)) and b.toolList or nil)
     local asked = Pl:AsksMe(p)
     local action
-    if p.k == "yn" and asked and open and (not mine or p.ch) then
+    if p.k == "yn" and not whole and asked and open and (not mine or p.ch) then
         local picked = mine and mine.c[1] or nil
         b.seg:Set({ "Yes", "No" }, picked, function(i)
-            Pl:Vote(p.id, { i })
+            if Pl:Vote(p.id, { i }) then PollsUI:NextQuestion(p) end
         end, 70)
         b.segLab:Show()
     elseif mode == "list" then
         action = { text = "Answer", kind = "primary", onClick = function() PollsUI:OpenPoll(p.id) end }
-    elseif mode == "page" and IsMe(p.by) and open and #res.waiting > 0 then
+    elseif mode == "page" and IsMe(p.by) and open and #select(3, Pl:AnsweredAllCount(p)) > 0 then
         action = { text = "Nudge them", onClick = function() PollsUI:Nudge(p.id) end }
     end
     b:SetActions(action and { action } or nil)
@@ -576,12 +621,13 @@ function L.Fill(r, p, sec, w)
     local Pl = P()
     r.pid = p.id
     r:SetWidth(w)
-    r.dot:SetShown(sec == "wait" or (sec == "mine" and Pl:AsksMe(p) and not Pl:MyVote(p)))
+    local qn = QCount(p)
+    r.dot:SetShown(sec == "wait" or (sec == "mine" and Pl:AsksMe(p) and not Pl:AnsweredAll(p)))
     local res = Pl:Results(p)
-    local meta = { KIND_WORD[p.k] }
+    local meta = { PollWord(p) }
     local mine = Pl:MyVote(p)
     if sec == "done" then
-        if mine and p.k ~= "days" then
+        if mine and p.k ~= "days" and not qn then
             local picks = {}
             for _, i in ipairs(mine.c) do picks[#picks + 1] = p.o[i] end
             meta[#meta + 1] = #picks == 1 and ("you picked " .. white(picks[1])) or ("you picked " .. #picks)
@@ -606,7 +652,7 @@ function L.Fill(r, p, sec, w)
     r.b1:Hide(); r.b2:Hide(); r.more:Hide(); r.mini:Hide(); r.lock:Hide()
     local right = 0
     if sec == "wait" then
-        if p.k == "yn" then
+        if p.k == "yn" and not qn then
             r.b1:SetText("No"); r.b1:SetKind("secondary"); FitButton(r.b1, 48)
             r.b2:SetText("Yes"); r.b2:SetKind("secondary"); FitButton(r.b2, 48)
             r.b1:ClearAllPoints(); r.b1:SetPoint("RIGHT", 0, 0)
@@ -626,11 +672,13 @@ function L.Fill(r, p, sec, w)
         r.more:ClearAllPoints(); r.more:SetPoint("RIGHT", 0, 0)
         r.more:SetScript("OnClick", function(self) ManageMenu(self, p) end)
         r.more:Show()
+        -- (several questions: who answered every one)
+        local answered, total = Pl:AnsweredAllCount(p)
         r.mini.l:SetText("Answered")
         UI():SetTextSize(r.mini.l, "small")
-        r.mini.r:SetText(res.answered .. "/" .. res.total)
+        r.mini.r:SetText(answered .. "/" .. total)
         r.mini.bar.fill:SetColorTexture(C.green[1], C.green[2], C.green[3], 1)
-        r.mini.bar:Set(res.total > 0 and res.answered / res.total or 0, 110)
+        r.mini.bar:Set(total > 0 and answered / total or 0, 110)
         r.mini:ClearAllPoints(); r.mini:SetPoint("RIGHT", r.more, "LEFT", -10, 0)
         r.mini:Show()
         right = 110 + 10 + St.BTN_H
@@ -661,7 +709,7 @@ function L.Fill(r, p, sec, w)
     end
     -- the question and the longest of its lines that fits (the whole of both in the tooltip when cut)
     r:SetRightWidth(right + 16)
-    r:SetData({ art = ArtKey(p), icon = KIND_ICON[p.k] or KIND_ICON.one, title = p.q, sub = r.metaVariants[1] })
+    r:SetData({ art = ArtKey(p), icon = ListIcon(p), title = p.q, sub = r.metaVariants[1] })
     local room = w - r.textX - right - 16 - 8
     for _, text in ipairs(r.metaVariants) do
         r.meta:SetText(text)
@@ -669,6 +717,13 @@ function L.Fill(r, p, sec, w)
     end
     local cut = r.meta:GetText() ~= r.metaVariants[1] or TextW(r.title) + 1 < UI():TextWidth(p.q, "emph")
     r.tip = cut and { p.q, r.metaVariants[1] } or nil
+    if qn then
+        -- (several questions: every one in the tooltip)
+        r.tip = { p.q, r.metaVariants[1] }
+        for i, q in ipairs((Pl:Questions(p))) do
+            if q then r.tip[#r.tip + 1] = St:Wrap("GOLD", i .. ".") .. " " .. q.q end
+        end
+    end
     r:Show()
 end
 
@@ -715,7 +770,7 @@ function L.FillCard(v, closed)
         it:SetSize(w, 50)
         it:ClearAllPoints()
         it:SetPoint("TOPLEFT", 1, -y)
-        it.icon:Set(p.k)
+        it.icon:Set(QCount(p) and "multi" or p.k)
         UI():FitText(it.q, p.q, w - 38 - 6)
         local res = P():Results(p)
         local lead, share = Leading(p, res)
@@ -764,7 +819,7 @@ function L.Refresh(v)
         elseif IsMe(p.by) then
             mine[#mine + 1] = p
         elseif Pl:AsksMe(p) then
-            if Pl:MyVote(p) then done[#done + 1] = p else wait[#wait + 1] = p end
+            if Pl:AnsweredAll(p) then done[#done + 1] = p else wait[#wait + 1] = p end
         end
     end
     -- the banner: the open poll waiting for me that closes first (open tab only)
@@ -857,8 +912,11 @@ end
 
 local V = {}
 local COL_R = 282
--- (the page's body: under the tab's toolbar, the hero banner and the gap)
+-- (the page's body: under the tab's toolbar, the hero banner and the gap; the question tabs of a poll of several
+-- questions take TABS_H of it)
 local BODY_H = PAGE_H - 36 - St.BANNER.hero - St.GAP - 4
+local TABS_H = 34                    -- (UI.LAYOUT.TABS_H)
+local bodyH = BODY_H
 
 function PollsUI:Nudge(id)
     local n, why = P():Nudge(id)
@@ -877,6 +935,12 @@ function V.Build(v)
     local LY = v.layout
     LY.tabs:Hide()
     LY:Layout()
+    -- (a poll of several questions: a tab per question on the banner's foot)
+    LY.tabs:SetTabs({}, function(key)
+        local p = P():GetPoll(state.poll)
+        local q = p and P():Questions(p)[key]
+        if q and q.id ~= state.poll then PollsUI:OpenPoll(q.id, true) end
+    end)
     v.ban = Banner(LY.banner)
     v.ban.back = LY.banner.back
     local B = LY.body
@@ -1091,10 +1155,39 @@ function V.SendVote()
         state.changing = false
         state.pick = {}
         state.err = nil
+        if PollsUI:NextQuestion(p) then return end
     else
         state.err = why or "Couldn't send your answer."
     end
     PollsUI:Refresh()
+end
+
+-- (1.4.1) The tabs of a poll of several questions: "Question 1" ... with a check once I answered it (the asker: how
+-- many answered it). Hidden for a poll of one question. Sets bodyH.
+function V.FillTabs(v, p)
+    local Pl = P()
+    local LY = v.layout
+    local qi = Pl:QuestionOf(p)
+    local tabs = {}
+    if qi then
+        local mine = IsMe(p.by)
+        for i, q in ipairs((Pl:Questions(p))) do
+            local it = { key = i, text = "Question " .. i, tip = q and q.q or "Not here yet: it is still on its way." }
+            if q and mine then
+                local res = Pl:Results(q)
+                it.count = { res.answered, res.total }
+            elseif q and Pl:MyVote(q) then
+                it.count = "|T" .. CHECK .. ":18:18:0:0|t"
+            end
+            tabs[#tabs + 1] = it
+        end
+        tabs.selected = qi
+    end
+    LY.tabs:SetShown(qi ~= nil)
+    if qi then LY.tabs:SetTabs(tabs) end
+    LY:Layout()
+    bodyH = BODY_H - (qi and TABS_H or 0)
+    v.scroll:SetSize(v.body:GetWidth(), bodyH - 34)
 end
 
 function V.Refresh(v)
@@ -1105,6 +1198,7 @@ function V.Refresh(v)
         return
     end
     FillBanner(v.ban, p, "page")
+    V.FillTabs(v, p)
     local open = Pl:IsOpen(p)
     local res = Pl:Results(p)
     if p.k == "days" then
@@ -1365,6 +1459,7 @@ function V.SaveDays()
     local ok, why = P():Vote(p.id, c)
     if ok then
         state.days = nil
+        if PollsUI:NextQuestion(p) then return end
     else
         ns:Print(why or "couldn't save your answer.")
     end
@@ -1483,7 +1578,7 @@ function V.FillGrid(g, p, res)
         end
         tsort(others, function(a, b) return a.by < b.by end)
         local footH = 22
-        local avail = BODY_H - y - footH - 30
+        local avail = bodyH - y - footH - 30
         g.scroll:ClearAllPoints()
         g.scroll:SetPoint("TOPLEFT", 0, -y)
         local listH = #others * 23
@@ -1572,6 +1667,62 @@ local function NewDraft()
              cday = { t.year, t.month, t.day }, ctime = "20:00", days = {}, month = nil }
 end
 
+-- (1.4.1) Several questions: the draft's own q / k / o / mx / days / month are the question being edited (number
+-- d.cur); d.qs keeps every question's (the open one's entry is brought up to date by StoreQuestion). Who votes, the
+-- closing time, the results and the change rule are the whole poll's.
+local QFIELDS = { "q", "k", "o", "mx", "days", "month" }
+
+local function StoreQuestion(d)
+    d.qs = d.qs or {}
+    d.cur = d.cur or 1
+    local e = {}
+    for _, f in ipairs(QFIELDS) do e[f] = d[f] end
+    d.qs[d.cur] = e
+    return d.qs
+end
+
+local function LoadQuestion(d, i)
+    local e = d.qs[i]
+    for _, f in ipairs(QFIELDS) do d[f] = e[f] end
+    d.cur = i
+    -- (a focused box keeps its text on a refresh: let go of the question's and the answers', so they show this one's)
+    local v = panel and panel.sheet
+    if v and v.q then
+        v.q:ClearFocus()
+        for _, r in ipairs(v.answers or {}) do r.eb:ClearFocus() end
+    end
+end
+
+function S.SelectQuestion(i)
+    local d = state.draft
+    if not d.qs or not d.qs[i] or i == d.cur then return end
+    StoreQuestion(d)
+    LoadQuestion(d, i)
+    state.sheetErr = nil
+    S.Refresh(panel.sheet)
+end
+
+function S.AddQuestion()
+    local d = state.draft
+    local qs = StoreQuestion(d)
+    if #qs >= P().MAX_QUESTIONS then return end
+    qs[#qs + 1] = { q = "", k = "one", o = { "", "" }, mx = 0, days = {} }
+    LoadQuestion(d, #qs)
+    state.sheetErr = nil
+    S.Refresh(panel.sheet)
+    panel.sheet.q:SetFocus()
+end
+
+function S.RemoveQuestion()
+    local d = state.draft
+    local qs = StoreQuestion(d)
+    if #qs < 2 then return end
+    table.remove(qs, d.cur)
+    LoadQuestion(d, min(d.cur, #qs))
+    state.sheetErr = nil
+    S.Refresh(panel.sheet)
+end
+
 local function TargetKey(t)
     if t[1] == "t" then return "t:" .. t[2] .. ":" .. tostring(t[3] or "") end
     if t[1] == "g" then return "g" end
@@ -1611,7 +1762,7 @@ local function DraftAnswers(d)
     if d.k == "yn" then return { "Yes", "No" } end
     if d.k == "days" then
         local out = {}
-        for _, e in ipairs(d.days) do out[#out + 1] = e.d .. (e.t and (" " .. e.t) or "") end
+        for _, e in ipairs(d.days or {}) do out[#out + 1] = e.d .. (e.t and (" " .. e.t) or "") end
         return out
     end
     local out = {}
@@ -1624,22 +1775,34 @@ end
 
 function S.Post()
     local d = state.draft
-    local q = ns.Util.Trim(d.q or "")
-    local o = DraftAnswers(d)
-    local why
-    if q == "" then why = "Write the question first."
-    elseif d.k == "days" and #o == 0 then why = "Pick at least one day in the calendar."
-    elseif (d.k == "one" or d.k == "many") and #o < 2 then why = "Give at least two answers."
-    elseif #d.a == 0 then why = "Pick who votes."
-    elseif ClosesAt(d) <= ns.Util.Now() + 60 then why = "Pick a closing time in the future."
+    local qs = StoreQuestion(d)
+    local defs, why = {}, nil
+    for i, e in ipairs(qs) do
+        local q = ns.Util.Trim(e.q or "")
+        local o = DraftAnswers(e)
+        if q == "" then why = "Write the question first."
+        elseif e.k == "days" and #o == 0 then why = "Pick at least one day in the calendar."
+        elseif (e.k == "one" or e.k == "many") and #o < 2 then why = "Give at least two answers."
+        end
+        if why then
+            -- (on the question that needs it)
+            if #qs > 1 then why = "Question " .. i .. ": " .. why:sub(1, 1):lower() .. why:sub(2) end
+            if i ~= d.cur then LoadQuestion(d, i) end
+            break
+        end
+        defs[i] = { q = q, k = e.k, o = o, mx = e.k == "many" and e.mx or nil }
+    end
+    if not why then
+        if #d.a == 0 then why = "Pick who votes."
+        elseif ClosesAt(d) <= ns.Util.Now() + 60 then why = "Pick a closing time in the future."
+        end
     end
     if why then
         state.sheetErr = why
         S.Refresh(panel.sheet)
         return
     end
-    local id, err = P():Create({ q = q, k = d.k, o = o, mx = d.k == "many" and d.mx or nil, cl = ClosesAt(d), rv = d.rv,
-                                 ch = d.ch, a = d.a })
+    local id, err = P():Create({ qs = defs, cl = ClosesAt(d), rv = d.rv, ch = d.ch, a = d.a })
     if not id then
         state.sheetErr = err
         S.Refresh(panel.sheet)
@@ -1694,7 +1857,10 @@ function S.Build(v)
         banner = { size = "strip", title = "New poll", subColor = "BAD" },
         back = { text = "All polls", onClick = function() PollsUI:ShowList() end } })
     local LY = v.layout
-    LY.tabs:Hide()
+    -- (1.4.1) the questions as tabs on the banner's foot, "+ Question" after them
+    LY.tabs:SetTabs({ { key = 1, text = "Question 1" } }, function(key)
+        if key == "add" then S.AddQuestion() else S.SelectQuestion(key) end
+    end)
     LY:Layout()
     local ban = LY.banner
     v.ban, v.back, v.title, v.err = ban, ban.back, ban.title, ban.sub
@@ -1705,7 +1871,7 @@ function S.Build(v)
         end } })
     v.post, v.cancel = ban.actions[1], ban.actions[2]
     local B = LY.body
-    local bodyH = PAGE_H - 36 - St.BANNER.strip - St.GAP - 4
+    local bodyH = PAGE_H - 36 - St.BANNER.strip - TABS_H - St.GAP - 4
     -- the left column scrolls (a long answer list, many days)
     v.scroll = UI():CreateScrollFrame(B)
     v.scroll:SetPoint("TOPLEFT", B, "TOPLEFT", 0, 0)
@@ -1716,6 +1882,20 @@ function S.Build(v)
     local L0 = v.left
     v.qLab = Label(L0, "Question")
     v.qLab:SetPoint("TOPLEFT", 0, 0)
+    -- (several questions: take this one off)
+    v.qDel = CreateFrame("Button", nil, L0)
+    v.qDel:SetSize(130, 14)
+    v.qDel:SetPoint("TOPRIGHT", 0, 1)
+    v.qDel.fs = UI():Text(v.qDel, "small", C.dim)
+    v.qDel.fs:SetPoint("RIGHT")
+    v.qDel.fs:SetText("Remove this question")
+    v.qDel:SetScript("OnEnter", function(self) self.fs:SetTextColor(St:Color("BAD")) end)
+    v.qDel:SetScript("OnLeave", function(self) self.fs:SetTextColor(St:Color(C.dim)) end)
+    v.qDel:SetScript("OnClick", function() S.RemoveQuestion() end)
+    v.qDel:Hide()
+    v.wholeNote = UI():Text(L0, "small", C.dim)
+    v.wholeNote:SetText("For every question of the poll:")
+    v.wholeNote:Hide()
     v.q = UI():CreateSleekEditBox(L0, SHEET_L, 24)
     v.q:SetPoint("TOPLEFT", 0, -16)
     v.q:SetMaxLetters(P().MAX_Q)
@@ -2070,7 +2250,10 @@ function S.FillPreviewBanner(b, d)
     b.building = true
     b:SetArt(ArtKey(fake))
     b:SetIcon(KIND_ICON[d.k] or KIND_ICON.one)
-    b:SetKicker(KIND_WORD[d.k] .. " · closes " .. When(ClosesAt(d), true))
+    local n = d.qs and #d.qs or 1
+    -- (several questions: which one, in the closing time's place: the kicker has room for two parts)
+    b:SetKicker(n > 1 and ("Question " .. (d.cur or 1) .. " of " .. n .. " · " .. KIND_WORD[d.k])
+        or (KIND_WORD[d.k] .. " · closes " .. When(ClosesAt(d), true)))
     local q = ns.Util.Trim(d.q or "")
     b:SetTitle(q ~= "" and q or St:Wrap("DIM", "Your question"))
     local keys = S.Asked()
@@ -2175,6 +2358,24 @@ function S.RefreshPreview(v)
     pv:SetHeight(max(10, y))
 end
 
+-- The question tabs: "Question 1" ... (the open one lit; its words as the tip), "+ Question" while there is room.
+function S.FillTabs(v, d)
+    local n = d.qs and #d.qs or 1
+    local tabs = { selected = d.cur or 1 }
+    for i = 1, n do
+        local e = (i == (d.cur or 1)) and d or d.qs[i]
+        local q = ns.Util.Trim(e.q or "")
+        tabs[i] = { key = i, text = "Question " .. i, tip = q ~= "" and q or "No question written yet." }
+    end
+    if n < P().MAX_QUESTIONS then
+        tabs[#tabs + 1] = { key = "add", text = "+  Question",
+            tip = "Ask more in the same poll: each question has its own kind and answers." }
+    end
+    v.layout.tabs:SetTabs(tabs)
+    v.qDel:SetShown(n > 1)
+    v.qLab:SetText(n > 1 and ("Question " .. (d.cur or 1)) or "Question")
+end
+
 function S.Refresh(v)
     local d = state.draft
     if not d then
@@ -2182,6 +2383,7 @@ function S.Refresh(v)
         state.draft = d
     end
     if not v.q:HasFocus() then v.q:SetText(d.q or "") end
+    S.FillTabs(v, d)
     for _, t in ipairs(v.tiles) do t:SetOn(t.kind == d.k) end
     local y = 126
     local L0 = v.left
@@ -2304,8 +2506,16 @@ function S.Refresh(v)
         v.daysNote:Show()
         y = max(y + v.cal:GetHeight(), ry + 22) + 4
     end
-    -- closes / results / change
+    -- closes / results / change (the whole poll's: said so when it has several questions)
     y = y + 12
+    local nq = d.qs and #d.qs or 1
+    v.wholeNote:SetShown(nq > 1)
+    if nq > 1 then
+        y = y + 4
+        v.wholeNote:ClearAllPoints()
+        v.wholeNote:SetPoint("TOPLEFT", 0, -y)
+        y = y + 22
+    end
     v.cLab:ClearAllPoints(); v.cLab:SetPoint("TOPLEFT", 0, -y)
     v.rLab:ClearAllPoints(); v.rLab:SetPoint("TOPLEFT", 190, -y)
     v.cDate:ClearAllPoints(); v.cDate:SetPoint("TOPLEFT", 0, -(y + 16))
@@ -2389,13 +2599,32 @@ function PollsUI:ShowList(tab)
     self:Refresh()
 end
 
-function PollsUI:OpenPoll(id)
+-- exact: that question of a poll of several (its tabs); else the question StartQuestion picks (the first one I haven't
+-- answered).
+function PollsUI:OpenPoll(id, exact)
+    local p = not exact and P():GetPoll(id)
+    if p then id = StartQuestion(p).id end
     if state.poll ~= id then state.pick, state.days = {}, nil end
     state.view, state.poll, state.changing, state.err = "poll", id, false, nil
     if ns.MainFrame and (not ns.MainFrame:IsShown() or ns.MainFrame:GetSelectedTab() ~= "polls") then
         ns.MainFrame:Open("polls")
     end
     self:Refresh()
+end
+
+-- (1.4.1) Answered question p of a poll of several: on to the next one I haven't answered. True when it moved.
+function PollsUI:NextQuestion(p)
+    local qi = P():QuestionOf(p)
+    if not qi or state.view ~= "poll" then return false end
+    local qs = P():Questions(p)
+    for k = 1, #qs - 1 do
+        local q = qs[(qi + k - 1) % #qs + 1]
+        if q and not P():MyVote(q) then
+            self:OpenPoll(q.id, true)
+            return true
+        end
+    end
+    return false
 end
 
 function PollsUI:OpenNew()
@@ -2425,7 +2654,7 @@ local function ShowNext()
     while #queue > 0 do
         local item = table.remove(queue, 1)
         local p = P():GetPoll(item.id)
-        if p and P():IsOpen(p) and P():AsksMe(p) and not P():MyVote(p) then
+        if p and P():IsOpen(p) and P():AsksMe(p) and not P():AnsweredAll(p) then
             PollsUI:ShowToast(p, item.nudge)
             return
         end
@@ -2451,13 +2680,15 @@ function PollsUI:QueueToast(id, nudge)
 end
 
 function PollsUI:ShowToast(p, nudge)
+    p = P():Lead(p)
     P():MarkShown(p.id)
-    local meta = { KIND_WORD[p.k] }
-    if p.k == "days" then meta[#meta + 1] = Plural(#p.o, "day") end
+    local qn = QCount(p)
+    local meta = { PollWord(p) }
+    if p.k == "days" and not qn then meta[#meta + 1] = Plural(#p.o, "day") end
     meta[#meta + 1] = TargetsWord(p)
     meta[#meta + 1] = ClosesWord(p)
     local buttons
-    if p.k == "yn" then
+    if p.k == "yn" and not qn then
         buttons = { { text = "Yes", kind = "primary", width = 60, onClick = function() PollsUI:ToastVote(p.id, 1) return true end },
             { text = "No", kind = "secondary", width = 60, onClick = function() PollsUI:ToastVote(p.id, 2) return true end },
             { text = "Later", kind = "link" } }
@@ -2470,7 +2701,7 @@ function PollsUI:ShowToast(p, nudge)
     local cr, cg, cb = UI():ClassColor(EUI():ClassOf(p.by))
     local who = ("|cff%02x%02x%02x"):format(floor((cr or 1) * 255 + 0.5), floor((cg or 1) * 255 + 0.5),
         floor((cb or 1) * 255 + 0.5)) .. (ns.Util.ShortName(p.by) or p.by) .. "|r"
-    UI():Toast({ key = TOAST_KEY, kind = "info", icon = KIND_ICON[p.k] or KIND_ICON.one,
+    UI():Toast({ key = TOAST_KEY, kind = "info", icon = ListIcon(p),
         kicker = (nudge and "Reminder · from " or "New poll · from ") .. who,
         title = p.q, text = tconcat(meta, " · "), buttons = buttons, buttonRow = true, duration = 0, combat = false,
         sound = SOUNDKIT and SOUNDKIT.IG_CHAT_EMOTE_BUTTON, onClose = function() ToastGone() end })
@@ -2540,7 +2771,7 @@ function PollsUI:OnInit()
         RefreshBadges()
         if asking and UI():GetToast(TOAST_KEY) then
             local p = P():GetPoll(asking)
-            if not p or not P():IsOpen(p) or P():MyVote(p) then PollsUI:HideToast() end
+            if not p or not P():IsOpen(p) or P():AnsweredAll(p) then PollsUI:HideToast() end
         end
     end)
     ns:On("POLL_ARRIVED", function(id) PollsUI:QueueToast(id) end)
@@ -2573,9 +2804,22 @@ function PollsUI:SetDraft(d)
     if d then
         local base = NewDraft()
         for k, val in pairs(base) do if d[k] == nil then d[k] = val end end
+        -- (several questions: d.qs = { { q, k, o, mx, days } ... }, d.cur the one open)
+        if d.qs then
+            for _, e in ipairs(d.qs) do
+                local fresh = NewDraft()
+                for _, f in ipairs({ "q", "k", "o", "mx", "days" }) do
+                    if e[f] == nil then e[f] = fresh[f] end
+                end
+            end
+            LoadQuestion(d, d.cur or 1)
+        end
     end
     self:Refresh()
 end
+function PollsUI:AddQuestion() S.AddQuestion() end
+function PollsUI:SelectQuestion(i) S.SelectQuestion(i) end
+function PollsUI:PostDraft() S.Post() end
 function PollsUI:Pick(i)
     state.pick[i] = true
     self:Refresh()

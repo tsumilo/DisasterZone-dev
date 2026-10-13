@@ -312,5 +312,116 @@ def the_notification_center_counts_and_pops_up_polls_not_the_page():
     assert b.eval("return ns.Notify:Count({ page = 'polls' })") == 0
     w.assert_no_errors()
 
+
+def post_many(c, qs, targets, **opts):
+    """c posts a poll of several questions: its first question's id (or the error)."""
+    code = """
+        local qs, targets, cl, rv, ch = ...
+        local id, why = ns.Polls:Create({ qs = qs, a = targets, cl = GetServerTime() + cl, rv = rv, ch = ch })
+        return id or ("ERR " .. tostring(why))"""
+    return c.eval(code, qs, targets, opts.get("cl", 3600), opts.get("rv", "live"), opts.get("ch", True))
+
+
+def questions(c, pid):
+    return c.eval_py("""
+        local p = ns.Polls:GetPoll(...)
+        if not p then return {} end
+        local out = {}
+        for i, q in ipairs(ns.Polls:Questions(p)) do out[i] = q and q.id or "" end
+        return out""", pid)
+
+
+@case
+def a_poll_of_several_questions_goes_out_as_one_and_is_answered_question_by_question():
+    """(1.4.1, feedback #7) Several questions in one poll: linked records (base-iofn), one row / one waiting count,
+    answered one question at a time; close, nudge and remove act on the whole poll; a 1.4.0 client keeps the
+    records unchanged (the link is in the ids)."""
+    w, (g, b, c, d, e) = guild()
+    days = g.eval_py("local t = GetServerTime(); return { date('%Y-%m-%d', t + 2 * 86400), "
+                     "date('%Y-%m-%d', t + 3 * 86400) }")
+    pid = post_many(g, [{"q": "A second raid night?", "k": "yn"},
+                        {"q": "Which nights?", "k": "days", "o": days},
+                        {"q": "What start time?", "k": "one", "o": ["19:00", "20:00"]}],
+                    [["p", k(b)], ["p", k(c)]], cl=2 * 86400)
+    assert pid.endswith("-1of3"), pid
+    w.tick(5)
+    qs = questions(b, pid)
+    assert len(qs) == 3 and all(qs) and qs[1].endswith("-2of3"), qs
+    # one poll on the lists and in the counts
+    assert visible(b) == [pid], visible(b)
+    assert b.eval("return ns.Polls:WaitingCount()") == 1
+    assert b.eval("return ns.Notify:Count({ page = 'polls' })") == 1
+    # every question is a plain poll with the same people and closing time
+    for q in qs:
+        r = results(g, q)
+        assert r["total"] == 2, (q, r)
+    # Brakka answers the first two: still waiting (one question left)
+    assert vote(b, qs[0], [1])[0] is True
+    assert vote(b, qs[1], [1, 2])[0] is True
+    w.tick(3)
+    assert b.eval("return ns.Polls:WaitingCount()") == 1
+    assert b.eval_py("return { ns.Polls:AnsweredAllCount(ns.Polls:GetPoll(...)) }", pid)[:2] == [0, 2]
+    assert vote(b, qs[2], [2])[0] is True
+    w.tick(3)
+    assert b.eval("return ns.Polls:WaitingCount()") == 0
+    assert g.eval_py("return { ns.Polls:AnsweredAllCount(ns.Polls:GetPoll(...)) }", pid)[:2] == [1, 2]
+    assert results(g, qs[2])["counts"] == [0, 1]
+    # a nudge reaches Cora (nothing answered), not Brakka
+    for cl in (b, c):
+        cl.eval("_G.__nudged = nil; ns:On('POLL_NUDGED', function(id) _G.__nudged = id end)")
+    assert g.eval("return (ns.Polls:Nudge(...))", qs[2]) == 1
+    w.tick(3)
+    assert c.eval("return _G.__nudged") == pid and b.eval("return _G.__nudged") is None
+    # the page opens on the first question Cora hasn't answered; answering moves on to the next
+    vote(c, qs[0], [2])
+    w.tick(2)
+    page = c.eval_py("""
+        ns.MainFrame:Open('polls'); ns.PollsUI:OpenPoll(...)
+        local s = ns.PollsUI:GetState()
+        local first = s.poll
+        ns.PollsUI:SetDays({ 1, 1 })
+        ns.PollsUI:GetPanel().poll.grid.save:Click()
+        local tabs = ns.PollsUI:GetPanel().poll.layout.tabs
+        return { first = first, next = ns.PollsUI:GetState().poll, tabs = tabs:IsShown() }""", pid)
+    assert page == {"first": qs[1], "next": qs[2], "tabs": True}, page
+    # closing closes every question
+    assert g.eval("return ns.Polls:Close(...)", pid) is True
+    w.tick(3)
+    for q in qs:
+        assert b.eval("return ns.Polls:IsOpen(ns.Polls:GetPoll(...))", q) is False, q
+    # removing removes every question
+    assert g.eval("return ns.Polls:Delete(...)", pid) is True
+    w.tick(3)
+    assert visible(b) == [] and visible(g) == [], (visible(b), visible(g))
+    w.assert_no_errors()
+
+
+@case
+def the_sheet_posts_several_questions_and_says_which_one_is_missing_something():
+    w, (g, b, c, d, e) = guild()
+    out = g.eval_py("""
+        ns.MainFrame:Open('polls'); ns.PollsUI:OpenNew()
+        ns.PollsUI:SetDraft({ q = "Second night?", k = "yn", a = { { "g" } } })
+        ns.PollsUI:AddQuestion()
+        local s = ns.PollsUI:GetState()
+        local d = s.draft
+        local second = d.cur
+        d.q, d.k = "Start time?", "one"
+        d.o = { "19:00", "" }
+        ns.PollsUI:PostDraft()
+        local err = s.sheetErr
+        d.o[2] = "20:00"
+        ns.PollsUI:SelectQuestion(1)
+        local back = d.q
+        ns.PollsUI:PostDraft()
+        local p = ns.Polls:GetPoll(s.poll)
+        local qs = {}
+        for i, q in ipairs(ns.Polls:Questions(p)) do qs[i] = q and (q.k .. ":" .. q.q) or "" end
+        return { second = second, err = err, back = back, qs = qs, view = s.view }""")
+    assert out["second"] == 2 and out["back"] == "Second night?", out
+    assert out["err"] == "Question 2: give at least two answers.", out
+    assert out["qs"] == ["yn:Second night?", "one:Start time?"] and out["view"] == "poll", out
+    w.assert_no_errors()
+
 if __name__ == "__main__":
     run_all()

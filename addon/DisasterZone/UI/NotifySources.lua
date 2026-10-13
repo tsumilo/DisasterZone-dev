@@ -66,7 +66,7 @@ local function register()
         actions = function(it)
             local P = ns.Polls
             local p = P and P.GetPoll and P:GetPoll(it.key)
-            if p and p.k == "yn" then
+            if p and p.k == "yn" and not P:QuestionOf(p) then          -- (not a poll of several questions)
                 return { { text = "Yes", primary = true, fn = function() P:Vote(it.key, { 1 }) end },
                          { text = "No", fn = function() P:Vote(it.key, { 2 }) end } }
             end
@@ -89,7 +89,8 @@ local function register()
         local P, out = ns.Polls, {}
         if not (P and P.GetWaiting) then return out end
         for _, p in ipairs(P:GetWaiting()) do
-            local parts = { KIND_WORD[p.k] or "Poll" }
+            local _, n = P:QuestionOf(p)
+            local parts = { n and (n .. " questions") or KIND_WORD[p.k] or "Poll" }
             local c = closesText(p.cl)
             if c then parts[#parts + 1] = c end
             out[#out + 1] = { key = p.id, title = p.q, text = table.concat(parts, " · "), from = p.by, time = p.at,

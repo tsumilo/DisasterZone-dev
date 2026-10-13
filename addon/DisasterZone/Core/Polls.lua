@@ -14,6 +14,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Polls.lua", ...) then return 
 -- Sync works like the events library (Core/Events.lua): the guild HELLO carries a digest hash (od); a member whose hash
 -- differs gets a digest (PLD) from one other member and asks for what it lacks (PLW -> PLG). A change goes to the guild
 -- at once (PLU). PLN: the asker nudges the people who haven't answered (a pop-up on their screen, no chat).
+-- (1.4.1) Several questions in one poll: each question is a poll of its own, posted together (the same people,
+-- closing time, results and change rule); the link is in their ids: base .. "-2of3" is the second of three. Clients
+-- before 1.4.1 keep, relay and show them as separate polls (they drop fields they don't know, never an id), so a
+-- record is the same on every client. Lists, counts and pop-ups show a poll by its first question here (Polls:Lead).
 local addonName, ns = ...
 
 local Polls = ns:NewModule("Polls")
@@ -49,8 +53,10 @@ local MAX_ITEM_LEN = MAX_ID_LEN + MAX_KEY_LEN + 3
 local DELAY_ASKER = { 0.5, 2.5 }
 local DELAY_MEMBER = { 3, 8 }
 local NUDGE_EVERY = 10 * 60          -- an asker nudges one poll at most this often
+local MAX_QUESTIONS = 5              -- (1.4.1) questions in one poll
 
 Polls.MAX_ANSWERS, Polls.MAX_DAYS, Polls.MAX_Q, Polls.MAX_A = MAX_ANSWERS, MAX_DAYS, MAX_Q, MAX_A
+Polls.MAX_QUESTIONS = MAX_QUESTIONS
 
 local demo
 
@@ -105,6 +111,15 @@ local function State()
 end
 
 local function NewId() return sync:NewId("p") end
+
+-- (1.4.1) A question's place in its poll: base, i, n; nil for a poll of one question.
+local function GroupParts(id)
+    if type(id) ~= "string" then return nil end
+    local base, i, n = id:match("^(.+)%-(%d)of(%d)$")
+    i, n = tonumber(i), tonumber(n)
+    if not base or i < 1 or n < 2 or n > MAX_QUESTIONS or i > n then return nil end
+    return base, i, n
+end
 
 ---------------------------------------------------------------------------
 -- Roles
@@ -597,6 +612,60 @@ function Polls:MyVote(p)
     return st and st.V[p.id .. "/" .. slot] or nil
 end
 
+-- (1.4.1) A poll's questions: { [i] = poll | false (not here yet) }, n (a poll of one question: { p }, 1).
+function Polls:Questions(p)
+    local base, _, n = GroupParts(p and p.id)
+    if not base then return { p }, 1 end
+    local st = State()
+    local out = {}
+    for i = 1, n do
+        local q = st and st.P[base .. "-" .. i .. "of" .. n]
+        out[i] = (q and not q.del) and q or false
+    end
+    return out, n
+end
+
+-- Which question of its poll this is: i, n (nil for a poll of one question).
+function Polls:QuestionOf(p)
+    local _, i, n = GroupParts(p and p.id)
+    return i, n
+end
+
+-- The poll as the lists show it: its first question here.
+function Polls:Lead(p)
+    if not GroupParts(p and p.id) then return p end
+    for _, q in ipairs((self:Questions(p))) do
+        if q then return q end
+    end
+    return p
+end
+
+-- Have I answered every question of the poll (that is here)?
+function Polls:AnsweredAll(p)
+    for _, q in ipairs((self:Questions(p))) do
+        if q and not self:MyVote(q) then return false end
+    end
+    return true
+end
+
+-- Who answered every question: answered, total, waiting = { slot, ... } (the people asked by its first question).
+function Polls:AnsweredAllCount(p)
+    local qs = self:Questions(p)
+    local lead = self:Lead(p)
+    local votes = {}
+    for i, q in ipairs(qs) do votes[i] = q and self:GetVotes(q) or {} end
+    local answered, waiting = 0, {}
+    for _, slot in ipairs(lead and lead.m or {}) do
+        local all = true
+        for i, q in ipairs(qs) do
+            if q and not votes[i][slot] then all = false break end
+        end
+        if all then answered = answered + 1 else waiting[#waiting + 1] = slot end
+    end
+    tsort(waiting)
+    return answered, #(lead and lead.m or {}), waiting
+end
+
 -- May I see the results now?
 function Polls:ResultsShown(p)
     if type(p) ~= "table" then return false end
@@ -606,12 +675,13 @@ function Polls:ResultsShown(p)
     return false
 end
 
--- Polls I can see, sorted: open ones closing first, then closed ones (latest closed first).
-function Polls:GetPolls()
+-- Polls I can see, sorted: open ones closing first, then closed ones (latest closed first). A poll of several
+-- questions is there once, as its first question here (all: every question).
+function Polls:GetPolls(all)
     local out = {}
     local st = State()
     for _, p in pairs(st and st.P or {}) do
-        if not p.del and self:IsVisible(p) then out[#out + 1] = p end
+        if not p.del and self:IsVisible(p) and (all or self:Lead(p) == p) then out[#out + 1] = p end
     end
     local now = Now()
     tsort(out, function(a, b)
@@ -627,11 +697,11 @@ function Polls:GetPolls()
     return out
 end
 
--- Open polls that ask me and that I haven't answered.
+-- Open polls that ask me and that I haven't answered (every question of).
 function Polls:GetWaiting()
     local out = {}
     for _, p in ipairs(self:GetPolls()) do
-        if self:IsOpen(p) and self:AsksMe(p) and not self:MyVote(p) then out[#out + 1] = p end
+        if self:IsOpen(p) and self:AsksMe(p) and not self:AnsweredAll(p) then out[#out + 1] = p end
     end
     return out
 end
@@ -714,11 +784,14 @@ end
 -- Writing
 ---------------------------------------------------------------------------
 
--- def = { q, k, o = { answers } (days: day strings), mx, cl = closes at, rv, ch, a = targets }. Returns the new id or
--- nil, why.
+-- def = { q, k, o = { answers } (days: day strings), mx, cl = closes at, rv, ch, a = targets }; (1.4.1) several
+-- questions: def.qs = { { q, k, o, mx }, ... } (up to MAX_QUESTIONS) with cl, rv, ch and a shared. Returns the new id
+-- (its first question's) or nil, why.
 function Polls:Create(def)
     if not self:AmIAsker() then return nil, "Only the Guild Master, the officers and the guild council ask polls." end
     if type(def) ~= "table" then return nil, "nothing to post" end
+    local qs = type(def.qs) == "table" and #def.qs > 0 and def.qs or { def }
+    if #qs > MAX_QUESTIONS then return nil, "A poll asks at most " .. MAX_QUESTIONS .. " questions." end
     local a = {}
     for _, t in ipairs(def.a or {}) do
         local ct = CleanTarget(t)
@@ -726,17 +799,32 @@ function Polls:Create(def)
     end
     local m = DemoOn() and self:DemoResolve(a) or self:Resolve(a)
     if #m == 0 then return nil, "Pick who votes first." end
-    local o = def.k == "yn" and { "Yes", "No" } or def.o
-    local id = NewId()
-    local rec = { id = id, q = def.q, k = def.k, o = o, mx = def.mx, at = Now(), cl = def.cl, rv = def.rv,
-                  ch = def.ch, a = a, m = m }
-    if not CleanPoll({ id = id, by = Me(), rev = 1, q = rec.q, k = rec.k, o = o, mx = rec.mx, at = rec.at, cl = rec.cl,
-                       rv = rec.rv, ch = rec.ch, a = a, m = m }) then
-        return nil, "Something in this poll isn't right: check the question, the answers and the closing time."
+    local n, base, at = #qs, NewId(), Now()
+    local recs = {}
+    for i, q in ipairs(qs) do
+        local id = n > 1 and (base .. "-" .. i .. "of" .. n) or base
+        local rec = { id = id, q = q.q, k = q.k, o = q.k == "yn" and { "Yes", "No" } or q.o, mx = q.mx, at = at,
+                      cl = def.cl, rv = def.rv, ch = def.ch, a = a, m = m }
+        local check = Util.CopyTable(rec)
+        check.by, check.rev = Me(), 1
+        if not CleanPoll(check) then
+            return nil, (n > 1 and ("Question " .. i .. ": ") or "")
+                .. "Something in this poll isn't right: check the question, the answers and the closing time."
+        end
+        recs[i] = rec
     end
-    local ok = Commit("P", rec)
-    if not ok then return nil, "Couldn't post the poll." end
-    return id
+    -- (room for every question: the merge refuses a poll past the caps, and half a poll would go out)
+    local root = not DemoOn() and Root(false)
+    if root and (CountLive(root.P) + n > MAX_OPEN or CountLive(root.P, Me()) + n > MAX_OWN) then
+        return nil, "Too many polls are open: close or remove one first."
+    end
+    for i, rec in ipairs(recs) do
+        if not Commit("P", rec) then
+            for j = 1, i - 1 do Commit("P", { id = recs[j].id, del = true }) end     -- (never half a poll)
+            return nil, "Couldn't post the poll."
+        end
+    end
+    return recs[1].id
 end
 
 -- My poll with some fields changed: q, o (words only), cl, rv, ch, add = targets to add.
@@ -767,25 +855,34 @@ function Polls:Edit(id, changes)
     return (Commit("P", rec))
 end
 
--- Closing now (the asker; the GM may remove someone else's poll, not edit it).
-function Polls:Close(id)
-    local p = self:GetPoll(id)
+-- fn(question) for every question of poll id that is here; true when it did for one.
+local function EachQuestion(id, fn)
+    local p = Polls:GetPoll(id)
     if not p then return false end
+    local done = false
+    for _, q in ipairs((Polls:Questions(p))) do
+        if q and fn(q) then done = true end
+    end
+    return done
+end
+
+-- Closing now (the asker; the GM may remove someone else's poll, not edit it). Every question of the poll.
+function Polls:Close(id)
     local now = Now()
-    return self:Edit(id, { cl = max(p.at, now - 1) })
+    return EachQuestion(id, function(q) return self:Edit(q.id, { cl = max(q.at, now - 1) }) end)
 end
 
 function Polls:Extend(id, seconds)
-    local p = self:GetPoll(id)
-    if not p then return false end
-    local base = max(p.cl, Now())
-    return self:Edit(id, { cl = min(base + (seconds or DAY), p.at + MAX_LONG) })
+    local now = Now()
+    return EachQuestion(id, function(q)
+        return self:Edit(q.id, { cl = min(max(q.cl, now) + (seconds or DAY), q.at + MAX_LONG) })
+    end)
 end
 
 function Polls:Delete(id)
-    local p = self:GetPoll(id)
-    if not p or not self:CanManage(p) then return false end
-    return (Commit("P", { id = id, del = true }))
+    return EachQuestion(id, function(q)
+        return self:CanManage(q) and (Commit("P", { id = q.id, del = true })) or false
+    end)
 end
 
 -- My answer: choice = { indices } (one / yn: one index; many: several) or, for days, { 0|1|2 per day }.
@@ -804,14 +901,16 @@ function Polls:Vote(id, choice)
 end
 
 -- Reminds the people who haven't answered (a pop-up on their screen). Returns the number waiting, or nil, why.
+-- (Several questions: the people who haven't answered every one; the nudge names its first question.)
 function Polls:Nudge(id)
     local p = self:GetPoll(id)
     if not p or not self:CanManage(p) then return nil end
     if not self:IsOpen(p) then return nil, "closed" end
-    local waiting = self:Results(p).waiting
+    p = self:Lead(p)
+    local _, _, waiting = self:AnsweredAllCount(p)
     if #waiting == 0 then return 0 end
-    if not RateLimit("PLN:" .. id, NUDGE_EVERY) then return nil, "soon" end
-    Send({ t = "PLN", p = id }, "GUILD", nil, "ctrl")
+    if not RateLimit("PLN:" .. p.id, NUDGE_EVERY) then return nil, "soon" end
+    Send({ t = "PLN", p = p.id }, "GUILD", nil, "ctrl")
     return #waiting
 end
 
@@ -828,7 +927,9 @@ local function OnUpdate(sender, msg, dist)
     local ok, rec = sync:StoreFrom(sender, msg.k, msg.r, true)
     if not ok then return end
     Changed()
-    if msg.k == "P" and not had and not rec.del and not Util.IsMe(rec.by) and Polls:AsksMe(rec) and Polls:IsOpen(rec) then
+    -- (a poll of several questions pops up once: for its first question here)
+    if msg.k == "P" and not had and not rec.del and not Util.IsMe(rec.by) and Polls:AsksMe(rec) and Polls:IsOpen(rec)
+        and Polls:Lead(rec) == rec then
         ns:Fire("POLL_ARRIVED", rec.id)
     end
 end
@@ -844,8 +945,9 @@ local function OnNudge(sender, msg, dist)
     if dist ~= "GUILD" or not IsId(msg.p) then return end
     local p = Polls:GetPoll(msg.p)
     if not p or not Polls:CanManage(p, sender) or not Polls:IsOpen(p) then return end
-    if not Polls:AsksMe(p) or Polls:MyVote(p) then return end
-    if not RateLimit("PLNr:" .. msg.p, 120) then return end
+    if not Polls:AsksMe(p) or Polls:AnsweredAll(p) then return end
+    p = Polls:Lead(p)
+    if not RateLimit("PLNr:" .. p.id, 120) then return end
     ns:Fire("POLL_NUDGED", p.id, sender)
 end
 
@@ -940,6 +1042,16 @@ function Polls:BuildDemo()
                      o = { "Gruul's Lair", "Magtheridon's Lair", "Karazhan", "A night off" } })
     poll("pdemo4", { q = "Loot: allow off-spec rolls on tier tokens?", k = "one", by = me, cl = now + 4 * DAY,
                      rv = "vote", ch = true, o = { "Yes, after main spec", "No, main spec only", "Council decides" } })
+    -- (1.4.1) a poll of three questions
+    local group = {
+        { q = "Would you like a second raid night for progression?", k = "yn", o = { "Yes", "No" } },
+        { q = "Which nights would suit you best?", k = "days", o = { day(2), day(3), day(4), day(6) } },
+        { q = "What start time (realm time) suits you?", k = "one", o = { "19:00", "19:30", "20:00", "20:30" } },
+    }
+    for i, def in ipairs(group) do
+        def.cl, def.rv, def.ch = now + 5 * DAY, "live", true
+        poll("pdemo5-" .. i .. "of" .. #group, def)
+    end
     -- answers from the others (spread by their names, the same every time)
     for id, p in pairs(demo.P) do
         for i, k in ipairs(p.m) do
