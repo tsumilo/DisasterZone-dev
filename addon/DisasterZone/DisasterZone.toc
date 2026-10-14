@@ -337,6 +337,7 @@ Games\Azeromon\Mon.lua
 Games\Azeromon\Battle.lua
 Games\Azeromon\Maps.lua
 Games\Azeromon\MapsStranglethorn.lua
+Games\Azeromon\MapsBlackrock.lua
 Games\Azeromon\Game.lua
 Games\Azeromon\Net.lua
 Games\Azeromon\PvP.lua

@@ -58,6 +58,25 @@ W.PLACES = {
       maps = { "bootybay", "bootybayinn", "bbhall" }, text = "Baron Revilgaz's port: the Salty Sailor Tavern and the docks." },
     { id = "jaguero", name = "Jaguero Isle", zone = "stv", kind = "route", x = 6, y = 6.4, maps = { "jaguero" },
       text = "King Mukla's island, a short boat ride from the bay." },
+    -- Blackrock (MapsBlackrock.lua): Darkshire's north road up through Redridge, then the mountain
+    { id = "threecorners", name = "Three Corners", zone = "redridge", kind = "route", x = 5, y = 0, maps = { "threecorners" },
+      text = "A valley climbing from Darkshire to the Redridge road. Poachers camp in the hollow." },
+    { id = "lakeshire", name = "Lakeshire", zone = "redridge", kind = "town", x = 5.9, y = 0,
+      maps = { "lakeshire", "lakeshireinn" }, text = "Magistrate Solomon's town on the lake: the inn, gryphons and the bridge east." },
+    { id = "everstill", name = "Lake Everstill", zone = "redridge", kind = "route", x = 6.8, y = 0, maps = { "everstill" },
+      text = "The lake, Alther's Mill and Yowler's gnoll camp." },
+    { id = "stonewatch", name = "Stonewatch Keep", zone = "redridge", kind = "route", x = 6.8, y = -0.62,
+      maps = { "stonewatch" }, text = "Gath'Ilzogg's keep on its hill. Render's Valley climbs north from here." },
+    { id = "steppes", name = "Burning Steppes", zone = "steppes", kind = "route", x = 6.8, y = -1.42, maps = { "steppes" },
+      text = "An ash plain, lava lakes and Flame Crest. Morgan's Vigil holds the south-east hill." },
+    { id = "brm", name = "Blackrock Mountain", zone = "blackrock", kind = "dungeon", x = 5.9, y = -1.42, maps = { "brm" },
+      text = "One great cavern round a lava sea, chain bridges across it, and the Black Forge." },
+    { id = "brd", name = "The Imperial Seat", zone = "blackrock", kind = "dungeon", x = 5, y = -1.12, maps = { "brd" },
+      text = "Emperor Dagran Thaurissan's throne, deep in Blackrock Depths." },
+    { id = "moltencore", name = "Molten Core", zone = "blackrock", kind = "dungeon", x = 5, y = -1.72, maps = { "moltencore" },
+      text = "Ragnaros' lava cavern under the mountain. Something huge prowls its shelf." },
+    { id = "gorge", name = "Searing Gorge", zone = "gorge", kind = "route", x = 5.9, y = -2.3, maps = { "gorge" },
+      text = "A canyon round the Cauldron's lava. The Thorium Brotherhood holds Thorium Point." },
 }
 
 -- The coloured regions behind the places (grid units, like the places).
@@ -68,6 +87,14 @@ W.ZONES = {
       dark = true },
     { id = "stv", name = "STRANGLETHORN", color = { 0.52, 0.74, 0.50 }, x0 = 3.95, y0 = 1.65, x1 = 6.45, y1 = 6.75,
       labelBottom = true },
+    -- Blackrock; lx, ly: where the label goes (grid units) when the corner is taken
+    { id = "redridge", name = "REDRIDGE MOUNTAINS", color = { 0.88, 0.66, 0.44 }, x0 = 4.55, y0 = -0.95, x1 = 7.3, y1 = 0.36,
+      lx = 4.62, ly = -0.92 },
+    { id = "blackrock", name = "BLACKROCK MOUNTAIN", color = { 0.42, 0.34, 0.34 }, x0 = 4.55, y0 = -2.0, x1 = 6.3, y1 = -1.0,
+      dark = true, lx = 4.62, ly = -1.46 },
+    { id = "steppes", name = "BURNING STEPPES", color = { 0.58, 0.44, 0.38 }, x0 = 6.35, y0 = -2.0, x1 = 7.75, y1 = -1.0,
+      dark = true },
+    { id = "gorge", name = "SEARING GORGE", color = { 0.90, 0.58, 0.38 }, x0 = 4.85, y0 = -2.72, x1 = 7.0, y1 = -2.05 },
 }
 
 -- Gryphon routes (dotted), shown once both ends are known and `flag` is set. `via`: bends on the way.
@@ -75,6 +102,9 @@ W.FLIGHTS = {
     { from = "sentinel", to = "arena", via = { { 3.0, 2.5 } } },
     { from = "sentinel", to = "darkshire", flag = "fp_darkshire", via = { { 2, 0.62 }, { 5, 0.62 } } },
     { from = "bootybay", to = "darkshire", flag = "fp_bootybay", via = { { 6.6, 6.2 }, { 6.6, 1 } } },
+    { from = "lakeshire", to = "darkshire", flag = "fp_lakeshire", via = { { 5.9, 0.7 } } },
+    { from = "steppes", to = "lakeshire", flag = "fp_morgansvigil", via = { { 6.35, -0.9 } } },
+    { from = "gorge", to = "steppes", flag = "fp_thoriumpoint", via = { { 6.8, -2.3 } } },
 }
 
 W.TAG_NAMES = { inn = "Inn", rest = "Rest", shop = "Shop", stable = "Stable", profession = "Profession trainers",
@@ -122,6 +152,9 @@ local function Backfill(g)
         end
     end
     if g:Flag("fp_darkshire") then v.darkshire = true end
+    if g:Flag("fp_lakeshire") then v.lakeshire = true end
+    if g:Flag("fp_morgansvigil") then v.steppes = true end
+    if g:Flag("fp_thoriumpoint") then v.gorge = true end
 end
 W.Backfill = Backfill
 G:On("load", function(g) Backfill(g) end)
@@ -253,7 +286,7 @@ end
 ---------------------------------------------------------------------------
 
 local MAP_X, MAP_Y, MAP_W, MAP_H = 22, -48, 464, 242       -- the drawing area inside the panel
-local GX0, GY0, GW, GH = -0.5, 0.4, 7.3, 6.7               -- the grid window it shows
+local GX0, GY0, GW, GH = -0.5, -2.85, 8.35, 9.95           -- the grid window it shows
 local NODE = { town = 14, route = 9, dungeon = 12, arena = 14 }
 local SEA, SEA_EDGE = { 0.55, 0.72, 0.84 }, { 0.42, 0.58, 0.72 }
 local INK = { 0.18, 0.17, 0.22 }
@@ -276,6 +309,11 @@ local PROPS = {
             { "jtree", 4.3, 4.7 }, { "jtree", 4.6, 5.4 }, { "jtree", 4.2, 6.0 }, { "jtree", 5.6, 2.6 },
             { "jtree", 6.2, 2.8 }, { "jtree", 5.6, 4.15 }, { "jtree", 6.2, 4.2 }, { "jtree", 5.6, 5.5 },
             { "jtree", 6.25, 5.6 }, { "totem_0_0", 4.5, 3.65 }, { "jtree", 6.3, 1.9 } },
+    redridge = { { "rtree", 4.75, -0.35 }, { "rtree", 5.45, -0.3 }, { "rtree", 6.35, -0.3 }, { "rtree", 7.1, -0.5 },
+                 { "rtree", 5.45, 0.22 }, { "rtree", 6.35, 0.22 } },
+    blackrock = { { "torch1", 6.15, -1.15 }, { "torch1", 5.45, -1.85 } },
+    steppes = { { "stree", 6.5, -1.15 }, { "stree", 7.5, -1.75 }, { "stree", 7.5, -1.2 } },
+    gorge = { { "crate", 5.15, -2.3 }, { "crate", 6.65, -2.45 } },
 }
 -- a few waves on the open sea
 local WAVES = { { 3.0, 2.2 }, { 3.45, 3.0 }, { 3.0, 3.9 }, { 3.5, 4.6 }, { 2.9, 5.5 }, { 1.5, 5.2 }, { 0.5, 5.0 },
@@ -412,7 +450,9 @@ function W:Build(K)
             Rect(K, f, "BACKGROUND", 7, corner[1], corner[2], corner[3], corner[4], SEA)
         end
         local label = K.Font(f, 9, "ARTWORK", true)
-        if z.labelBottom then
+        if z.lx then
+            label:SetPoint("TOPLEFT", f, "TOPLEFT", PX(z.lx), PY(z.ly))
+        elseif z.labelBottom then
             label:SetPoint("BOTTOMLEFT", f, "TOPLEFT", x0 + 7, y1 + 5)
         else
             label:SetPoint("TOPLEFT", f, "TOPLEFT", x0 + 7, y0 - 5)

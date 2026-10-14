@@ -80,8 +80,9 @@ local STAMP_SIZE = { house = { 5, 6 }, farmhouse = { 5, 6 }, stonehouse = { 5, 6
                      ruinhouse = { 5, 6 }, mineentrance = { 3, 2 }, mast = { 1, 3 }, darkhouse = { 5, 6 },
                      dbigtree = { 3, 3 }, jbigtree = { 3, 3 }, bbhouse = { 5, 6 }, hut = { 3, 3 }, totem = { 1, 2 },
                      banner = { 1, 2 }, bannerblue = { 1, 2 }, window = { 1, 2 }, crest = { 2, 2 }, pillar = { 1, 2 },
-                     fireplace = { 2, 2 }, throne = { 2, 1 } }
-local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true, darkhouse = true, bbhouse = true }
+                     fireplace = { 2, 2 }, throne = { 2, 1 }, rrhouse = { 5, 6 } }
+local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true, darkhouse = true, bbhouse = true,
+                 rrhouse = true }
 -- the walkable doorway tile of a stamp (dx, dy), if it has one
 local function IsDoor(kind, dx, dy)
     if HOUSES[kind] then return dx == 3 and dy == 5 end
@@ -106,6 +107,12 @@ local THEMES = {
                rock = "ruinwall" },
     -- the Guild Hall: flagstones, a red carpet for '=', brick walls for 'T'
     hall = { grass1 = "hallfloor1", grass2 = "hallfloor2", tall = "tall_", path = "carpet_", tree = nil, wall = "hallwall" },
+    -- Blackrock (MapsBlackrock.lua): Redridge's autumn, the Burning Steppes' ash (charred trees, 'R' basalt), the
+    -- Searing Gorge's orange canyon ('T' is the canyon wall), Blackrock Mountain's basalt caves; their 'w' is lava
+    redridge = { grass1 = "rgrass1", grass2 = "rgrass2", tall = "rtall_", path = "rpath_", tree = "rtree", rock = "ruinwall" },
+    steppes = { grass1 = "sgrass1", grass2 = "sgrass2", tall = "stall_", path = "spath_", tree = "stree", rock = "bwall" },
+    gorge = { grass1 = "ggrass1", grass2 = "ggrass2", tall = "gtall_", path = "gpath_", wall = "gwall" },
+    blackrock = { grass1 = "bfloor1", grass2 = "bfloor2", tall = "stall_", path = "bpath_", wall = "bwall", rock = "bwall" },
 }
 G.THEMES = THEMES
 
@@ -820,6 +827,20 @@ function G:StranglethornGate()
     self:Say("Night Watch Guard: The road south runs into Stranglethorn Vale. Commander Ebonlocke has it closed while Stitches walks.")
     self:Say("Night Watch Guard: Put the haunts to rest and bring her the Night Watch Seal. Then the jungle's all yours.")
     self:PushPlayer("up")
+end
+
+-- The Night Watch keeps the road north to Redridge closed until the Blackwater Seal (MapsBlackrock.lua).
+function G:RedridgeGate()
+    self:Say("Night Watch Guard: North is Redridge. Blackrock orcs burn farms up there, and Lakeshire is barely holding.")
+    self:Say("Night Watch Guard: The Commander lets no one up that road who hasn't proved themselves. Booty Bay's Blackwater Seal would do it.")
+    self:PushPlayer("down")
+end
+
+-- The Lakeshire Guard keeps Render's Valley (Stonewatch Keep's north pass) closed until Gath'Ilzogg is beaten.
+function G:RendersValleyGate()
+    self:Say("Lakeshire Guard: Render's Valley? Not without the Stonewatch Seal. Orders.")
+    self:Say("Lakeshire Guard: Gath'Ilzogg sits in his keep right behind you. Beat him, then we'll talk.")
+    self:PushPlayer("down")
 end
 
 -- Why a trainer won't fight yet (their `requires` not all beaten, or the player lacks their `needFlag`), or nil.
