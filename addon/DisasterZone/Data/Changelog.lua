@@ -8,9 +8,17 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.4.6", date = "15 October 2026", title = "Fixes",
       sections = {
+          { heading = "Gems for the hit cap", area = "gear", kind = "changed",
+            lead = "Suggested gems now know whether your gear is hit capped.", lines = {
+              "Under the cap, Suggest adds hit gems where they cost least, up to the cap.",
+              "Already capped: no hit gems. Your meta gem stays active either way.",
+              "Counts your gear, enchants, talents, race and the Gear sim's buffs (dps specs it covers).",
+          } },
           { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
               "Walking together on a 3D strategy board: others show in their race's clothes, not as a white body.",
               "Walking together: others run and turn smoothly, without jumping to and fro.",
+              "Square minimap: addon buttons, mail and queue icons sit on its edge, not on a circle inside it.",
+              "Minimap: a long zone name is cut short before the clock instead of running under it.",
           } },
       } },
     { version = "1.4.5", date = "14 October 2026", title = "Discord for everyone",
