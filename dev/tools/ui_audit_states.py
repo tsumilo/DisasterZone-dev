@@ -1885,6 +1885,11 @@ STATES = [
     ("Games - Azeromon inn evening", azero_at("post", 4, 5, "ns.Azero.clockHour = 21")),
     ("Games - Azeromon Route 1", azero_at("route1", 6, 9)),
     ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),
+    # Blackrock (0.25): Lakeshire by day, the Steppes' ash and lava, the mountain's cavern, Thorium Point
+    ("Games - Azeromon Lakeshire", azero_at("lakeshire", 12, 10, "ns.Azero.clockHour = 12")),
+    ("Games - Azeromon Burning Steppes", azero_at("steppes", 20, 13, "ns.Azero.clockHour = 12")),
+    ("Games - Azeromon Blackrock Mountain", azero_at("brm", 18, 13, "ns.Azero.clockHour = 12")),
+    ("Games - Azeromon Searing Gorge", azero_at("gorge", 12, 7, "ns.Azero.clockHour = 12")),
     # the Guild Hall: by day from the dais steps (wings shut, nothing killed); at night in Karazhan's wing with
     # Karazhan, Gruul and Magtheridon cleared; down the nave by the rotunda
     ("Games - Azeromon Guild Hall", azero_at("hideout", 17, 8)),

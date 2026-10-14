@@ -31,7 +31,8 @@ ART_LUA = os.path.join(ADDON, "Games", "Azeromon", "WorldArt.lua")
 VERSION = 1                               # bump when the look changes without an input change
 W, H = 336, 216                           # the map picture; the panel shows it at 2 units a pixel (672 x 432)
 TW, TH = 512, 256
-GRID, OX, OY = 30, 6, 12                  # grid unit -> pixels: x' = OX + (x + 0.5) * GRID, y' = OY + (y - 0.4) * GRID
+GRID, OX, OY = 20, 6, 78                  # grid unit -> pixels: x' = OX + (x + 0.5) * GRID, y' = OY + (y - 0.4) * GRID
+                                          # (20: Blackrock, 0.25, fits north of Duskwood under the key bar; the old world was 30)
 LAP_FRAMES = 6
 FOG_SOFT = 4                              # the mist's edge: this many pixels either side of a place's border
 
@@ -99,16 +100,21 @@ def bake(DATA):
     bay = BAYER[(ys.astype(int) % 4), (xs.astype(int) % 4)]
 
     # ------------------------------------------------------------------------------------------- land
-    # zones as rounded boxes (pixels), the edges warped by noise; the land is their smooth union. Westfall and Duskwood
-    # run off the top (the continent carries on north), Redridge's peaks (the next region, fogged) sit north-east.
-    ZONE_IDS = ["sea", "westfall", "elwynn", "duskwood", "stv", "north"]
+    # zones as rounded boxes (pixels), the edges warped by noise; the land is their smooth union. Peaks north of
+    # Westfall and Duskwood run off the top (the continent carries on north; always misty); Blackrock (0.25) climbs
+    # north of Darkshire: Redridge, then the mountain with the Burning Steppes east of it and the Searing Gorge on top.
+    ZONE_IDS = ["sea", "westfall", "elwynn", "duskwood", "stv", "north", "redridge", "steppes", "blackrock", "gorge"]
     SHAPES = [  # zone, x0, y0, x1, y1 (grid), corner radius (px)
-        ("westfall", -0.42, -1.0, 2.5, 2.52, 10),
+        ("westfall", -0.42, 0.3, 2.5, 2.52, 10),
         ("elwynn", 0.52, 2.4, 2.48, 4.5, 12),
-        ("duskwood", 2.4, -1.0, 5.5, 1.62, 8),
+        ("duskwood", 2.4, 0.38, 5.5, 1.62, 8),
         ("stv", 3.92, 1.6, 6.5, 5.92, 12),
         ("stv", 3.92, 5.5, 5.5, 6.82, 10),
-        ("north", 5.35, -1.0, 7.6, 1.66, 8),
+        ("north", -0.42, -3.4, 4.5, 0.42, 8),
+        ("redridge", 4.5, -1.05, 8.85, 0.42, 8),
+        ("steppes", 7.65, -2.05, 8.9, -1.0, 8),
+        ("blackrock", 4.5, -3.4, 7.67, -1.0, 8),
+        ("gorge", 6.2, -3.4, 8.0, -2.0, 8),
     ]
     warpx = (fbm(xs / 26, ys / 26, 11) - 0.5) * 16
     warpy = (fbm(xs / 26, ys / 26, 12) - 0.5) * 16
@@ -150,8 +156,11 @@ def bake(DATA):
     land = land_d < 0
     # lakes: Crystal Lake by Goldshire, Lake Nazferiti in the north of the vale, a Duskwood pond
     lakes = (disc(gx(1.32), gy(3.62), 7, 4.5, 0.5) < 0) | (disc(gx(5.62), gy(2.62), 7, 5, 0.5) < 0) | \
-            (disc(gx(3.52), gy(1.32), 4, 2.6, 0.4) < 0)
+            (disc(gx(3.52), gy(1.32), 4, 2.6, 0.4) < 0) | (disc(gx(6.65), gy(0.24), 7, 3.4, 0.4) < 0)   # + Lake Everstill
     land &= ~lakes
+    # lava (0.25): a lake in the Steppes, the mountain's lava sea, the Searing Gorge's Cauldron (land, painted later)
+    lava = ((disc(gx(8.62), gy(-1.88), 4, 2.4, 0.4) < 0) | (disc(gx(6.5), gy(-1.62), 5, 2.8, 0.4) < 0) |
+            (disc(gx(7.62), gy(-2.62), 5, 2.6, 0.4) < 0)) & land
 
     zone = np.zeros((H, W), dtype=np.int32)
     best = np.full((H, W), 1e9)
@@ -213,8 +222,13 @@ def bake(DATA):
         3: ramp(atlas.avg("dgrass1"), lo=0.55, hi=1.28),
         4: ramp(atlas.avg("jgrass1"), lo=0.5, hi=1.2),
         5: ramp(np.array((150, 92, 66)), lo=0.62, hi=1.3),
+        6: ramp(atlas.avg("rgrass1"), lo=0.55, hi=1.2),
+        7: ramp(atlas.avg("sgrass1"), lo=0.6, hi=1.25),
+        8: ramp(atlas.avg("bfloor1") * 1.3, lo=0.6, hi=1.3),
+        9: ramp(atlas.avg("ggrass1"), lo=0.62, hi=1.18),
     }
-    PATH = {1: atlas.avg("wpath_c"), 2: atlas.avg("path_c"), 3: atlas.avg("dpath_c"), 4: atlas.avg("jpath_c"), 5: atlas.avg("path_c")}
+    PATH = {1: atlas.avg("wpath_c"), 2: atlas.avg("path_c"), 3: atlas.avg("dpath_c"), 4: atlas.avg("jpath_c"), 5: atlas.avg("path_c"),
+            6: atlas.avg("rpath_c"), 7: atlas.avg("spath_c") * 1.2, 8: atlas.avg("bpath_c") * 1.3, 9: atlas.avg("gpath_c")}
     SAND = np.array([(206, 176, 120), (226, 200, 146), (240, 222, 172)], dtype=np.float64)
     WATER = GG.THEMES["elwynn"]["water"]
     DEEP2 = np.array(WATER["deep"]) * 0.86
@@ -232,6 +246,8 @@ def bake(DATA):
     forest[zone == 3] = np.clip((fn[zone == 3] - 0.30) * 4, 0, 1)
     forest[zone == 4] = np.clip((fn[zone == 4] - 0.22) * 3, 0, 1)
     forest[zone == 5] = 0
+    forest[zone == 6] = np.clip((fn[zone == 6] - 0.34) * 4, 0, 1)            # Redridge's autumn woods
+    forest[zone == 7] = np.clip((fn[zone == 7] - 0.5) * 2, 0, 1)             # charred stumps on the ash
 
     # clearings round places and along roads come later (they need the roads); the ground first
     v = 2.2 + light * 1.1 + tex * 1.2 - forest * 1.0
@@ -355,7 +371,8 @@ def bake(DATA):
     cliff1 = sea & np.roll(land, 1, 0)
     cliff2 = sea & np.roll(land, 2, 0) & ~cliff1
     CLIFF = {1: ((150, 120, 76), (112, 86, 56)), 2: ((116, 100, 72), (84, 70, 52)), 3: ((70, 62, 70), (50, 44, 54)),
-             4: ((112, 92, 60), (82, 66, 44)), 5: ((92, 84, 76), (62, 56, 52))}
+             4: ((112, 92, 60), (82, 66, 44)), 5: ((92, 84, 76), (62, 56, 52)), 6: ((150, 96, 60), (110, 66, 42)),
+             7: ((70, 60, 58), (46, 40, 40)), 8: ((60, 46, 44), (40, 30, 30)), 9: ((170, 92, 52), (124, 62, 36))}
     zabove1, zabove2 = np.roll(zone, 1, 0), np.roll(zone, 2, 0)
     for zi, (c1, c2) in CLIFF.items():
         img[cliff1 & (zabove1 == zi)] = c1
@@ -365,9 +382,23 @@ def bake(DATA):
     shore2 = sea & (sea_d > 1.0) & (sea_d <= 2.0) & ~cliff1 & ~cliff2 & ((xs + ys) % 2 == 0)
     img[shore2] = foam * 0.9 + lightw * 0.1
     # beaches: sand on low coasts (not under cliffs facing south)
-    beach = land & (land_in <= 2.2) & (zone != 3) & (zone != 5)
+    beach = land & (land_in <= 2.2) & (zone != 3) & (zone != 5) & (zone < 6)
     bi_ = np.clip((land_in + bay * 1.2 - 0.6).astype(int), 0, 2)
     img[beach & ~road] = SAND[2 - bi_[beach & ~road]]
+
+    # lava: dark crust at the rim, glowing orange inside, bright cracks
+    if lava.any():
+        lv_in = np.zeros((H, W))
+        cur = lava.copy()
+        for k_ in range(1, 4):                       # pixels inside the lava's rim (erosion steps)
+            lv_in[cur] = k_
+            cur = cur & np.roll(cur, 1, 0) & np.roll(cur, -1, 0) & np.roll(cur, 1, 1) & np.roll(cur, -1, 1)
+        lv_in[cur] = 4
+        lc = np.where((lv_in <= 1)[..., None], np.array((70, 18, 8)), np.where((lv_in <= 2)[..., None],
+                      np.array((196, 58, 18)), np.array((244, 112, 30))))
+        crack = (lv_in > 2) & (fbm(xs / 4, ys / 4, 97) > 0.62)
+        lc[crack] = (255, 196, 90)
+        img[lava] = lc[lava]
 
     # ------------------------------------------------------------------------------------------- stamps
     def pal(*ramp_):
@@ -543,6 +574,26 @@ def bake(DATA):
                     "a.k.a",
                     ".kkk."], {"a": (46, 40, 38), "b": (90, 60, 40), "k": (30, 24, 22)})
     stamp("sign", ["aaa", ".k."], {"a": (166, 112, 64), "k": (84, 52, 34)})
+    LEAF_A = [(110, 34, 22), (168, 64, 30), (214, 110, 40), (240, 168, 70)]          # Redridge's autumn
+    stamp("aoak", ["..aab..",
+                   ".abbcb.",
+                   "abcdcbb",
+                   "abccbba",
+                   ".abbaa.",
+                   "..aaa..",
+                   "...t..."], {"a": LEAF_A[0], "b": LEAF_A[1], "c": LEAF_A[2], "d": LEAF_A[3], "t": P.BARK[1]})
+    stamp("aoak2", [".aab.",
+                    "abcbb",
+                    "abdca",
+                    ".aba.",
+                    "..t.."], {"a": LEAF_A[0], "b": LEAF_A[1], "c": LEAF_A[2], "d": LEAF_A[3], "t": P.BARK[1]})
+    stamp("stump", ["k.k", ".k.", ".k.", "kkk"], {"k": (40, 32, 30)})                  # the Steppes' charred trees
+    stamp("keep", ["a.a.a.a",
+                   "abbbbbb",
+                   "abcbbcb",
+                   "abbbbbb",
+                   "abbkkbb",
+                   "aakkkka"], {"a": (60, 52, 50), "b": (120, 108, 98), "c": (255, 170, 70), "k": (30, 24, 22)})
     stamp("dock", ["aaaaaa", "k.k.k."], {"a": (166, 112, 64), "k": (84, 52, 34)})
 
     shadow = np.zeros((H, W))
@@ -582,15 +633,16 @@ def bake(DATA):
 
     # ------------------------------------------------------------------------------------------- forests
     rng = np.random.default_rng(3)
-    TREE = {2: ("oak", "oak2"), 3: ("pine", "pine"), 4: ("jungle", "jungle"), 1: ("wtree", "wtree")}
-    STEP = {2: 4, 3: 3, 4: 5, 1: 9}
-    for zi in (1, 2, 3, 4):
+    TREE = {2: ("oak", "oak2"), 3: ("pine", "pine"), 4: ("jungle", "jungle"), 1: ("wtree", "wtree"), 6: ("aoak", "aoak2"),
+            7: ("stump", "stump")}
+    STEP = {2: 4, 3: 3, 4: 5, 1: 9, 6: 4, 7: 7}
+    for zi in (1, 2, 3, 4, 6, 7):
         st = STEP[zi]
         for ty in range(-2, H + 4, st):
             for tx in range(-2, W + 4, st):
                 x = int(tx + rng.uniform(0, st)) + (st // 2 if (ty // st) % 2 else 0)
                 y = int(ty + rng.uniform(0, st))
-                if not (0 <= x < W and 0 <= y < H) or zone[y, x] != zi or land_in[y, x] < 3:
+                if not (0 <= x < W and 0 <= y < H) or zone[y, x] != zi or land_in[y, x] < 3 or lava[y, x]:
                     continue
                 f = forest[y, x] if zi != 1 else (0.6 if fbm(x / 9, y / 9, 61) > 0.62 and pd[y, x] > 9 and not road_near[y, x] else 0)
                 if f <= 0 or rng.random() > f * (1.0 if zi != 1 else 0.7):
@@ -611,6 +663,11 @@ def bake(DATA):
         x, y = int(rng.uniform(0, W)), int(rng.uniform(0, H))
         if zone[y, x] == 5 and land_in[y, x] > 3:
             put("mount" if rng.random() < 0.5 else "mount2", x, y)
+    # Blackrock Mountain's peaks and the Gorge's canyon walls, clear of the places, roads and lava
+    for _ in range(160):
+        x, y = int(rng.uniform(0, W)), int(rng.uniform(0, H))
+        if zone[y, x] in (8, 9) and land_in[y, x] > 2 and pd[y, x] > 8 and not road_near[y, x] and not lava[y, x]:
+            put("mount2" if zone[y, x] == 9 or rng.random() < 0.5 else "mount", x, y)
 
     # ------------------------------------------------------------------------------------------- places
     def town(cx, cy, specs):
@@ -675,6 +732,28 @@ def bake(DATA):
             town(cx, cy, [("pyramid", -4, 2), ("ship", 9, 6)])
         elif i == "jaguero":
             town(cx, cy, [("palm", -3, 2), ("palm", 3, 1), ("palm", 0, -2)])
+        elif i == "threecorners":
+            town(cx, cy, [("gtent", -3, 1), ("gtent", 3, 2)])
+            lights += [(cx, cy + 1, "ember", 6)]
+            smoke += [(cx, cy)]
+        elif i == "lakeshire":
+            town(cx, cy, [("house", -5, -1), ("inn", 3, -1), ("house", -2, 5)])
+            smoke += [(cx + 3, cy - 8), (cx - 5, cy - 8)]
+            lights += [(cx, cy, "warm", 13)]
+        elif i == "everstill":
+            town(cx, cy, [("windmill", 3, 0), ("gtent", -4, 2)])
+            lights += [(cx - 4, cy + 1, "ember", 5)]
+        elif i == "stonewatch":
+            town(cx, cy, [("keep", 0, 2)])
+            lights += [(cx, cy, "ember", 7)]
+        elif i == "steppes":
+            town(cx, cy, [("tent", -3, 2), ("tent", 3, 2), ("flag", 0, -1)])
+            lights += [(cx, cy + 1, "ember", 6)]
+            smoke += [(cx, cy)]
+        elif i == "gorge":
+            town(cx, cy, [("hut", -3, 1), ("tent", 4, 2)])
+            lights += [(cx, cy, "warm", 9)]
+            smoke += [(cx - 3, cy - 3)]
         elif k == "dungeon":
             put("cave", cx, cy + 3)
             lights += [(cx, cy + 1, "ember", 5)]
@@ -683,6 +762,8 @@ def bake(DATA):
 
     draw_items()
     img[(shadow > 0)] *= 0.72
+    for y_, x_ in zip(*np.nonzero(lava & (GG.hash_(xs.astype(int), ys.astype(int), 5) > 0.985))):
+        lights.append((int(x_), int(y_), "ember", 5))
 
     # ------------------------------------------------------------------------------------------- the compass
     cx0, cy0 = 20, 186
@@ -709,11 +790,11 @@ def bake(DATA):
     dpl = np.hypot(xs[..., None] + nx[..., None] - place_xy[:, 0], ys[..., None] + nx[..., None] * 0.7 - place_xy[:, 1])
     reg = np.argmin(dpl, axis=2) + 1
     reg[np.min(dpl, axis=2) > FOG_R] = 0
-    reg[(zone == 5) | ((~land) & (xs > gx(5.5)) & (ys < gy(1.5)))] = 255
+    reg[zone == 5] = 255
     reg[(zone == 0) & (sea_d > 7 + (fbm(xs / 8, ys / 8, 73) - 0.5) * 6) & (reg != 255)] = 0
 
     still = 0.35 * GG.hash_(xs.astype(int), ys.astype(int), 9) + 0.65 * fbm(xs / 6, ys / 6, 83)
-    return dict(img=img, reg=reg, sea_d=sea_d, lakes=lakes, zone=zone, still=still, lights=lights, smoke=smoke,
+    return dict(img=img, reg=reg, sea_d=sea_d, lakes=lakes, lava=lava, zone=zone, still=still, lights=lights, smoke=smoke,
                 windows=windows, boxes=boxes, PLACES=PLACES, BY_ID=BY_ID)
 
 
@@ -724,7 +805,7 @@ def fog_pictures(b):
     ys, xs = np.mgrid[0:H, 0:W].astype(np.float64)
     bay = GG.BAYER[(ys.astype(int) % 4), (xs.astype(int) % 4)]
     out = {}
-    ids = [(i + 1, p["id"]) for i, p in enumerate(b["PLACES"])] + [(255, "redridge")]
+    ids = [(i + 1, p["id"]) for i, p in enumerate(b["PLACES"])] + [(255, "peaks")]
     for r, pid in ids:
         inside = reg == r
         if not inside.any():

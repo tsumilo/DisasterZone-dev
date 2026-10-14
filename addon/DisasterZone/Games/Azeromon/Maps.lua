@@ -1158,15 +1158,15 @@ Maps.darkshire = {
     theme = "duskwood",
     gloom = 0.26,
     rows = {
-        "TTTTTTTTTTTTTTTTTTTTTTTT",
-        "T.....................YT",
-        "T......................T",
-        "T......................T",
-        "T......................T",
-        "T......................T",
-        "T......................T",
-        "T.....=..........=.....T",
-        "T.l...=..l....l..=...l.T",
+        "TTTTTTTTTTT==TTTTTTTTTTT",
+        "T..........==.........YT",
+        "T..........==..........T",
+        "T..........==..........T",
+        "T..........==..........T",
+        "T..........==..........T",
+        "T..........==..........T",
+        "T.....=....==....=.....T",
+        "T.l...=..l.==.l..=...l.T",
         "=======================T",
         "=======================T",
         "T...l......==...l...l..T",
@@ -1179,8 +1179,11 @@ Maps.darkshire = {
         "T..........==..........T",
         "TTTTTTTTTTT==TTTTTTTTTTT",
     },
-    edges = { west = { map = "duskwood", dy = 0 }, south = { map = "rebelcamp", dx = 0 } },
+    edges = { west = { map = "duskwood", dy = 0 }, south = { map = "rebelcamp", dx = 0 },
+              north = { map = "threecorners", dx = -2 } },                   -- Redridge (MapsBlackrock.lua)
     triggers = {
+        { x = 11, y = 1, cond = function(G) return not G:Flag("badge_blackwater") end, script = function(G) G:RedridgeGate() end },
+        { x = 12, y = 1, cond = function(G) return not G:Flag("badge_blackwater") end, script = function(G) G:RedridgeGate() end },
         { x = 11, y = 18, cond = function(G) return not G:Flag("badge_nightwatch") end, script = function(G) G:StranglethornGate() end },
         { x = 12, y = 18, cond = function(G) return not G:Flag("badge_nightwatch") end, script = function(G) G:StranglethornGate() end },
     },
@@ -1195,7 +1198,7 @@ Maps.darkshire = {
     },
     signs = {
         { x = 1, y = 8, text = "DARKSHIRE\nSeat of the Night Watch. The lamps burn all night, every night." },
-        { x = 13, y = 11, text = "SOUTH: Madame Eva, fortunes told.\nGryphons to Sentinel Hill." },
+        { x = 13, y = 11, text = "SOUTH: Madame Eva, fortunes told.\nGryphons to Sentinel Hill.\nNORTH: Redridge and Lakeshire." },
     },
     npcs = {
         { id = "stitches", x = 3, y = 9, sprite = "bald", tint = { 0.6, 0.72, 0.55 }, face = "left",
@@ -1253,6 +1256,10 @@ Maps.darkshire = {
                   options[#options + 1] = "Booty Bay (" .. D.Money(40) .. ")"
                   dest[#dest + 1] = "bootybay"
               end
+              if G:Flag("fp_lakeshire") then                  -- Ariena Stormfeather's gryphons (Redridge)
+                  options[#options + 1] = "Lakeshire (" .. D.Money(30) .. ")"
+                  dest[#dest + 1] = "lakeshire"
+              end
               options[#options + 1] = "Stay"
               local to = dest[G:Choose("Felicia Maline: Where to?", options)]
               if not to then
@@ -1268,6 +1275,9 @@ Maps.darkshire = {
               if to == "bootybay" then
                   G:EnterMap("bootybay", 3, 9, "down")
                   G:Say("You fly south over the whole of Stranglethorn, down to Booty Bay's docks.")
+              elseif to == "lakeshire" then
+                  G:EnterMap("lakeshire", 17, 22, "right")
+                  G:Say("You fly north over the forest's edge and Redridge's red hills, down by the lake at Lakeshire.")
               else
                   G:EnterMap("sentinel", 17, 4, "right")
                   G:Say("You fly west over the dark treetops, all the way to Sentinel Hill.")

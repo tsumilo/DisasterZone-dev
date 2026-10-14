@@ -58,6 +58,25 @@ W.PLACES = {
       maps = { "bootybay", "bootybayinn", "bbhall" }, text = "Baron Revilgaz's port: the Salty Sailor Tavern and the docks." },
     { id = "jaguero", name = "Jaguero Isle", zone = "stv", kind = "route", x = 6, y = 6.4, maps = { "jaguero" },
       text = "King Mukla's island, a short boat ride from the bay." },
+    -- Blackrock (MapsBlackrock.lua): Darkshire's north road up through Redridge, then the mountain
+    { id = "threecorners", name = "Three Corners", zone = "redridge", kind = "route", x = 5, y = 0, maps = { "threecorners" },
+      text = "A valley climbing from Darkshire to the Redridge road. Poachers camp in the hollow." },
+    { id = "lakeshire", name = "Lakeshire", zone = "redridge", kind = "town", x = 6.1, y = 0,
+      maps = { "lakeshire", "lakeshireinn" }, text = "Magistrate Solomon's town on the lake: the inn, gryphons and the bridge east." },
+    { id = "everstill", name = "Lake Everstill", zone = "redridge", kind = "route", x = 7.2, y = 0, maps = { "everstill" },
+      text = "The lake, Alther's Mill and Yowler's gnoll camp." },
+    { id = "stonewatch", name = "Stonewatch Keep", zone = "redridge", kind = "route", x = 8, y = -0.72,
+      maps = { "stonewatch" }, text = "Gath'Ilzogg's keep on its hill. Render's Valley climbs north from here." },
+    { id = "steppes", name = "Burning Steppes", zone = "steppes", kind = "route", x = 8.3, y = -1.5, maps = { "steppes" },
+      text = "An ash plain, lava lakes and Flame Crest. Morgan's Vigil holds the south-east hill." },
+    { id = "brm", name = "Blackrock Mountain", zone = "blackrock", kind = "dungeon", x = 7.1, y = -1.5, maps = { "brm" },
+      text = "One great cavern round a lava sea, chain bridges across it, and the Black Forge." },
+    { id = "brd", name = "The Imperial Seat", zone = "blackrock", kind = "dungeon", x = 5.9, y = -1.2, maps = { "brd" },
+      text = "Emperor Dagran Thaurissan's throne, deep in Blackrock Depths." },
+    { id = "moltencore", name = "Molten Core", zone = "blackrock", kind = "dungeon", x = 5.9, y = -1.85, maps = { "moltencore" },
+      text = "Ragnaros' lava cavern under the mountain. Something huge prowls its shelf." },
+    { id = "gorge", name = "Searing Gorge", zone = "gorge", kind = "route", x = 7.1, y = -2.3, maps = { "gorge" },
+      text = "A canyon round the Cauldron's lava. The Thorium Brotherhood holds Thorium Point." },
 }
 
 -- The coloured regions behind the places (grid units, like the places).
@@ -68,6 +87,12 @@ W.ZONES = {
       dark = true },
     { id = "stv", name = "STRANGLETHORN", color = { 0.52, 0.74, 0.50 }, x0 = 3.95, y0 = 1.65, x1 = 6.45, y1 = 6.75,
       labelBottom = true },
+    { id = "redridge", name = "REDRIDGE MOUNTAINS", color = { 0.88, 0.66, 0.44 }, x0 = 4.5, y0 = -1.05, x1 = 8.85, y1 = 0.42 },
+    { id = "blackrock", name = "BLACKROCK MOUNTAIN", color = { 0.42, 0.34, 0.34 }, x0 = 4.5, y0 = -2.6, x1 = 7.65, y1 = -1.0,
+      dark = true },
+    { id = "steppes", name = "BURNING STEPPES", color = { 0.58, 0.44, 0.38 }, x0 = 7.65, y0 = -2.05, x1 = 8.9, y1 = -1.0,
+      dark = true },
+    { id = "gorge", name = "SEARING GORGE", color = { 0.90, 0.58, 0.38 }, x0 = 6.2, y0 = -2.6, x1 = 8.0, y1 = -2.05 },
 }
 
 -- Gryphon routes (dotted), shown once both ends are known and `flag` is set. `via`: bends on the way.
@@ -75,6 +100,9 @@ W.FLIGHTS = {
     { from = "sentinel", to = "arena", via = { { 3.0, 2.5 } } },
     { from = "sentinel", to = "darkshire", flag = "fp_darkshire", via = { { 2, 0.62 }, { 5, 0.62 } } },
     { from = "bootybay", to = "darkshire", flag = "fp_bootybay", via = { { 6.6, 6.2 }, { 6.6, 1 } } },
+    { from = "lakeshire", to = "darkshire", flag = "fp_lakeshire", via = { { 5.6, 0.6 } } },
+    { from = "steppes", to = "lakeshire", flag = "fp_morgansvigil", via = { { 8.7, -0.7 } } },
+    { from = "gorge", to = "steppes", flag = "fp_thoriumpoint", via = { { 8.3, -2.3 } } },
 }
 
 W.TAG_NAMES = { inn = "Inn", rest = "Rest", shop = "Shop", stable = "Stable", profession = "Profession trainers",
@@ -122,6 +150,9 @@ local function Backfill(g)
         end
     end
     if g:Flag("fp_darkshire") then v.darkshire = true end
+    if g:Flag("fp_lakeshire") then v.lakeshire = true end
+    if g:Flag("fp_morgansvigil") then v.steppes = true end
+    if g:Flag("fp_thoriumpoint") then v.gorge = true end
 end
 W.Backfill = Backfill
 G:On("load", function(g) Backfill(g) end)
@@ -252,7 +283,7 @@ end
 -- The panel (START > MAP): the painted map (WorldArt.lua, baked by dev/generators/gen_azeromon_worldmap.py) at 2
 -- units a pixel over the whole screen, the world moving on it (waves, glints, clouds, smoke, Duskwood's mist,
 -- birds, gryphons on the routes you know, day and night), mist over places you haven't found (a "?" where a road
--- leads in; Redridge's peaks stay misty), and the info card on the right. A place found since the map was last
+-- leads in; the peaks north of Westfall and Duskwood stay misty), and the info card on the right. A place found since the map was last
 -- opened is revealed: its mist lifts with sparkles and a banner names it (save.mapSeen: the places already shown).
 ---------------------------------------------------------------------------
 
@@ -267,9 +298,9 @@ local CREAM = { 0.96, 0.95, 0.89 }
 local SLATE = { 0.24, 0.35, 0.53 }
 local DARK = { dawn = { 0.97, 0.87, 0.81 }, dusk = { 0.93, 0.74, 0.61 }, night = { 0.39, 0.44, 0.67 } }
 local LIGHT = { warm = { 1, 0.75, 0.43 }, lamp = { 1, 0.82, 0.47 }, ember = { 1, 0.47, 0.2 } }
--- zone names on ribbons (panel units); Redridge's peaks: the way on, not reachable yet
-W.LABELS = { westfall = { 70, 106 }, elwynn = { 100, 262 }, duskwood = { 252, 84 }, stv = { 292, 196 } }
-W.TEASER = { 408, 62 }
+-- zone names on ribbons (panel units). The peaks north of Westfall and Duskwood are not a place: always misty.
+W.LABELS = { westfall = { 51, 210 }, elwynn = { 60, 318 }, duskwood = { 172, 196 }, stv = { 198, 270 },
+             redridge = { 300, 160 }, steppes = { 320, 50 }, blackrock = { 128, 78 }, gorge = { 160, 42 } }
 local CLOUDS = { { 30, 40, 3.2 }, { 150, 120, 2.6 }, { 250, 70, 3.8 } }       -- start x, y (pixels), drift / s
 local KIND = { town = "TOWN", route = "WILDS", dungeon = "DUNGEON", arena = "ARENA" }
 local TAG_ICON = { Inn = "bed", Rest = "fire1", Shop = "barrel", Stable = "hay", ["Bounty board"] = "wantedboard",
@@ -466,7 +497,6 @@ local function BuildMarks(K, f)
     f.marks = m
     f.ribbons = {}
     for _, z in ipairs(W.ZONES) do f.ribbons[z.id] = Ribbon(K, m) end
-    f.teaser = Ribbon(K, m)
     local title = K.Font(m, 12, "OVERLAY", true)
     title:SetPoint("BOTTOMLEFT", m, "BOTTOMLEFT", 52, 14)
     title:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
@@ -713,7 +743,7 @@ function W:Animate(elapsed)
     local prog = rv and math.min(1, (t - rv.t0) / 1.6) or 0
     for id, fg in pairs(f.fog) do
         local p = W.byId[id]
-        local on = id == "redridge" or (p and W.Fogged(p))
+        local on = id == "peaks" or (p and W.Fogged(p))
         local a = 1
         if rv and rv.ids[id] then a = 1 - prog end
         fg.a:SetShown(on and a > 0) fg.b:SetShown(on and a > 0)
@@ -995,7 +1025,6 @@ function W:Refresh()
             f.ribbons[z.id].Set(pos[1], pos[2], any and z.name or "???", any and z.color or { 0.72, 0.74, 0.8 }, any and z.dark)
         end
     end
-    f.teaser.Set(W.TEASER[1], W.TEASER[2], "???", { 0.72, 0.74, 0.8 })
     -- pins: "?" where a road leads into the mist; guildmates where they are
     for _, p in ipairs(W.PLACES) do
         local pin = f.pins[p.id]

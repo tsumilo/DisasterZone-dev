@@ -94,11 +94,14 @@ def roads_follow_the_maps_and_flights_need_both_ends():
         out[#out + 1] = a .. '-' .. b
       end
       table.sort(out) return out""")
-    assert roads == ["arena-stvsouth", "arena-zulmamwe", "bootybay-wildshore", "crystalvein-stvsouth",
+    assert roads == sorted(["arena-stvsouth", "arena-zulmamwe", "bootybay-wildshore", "crystalvein-stvsouth",
                      "darkshire-duskwood", "darkshire-rebelcamp", "deadmines-moonbrook", "duskwood-ravenhill",
                      "elwynn-forestedge", "elwynn-goldshire", "elwynn-westfall", "kurzen-rebelcamp",
                      "moonbrook-sentinel", "moshogg-zulmamwe", "ravenhill-sentinel", "rebelcamp-stvnorth",
-                     "sentinel-westfall", "stvnorth-zulmamwe", "stvsouth-wildshore"], roads
+                     "sentinel-westfall", "stvnorth-zulmamwe", "stvsouth-wildshore",
+                     # Blackrock (0.25)
+                     "darkshire-threecorners", "lakeshire-threecorners", "everstill-lakeshire", "everstill-stonewatch",
+                     "steppes-stonewatch", "brm-steppes", "brm-gorge", "brd-brm", "brm-moltencore"]), roads
     shown = "local W = ns.AzeroWorld return { W.FlightShown(W.FLIGHTS[1]), W.FlightShown(W.FLIGHTS[2]) }"
     assert c.eval_py(shown) == [False, False]
     c.eval("ns.Azero:EnterMap('sentinel', 5, 9, 'down', true) ns.Azero:EnterMap('arena', 7, 11, 'up', true)")
@@ -204,7 +207,7 @@ def the_painted_map_is_baked_and_up_to_date():
         assert Image.open(f).size == size, (f, Image.open(f).size, size)
     places = c.eval_py("local out = {} for _, p in ipairs(ns.AzeroWorld.PLACES) do out[#out + 1] = p.id end return out")
     assert sorted(art["places"]) == sorted(places), art["places"]
-    assert sorted(art["fog"]) == sorted(places + ["redridge"]), sorted(art["fog"])
+    assert sorted(art["fog"]) == sorted(places + ["peaks"]), sorted(art["fog"])
     no_errors(w)
 
 
@@ -231,7 +234,7 @@ def mist_hides_unknown_places_and_lifts_when_you_find_them():
     w, c = game(ui=True)
     s = open_map(c, w)
     assert s["artOK"], s
-    assert "goldshire" not in s["fog"] and "westfall" in s["fog"] and "redridge" in s["fog"], s["fog"]
+    assert "goldshire" not in s["fog"] and "westfall" in s["fog"] and "peaks" in s["fog"], s["fog"]
     assert s["pins"] == ["elwynn"], s["pins"]                         # a road leads from Goldshire into the mist
     assert s["reveal"] == [] and s.get("banner") is None, s              # (the first look shows what you know, quietly)
     close_map(c, w)
