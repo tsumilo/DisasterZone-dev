@@ -423,6 +423,150 @@ def death_slows_the_room_then_the_card_holds_the_restart_back():
     assert c.eval("return ns.BoIUI._Run().mode") == "floorcard"
 
 
+def guild(*names):
+    from _common import World, Client
+    w = World()
+    cs = [Client(w, n, guild_rank=3, class_file=cls) for n, cls in names]
+    for x in cs:
+        x.load_addon()
+    w.tick(3)
+    for x in cs:
+        x.eval(BOT_LUA)
+    return w, cs
+
+
+DIE_DAILY = r"""
+  -- a daily run that dies in the second room of floor 1 (a counted try, unless spent)
+  local E, run = ns.BoI, ns.BoIGame:NewRun(..., true)
+  run.mode = 'play'
+  for _, nb in ipairs(E.Neighbours(run.map, run.room)) do if nb.room.type == 'normal' then E.ChangeRoom(run, nb.dir) break end end
+  run.mode = 'play'
+  run.p.x, run.p.y = 300, 200
+  run.hp, run.soul, run.p.inv = 1, 0, 0
+  E.Hurt(run, run.room.foes[1].d)
+  while run.mode == 'dying' do E.Step(run, {}) end
+  T_BOI.died = run
+  return { counted = run.counted, room = { run.room.x, run.room.y }, seed = run.seed }
+"""
+
+
+@case
+def todays_dungeon_is_the_guilds_and_only_the_first_try_counts():
+    w, (a, b) = guild(("Alice", "MAGE"), ("Bob", "ROGUE"))
+    day = a.eval("return ns.BoIBoard:Today()")
+    assert len(day) == 10 and day[4] == "-", day
+    assert a.eval("return ns.BoIBoard:Seed()") == b.eval("return ns.BoIBoard:Seed()")
+    first = a.eval_py(DIE_DAILY, "MAGE")
+    assert first["counted"] is True
+    again = a.eval_py("local r = ns.BoIGame:NewRun('MAGE', true) return { counted = r.counted, seed = r.seed }")
+    assert again["counted"] is False and again["seed"] == first["seed"]
+    # Bob's dungeon is the same one (another class)
+    same = b.eval_py("""
+      local r = ns.BoIGame:NewRun('ROGUE', true)
+      local s = {}
+      for _, x in ipairs(r.map.list) do s[#s + 1] = x.x .. ',' .. x.y .. x.type end
+      return table.concat(s, ';')
+    """)
+    mine = a.eval_py("""
+      local s = {}
+      for _, x in ipairs(T_BOI.died.map.list) do s[#s + 1] = x.x .. ',' .. x.y .. x.type end
+      return table.concat(s, ';')
+    """)
+    assert same == mine
+
+
+@case
+def a_result_goes_round_the_guild_and_leaves_a_grave_there():
+    w, (a, b) = guild(("Alice", "MAGE"), ("Bob", "ROGUE"))
+    died = a.eval_py(DIE_DAILY, "MAGE")
+    w.tick(2)
+    row = b.eval_py("local l = ns.BoIBoard:Board() return l[1] and { name = l[1].name, f = l[1].e.f, by = l[1].e.by, n = #l }")
+    assert row and row["name"] == "Alice" and row["f"] == 1 and row["n"] == 1, row
+    # Bob's run of today's dungeon finds the grave in that room; stepping on it tells the story and gives a gold
+    out = b.eval_py(r"""
+      local E, run = ns.BoI, ns.BoIGame:NewRun('ROGUE', true)
+      local g = run.graves[1]
+      local out = { graves = #run.graves, who = g and g.who, f = g and g.f }
+      run.mode = 'play'
+      run.room = run.map.rooms[g.rx .. ',' .. g.ry]
+      run.room.cleared, run.room.foes = true, {}
+      out.here = #E.GravesHere(run)
+      local gold = run.gold
+      run.p.x, run.p.y = g.x, g.y
+      E.Step(run, {})
+      out.gold, out.toast = run.gold - gold, run.toast and run.toast.t
+      return out
+    """)
+    assert out["graves"] == 1 and out["who"] == "Alice" and out["here"] == 1, out
+    assert out["gold"] == 1 and "Alice fell here" in out["toast"], out
+    # Alice does not see her own grave
+    assert a.eval("return #ns.BoIBoard:Graves(ns.BoIBoard:Today())") == 0
+
+
+@case
+def someone_who_missed_it_catches_up_by_asking():
+    w, (a, b, c) = guild(("Alice", "MAGE"), ("Bob", "ROGUE"), ("Cara", "PRIEST"))
+    a.eval_py(DIE_DAILY, "MAGE")
+    b.eval_py(DIE_DAILY, "ROGUE")
+    w.tick(2)
+    # Cara was not listening: her board is cleared, she asks, one of them answers
+    c.eval("ns.Games:GetData('illidan').board = {}")
+    assert c.eval("return ns.BoIBoard:Count()") == 0
+    c.eval("ns.BoIBoard:Ask()")
+    w.tick(5)
+    assert c.eval("return ns.BoIBoard:Count()") == 2
+
+
+@case
+def the_board_ranks_wins_by_time_then_depth_and_refuses_nonsense():
+    w, c = boot()
+    out = c.eval_py(r"""
+      local B, day = ns.BoIBoard, ns.BoIBoard:Today()
+      local realm = '-' .. ns.Util.GetPlayerRealm()
+      B._Store(day, 'Slow' .. realm, { c = 'MAGE', f = 5, w = true, t = 900, k = 50, i = 6 })
+      B._Store(day, 'Fast' .. realm, { c = 'ROGUE', f = 5, w = true, t = 600, k = 40, i = 4 })
+      B._Store(day, 'Deep' .. realm, { c = 'PRIEST', f = 4, t = 800, k = 30, i = 3, by = 'Mother Shahraz' })
+      B._Store(day, 'Shallow' .. realm, { c = 'HUNTER', f = 2, t = 100, k = 5, i = 1 })
+      local bad = {
+        B._Store(day, 'X' .. realm, { c = 'NOPE', f = 2 }),
+        B._Store(day, 'Y' .. realm, { c = 'MAGE', f = 9 }),
+        B._Store('yesterday', 'Z' .. realm, { c = 'MAGE', f = 2 }),
+        B._Store(day, 'Fast' .. realm, { c = 'ROGUE', f = 5, w = true, t = 1 }),   -- a second result: the first stays
+      }
+      local names = {}
+      for i, r in ipairs(B:Board()) do names[i] = r.name end
+      return { names = names, bad = bad, fast = B:Board()[1].e.t, text = B:ResultText(B:Board()[3].e) }
+    """)
+    assert out["names"] == ["Fast", "Slow", "Deep", "Shallow"], out
+    assert out["bad"] == [False, False, False, False], out
+    assert out["fast"] == 600
+    assert out["text"].startswith("Floor 4"), out
+
+
+@case
+def the_title_shows_todays_board_and_enter_or_n_start_a_run():
+    w, c = boot("HUNTER")
+    c.eval(r"""
+      local day = ns.BoIBoard:Today()
+      ns.BoIBoard._Store(day, 'Xiavor-' .. ns.Util.GetPlayerRealm(), { c = 'MAGE', f = 5, w = true, t = 702, k = 61, i = 7 })
+    """)
+    c.eval("ns.Games:Open('illidan')")
+    w.tick(1.0)
+    c.eval("ns.BoIUI._Focus(true) ns.BoIUI._Draw()")
+    texts = c.eval_py("local t = {} for _, fs in pairs(ns.BoIUI._Hud()) do if type(fs) == 'table' and fs.IsShown and fs:IsShown() then t[#t + 1] = fs:GetText() end end return t")
+    assert "Xiavor" in texts and "Won 11:42" in texts, texts
+    assert any("today's dungeon (your try counts)" in x for x in texts), texts
+    c.eval("ns.BoIUI._Key('N')")
+    assert c.eval("return ns.BoIUI._Run().daily") is None
+    c.eval("ns.BoIUI._SetRun(nil) ns.BoIUI._Key('ENTER')")
+    assert c.eval("return ns.BoIUI._Run().daily") == c.eval("return ns.BoIBoard:Today()")
+    assert c.eval("return ns.BoIUI._Run().counted") is True
+    c.eval("ns.MainFrame:Open('games')")
+    w.tick(0.5)
+    foot = c.eval("for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'illidan' then return p.footText and p.footText:GetText() end end")
+    assert foot and "Xiavor Won 11:42" in foot, foot
+
+
 @case
 def a_finished_run_is_recorded_and_the_poster_shows_it():
     w, c = boot()

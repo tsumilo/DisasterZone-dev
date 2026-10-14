@@ -18,11 +18,17 @@ local function Data()
 end
 G.Data = Data
 
-function G:NewRun(class)
+-- daily: today's dungeon (ns.BoIBoard: the same for the whole guild, your first try counts); else a random one
+function G:NewRun(class, daily)
     local d = Data()
     d.runs = d.runs + 1
-    local seed = (time and time() or 0) * 7 + d.runs * 131 + math.random(1, 100000)
-    local run = E.New({ class = class, seed = seed % 2000000000 })
+    local run
+    if daily and ns.BoIBoard then
+        run = ns.BoIBoard:NewDailyRun(class)
+    else
+        local seed = (time and time() or 0) * 7 + d.runs * 131 + math.random(1, 100000)
+        run = E.New({ class = class, seed = seed % 2000000000 })
+    end
     run.onEnd = function(r) G:Finished(r) end   -- (the engine calls it once, on the death card or the win)
     return run
 end
@@ -41,6 +47,7 @@ function G:Finished(run)
     for _, k in ipairs(run.items) do d.items[k] = true end
     if run.active then d.items[run.active] = true end
     d.last = s
+    if ns.BoIBoard then ns.BoIBoard:Finished(run) end
     ns:Fire("GAMES_UPDATED")
 end
 

@@ -685,6 +685,14 @@ local function Pickups(run, room, p)
             end
         end
     end
+    -- a guildmate's grave on today's dungeon: who fell here and to what (and the gold they dropped)
+    for _, g in ipairs(run.graves or {}) do
+        if g.f == run.floorN and g.rx == room.x and g.ry == room.y and not g.read and Hyp(g.x - p.x, g.y - p.y) < p.r + 14 then
+            g.read = true
+            run.gold = run.gold + 1
+            E.Toast(run, string.format("%s fell here to %s", g.who, g.by or "something"), 170)
+        end
+    end
     if room.trapdoor and Hyp(room.trapdoor.x - p.x, room.trapdoor.y - p.y) < 20 then
         if run.floorN < #D.FLOORS then E.EnterFloor(run, run.floorN + 1)
         else
@@ -929,6 +937,15 @@ function E.Step(run, input)
     if run.banner then run.banner.life = run.banner.life - 1 if run.banner.life <= 0 then run.banner = nil end end
     if run.toast then run.toast.life = run.toast.life - 1 if run.toast.life <= 0 then run.toast = nil end end
     if run.say then run.say.life = run.say.life - 1 if run.say.life <= 0 then run.say = nil end end
+end
+
+-- The graves in the room you are in (today's dungeon).
+function E.GravesHere(run)
+    local out = {}
+    for _, g in ipairs(run.graves or {}) do
+        if g.f == run.floorN and g.rx == run.room.x and g.ry == run.room.y then out[#out + 1] = g end
+    end
+    return out
 end
 
 -- The doors of the room you are in: { dir, room, open, locked, kind } for the panel.

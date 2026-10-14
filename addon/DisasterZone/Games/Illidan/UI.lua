@@ -35,6 +35,7 @@ local shootOrder = {}      -- the shooting keys in the order pressed (the newest
 local edge = {}            -- keys pressed since the last step (bomb, use)
 
 local function Game() return ns.BoIGame end
+local function Board() return ns.BoIBoard end
 
 ---------------------------------------------------------------------------
 -- Pools
@@ -201,6 +202,11 @@ local function Label(key, parent, size, x, y, text, c, a, justify)
     return fs
 end
 
+local function ClassColor(cls)
+    local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[cls]
+    return c and { c.r, c.g, c.b } or WHITE
+end
+
 ---------------------------------------------------------------------------
 -- The room
 ---------------------------------------------------------------------------
@@ -343,6 +349,10 @@ local function DrawFloorThings()
             end
         end
     end
+    for i, g in ipairs(E.GravesHere(run)) do
+        Token(g.x, g.y, 12, D.icon("INV_Misc_Bone_HumanSkull_01"), g.read and { 0.3, 0.3, 0.3 } or { 0.75, 0.75, 0.75 }, { alpha = g.read and 0.6 or 1 })
+        Label("grave" .. i, layers.low, 10, g.x, g.y - 22, g.who, ClassColor(g.cls), g.read and 0.5 or 0.9)
+    end
     if room.type == "shop" then Label("shopTitle", layers.low, 15, CX, Y0 + 40, "Goblin vendor", { 0.4, 0.85, 1 }, 0.8) end
     if room.trapdoor then
         local t = room.trapdoor
@@ -478,6 +488,7 @@ end
 
 local function DrawHud()
     Rect("hudBack", 6, 4, 286, 40, { 0, 0, 0 }, 0.55)
+    if run.daily then Label("daily", layers.hud, 10, CX + 70, 14, run.counted and "TODAY'S DUNGEON" or "PRACTICE", run.counted and FELC or { 0.64, 0.59, 0.52 }, 0.9, "LEFT") end
     local x = 12
     for i = 0, run.maxHp - 1 do
         local full = run.hp - i * 2
@@ -652,8 +663,17 @@ local function DrawCards()
         if run.active then items[#items + 1] = run.active end
         for i, k in ipairs(items) do Icon("card", D.ITEMS[k].i, CX - #items * 15 + (i - 1) * 30 + 15, 300 + oy, 26, e) end
         if #items == 0 then Label("endNone", cf, 12, CX, 300 + oy, "No items this run", dim, e) end
+        if run.daily and run.counted and Board() then
+            local list = Board():Board(run.daily)
+            for i, row in ipairs(list) do
+                if row.me then Label("dieRank", cf, 12, CX + 170, 176 + oy, string.format("Today: #%d of %d", i, #list), GOLD, e) end
+            end
+        elseif run.daily then
+            Label("dieRank", cf, 11, CX + 170, 176 + oy, "Practice: not on the board", dim, e)
+        end
         local ready = t > 60
-        Label("endKeys", cf, 15, CX, 384, "R  try again", GOLD, ready and (0.75 + 0.25 * sin(t * 0.08)) or 0.2)
+        Label("endKeys", cf, 15, CX, 384, run.daily and "R  try again (practice)     Enter  today's board" or "R  try again     Enter  today's board",
+            GOLD, ready and (0.75 + 0.25 * sin(t * 0.08)) or 0.2)
     elseif run.mode == "won" then
         Rect("card", 0, 0, W, H, { 0, 0, 0 }, 0.72)
         Rect("card", CX - 210, 60, 420, 300, { 0.09, 0.07, 0.05 }, 1)
@@ -669,7 +689,7 @@ local function DrawCards()
         if run.active then items[#items + 1] = run.active end
         for i, k in ipairs(items) do Icon("card", D.ITEMS[k].i, CX - #items * 15 + (i - 1) * 30 + 15, 238, 26) end
         if #items == 0 then Label("endNone", cf, 12, CX, 238, "No items this run", { 0.64, 0.59, 0.52 }) end
-        Label("endKeys", cf, 14, CX, 320, "R  new run", GOLD)
+        Label("endKeys", cf, 14, CX, 320, "R  new run     Enter  today's board", GOLD)
     end
     pools.token = keep
 end
@@ -677,21 +697,50 @@ end
 local function DrawTitle()
     local keep = pools.token
     pools.token = pools.cardToken
+    local dim, ink = { 0.64, 0.59, 0.52 }, { 0.95, 0.92, 0.85 }
     Rect("card", 0, 0, W, H, { 0, 0, 0 }, 1)
     CardArt("bt", 0.55)
+    Label("tTitle", layers.card, 34, CX, 54, "The Binding of Illidan", GOLD)
+    Label("tSub", layers.card, 13, CX, 86, "Five floors of the Black Temple. The bosses fight like the raid.", { 0.85, 0.81, 0.75 })
+    -- you
     local cls = UI.Class()
     local c = D.CLASSES[cls]
-    Label("tTitle", layers.card, 36, CX, 70, "The Binding of Illidan", GOLD)
-    Label("tSub", layers.card, 14, CX, 106, "Five floors of the Black Temple, a new dungeon every run.", { 0.85, 0.81, 0.75 })
-    Glow("cardGlow", CX, 196, 70, c.tear, 0.35)
-    Token(CX, 196, 40, CLASS_CIRCLES, c.tear, { cls = cls, shadow = false })
-    local name = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cls] or cls
-    Label("tClass", layers.card, 18, CX, 256, name, GOLD)
-    Label("tStats", layers.card, 12, CX, 280, string.format("%s  \194\183  %d healthstones%s  \194\183  %s", c.bolt, c.hp,
-        (c.soul or 0) > 0 and string.format(" + %d shard", c.soul / 2) or "", c.note), { 0.64, 0.59, 0.52 })
-    local best = Game() and Game():BestLine() or ""
-    Label("tBest", layers.card, 12, CX, 304, best, { 0.64, 0.59, 0.52 })
-    Label("tGo", layers.card, 17, CX, H - 50, focused and "Press Enter to begin" or "Click here, then press Enter", FELC)
+    local lx = 190
+    Glow("cardGlow", lx, 176, 64, c.tear, 0.35)
+    Token(lx, 176, 38, CLASS_CIRCLES, c.tear, { cls = cls, shadow = false })
+    Label("tClass", layers.card, 18, lx, 232, LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cls] or cls, ClassColor(cls))
+    Label("tStats", layers.card, 11, lx, 254, string.format("%s  \194\183  %d healthstones%s", c.bolt, c.hp,
+        (c.soul or 0) > 0 and string.format(" + %d shard", c.soul / 2) or ""), dim)
+    Label("tNote", layers.card, 11, lx, 272, c.note, dim)
+    Label("tBest", layers.card, 11, lx, 300, Game() and Game():BestLine() or "", dim)
+    -- today's dungeon and the guild's board for it
+    local B = Board()
+    local bx, bw = 372, 318
+    Rect("card", bx, 118, bw, 222, { 0.05, 0.04, 0.03 }, 0.82)
+    Rect("card", bx, 118, bw, 1, { 0.35, 0.27, 0.19 })
+    Label("tToday", layers.card, 10, bx + 12, 134, "TODAY'S DUNGEON", FELC, 1, "LEFT")
+    Label("tDay", layers.card, 10, bx + bw - 12, 134, B and B:Today() or "", dim, 1, "RIGHT")
+    local list = B and B:Board() or {}
+    if #list == 0 then
+        Label("tEmpty", layers.card, 12, bx + bw / 2, 210, "Nobody has tried it yet.", dim)
+        Label("tEmpty2", layers.card, 11, bx + bw / 2, 230, "The same dungeon for the whole guild, one try a day.", dim)
+    end
+    for i = 1, min(7, #list) do
+        local row = list[i]
+        local y = 158 + (i - 1) * 24
+        if row.me then Rect("card", bx + 4, y - 11, bw - 8, 22, FELC, 0.08) end
+        Label("tRk" .. i, layers.card, 11, bx + 22, y, tostring(i), dim, 1, "RIGHT")
+        Token(bx + 38, y, 8, CLASS_CIRCLES, { 0, 0, 0 }, { cls = row.e.c, shadow = false })
+        Label("tNm" .. i, layers.card, 12, bx + 52, y, row.name, ClassColor(row.e.c), 1, "LEFT")
+        Label("tRs" .. i, layers.card, 11, bx + bw - 12, y, B:ResultText(row.e), row.e.w and FELC or ink, 1, "RIGHT")
+    end
+    local tried = B and B:Tried()
+    if not focused then
+        Label("tGo", layers.card, 16, CX, H - 52, "Click here to play", FELC)
+    else
+        Label("tGo", layers.card, 15, CX, H - 62, tried and "Enter  today's dungeon again (practice)" or "Enter  today's dungeon (your try counts)", FELC)
+        Label("tGo2", layers.card, 13, CX, H - 38, "N  a random dungeon", ink)
+    end
     pools.token = keep
 end
 
@@ -756,7 +805,7 @@ end
 ---------------------------------------------------------------------------
 
 local KEYS = { W = true, A = true, S = true, D = true, UP = true, DOWN = true, LEFT = true, RIGHT = true, E = true, SPACE = true,
-               ENTER = true, R = true }
+               ENTER = true, R = true, N = true }
 
 local function SetFocus(on)
     focused = on and true or false
@@ -774,8 +823,9 @@ function UI.Class()
     return D.CLASSES[cls or ""] and cls or "WARRIOR"
 end
 
-function UI:NewRun()
-    run = Game() and Game():NewRun(UI.Class()) or E.New({ class = UI.Class(), seed = floor((time and time() or 1) % 2000000000) })
+-- daily: today's dungeon (the guild's; your first try counts), else a random one
+function UI:NewRun(daily)
+    run = Game() and Game():NewRun(UI.Class(), daily) or E.New({ class = UI.Class(), seed = floor((time and time() or 1) % 2000000000) })
     acc = 0
     return run
 end
@@ -791,9 +841,17 @@ local function OnKeyDown(self, key)
     held[key] = true
     edge[key] = true
     if key == "UP" or key == "DOWN" or key == "LEFT" or key == "RIGHT" then shootOrder[#shootOrder + 1] = key end
-    if key == "ENTER" and not run then UI:NewRun() end
-    -- (the death card holds the restart back a second: a key still held from the fight must not skip it)
-    if key == "R" and run and ((run.mode == "dead" and (run.deadT or 0) > 60) or run.mode == "won") then UI:NewRun() end
+    if not run then
+        if key == "ENTER" then UI:NewRun(true) elseif key == "N" then UI:NewRun(false) end
+        return
+    end
+    -- (the death card holds its keys back a second: a key still held from the fight must not skip it)
+    local over = (run.mode == "dead" and (run.deadT or 0) > 60) or run.mode == "won"
+    if over and key == "R" then UI:NewRun(run.daily ~= nil) end
+    if over and key == "ENTER" then
+        run = nil
+        if Board() then Board():Ask() end
+    end
 end
 
 local function OnKeyUp(_, key)
@@ -904,7 +962,10 @@ function UI:CreatePanel(parent)
     root:SetScript("OnHide", function() SetFocus(false) end)
     pcall(root.EnableKeyboard, root, false)
     Layout()
-    function root:OnGameShown() Layout() end
+    function root:OnGameShown()
+        Layout()
+        if ns.BoIBoard then ns.BoIBoard:Ask() end
+    end
     function root:OnGameHidden() SetFocus(false) end
     ns:On("GAMES_COMBAT", function(inCombat) if inCombat then SetFocus(false) end end)
     Draw()
@@ -918,3 +979,4 @@ function UI._Focus(on) SetFocus(on) end
 function UI._Draw() Draw() end
 function UI._Key(key, up) if up then OnKeyUp(root, key) else OnKeyDown(root, key) end end
 function UI._Pools() return pools end
+function UI._Hud() return hud end

@@ -301,6 +301,14 @@ INFO.illidan = function()
         local n, all = G:ItemCount()
         if n > 0 then out.foot = string.format("%d of %d items found", n, all) end
     end
+    -- today's dungeon: who played it, and the best of the day
+    local B = ns.BoIBoard
+    local list = B and B:Board() or {}
+    if #list > 0 then
+        out.faces = {}
+        for i = 1, #list do out.faces[i] = list[i].key end
+        out.foot = string.format("Today: %d played  \194\183  %s %s", #list, list[1].name, B:ResultText(list[1].e))
+    end
     return out
 end
 

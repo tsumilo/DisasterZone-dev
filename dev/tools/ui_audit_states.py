@@ -342,6 +342,13 @@ BOI_AUD = ("BOI_AUD = BOI_AUD or {} local E = ns.BoI "
            "  for _, x in ipairs(r.map.list) do if x.type == 'boss' then boss = x end end "
            "  local nb = E.Neighbours(r.map, boss, true)[1] r.room = nb.room r.room.cleared = true E.ChangeRoom(r, E.OPP[nb.dir]) "
            "  r.mode = 'play' if setup then setup(r.bossF, r) end BOI_AUD.run(r, frames) end ")
+BOI_BOARD = ("do local B, day, realm = ns.BoIBoard, ns.BoIBoard:Today(), '-' .. ns.Util.GetPlayerRealm() "
+             "for _, e in ipairs({ { 'Xiavor', { c = 'MAGE', f = 5, w = true, t = 702, k = 61, i = 7 } }, "
+             "  { 'Yubell', { c = 'WARLOCK', f = 5, w = true, t = 785, k = 70, i = 9 } }, "
+             "  { 'Dinalingus', { c = 'PALADIN', f = 4, t = 640, k = 44, i = 5, by = 'Mother Shahraz' } }, "
+             "  { 'Quentrell', { c = 'HUNTER', f = 2, t = 260, k = 19, i = 2, by = 'Supremus' } }, "
+             "  { 'Lidevna', { c = 'SHAMAN', f = 1, t = 95, k = 6, i = 0, by = 'Felhunter' } } }) do "
+             "  B._Store(day, e[1] .. realm, e[2]) end end ")
 
 
 def opened(key, lua=None):
@@ -1810,7 +1817,10 @@ STATES = [
     ("Games - Chess over", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.Chess:Prefs().moves = nil "
                                   "ns.GamesUI:Select('chess') ns.ChessUI:OpenGame(ns.Chess:Get('ov1'))")),
     # The Binding of Illidan: the title, a fight in a room, the bosses (god mode, a few seconds in)
-    ("Games - Illidan title", opened("games", "ns.GamesUI:Select('illidan')")),
+    ("Games - Illidan title", opened("games", BOI_BOARD + "ns.GamesUI:Select('illidan') ns.BoIUI._Focus(true) ns.BoIUI._Draw()")),
+    ("Games - Illidan grave", opened("games", BOI_BOARD + BOI_AUD + "local r = BOI_AUD.start(1) r.mode = 'play' "
+                                     "r.graves = { { f = 1, rx = r.room.x, ry = r.room.y, x = 200, y = 330, who = 'Xiavor', cls = 'MAGE', by = 'Felhunter' } } "
+                                     "r.daily, r.counted = ns.BoIBoard:Today(), true BOI_AUD.run(r, 30)")),
     ("Games - Illidan room", opened("games", BOI_AUD + "BOI_AUD.room(1, 120)")),
     ("Games - Illidan Magtheridon", opened("games", BOI_AUD + "BOI_AUD.boss(1, 300)")),
     ("Games - Illidan Supremus", opened("games", BOI_AUD + "BOI_AUD.boss(2, 200, function(f) f.sw = 2 end)")),
