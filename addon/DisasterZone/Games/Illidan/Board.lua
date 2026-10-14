@@ -162,6 +162,7 @@ end
 local lastAsk, answering = 0, {}
 
 function B:Ask()
+    if InCombatLockdown and InCombatLockdown() then return end    -- never on the guild channel mid-fight
     local now = Util().Now()
     if now - lastAsk < ASK_EVERY then return end
     lastAsk = now
@@ -213,6 +214,4 @@ function B:OnInit()
     for t, fn in pairs(handlers) do ns.Comm:Register(t, fn) end
 end
 
-function B:OnLogin()
-    if Util().After then Util().After(10 + math.random() * 8, function() B:Ask() end) end
-end
+-- (no query at login: the board asks when the game is opened, UI.lua; nobody is sent anything they did not open)

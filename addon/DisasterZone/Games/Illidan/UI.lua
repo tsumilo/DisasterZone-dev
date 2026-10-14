@@ -1113,6 +1113,8 @@ end
 -- Frame
 ---------------------------------------------------------------------------
 
+local attract = false        -- (drawing the poster's view: the room only)
+
 local function Draw()
     Begin()
     hud.used = {}
@@ -1126,10 +1128,10 @@ local function Draw()
             DrawDoors()
             DrawFloorThings()
             DrawActors()
-            DrawHud()
+            if not attract then DrawHud() end
         end
-        DrawCards()
-        if not focused and run.mode == "play" then
+        if not attract then DrawCards() end
+        if not focused and run.mode == "play" and not attract then
             Rect("card", 0, 0, W, H, { 0, 0, 0 }, 0.6)
             Label("paused", layers.card, 24, CX, CY, "Paused \194\183 click to play", GOLD)
         end
@@ -1140,10 +1142,11 @@ local function Draw()
     end
     for _, p in pairs(panels) do if not p.used then p:Hide() end end
     for _, p in pairs(plates) do if not p.used then p:Hide() end end
+    layers.static:SetShown(run ~= nil and run.mode ~= "floorcard")
+    if attract then return end
     local shake = run and run.shake and run.shake > 0 and run.mode == "play"
     screen:ClearAllPoints()
     screen:SetPoint("CENTER", root, "CENTER", shake and (run.frame % 4 < 2 and 3 or -3) or 0, 0)
-    layers.static:SetShown(run ~= nil and run.mode ~= "floorcard")
     layers.surround:SetShown(run ~= nil and run.mode ~= "floorcard")
 end
 
@@ -1246,10 +1249,20 @@ local function Layout()
     layers.surround:SetTexCoord(-ox / tile, (w - ox) / tile, -oy / tile, (h - oy) / tile)
 end
 
-function UI:CreatePanel(parent)
+-- Views: the panel and the hub's poster each draw with this file's functions, into their own frames and pools.
+-- Capture keeps a view's state, Use puts one back.
+local function Capture()
+    return { root = root, screen = screen, layers = layers, pools = pools, hud = hud, run = run, focused = focused,
+             doorState = doorState, doorRoom = doorRoom, panels = panels, plates = plates }
+end
+local function Use(v)
+    root, screen, layers, pools, hud, run, focused = v.root, v.screen, v.layers, v.pools, v.hud, v.run, v.focused
+    doorState, doorRoom, panels, plates = v.doorState, v.doorRoom, v.panels, v.plates
+end
+
+local function BuildScreen(parent)
     root = CreateFrame("Frame", nil, parent)
     root:SetAllPoints()
-    root:EnableMouse(true)
     local bg = root:CreateTexture(nil, "BACKGROUND", nil, -8)
     bg:SetAllPoints()
     bg:SetColorTexture(0, 0, 0, 1)
@@ -1360,7 +1373,11 @@ function UI:CreatePanel(parent)
     pools.topQ = NewPool(layers.cardTop, "tex", "ARTWORK", 2, nil, QFRAME)
     pools.topRing = NewPool(layers.cardTop, "tex", "OVERLAY", 7, nil, RING)
     pools.topToken = { frame = layers.cardTop, kind = "token", items = {}, n = 0 }
+end
 
+function UI:CreatePanel(parent)
+    BuildScreen(parent)
+    root:EnableMouse(true)
     root:SetScript("OnSizeChanged", Layout)
     root:SetScript("OnMouseDown", function() SetFocus(true) end)
     root:SetScript("OnKeyDown", OnKeyDown)
@@ -1377,6 +1394,66 @@ function UI:CreatePanel(parent)
     ns:On("GAMES_COMBAT", function(inCombat) if inCombat then SetFocus(false) end end)
     Draw()
     return root
+end
+
+-- The hub's poster: a second view, playing demo scenes. :Tick(elapsed) steps and draws it; it is drawn only while
+-- the poster is in front (the hub ticks front covers only).
+function UI:NewAttract(parent)
+    local main = Capture()
+    pools, hud, panels, plates, doorState, doorRoom, run, focused = {}, {}, {}, {}, {}, nil, nil, true
+    BuildScreen(parent)
+    root:EnableMouse(false)
+    layers.surround:Hide()
+    -- the camera moves an unscaled carrier, the room hangs from its middle (an offset on the scaled room itself
+    -- would be in the room's units)
+    local rig = CreateFrame("Frame", nil, root)
+    rig:SetSize(1, 1)
+    rig:SetPoint("CENTER")
+    screen:ClearAllPoints()
+    screen:SetPoint("CENTER", rig, "CENTER")
+    local a = { view = Capture(), acc = 0, cam = 0, fade = 0, rig = rig }
+    Use(main)
+    local function Scene()
+        a.scene = ns.BoIAttract.NewScene(UI.Class())
+        a.view.run, a.view.doorRoom, a.fade = a.scene.run, nil, 0
+    end
+    function a:Tick(elapsed)
+        local keep = Capture()
+        Use(self.view)
+        if not self.scene then Scene() run = self.view.run end
+        self.acc = min(self.acc + elapsed, STEP * 4)
+        while self.acc >= STEP do
+            self.acc = self.acc - STEP
+            E.Step(run, ns.BoIAttract.Input(run))
+            if run.mode == "floorcard" or run.mode == "vs" then run.mode = "play" end
+        end
+        self.scene.left = self.scene.left - elapsed
+        self.fade = min(1, self.fade + elapsed * 2)
+        UpdateDoors(elapsed)
+        attract = true
+        Draw()
+        attract = false
+        -- the camera: the room fills the poster's height; across, it follows you (eased), never past the walls
+        local w, h = root:GetWidth() or 0, root:GetHeight() or 0
+        if w < 50 then w = 300 end   -- (a frame sized by its anchors can read 0 before it is laid out: the poster's width)
+        if h < 50 then h = 320 end
+        local sc = max(0.2, h / H)
+        screen:SetScale(sc)
+        local span = max(0, (W * sc - w) / 2)
+        local want = -(run.p.x - CX) * sc
+        self.cam = self.cam + (max(-span, min(span, want)) - self.cam) * min(1, elapsed * 3)
+        self.rig:ClearAllPoints()
+        self.rig:SetPoint("CENTER", root, "CENTER", self.cam, 0)
+        -- the scene's end: fade out over its last half second, then the next
+        root:SetAlpha(min(self.fade, max(0, self.scene.left * 2)))
+        self.view = Capture()
+        if self.scene.left <= 0 or run.mode == "won" then
+            Use(self.view)
+            Scene()
+        end
+        Use(keep)
+    end
+    return a
 end
 
 -- (tests and the audit)

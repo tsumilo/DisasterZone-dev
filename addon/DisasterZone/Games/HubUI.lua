@@ -830,161 +830,18 @@ local function PixelTexture(t, file)
     if t.SetTexelSnappingBias then pcall(t.SetTexelSnappingBias, t, 0) end
 end
 
--- The Binding of Illidan: the gate. The game's gilded door (Media/Illidan) in the middle of the painting, Illidan
--- in the passage behind it lit fel green; its spiked portcullis lifts to show him, holds, and slams down in a puff
--- of dust, over and over. The four bosses before him hang in the minimap's gold rings in an arc over the gate: lit
--- once you have beaten them (your deepest floor is past theirs), dim until then. Fel embers drift up off the gate.
-local GATE_KIT = MEDIA .. "Illidan\\"
-local GATE_RING = 136430                     -- Interface\Minimap\MiniMap-TrackingBorder (its ring: the top left 40/64)
-local GATE_FEL = { 0.55, 1, 0.31 }
-COVERS.illidan = function(parent)
-    local D = ns.BoIData
-    local c = CreateFrame("Frame", nil, parent)
-    c:SetSize(FRONT_W, 260)
-    c.frontOnly = true
-    local G = 150                             -- the gate's size; the opening is the frame's cut (gen_boi_media.py)
-    c.gate = CreateFrame("Frame", nil, c)
-    c.gate:SetSize(G, G)
-    -- a dark halo behind the gate (the painting is busy) and its shadow on the ground
-    c.halo = c:CreateTexture(nil, "BACKGROUND", nil, -6)
-    c.halo:SetTexture(RADIAL)
-    c.halo:SetVertexColor(0, 0, 0, 0.75)
-    c.halo:SetSize(G * 2.3, G * 2.1)
-    c.halo:SetPoint("CENTER", c.gate, "CENTER", 0, -G * 0.05)
-    c.ground = c:CreateTexture(nil, "BACKGROUND", nil, -5)
-    c.ground:SetTexture(RADIAL)
-    c.ground:SetVertexColor(0, 0, 0, 0.85)
-    c.ground:SetSize(G * 1.5, G * 0.32)
-    c.ground:SetPoint("CENTER", c.gate, "BOTTOM", 0, 2)
-    -- behind the frame: the passage, the fel light, Illidan, the bars - clipped to the opening
-    c.hole = CreateFrame("Frame", nil, c.gate)
-    c.hole:SetPoint("TOPLEFT", c.gate, "TOPLEFT", G * 0.235, -G * 0.19)
-    c.hole:SetPoint("BOTTOMRIGHT", c.gate, "BOTTOMRIGHT", -G * 0.235, 0)
-    c.hole:SetClipsChildren(true)
-    local back = c.hole:CreateTexture(nil, "BACKGROUND", nil, -6)
-    back:SetAllPoints()
-    back:SetColorTexture(0.02, 0.03, 0.015, 1)
-    c.light = c.hole:CreateTexture(nil, "BACKGROUND", nil, -4)
-    c.light:SetTexture(RADIAL)
-    c.light:SetBlendMode("ADD")
-    c.light:SetVertexColor(GATE_FEL[1], GATE_FEL[2], GATE_FEL[3], 0.7)
-    c.light:SetSize(G * 0.9, G * 0.9)
-    c.light:SetPoint("CENTER", c.hole, "CENTER", 0, 4)
-    c.boss = c.hole:CreateTexture(nil, "ARTWORK", nil, 0)
-    c.boss:SetTexture(D.BOSSES.illidan.ej)
-    c.boss:SetTexCoord(14 / 128, 114 / 128, 0, 1)
-    c.boss:SetSize(G * 0.98, G * 0.98 * 64 / 100)
-    c.boss:SetPoint("BOTTOM", c.hole, "BOTTOM", 0, -G * 0.02)
-    c.passage = c.hole:CreateTexture(nil, "ARTWORK", nil, 2)
-    c.passage:SetTexture(GATE_KIT .. "passage")
-    c.passage:SetAllPoints()
-    c.passage:SetAlpha(0.55)
-    c.bars = c.hole:CreateTexture(nil, "ARTWORK", nil, 4)
-    c.bars:SetTexture(GATE_KIT .. "bars")
-    c.bars:SetPoint("TOPLEFT")
-    c.bars:SetPoint("TOPRIGHT")
-    c.frame = c.gate:CreateTexture(nil, "OVERLAY", nil, 1)
-    c.frame:SetTexture(GATE_KIT .. "door")
-    c.frame:SetAllPoints()
-    c.dust = {}
-    for i = 1, 3 do
-        local t = c.gate:CreateTexture(nil, "OVERLAY", nil, 2)
-        t:SetTexture(RADIAL)
-        t:SetVertexColor(0.6, 0.5, 0.38, 0)
-        t:SetPoint("CENTER", c.gate, "BOTTOM", (i - 2) * G * 0.16, 4)
-        c.dust[i] = t
-    end
-    -- the four bosses before him, in an arc over the gate
-    c.rings = {}
-    for i, key in ipairs({ "magtheridon", "supremus", "teron", "shahraz" }) do
-        local r = CreateFrame("Frame", nil, c)
-        r:SetSize(40, 40)
-        r.pic = r:CreateTexture(nil, "ARTWORK", nil, 0)
-        r.pic:SetTexture(D.BOSSES[key].ej)
-        r.pic:SetTexCoord(22 / 128, 106 / 128, 0, 1)
-        r.pic:SetSize(44, 44 * 64 / 84)
-        r.pic:SetPoint("CENTER", 0, 2)
-        r.mask = r:CreateMaskTexture()
-        r.mask:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        r.mask:SetSize(34, 34)
-        r.mask:SetPoint("CENTER")
-        r.pic:AddMaskTexture(r.mask)
-        r.bg = r:CreateTexture(nil, "BACKGROUND")
-        r.bg:SetTexture(CIRCLE)
-        r.bg:SetVertexColor(0.08, 0.05, 0.04, 1)
-        r.bg:SetSize(34, 34)
-        r.bg:SetPoint("CENTER")
-        r.ring = r:CreateTexture(nil, "OVERLAY")
-        r.ring:SetTexture(GATE_RING)
-        r.ring:SetTexCoord(0, 40 / 64, 0, 40 / 64)
-        r.ring:SetSize(49, 49)
-        r.ring:SetPoint("CENTER", 1, -1)
-        c.rings[i] = r
-    end
-    c.embers = {}
-    for i = 1, 9 do
-        local t = c:CreateTexture(nil, "OVERLAY")
-        t:SetTexture(RADIAL)
-        t:SetBlendMode("ADD")
-        c.embers[i] = { tex = t, ph = i * 0.37, x = (i * 37) % 120 - 60, sp = 14 + (i * 7) % 12 }
-    end
-    c.clock = 0
-    function c:Layout(w, h)
-        self:SetSize(w, h)
-        self.gate:ClearAllPoints()
-        self.gate:SetPoint("BOTTOM", self, "BOTTOM", 0, max(0, h * 0.04))
-        -- the arc: from the gate's left shoulder over to its right, the rings rising to the middle
-        for i, r in ipairs(self.rings) do
-            local a = math.rad(200 + (i - 1) * 46.7)
-            r:ClearAllPoints()
-            r:SetPoint("CENTER", self.gate, "CENTER", math.cos(a) * 112, -math.sin(a) * 92 + 20)
-        end
-        self.w, self.h = w, h
-    end
-    function c:Refresh()
-        local data = Saved("illidan")
-        local deepest, wins = tonumber(data.best) or 0, tonumber(data.wins) or 0
-        for i, r in ipairs(self.rings) do
-            local beaten = wins > 0 or deepest > i
-            r.pic:SetDesaturated(not beaten)
-            r.pic:SetVertexColor(beaten and 1 or 0.45, beaten and 1 or 0.45, beaten and 1 or 0.45)
-            r.ring:SetVertexColor(beaten and 1 or 0.55, beaten and 1 or 0.5, beaten and 1 or 0.45)
-        end
-        self.won = wins > 0
-    end
-    -- the loop (6 s): lift 0.8 s, hold 2 s, drop 0.25 s (dust), shut 2.95 s
-    local LOOP = 6
-    function c:Tick(elapsed)
-        self.clock = self.clock + elapsed
-        local t = self.clock % LOOP
-        local open
-        if t < 0.8 then open = t / 0.8
-        elseif t < 2.8 then open = 1
-        elseif t < 3.05 then open = 1 - (t - 2.8) / 0.25
-        else open = 0 end
-        open = open * open * (3 - 2 * open)
-        local shut = 1 - open
-        local hh = self.hole:GetHeight() or 0
-        self.bars:SetHeight(max(0.1, hh * shut))
-        self.bars:SetTexCoord(0, 1, 1 - shut, 1)
-        self.bars:SetShown(shut > 0.01)
-        local pulse = 0.55 + 0.2 * sin(self.clock * 2.3)
-        self.light:SetAlpha((0.35 + 0.65 * open) * pulse * (self.won and 1.2 or 1))
-        self.boss:SetAlpha(0.45 + 0.55 * open)
-        local dust = (t >= 3.05 and t < 3.6) and (1 - (t - 3.05) / 0.55) or 0
-        for _, d in ipairs(self.dust) do
-            d:SetVertexColor(0.6, 0.5, 0.38, 0.55 * dust)
-            d:SetSize(18 + 22 * (1 - dust), 18 + 22 * (1 - dust))
-        end
-        for _, e in ipairs(self.embers) do
-            local k = ((self.clock * e.sp / 100) + e.ph) % 1
-            e.tex:ClearAllPoints()
-            e.tex:SetPoint("CENTER", self.gate, "BOTTOM", e.x + sin(self.clock * 1.3 + e.ph * 6) * 6, 10 + k * 150)
-            e.tex:SetSize(7, 7)
-            e.tex:SetVertexColor(GATE_FEL[1], GATE_FEL[2], GATE_FEL[3], 0.8 * sin(k * pi))
-        end
-    end
-    c:Refresh()
+-- The Binding of Illidan: the game playing itself (ns.BoIUI:NewAttract - its own engine and renderer, demo scenes of
+-- your class through rooms and bosses), filling the painting as Azeromon's Elwynn does; the poster's shades lie over it.
+COVERS.illidan = function(parent, poster)
+    local c = CreateFrame("Frame", nil, poster.artFrame)
+    c:SetAllPoints(poster.artFrame)
+    c:SetClipsChildren(true)
+    c.frontOnly = true                       -- (only the front poster plays; the sides keep their painting)
+    local demo = ns.BoIUI and ns.BoIUI.NewAttract and ns.BoIUI:NewAttract(c)
+    function c:Layout() end
+    function c:Refresh() end
+    function c:Tick(elapsed) if demo then demo:Tick(elapsed) end end
+    c.demo = demo
     return c
 end
 

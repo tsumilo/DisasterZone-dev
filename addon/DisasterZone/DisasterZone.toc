@@ -326,6 +326,7 @@ Games\Illidan\Engine.lua
 Games\Illidan\Bosses.lua
 Games\Illidan\Game.lua
 Games\Illidan\Board.lua
+Games\Illidan\Attract.lua
 Games\Illidan\UI.lua
 Games\Azeromon\Data.lua
 Games\Azeromon\Atlas.lua

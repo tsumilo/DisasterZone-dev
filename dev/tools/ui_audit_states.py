@@ -1845,10 +1845,10 @@ STATES = [
                                      "for i = 1, 2 do if r.room.foes[i] then r.room.foes[i].hp = 0 end end "
                                      "r.room.cleared = true for _ = 1, 7 do ns.BoI.Step(r, { shoot = 'up' }) end ns.BoIUI._Focus(false) r.mode = 'dying' r.dyingT = 999 "
                                      "r.mode = 'play' ns.BoIUI._Focus(true) ns.BoIUI._Draw()")),
-    # the poster in front: the gate mid-lift, two bosses beaten
+    # the poster in front: the game playing itself, four seconds in
     ("Games - Illidan in front", opened("games", "local d = ns.Games:GetData('illidan') d.best, d.runs = 3, 4 "
                                         "ns.GamesUI:ShowHub() ns.GamesUI:ShowFront('illidan') "
-                                        "for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'illidan' then p.cover:Refresh() p.cover.clock = 0.55 p.cover:Tick(0) end end")),
+                                        "for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'illidan' then for _ = 1, 240 do p.cover:Tick(1 / 60) end end end")),
     ("Games - Illidan won", opened("games", BOI_AUD + "local r = BOI_AUD.start(5) r.items = { 'eye', 'pws', 'chain', 'glaive', 'mongoose' } "
                                    "r.mode, r.wonT, r.time, r.kills, r.gold = 'won', 99, 1385 * 60, 212, 14 "
                                    "ns.BoIUI._Focus(false) ns.BoIUI._Draw()")),
