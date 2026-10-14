@@ -65,17 +65,17 @@ W.PLACES = {
       maps = { "lakeshire", "lakeshireinn" }, text = "Magistrate Solomon's town on the lake: the inn, gryphons and the bridge east." },
     { id = "everstill", name = "Lake Everstill", zone = "redridge", kind = "route", x = 6.8, y = 0, maps = { "everstill" },
       text = "The lake, Alther's Mill and Yowler's gnoll camp." },
-    { id = "stonewatch", name = "Stonewatch Keep", zone = "redridge", kind = "route", x = 6.8, y = -0.62,
+    { id = "stonewatch", name = "Stonewatch Keep", zone = "redridge", kind = "route", x = 6.8, y = -0.58,
       maps = { "stonewatch" }, text = "Gath'Ilzogg's keep on its hill. Render's Valley climbs north from here." },
-    { id = "steppes", name = "Burning Steppes", zone = "steppes", kind = "route", x = 6.8, y = -1.42, maps = { "steppes" },
+    { id = "steppes", name = "Burning Steppes", zone = "steppes", kind = "route", x = 6.8, y = -1.3, maps = { "steppes" },
       text = "An ash plain, lava lakes and Flame Crest. Morgan's Vigil holds the south-east hill." },
-    { id = "brm", name = "Blackrock Mountain", zone = "blackrock", kind = "dungeon", x = 5.9, y = -1.42, maps = { "brm" },
+    { id = "brm", name = "Blackrock Mountain", zone = "blackrock", kind = "dungeon", x = 5.9, y = -1.3, maps = { "brm" },
       text = "One great cavern round a lava sea, chain bridges across it, and the Black Forge." },
-    { id = "brd", name = "The Imperial Seat", zone = "blackrock", kind = "dungeon", x = 5, y = -1.12, maps = { "brd" },
+    { id = "brd", name = "The Imperial Seat", zone = "blackrock", kind = "dungeon", x = 5, y = -1.08, maps = { "brd" },
       text = "Emperor Dagran Thaurissan's throne, deep in Blackrock Depths." },
-    { id = "moltencore", name = "Molten Core", zone = "blackrock", kind = "dungeon", x = 5, y = -1.72, maps = { "moltencore" },
+    { id = "moltencore", name = "Molten Core", zone = "blackrock", kind = "dungeon", x = 5, y = -1.6, maps = { "moltencore" },
       text = "Ragnaros' lava cavern under the mountain. Something huge prowls its shelf." },
-    { id = "gorge", name = "Searing Gorge", zone = "gorge", kind = "route", x = 5.9, y = -2.3, maps = { "gorge" },
+    { id = "gorge", name = "Searing Gorge", zone = "gorge", kind = "route", x = 5.9, y = -2.08, maps = { "gorge" },
       text = "A canyon round the Cauldron's lava. The Thorium Brotherhood holds Thorium Point." },
 }
 
@@ -87,14 +87,16 @@ W.ZONES = {
       dark = true },
     { id = "stv", name = "STRANGLETHORN", color = { 0.52, 0.74, 0.50 }, x0 = 3.95, y0 = 1.65, x1 = 6.45, y1 = 6.75,
       labelBottom = true },
-    -- Blackrock; lx, ly: where the label goes (grid units) when the corner is taken
-    { id = "redridge", name = "REDRIDGE MOUNTAINS", color = { 0.88, 0.66, 0.44 }, x0 = 4.55, y0 = -0.95, x1 = 7.3, y1 = 0.36,
-      lx = 4.62, ly = -0.92 },
-    { id = "blackrock", name = "BLACKROCK MOUNTAIN", color = { 0.42, 0.34, 0.34 }, x0 = 4.55, y0 = -2.0, x1 = 6.3, y1 = -1.0,
-      dark = true, lx = 4.62, ly = -1.46 },
-    { id = "steppes", name = "BURNING STEPPES", color = { 0.58, 0.44, 0.38 }, x0 = 6.35, y0 = -2.0, x1 = 7.75, y1 = -1.0,
-      dark = true },
-    { id = "gorge", name = "SEARING GORGE", color = { 0.90, 0.58, 0.38 }, x0 = 4.85, y0 = -2.72, x1 = 7.0, y1 = -2.05 },
+    -- Blackrock: small zones packed north of Duskwood, so their names sit out in the open sea beside them
+    -- (lx, ly: the label's corner in grid units; lalign "right" = the label ends there, "bottom" = it sits on it)
+    { id = "redridge", name = "REDRIDGE MOUNTAINS", color = { 0.88, 0.66, 0.44 }, x0 = 4.6, y0 = -0.84, x1 = 7.25, y1 = 0.36,
+      lx = 4.5, ly = -0.1, lalign = "right" },
+    { id = "blackrock", name = "BLACKROCK MOUNTAIN", color = { 0.42, 0.34, 0.34 }, x0 = 4.6, y0 = -1.86, x1 = 6.3, y1 = -0.88,
+      dark = true, lx = 4.5, ly = -1.25, lalign = "right" },
+    { id = "steppes", name = "BURNING STEPPES", color = { 0.58, 0.44, 0.38 }, x0 = 6.35, y0 = -1.86, x1 = 7.25, y1 = -0.88,
+      dark = true, lx = 6.42, ly = -2.3 },
+    { id = "gorge", name = "SEARING GORGE", color = { 0.90, 0.58, 0.38 }, x0 = 5.45, y0 = -2.32, x1 = 6.35, y1 = -1.9,
+      lx = 5.35, ly = -2.03, lalign = "right" },
 }
 
 -- Gryphon routes (dotted), shown once both ends are known and `flag` is set. `via`: bends on the way.
@@ -103,8 +105,8 @@ W.FLIGHTS = {
     { from = "sentinel", to = "darkshire", flag = "fp_darkshire", via = { { 2, 0.62 }, { 5, 0.62 } } },
     { from = "bootybay", to = "darkshire", flag = "fp_bootybay", via = { { 6.6, 6.2 }, { 6.6, 1 } } },
     { from = "lakeshire", to = "darkshire", flag = "fp_lakeshire", via = { { 5.9, 0.7 } } },
-    { from = "steppes", to = "lakeshire", flag = "fp_morgansvigil", via = { { 6.35, -0.9 } } },
-    { from = "gorge", to = "steppes", flag = "fp_thoriumpoint", via = { { 6.8, -2.3 } } },
+    { from = "steppes", to = "lakeshire", flag = "fp_morgansvigil", via = { { 7.45, -1.3 }, { 7.45, 0 } } },
+    { from = "gorge", to = "steppes", flag = "fp_thoriumpoint", via = { { 6.8, -2.08 } } },
 }
 
 W.TAG_NAMES = { inn = "Inn", rest = "Rest", shop = "Shop", stable = "Stable", profession = "Profession trainers",
@@ -286,7 +288,7 @@ end
 ---------------------------------------------------------------------------
 
 local MAP_X, MAP_Y, MAP_W, MAP_H = 22, -48, 464, 242       -- the drawing area inside the panel
-local GX0, GY0, GW, GH = -0.5, -2.85, 8.35, 9.95           -- the grid window it shows
+local GX0, GY0, GW, GH = -0.5, -2.42, 8.95, 9.52           -- the grid window it shows
 local NODE = { town = 14, route = 9, dungeon = 12, arena = 14 }
 local SEA, SEA_EDGE = { 0.55, 0.72, 0.84 }, { 0.42, 0.58, 0.72 }
 local INK = { 0.18, 0.17, 0.22 }
@@ -309,11 +311,11 @@ local PROPS = {
             { "jtree", 4.3, 4.7 }, { "jtree", 4.6, 5.4 }, { "jtree", 4.2, 6.0 }, { "jtree", 5.6, 2.6 },
             { "jtree", 6.2, 2.8 }, { "jtree", 5.6, 4.15 }, { "jtree", 6.2, 4.2 }, { "jtree", 5.6, 5.5 },
             { "jtree", 6.25, 5.6 }, { "totem_0_0", 4.5, 3.65 }, { "jtree", 6.3, 1.9 } },
-    redridge = { { "rtree", 4.75, -0.35 }, { "rtree", 5.45, -0.3 }, { "rtree", 6.35, -0.3 }, { "rtree", 7.1, -0.5 },
-                 { "rtree", 5.45, 0.22 }, { "rtree", 6.35, 0.22 } },
-    blackrock = { { "torch1", 6.15, -1.15 }, { "torch1", 5.45, -1.85 } },
-    steppes = { { "stree", 6.5, -1.15 }, { "stree", 7.5, -1.75 }, { "stree", 7.5, -1.2 } },
-    gorge = { { "crate", 5.15, -2.3 }, { "crate", 6.65, -2.45 } },
+    redridge = { { "rtree", 4.8, -0.5 }, { "rtree", 5.45, -0.45 }, { "rtree", 6.35, -0.5 }, { "rtree", 7.1, -0.7 },
+                 { "rtree", 5.45, 0.2 }, { "rtree", 6.35, 0.2 } },
+    blackrock = { { "torch1", 6.15, -1.05 }, { "torch1", 5.5, -1.75 } },
+    steppes = { { "stree", 6.55, -1.7 }, { "stree", 7.1, -1.7 } },
+    gorge = { { "crate", 5.6, -2.12 } },
 }
 -- a few waves on the open sea
 local WAVES = { { 3.0, 2.2 }, { 3.45, 3.0 }, { 3.0, 3.9 }, { 3.5, 4.6 }, { 2.9, 5.5 }, { 1.5, 5.2 }, { 0.5, 5.0 },
@@ -451,14 +453,14 @@ function W:Build(K)
         end
         local label = K.Font(f, 9, "ARTWORK", true)
         if z.lx then
-            label:SetPoint("TOPLEFT", f, "TOPLEFT", PX(z.lx), PY(z.ly))
+            label:SetPoint(z.lalign == "right" and "TOPRIGHT" or "TOPLEFT", f, "TOPLEFT", PX(z.lx), PY(z.ly))
         elseif z.labelBottom then
             label:SetPoint("BOTTOMLEFT", f, "TOPLEFT", x0 + 7, y1 + 5)
         else
             label:SetPoint("TOPLEFT", f, "TOPLEFT", x0 + 7, y0 - 5)
         end
         label:SetText(z.name)
-        if z.dark then label:SetTextColor(0.90, 0.88, 1) else label:SetTextColor(c[1] * 0.42, c[2] * 0.42, c[3] * 0.42) end
+        if z.dark and not z.lx then label:SetTextColor(0.90, 0.88, 1) else label:SetTextColor(c[1] * 0.42, c[2] * 0.42, c[3] * 0.42) end
         for _, pr in ipairs(PROPS[z.id] or {}) do
             Prop(K, f, "BORDER", 0, pr[1], PX(pr[2]), PY(pr[3]), 14, z.dark and 0.9 or 1)
         end
