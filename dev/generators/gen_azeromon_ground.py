@@ -784,6 +784,8 @@ def write_lua(entries):
         "--   lightChunks  like chunks, at 1/%d size: <map>_d_<cx>_<cy>.tga (dusk), <map>_n_<cx>_<cy>.tga (night)"
         % LIGHT_SCALE,
         "--   shafts       { x, y, w }: sun through a window (interiors, by day: dust drifts in it)",
+        "--   sunlight     { w, h, tw, th }  <map>_s.tga: that sun as light added over everything by day (interiors)",
+        "--   anims        { x, y, w, h, cols, rows, tw, th, frames, fps }  <map>_f.tga: a hearth's flames",
         "--   indoor       an interior: <map>_e_<cx>_<cy>.tga is the room by evening (night windows); its light map is _n_",
         "--   v            a hash of what the picture was made from (the ground test checks it against the maps)",
         "local addonName, ns = ...",
@@ -794,7 +796,7 @@ def write_lua(entries):
         lines.append('    %s = {' % mid)
         lines.append('        v = "%s", mx = %d, my = %d, lightScale = %d,%s' % (
             e_["v"], e_.get("mx", MX), e_.get("my", MY), LIGHT_SCALE, " indoor = true," if e_.get("indoor") else ""))
-        for key in ("chunks", "water", "meadows", "lights", "lightChunks", "shafts"):
+        for key in ("chunks", "water", "meadows", "lights", "lightChunks", "shafts", "sunlight", "anims"):
             lines.append("        %s = { %s }," % (key, ", ".join(row(c) for c in e_.get(key, []))))
         lines.append("    },")
     lines.append("}")
@@ -815,8 +817,28 @@ def bake_interior(mid, m, atlas, src):
     evening light map; the room's 16 px wall thickness is the margin (mx = my = 1)"""
     furn = {k: interiors._img(fn()) for k, fn in interiors.FURNITURE.items()}
     day, lights, shafts, span = interiors.bake_room(m, atlas, furn, "day")
-    day = interiors.light_room(day, lights, shafts, span, "day")
+    fires = m.pop("_fires", [])
     eve, _, _, _ = interiors.bake_room(m, atlas, furn, "night")
+    m.pop("_fires", None)
+    # the sun through the windows: light added over everything by day (UI), so it falls on furniture and people too
+    sun = interiors.sun_overlay(day.shape[1], day.shape[0], shafts, span)
+    tw_, th_ = pot(sun.shape[1]), pot(sun.shape[0])
+    tex = np.zeros((th_, tw_, 3), dtype=np.uint8)
+    tex[:sun.shape[0], :sun.shape[1]] = sun
+    Image.fromarray(tex, "RGB").save(os.path.join(OUT_DIR, "%s_s.tga" % mid))
+    sunlight = (sun.shape[1], sun.shape[0], tw_, th_)
+    # the hearth's flames: a strip of frames (like the ponds' water), cycled by the game
+    anims = []
+    if fires:
+        frames, (fx, fy) = interiors.hearth_fire()
+        fh, fw = frames[0].shape[:2]
+        cols = len(frames)
+        strip = np.zeros((pot(fh), pot(fw * cols), 4), dtype=np.uint8)
+        for i, fr in enumerate(frames):
+            strip[:fh, i * fw:(i + 1) * fw] = np.clip(np.round(fr), 0, 255).astype(np.uint8)
+        Image.fromarray(strip, "RGBA").save(os.path.join(OUT_DIR, "%s_f.tga" % mid))
+        for hx, hy in fires:
+            anims.append((hx + fx, hy + fy, fw, fh, cols, 1, strip.shape[1], strip.shape[0], len(frames), 8))
     cs = []
     for prefix, img in (("", day), ("e_", eve)):
         img = np.clip(np.round(img), 0, 255).astype(np.uint8)
@@ -831,7 +853,8 @@ def bake_interior(mid, m, atlas, src):
         Image.fromarray(tex, "RGB").save(os.path.join(OUT_DIR, "%s_n_%d_%d.tga" % (mid, cx // CHUNK, cy // CHUNK)))
         lc.append((cx, cy, uw, uh, tw_, th_))
     return {"v": inputs_hash(m, src), "chunks": cs, "water": [], "meadows": [], "lights": ls, "lightChunks": lc,
-            "shafts": [(int(x), int(y), int(w)) for x, y, w in shafts], "indoor": True, "mx": 1, "my": 1}
+            "shafts": [(int(x), int(y), int(w)) for x, y, w in shafts], "indoor": True, "mx": 1, "my": 1,
+            "sunlight": [sunlight], "anims": anims}
 
 
 def main():
@@ -889,6 +912,8 @@ def main():
              for c in e["lightChunks"] for q in "dn"}
     keep |= {"%s_e_%d_%d.tga" % (mid, c[0] // CHUNK, c[1] // CHUNK) for mid, e in entries.items()
              if e.get("indoor") for c in e["chunks"]}
+    keep |= {"%s_s.tga" % mid for mid, e in entries.items() if e.get("sunlight")}
+    keep |= {"%s_f.tga" % mid for mid, e in entries.items() if e.get("anims")}
     keep |= {"clouds.tga", "vignette.tga"}
     for f in os.listdir(OUT_DIR):
         if f.endswith(".tga") and f not in keep:

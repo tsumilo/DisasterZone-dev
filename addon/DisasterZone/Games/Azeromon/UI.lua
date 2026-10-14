@@ -2959,6 +2959,59 @@ function Amb.Water(m, g, px, py)
     for i = n + 1, #Amb.waterTex do Amb.waterTex[i]:Hide() end
 end
 
+-- Looping animations baked as strips (Ground.lua anims: a hearth's flames), and an interior's sunlight: the light
+-- through its windows added over everything by day, so it falls on the furniture and the people too.
+Amb.animTex = {}
+function Amb.Anims(m, g, px, py)
+    local n = 0
+    if g and g.anims then
+        local S = TILE / 16
+        for i, a in ipairs(g.anims) do
+            local x0, y0, w, h, cols, tw, th, frames, fps = a[1], a[2], a[3], a[4], a[5], a[7], a[8], a[9], a[10]
+            local sx, sy = PicToScreen(g, x0, y0, px, py)
+            if sx < SW and sy < SH and sx + w * S > 0 and sy + h * S > 0 then
+                n = n + 1
+                local t = Amb.animTex[n]
+                if not t then
+                    t = Tex(world, "BACKGROUND", 2)
+                    Amb.animTex[n] = t
+                end
+                local file = MEDIA .. "Ground\\" .. m.id .. "_f"
+                if t.file ~= file then
+                    t.file = file
+                    SetPixelTexture(t, file)
+                    t:SetSize(w * S, h * S)
+                end
+                local f = floor(now * fps + i * 3) % frames
+                local c, r = f % cols, floor(f / cols)
+                t:SetTexCoord(c * w / tw, (c + 1) * w / tw, r * h / th, (r + 1) * h / th)
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
+                t:Show()
+            end
+        end
+    end
+    for i = n + 1, #Amb.animTex do Amb.animTex[i]:Hide() end
+end
+
+function Amb.Sun(m, g, px, py, period)
+    local t = R.sun
+    local s = g and g.indoor and period == "day" and g.sunlight and g.sunlight[1]
+    if not s then t:Hide() return end
+    local file = MEDIA .. "Ground\\" .. m.id .. "_s"
+    if t.file ~= file then
+        t.file = file
+        SetPixelTexture(t, file)
+        pcall(t.SetBlendMode, t, "ADD")
+        t:SetTexCoord(0, s[1] / s[3], 0, s[2] / s[4])
+        t:SetSize(s[1] * TILE / 16, s[2] * TILE / 16)
+    end
+    local sx, sy = PicToScreen(g, 0, 0, px, py)
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
+    t:Show()
+end
+
 -- a square of w x h game pixels at map pixel (mx, my)
 function Amb.Pix(px, py, mx, my, w, h, r, g, b, a, layer, sub)
     Amb.pixN = Amb.pixN + 1
@@ -3279,6 +3332,8 @@ end
 function Amb.Draw(m, g, px, py)
     local period = G:Period()
     Amb.Water(m, g, px, py)
+    Amb.Anims(m, g, px, py)
+    Amb.Sun(m, g, px, py, period)
     Amb.Wind(m, g, px, py)
     Amb.Clouds(m, g, px, py)
     Amb.pixN = 0
@@ -3329,6 +3384,8 @@ local function BuildWorld()
     R.mood = Tex(world, "OVERLAY", 4)
     R.mood:SetAllPoints()
     R.mood:Hide()
+    R.sun = Tex(world, "ARTWORK", 5)                  -- an interior's sunlight (Amb.Sun), added over everything
+    R.sun:Hide()
     R.vignette = Tex(world, "OVERLAY", 5)
     R.vignette:SetAllPoints()
     R.vignette:Hide()
@@ -5249,7 +5306,8 @@ UI._Ambient = function()
              clouds = (R.clouds and R.clouds:IsShown()) and R.clouds:GetAlpha() or 0,
              wind = shown(Amb.windTex), dark = shown(Amb.lightTex), glows = shown(Amb.glowTex),
              mood = R.mood and R.mood:IsShown() or false, sky = R.sky and R.sky:IsShown() or false,
-             legs = R.player.legs and R.player.legs:IsShown() or false }
+             legs = R.player.legs and R.player.legs:IsShown() or false,
+             anims = shown(Amb.animTex), sun = R.sun and R.sun:IsShown() or false }
 end
 UI._OverAt = function(i, j)            -- the over tile drawn in view cell i, j (0 .. VW + 1, 0 .. VH + 1)
     local o = grid[i] and grid[i][j] and grid[i][j].over

@@ -233,6 +233,24 @@ def night_has_pools_of_light_instead_of_the_flat_tint():
 
 
 @case
+def rooms_have_sunlight_by_day_and_a_fire_that_moves():
+    w, c = play("home", 4, 5)
+    st = lambda: c.eval_py("return ns.AzeroUI._Ambient()")
+    c.eval("ns.Azero.clockHour = 12")
+    w.tick(0.1)
+    a = st()
+    assert a["sun"] and a["anims"] >= 1, a                                    # sunlight, the hearth's flames
+    shown = c.eval_py("return ns.AzeroUI._Ground()")
+    assert shown and all("home_" in f and "_e_" not in f for f in shown), shown
+    c.eval("ns.Azero.clockHour = 21")
+    w.tick(0.1)
+    a = st()
+    assert not a["sun"] and a["anims"] >= 1 and a["dark"] >= 1 and a["glows"] >= 1, a
+    shown = c.eval_py("return ns.AzeroUI._Ground()")
+    assert shown and all("home_e_" in f for f in shown), shown              # the evening picture: night windows
+
+
+@case
 def the_atlas_has_the_shade_and_shadow_tiles():
     src = open(os.path.join(ADDON, "Games", "Azeromon", "Atlas.lua")).read()
     for name in ("grass1_shade", "wgrass1_shade", "dgrass1_shade", "jgrass1_shade", "shadow",

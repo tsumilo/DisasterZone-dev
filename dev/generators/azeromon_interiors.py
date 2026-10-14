@@ -362,6 +362,81 @@ def back_wall(W, top, height=32, seed=0):
     return img
 
 
+def contact(img, t, x0, y0, joined=False):
+    """a soft oval of shadow under a sprite's foot (its lowest row), spilling past its tile; `joined` (a counter's
+    stretch) shades the whole width so neighbouring pieces read as one"""
+    H_, W = img.shape[:2]
+    a = t[..., 3] > 0
+    rows_ = np.where(a.any(1))[0]
+    if not len(rows_):
+        return
+    by = rows_[-1]
+    cols = np.where(a[by])[0]
+    cx = x0 + (cols[0] + cols[-1]) / 2 + 0.5
+    cy = y0 + by + 1
+    rx = (cols[-1] - cols[0]) / 2 + (8 if joined else 3.5)
+    for yy in range(int(cy) - 3, int(cy) + 3):
+        for xx in range(int(cx - rx) - 1, int(cx + rx) + 2):
+            if not (0 <= xx < W and 0 <= yy < H_):
+                continue
+            d = (((xx + 0.5 - cx) / rx) ** 2 if not joined else 0) + ((yy + 0.5 - cy) / 2.6) ** 2
+            if d <= 1:
+                k = 0.6 if d < 0.45 else 0.78
+                img[yy, xx] = img[yy, xx] * k + np.array([20, 12, 10]) * (1 - k) * 0.5
+
+
+def sun_overlay(W, H_, shafts, floor_span):
+    """the sun through the windows as light to add over everything (furniture and people too): a faint beam from the
+    window's foot, then a bright patch where it lands (down and a little right), dithered edges. RGB, added."""
+    out = np.zeros((H_, W, 3))
+    fy0, fy1, rx0, rx1 = floor_span
+    sun = np.array([255, 238, 196], dtype=np.float64)
+    for x, y, sw in shafts:
+        top = y + 13
+        land = fy0 + 10
+        for yy in range(top, min(fy1 - 2, land + 26)):
+            d = yy - top
+            xa = x + 1 + d * 0.3
+            k = 0.07 if yy < land else 0.2
+            if yy >= land + 22:
+                k = 0.2 * (land + 26 - yy) / 5
+            for xx in range(int(xa) - 1, int(xa + sw + 2)):
+                if not (rx0 + 1 <= xx < rx1 - 1):
+                    continue
+                edge = xx < xa or xx > xa + sw
+                if edge and (xx + yy) % 2:
+                    continue
+                out[yy, xx] = np.maximum(out[yy, xx], sun * k * (0.5 if edge else 1))
+    return np.clip(np.round(out), 0, 255).astype(np.uint8)
+
+
+FIRE_FRAMES = 8
+
+
+def hearth_fire():
+    """the hearth's flames as FIRE_FRAMES frames (RGBA, the size of its fire mouth) and where they sit in the hearth
+    sprite: tongues rise and fall per column, the core flickers"""
+    base = hearth()
+    mouth = [(x, y) for y in range(17, 30) for x in range(7, 26)
+             if ((x + 0.5 - 16) / 9) ** 2 + ((y + 0.5 - 25) / 9) ** 2 <= 1]
+    x0, y0 = 7, 16
+    frames = []
+    for f in range(FIRE_FRAMES):
+        fr = np.zeros((14, 19, 4))
+        ph = 2 * math.pi * f / FIRE_FRAMES
+        for x, y in mouth:
+            lift = 2.2 * math.sin(ph + x * 1.3) + 1.4 * math.sin(2 * ph - x * 0.7) + (H(x, f, 21) - 0.5) * 1.6
+            d = abs(x - 16) * 0.9 + max(0, 29 - y) * 0.7 - lift * 0.55
+            c = FIRE[4] if d < 2 else FIRE[3] if d < 4 else FIRE[2] if d < 6.5 else FIRE[1] if d < 9 else (22, 12, 10)
+            fr[y - y0, x - x0, :3] = c
+            fr[y - y0, x - x0, 3] = 255
+        for x in range(10, 23):                                     # the logs stay put
+            if (x, 29) in mouth:
+                fr[29 - y0, x - x0] = (90, 50, 30, 255)
+        frames.append(fr)
+    return frames, (x0, y0)
+
+
 def bake_room(m, atlas, furn, period="day"):
     """the room as a picture with 16 px of wall thickness all round. m: compiled map (w, h, rows, over...)
     Returns (picture RGB float (H, W, 3), lights [(x, y, r, flick)], shafts [(x, y, w)] in picture pixels)."""
@@ -417,20 +492,17 @@ def bake_room(m, atlas, furn, period="day"):
         _blit(img, spr, room_x0 + x, room_y0 + y)
     for x, y in dr.get("sconces", []):
         _blit(img, _img(sconce()), room_x0 + x, room_y0 + y)
-    # furniture shadows (the atlas' redrawn furniture is drawn by the game on top; the mockup composites it)
+    # furniture stands in a soft pool of shadow under its foot (the game draws the furniture itself on top)
     for y in range(h):
         for x in range(w):
             o = m["over"][y * w + x]
-            if o in furn or o in ("chest", "stairs"):
+            if o in furn or o in ("chest", "stairs", "sign"):
                 t = furn[o] if o in furn else atlas.tile(o)
-                a = t[..., 3] > 0
-                ys, xs = np.nonzero(a)
-                for yy, xx in zip(ys, xs):
-                    X, Y = room_x0 + x * 16 + xx + 2, room_y0 + y * 16 + yy + 2
-                    if 0 <= X < W and 0 <= Y < Ht:
-                        img[Y, X] = img[Y, X] * 0.72
+                if t is not None:
+                    contact(img, t, room_x0 + x * 16, room_y0 + y * 16, joined=(o == "counter"))
     lights = [(room_x0 + x, room_y0 + y, r, f) for x, y, r, f in dr.get("lights", [])]
     shafts = [(room_x0 + x, room_y0 + y, sw) for x, y, sw in dr.get("shafts", [])]
+    m["_fires"] = [(room_x0 + x, room_y0 + y) for kind, x, y in dr.get("wall", []) if kind == "hearth"]
     return img, lights, shafts, (floor_y0, fy, room_x0, room_x0 + w * 16)
 
 

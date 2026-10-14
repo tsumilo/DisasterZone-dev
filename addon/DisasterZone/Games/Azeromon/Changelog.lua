@@ -13,6 +13,8 @@ ns.AzeroChangelog = {
           "Each room has its own dressing: hearth, trophies, banners.",
           "By day the sun falls through the windows, dust drifting in it.",
           "In the evening hearths, candles and sconces light the rooms.",
+          "Hearth fires flicker; window light falls over the furniture.",
+          "Furniture stands on soft contact shadows.",
           "Herbs and ore veins redrawn.",
           "Gusts in the meadows now travel with the clouds.",
       } },
