@@ -14,7 +14,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Ground.lua", ...) t
 local addonName, ns = ...
 ns.AzeroGround = {
     bbhall = {
-        v = "ddaff0294ecf79bc", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "9aa32af12ace853b", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -25,7 +25,7 @@ ns.AzeroGround = {
         anims = {  },
     },
     bootybayinn = {
-        v = "d9f575b1b6c32924", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "b0e96cf94c8aa89c", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -36,7 +36,7 @@ ns.AzeroGround = {
         anims = {  },
     },
     darkshireinn = {
-        v = "d9f575b1b6c32924", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "b0e96cf94c8aa89c", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -47,18 +47,18 @@ ns.AzeroGround = {
         anims = {  },
     },
     forestedge = {
-        v = "61e759f62dcd051f", mx = 6, my = 5, lightScale = 2,
-        chunks = { { 0, 0, 256, 256, 256, 256 }, { 256, 0, 256, 256, 256, 256 }, { 0, 256, 256, 128, 256, 128 }, { 256, 256, 256, 128, 256, 128 } },
+        v = "cecc65ada3a0d1dc", mx = 8, my = 5, lightScale = 2,
+        chunks = { { 0, 0, 256, 256, 256, 256 }, { 256, 0, 256, 256, 256, 256 }, { 512, 0, 64, 256, 64, 256 }, { 0, 256, 256, 128, 256, 128 }, { 256, 256, 256, 128, 256, 128 }, { 512, 256, 64, 128, 64, 128 } },
         water = {  },
-        meadows = { { 270, 94, 68, 52, 128, 64 }, { 287, 222, 84, 53, 128, 64 } },
-        lights = { { 152, 164, 26, 1, 0 }, { 216, 164, 26, 1, 0 }, { 152, 228, 26, 1, 0 }, { 216, 228, 26, 1, 0 } },
-        lightChunks = { { 0, 0, 256, 192, 256, 256 } },
+        meadows = { { 301, 94, 69, 52, 128, 64 }, { 318, 221, 84, 53, 128, 64 } },
+        lights = { { 184, 164, 26, 1, 0 }, { 248, 164, 26, 1, 0 }, { 184, 228, 26, 1, 0 }, { 248, 228, 26, 1, 0 } },
+        lightChunks = { { 0, 0, 256, 192, 256, 256 }, { 256, 0, 32, 192, 32, 256 } },
         shafts = {  },
         sunlight = {  },
         anims = {  },
     },
     home = {
-        v = "b677e5a4f0fab2ed", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "fe946c1eb1723e35", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -69,7 +69,7 @@ ns.AzeroGround = {
         anims = { { 87, 32, 19, 14, 8, 1, 256, 16, 8, 8 } },
     },
     lab = {
-        v = "63d3cf55b7614ea0", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "47fa2f0f11194988", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -80,7 +80,7 @@ ns.AzeroGround = {
         anims = {  },
     },
     mistmantle = {
-        v = "ffd5a2b9eb621310", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "fc32d88867c2006c", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -91,7 +91,7 @@ ns.AzeroGround = {
         anims = { { 87, 32, 19, 14, 8, 1, 256, 16, 8, 8 } },
     },
     post = {
-        v = "9f8003771479aad0", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "2358e44b930ed522", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -102,18 +102,18 @@ ns.AzeroGround = {
         anims = {  },
     },
     route1 = {
-        v = "1de1be2c0e4a166e", mx = 6, my = 5, lightScale = 2,
-        chunks = { { 0, 0, 256, 256, 256, 256 }, { 256, 0, 256, 256, 256, 256 }, { 512, 0, 32, 256, 32, 256 }, { 0, 256, 256, 256, 256, 256 }, { 256, 256, 256, 256, 256, 256 }, { 512, 256, 32, 256, 32, 256 }, { 0, 512, 256, 176, 256, 256 }, { 256, 512, 256, 176, 256, 256 }, { 512, 512, 32, 176, 32, 256 } },
+        v = "d414565c20d2288a", mx = 8, my = 5, lightScale = 2,
+        chunks = { { 0, 0, 256, 256, 256, 256 }, { 256, 0, 256, 256, 256, 256 }, { 512, 0, 96, 256, 128, 256 }, { 0, 256, 256, 256, 256, 256 }, { 256, 256, 256, 256, 256, 256 }, { 512, 256, 96, 256, 128, 256 }, { 0, 512, 256, 176, 256, 256 }, { 256, 512, 256, 176, 256, 256 }, { 512, 512, 96, 176, 128, 256 } },
         water = {  },
-        meadows = { { 142, 141, 68, 53, 128, 64 }, { 333, 142, 69, 52, 128, 64 }, { 125, 238, 101, 69, 128, 128 }, { 383, 349, 51, 54, 64, 64 }, { 141, 365, 133, 54, 256, 64 }, { 318, 509, 101, 54, 128, 64 }, { 126, 510, 68, 53, 128, 64 } },
+        meadows = { { 175, 141, 67, 54, 128, 64 }, { 367, 142, 68, 52, 128, 64 }, { 157, 237, 102, 70, 128, 128 }, { 414, 350, 53, 52, 64, 64 }, { 175, 365, 131, 54, 256, 64 }, { 349, 509, 102, 54, 128, 64 }, { 158, 510, 69, 53, 128, 64 } },
         lights = {  },
-        lightChunks = { { 0, 0, 256, 256, 256, 256 }, { 256, 0, 16, 256, 16, 256 }, { 0, 256, 256, 88, 256, 128 }, { 256, 256, 16, 88, 16, 128 } },
+        lightChunks = { { 0, 0, 256, 256, 256, 256 }, { 256, 0, 48, 256, 64, 256 }, { 0, 256, 256, 88, 256, 128 }, { 256, 256, 48, 88, 64, 128 } },
         shafts = {  },
         sunlight = {  },
         anims = {  },
     },
     saldean = {
-        v = "830c09550a65bdda", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "e6065d409e29e88a", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -124,7 +124,7 @@ ns.AzeroGround = {
         anims = { { 87, 32, 19, 14, 8, 1, 256, 16, 8, 8 } },
     },
     sentinelinn = {
-        v = "d9f575b1b6c32924", mx = 1, my = 1, lightScale = 2, indoor = true,
+        v = "b0e96cf94c8aa89c", mx = 1, my = 1, lightScale = 2, indoor = true,
         chunks = { { 0, 0, 192, 160, 256, 256 } },
         water = {  },
         meadows = {  },
@@ -135,14 +135,21 @@ ns.AzeroGround = {
         anims = {  },
     },
     town = {
-        v = "6928ea17cdc81271", mx = 6, my = 5, lightScale = 2,
-        chunks = { { 0, 0, 256, 256, 256, 256 }, { 256, 0, 256, 256, 256, 256 }, { 512, 0, 32, 256, 32, 256 }, { 0, 256, 256, 224, 256, 256 }, { 256, 256, 256, 224, 256, 256 }, { 512, 256, 32, 224, 32, 256 } },
-        water = { { 335, 239, 82, 66, 3, 4, 256, 512 } },
+        v = "b0624b32cc9361d1", mx = 8, my = 5, lightScale = 2,
+        chunks = { { 0, 0, 256, 256, 256, 256 }, { 256, 0, 256, 256, 256, 256 }, { 512, 0, 96, 256, 128, 256 }, { 0, 256, 256, 224, 256, 256 }, { 256, 256, 256, 224, 256, 256 }, { 512, 256, 96, 224, 128, 256 } },
+        water = { { 367, 239, 81, 66, 3, 4, 256, 512 } },
         meadows = {  },
-        lights = { { 408, 361, 34, 1, 0 }, { 168, 160, 16, 0, 1 }, { 168, 162, 16, 0, 1 }, { 154, 182, 16, 0, 1 }, { 163, 182, 16, 0, 1 }, { 360, 160, 16, 0, 1 }, { 360, 162, 16, 0, 1 }, { 346, 182, 16, 0, 1 }, { 355, 182, 16, 0, 1 }, { 168, 320, 16, 0, 1 }, { 168, 322, 16, 0, 1 }, { 154, 342, 16, 0, 1 }, { 163, 342, 16, 0, 1 } },
-        lightChunks = { { 0, 0, 256, 240, 256, 256 }, { 256, 0, 16, 240, 16, 256 } },
+        lights = { { 440, 361, 34, 1, 0 }, { 200, 160, 16, 0, 1 }, { 200, 162, 16, 0, 1 }, { 186, 182, 16, 0, 1 }, { 195, 182, 16, 0, 1 }, { 392, 160, 16, 0, 1 }, { 392, 162, 16, 0, 1 }, { 378, 182, 16, 0, 1 }, { 387, 182, 16, 0, 1 }, { 200, 320, 16, 0, 1 }, { 200, 322, 16, 0, 1 }, { 186, 342, 16, 0, 1 }, { 195, 342, 16, 0, 1 } },
+        lightChunks = { { 0, 0, 256, 240, 256, 256 }, { 256, 0, 48, 240, 64, 256 } },
         shafts = {  },
         sunlight = {  },
         anims = {  },
     },
+}
+-- battle backdrops: Media/Azeromon/Ground/battle_<scene>.tga (w x h used of 256 x 256), battle_clouds.tga
+ns.AzeroBattleArt = {
+    w = 224, h = 144, horizon = 56,
+    foe = { 166, 59 }, ally = { 58, 99 },
+    scenes = { arena = "arena", duskwood = "duskwood", elwynn = "elwynn", hall = "room", jungle = "jungle", mine = "mine", room = "room", westfall = "westfall" }, indoor = "room", outdoor = "elwynn",
+    clouds = { arena = true, elwynn = true, jungle = true, westfall = true },
 }

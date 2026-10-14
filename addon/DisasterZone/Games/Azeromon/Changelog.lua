@@ -6,6 +6,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.22", date = "14 October 2026", title = "Wide screen, painted battles",
+      lines = {
+          "The game now fills the whole window, battles too.",
+          "Battles have a painted scene for every zone and the rooms.",
+          "Beasts stand on raised platforms with their own shadow.",
+          "Clouds drift across the battle sky.",
+      } },
     { version = "0.21", date = "14 October 2026", title = "Cosy rooms",
       lines = {
           "Houses and inns have plank floors and timbered walls.",

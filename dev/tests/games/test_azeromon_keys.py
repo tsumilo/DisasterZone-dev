@@ -86,7 +86,7 @@ def the_strip_sits_under_the_game_when_there_is_room():
     w, c = game()
     c.eval("ns.AzeroUI._Fit(1356, 1205)")                     # taller than the game: a bar below it
     assert c.eval("return ns.AzeroUI._Outside()") is True
-    c.eval("ns.AzeroUI._Fit(1356, 1109)")                     # no room: over the top edge
+    c.eval("ns.AzeroUI._Fit(1356, 871)")                      # no room (1356 / 672 * 432): over the top edge
     assert c.eval("return ns.AzeroUI._Outside()") is False
     no_errors(w)
 

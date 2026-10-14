@@ -176,10 +176,11 @@ def a_map_without_a_baked_ground_has_no_ambient():
 def a_road_at_the_edge_carries_on_into_the_forest():
     w, c = play("town", 10, 0)                      # Goldshire's north road (columns 10 and 11) leaves the map
     over = lambda i, j: c.eval("return ns.AzeroUI._OverAt(%d, %d)" % (i, j))
-    # the player stands in view cell HX + 1, HY + 1 = (6, 5); row 4 is past the edge, the road at columns 6 and 7
+    # view cell i shows column fx - floor(HX) - 1 + i = i + 3 (HX = 6.5): the road (10, 11) is cells 7 and 8; rows 1-4
+    # are past the edge
     for j in (1, 2, 3, 4):
-        assert not over(6, j) and not over(7, j), (j, over(6, j), over(7, j))
-        assert over(5, j) == "tree" and over(8, j) == "tree", (j, over(5, j), over(8, j))
+        assert not over(7, j) and not over(8, j), (j, over(7, j), over(8, j))
+        assert over(6, j) == "tree" and over(9, j) == "tree", (j, over(6, j), over(9, j))
 
 
 def tall_spot(c, map_id):

@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/UI.lua", ...) then return end -- DisasterZone Games/Azeromon/UI.lua
 -- ns.AzeroUI: draws ns.Azero's state and forwards keyboard / mouse input.
--- Screen: 11 x 9 tiles of 48px (16px art at 3x, nearest filtering), camera centred on the player.
+-- Screen: 14 x 9 tiles of 48px (16px art at 3x, nearest filtering), camera centred on the player.
 -- Keys (while the game has focus): arrows / WASD move, Space / Z / E = A, X / Q / Backspace = B (hold to run),
 -- Enter / Tab / M = menu, Escape pauses (releases the keyboard; a second Escape closes the window).
 local addonName, ns = ...
@@ -12,8 +12,8 @@ local D = ns.AzeroData
 local M = ns.AzeroMon
 local A = ns.AzeroAtlas
 
-local TILE, VW, VH = 48, 11, 9
-local HX, HY = 5, 4                       -- player's screen tile
+local TILE, VW, VH = 48, 14, 9            -- 14 x 9 tiles: wide enough to fill the DisasterZone window
+local HX, HY = 6.5, 4                     -- player's screen tile (half a tile in: centred on the even width)
 local SW, SH = TILE * VW, TILE * VH
 local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\Azeromon\\"
 local ATLAS, CHARS, PLATFORM = MEDIA .. "atlas", MEDIA .. "chars", MEDIA .. "platform"
@@ -2593,9 +2593,32 @@ local BATTLE_THEMES = {
                platform = PLATFORM .. "_j" },
 }
 
+-- The painted backdrop for the map's scene (Ground.lua AzeroBattleArt; gen_azeromon_ground.py), or the old
+-- colour bands when there is none.
+local function BattleScene()
+    local art = ns.AzeroBattleArt
+    if not art then return nil end
+    local def = G.map and G.map.def
+    local sc = def and art.scenes[def.theme or ""]
+    if not sc then sc = (def and not def.outdoor) and art.indoor or art.outdoor end
+    return sc
+end
+
 local function ApplyBattleTheme(name)
     local t = BATTLE_THEMES[name] or BATTLE_THEMES.elwynn
     local bg = R.bg
+    local sc = BattleScene()
+    local painted = sc ~= nil and bg.art ~= nil
+    for _, x in ipairs({ bg.sky, bg.field, bg.stripe }) do x:SetShown(not painted) end
+    for _, x in ipairs(bg.skyBands) do x:SetShown(not painted) end
+    for _, x in ipairs(bg.fieldBands) do x:SetShown(not painted) end
+    for _, x in ipairs(bg.platforms) do x:SetShown(not painted) end
+    if bg.art then
+        bg.art:SetShown(painted)
+        bg.clouds.on = painted and ns.AzeroBattleArt.clouds[sc] or false
+        bg.clouds:SetShown(bg.clouds.on)
+        if painted then SetPixelTexture(bg.art, MEDIA .. "Ground\\battle_" .. sc) end
+    end
     bg.sky:SetColorTexture(t.sky[1], t.sky[2], t.sky[3], 1)
     bg.field:SetColorTexture(t.field[1], t.field[2], t.field[3], 1)
     bg.stripe:SetColorTexture(t.stripe[1], t.stripe[2], t.stripe[3], 1)
@@ -3358,7 +3381,7 @@ end
 local function BuildWorld()
     world = CreateFrame("Frame", nil, screen)
     world:SetAllPoints()
-    for i = 0, VW + 1 do
+    for i = 0, VW + 2 do
         grid[i] = {}
         for j = 0, VH + 1 do
             local base = Tex(world, "BACKGROUND", 0)
@@ -3515,9 +3538,9 @@ local function DrawWorld()
     local ox, oy = (px - fx) * TILE, (py - fy) * TILE
     local outdoor = m.def.outdoor
     local ground = DrawGround(m, px, py)
-    for i = 0, VW + 1 do
+    for i = 0, VW + 2 do
         for j = 0, VH + 1 do
-            local wx, wy = fx - HX - 1 + i, fy - HY - 1 + j
+            local wx, wy = fx - floor(HX) - 1 + i, fy - HY - 1 + j
             local cell = grid[i][j]
             local base, over
             if wx < 0 or wy < 0 or wx >= m.w or wy >= m.h then
@@ -3554,7 +3577,7 @@ local function DrawWorld()
             end
             SetTile(cell.base, base)
             SetTile(cell.over, over)
-            local x, y = (i - 1) * TILE - ox, -((j - 1) * TILE - oy)
+            local x, y = (wx - px + HX) * TILE, -((wy - py + HY) * TILE)
             if cell.x ~= x or cell.y ~= y then
                 cell.x, cell.y = x, y
                 cell.base:ClearAllPoints()
@@ -4572,12 +4595,40 @@ local function BuildBattle()
         bg.fieldBands[i] = band
     end
 
+    -- where the beasts stand: the painted platforms' centres (AzeroBattleArt, game pixels x 3), or the old spots
+    -- scaled to the screen's width
+    local art = ns.AzeroBattleArt
+    local S3 = TILE / 16
+    local FOE_X, FOE_Y = floor(SW * 0.742), 178
+    local ALLY_X, ALLY_Y = floor(SW * 0.258), SH - BOX_H - 22
+    if art then FOE_X, FOE_Y, ALLY_X, ALLY_Y = art.foe[1] * S3, art.foe[2] * S3, art.ally[1] * S3, art.ally[2] * S3 end
+    if art then
+        -- the painted backdrop (sky, far trees, ground, platforms), and clouds drifting across its sky
+        bg.art = Tex(b, "BACKGROUND", 2)
+        bg.art:SetPoint("TOPLEFT")
+        bg.art:SetSize(art.w * S3, art.h * S3)
+        SetPixelTexture(bg.art, MEDIA .. "Ground\\battle_" .. art.outdoor)
+        bg.art:SetTexCoord(0, art.w / 256, 0, art.h / 256)
+        bg.clouds = Tex(b, "BACKGROUND", 3)
+        bg.clouds:SetPoint("TOPLEFT")
+        bg.clouds:SetSize(art.w * S3, 48 * S3)
+        if not pcall(bg.clouds.SetTexture, bg.clouds, MEDIA .. "Ground\\battle_clouds", "REPEAT", "CLAMP", "NEAREST") then
+            bg.clouds:SetTexture(MEDIA .. "Ground\\battle_clouds")
+        end
+        bg.clouds:SetAlpha(0.9)
+        b:SetScript("OnUpdate", function()
+            if bg.clouds:IsShown() then
+                local u = (now * 2) / 256
+                bg.clouds:SetTexCoord(-u, art.w / 256 - u, 0, 1)
+            end
+        end)
+    end
     local fp = Tex(b, "BORDER")
     fp:SetSize(240, 60)
-    fp:SetPoint("CENTER", b, "TOPLEFT", 392, -178)
+    fp:SetPoint("CENTER", b, "TOPLEFT", FOE_X, -FOE_Y)
     local ap = Tex(b, "BORDER")
     ap:SetSize(280, 70)
-    ap:SetPoint("CENTER", b, "TOPLEFT", 136, -SH + BOX_H + 22)
+    ap:SetPoint("CENTER", b, "TOPLEFT", ALLY_X, -ALLY_Y)
     bg.platforms = { fp, ap }
     -- sky tint for outdoor battles (above the backdrop, below the creatures, which are child frames)
     R.battleSky = Tex(b, "BORDER", 7)
@@ -4585,13 +4636,13 @@ local function BuildBattle()
     R.battleSky:Hide()
 
     R.foeModel = NewModel(b, 200, 190)
-    R.foeModel.baseX, R.foeModel.baseY = 392 - 100, -200
+    R.foeModel.baseX, R.foeModel.baseY = FOE_X - 100, -FOE_Y - 22
     R.foeModel.groundY = R.foeModel.baseY
     R.foeModel:SetPoint("BOTTOMLEFT", b, "TOPLEFT", R.foeModel.baseX, R.foeModel.baseY)
     R.foeModel:SetFrameLevel(b:GetFrameLevel() + 2)
     R.allyModel = NewModel(b, 250, 250)
     R.allyModel.camScale = 1.1
-    R.allyModel.baseX, R.allyModel.baseY = 136 - 125, -SH + BOX_H + 6
+    R.allyModel.baseX, R.allyModel.baseY = ALLY_X - 125, -ALLY_Y - 16
     R.allyModel.groundY = R.allyModel.baseY
     R.allyModel:SetPoint("BOTTOMLEFT", b, "TOPLEFT", R.allyModel.baseX, R.allyModel.baseY)
     R.allyModel:SetFrameLevel(b:GetFrameLevel() + 2)
@@ -5292,7 +5343,7 @@ UI._Ground = function()
 end
 UI._BaseTiles = function()
     local out = {}
-    for i = 0, VW + 1 do for j = 0, VH + 1 do
+    for i = 0, VW + 2 do for j = 0, VH + 1 do
         local b = grid[i] and grid[i][j] and grid[i][j].base
         if b then out[#out + 1] = b:IsShown() and b.tileName or false end
     end end

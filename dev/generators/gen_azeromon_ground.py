@@ -31,6 +31,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(DEV, "tests", "boot-ui"))
 import azeromon_props  # noqa: E402
 import azeromon_interiors as interiors  # noqa: E402
+import azeromon_battle as battle  # noqa: E402
 
 ADDON = os.path.join(os.path.dirname(DEV), "addon", "DisasterZone")
 MEDIA = os.path.join(ADDON, "Media", "Azeromon")
@@ -45,9 +46,9 @@ FEET = {"sign", "wantedboard", "lamppost", "anvil", "forge", "alchemy", "chest",
         "scarecrow_0_1", "gravestone", "crate", "barrel", "pumpkin", "hay", "cannon", "plinth", "plinthempty",
         "trophyboard"}
 
-# the margin baked round each map (tiles): the camera sees up to HX + 1, HY + 1 tiles past an edge (UI.lua HX = 5,
+# the margin baked round each map (tiles): the camera sees up to HX + 1, HY + 1 tiles past an edge (UI.lua HX = 6.5,
 # HY = 4). Past the edge the map goes on: a road or water at the edge carries straight on, the rest is forest.
-MX, MY = 6, 5
+MX, MY = 8, 5
 
 # lights for dusk and night: over tile -> (x, y, radius in px, flickers) (the mockup's LIGHT_TILES)
 LIGHT_TILES = {"lamppost": (8, 3, 30, 0), "forge": (8, 9, 34, 1), "torch1": (8, 4, 26, 1), "fire1": (8, 8, 30, 1),
@@ -732,7 +733,7 @@ def load_maps():
 
 def _src_digest():
     h = hashlib.sha1()
-    for p in (__file__, azeromon_props.__file__, interiors.__file__):
+    for p in (__file__, azeromon_props.__file__, interiors.__file__, battle.__file__):
         h.update(open(p, "rb").read().replace(b"\r\n", b"\n"))
     h.update(open(os.path.join(MEDIA, "atlas.tga"), "rb").read())
     return h.hexdigest()
@@ -800,6 +801,19 @@ def write_lua(entries):
             lines.append("        %s = { %s }," % (key, ", ".join(row(c) for c in e_.get(key, []))))
         lines.append("    },")
     lines.append("}")
+    # the battle backdrops (azeromon_battle.py): the scene per map theme, platform centres in game pixels (x 3 on
+    # screen), which scenes have drifting clouds
+    scenes = ", ".join('%s = "%s"' % (k, v) for k, v in sorted(battle.SCENE_OF.items(), key=lambda kv: str(kv[0])) if k)
+    clouds_ = ", ".join("%s = true" % k for k, v in sorted(battle.SCENES.items()) if v.get("clouds"))
+    lines += [
+        "-- battle backdrops: Media/Azeromon/Ground/battle_<scene>.tga (w x h used of 256 x 256), battle_clouds.tga",
+        "ns.AzeroBattleArt = {",
+        "    w = %d, h = %d, horizon = %d," % (battle.W, battle.Ht, battle.HORIZON),
+        "    foe = { %d, %d }, ally = { %d, %d }," % (battle.FOE[0], battle.FOE[1], battle.ALLY[0], battle.ALLY[1]),
+        "    scenes = { %s }, indoor = \"room\", outdoor = \"elwynn\"," % scenes,
+        "    clouds = { %s }," % clouds_,
+        "}",
+    ]
     with open(GROUND_LUA, "w", newline="\n", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -914,11 +928,18 @@ def main():
              if e.get("indoor") for c in e["chunks"]}
     keep |= {"%s_s.tga" % mid for mid, e in entries.items() if e.get("sunlight")}
     keep |= {"%s_f.tga" % mid for mid, e in entries.items() if e.get("anims")}
-    keep |= {"clouds.tga", "vignette.tga"}
+    keep |= {"clouds.tga", "vignette.tga", "battle_clouds.tga"} | {"battle_%s.tga" % s for s in battle.THEMES}
     for f in os.listdir(OUT_DIR):
         if f.endswith(".tga") and f not in keep:
             os.remove(os.path.join(OUT_DIR, f))
     Image.fromarray(clouds(), "RGBA").save(os.path.join(OUT_DIR, "clouds.tga"))
+    # battle backdrops, one per scene, and the clouds that drift across their skies
+    for sc in battle.THEMES:
+        img = battle.scene(sc, atlas, interiors)
+        tex = np.zeros((256, 256, 3), dtype=np.uint8)
+        tex[:img.shape[0], :img.shape[1]] = img
+        Image.fromarray(tex, "RGB").save(os.path.join(OUT_DIR, "battle_%s.tga" % sc))
+    Image.fromarray(battle.clouds_strip(), "RGBA").save(os.path.join(OUT_DIR, "battle_clouds.tga"))
     Image.fromarray(vignette(), "RGB").save(os.path.join(OUT_DIR, "vignette.tga"))
     write_lua(entries)
     print("wrote Ground.lua", len(entries), "maps")

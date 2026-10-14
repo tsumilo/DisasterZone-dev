@@ -152,9 +152,9 @@ def the_game_fills_the_space_it_is_given():
     w, c = game()
     r = c.eval_py("""local UI = ns.AzeroUI
       return { wide = UI._Fit(1356, 1205), tall = UI._Fit(600, 1400), small = UI._Fit(264, 216), huge = UI._Fit(2112, 1728) }""")
-    assert abs(r["wide"] - 1356 / 528) < 1e-6, r          # limited by the width: never stretched
-    assert abs(r["tall"] - 600 / 528) < 1e-6, r
-    assert abs(r["small"] - 0.5) < 1e-6 and abs(r["huge"] - 4) < 1e-6, r
+    assert abs(r["wide"] - 1356 / 672) < 1e-6, r          # limited by the width (14 x 9 tiles): never stretched
+    assert abs(r["tall"] - 600 / 672) < 1e-6, r
+    assert abs(r["small"] - 264 / 672) < 1e-6 and abs(r["huge"] - 2112 / 672) < 1e-6, r
     no_errors(w)
 
 
