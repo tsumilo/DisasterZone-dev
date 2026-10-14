@@ -212,6 +212,41 @@ D.moves = {
     rocketpunch = { name = "Rocket Punch", type = "MECH",  power = 100, acc = 90, pp = 10 },
     sawstorm   = { name = "Sawblade Storm", type = "MECH", power = 120, acc = 80, pp = 5 },
     cannon     = { name = "Cannon Blast", type = "MECH",   power = 100, acc = 80, pp = 5 },
+    -- Blackrock. The kinds after "drain" are handled in Battle.lua (every roll on the battle's rng: player
+    -- battles stay the same on both clients):
+    --   vsstatus { status, mult }   more power when the foe has that status
+    --   consume  { status, mult }   more power when the foe has that status, and the hit ends it
+    --   armor    { turns }          the user's skin burns whoever lands a physical hit on it
+    --   fear     { turns, chance }  the foe may be too afraid to move on each of its next `turns` moves
+    --   flinch   { chance }         a foe that has not moved yet this turn loses its move
+    --   trap     { stat, stages, status, chance }  the foe can't switch out or run (plus the stat drop / status)
+    --   noresist                    never "not very effective"
+    --   panic                       the foe skips its next move (once per beast; Free Action blocks it)
+    -- pierce = true on a status effect: burns even a FIRE type (FIRE types can't be burned otherwise, like Gen III).
+    lavaburst  = { name = "Lava Burst",   type = "FIRE",   power = 90, acc = 100, pp = 10,
+                   effect = { kind = "vsstatus", status = "brn", mult = 1.5 } },
+    firenova   = { name = "Fire Nova",    type = "FIRE",   power = 70, acc = 100, pp = 15,
+                   effect = { kind = "status", status = "brn", chance = 10 } },
+    conflagrate = { name = "Conflagrate", type = "FIRE",   power = 60, acc = 100, pp = 10,
+                   effect = { kind = "consume", status = "brn", mult = 2.5 } },
+    moltenarmor = { name = "Molten Armor", type = "FIRE",  power = 0,  acc = 0,   pp = 10,
+                   effect = { kind = "armor", turns = 4 } },
+    bellowingroar = { name = "Bellowing Roar", type = "FIRE", power = 0, acc = 100, pp = 10,
+                   effect = { kind = "fear", turns = 2, chance = 50 } },
+    shadowflame = { name = "Shadow Flame", type = "SHADOW", power = 80, acc = 95, pp = 15,
+                   effect = { kind = "status", status = "brn", chance = 30, pierce = true } },
+    warstomp   = { name = "War Stomp",    type = "EARTH",  power = 65, acc = 100, pp = 15,
+                   effect = { kind = "flinch", chance = 30 } },
+    slagtoss   = { name = "Slag Toss",    type = "EARTH",  power = 75, acc = 90,  pp = 15,
+                   effect = { kind = "stat", who = "foe", stat = "spe", stages = -1 } },
+    magmashackles = { name = "Magma Shackles", type = "EARTH", power = 0, acc = 90, pp = 10,
+                   effect = { kind = "trap", stat = "spe", stages = -1 } },
+    steamjet   = { name = "Steam Jet",    type = "MECH",   power = 70, acc = 100, pp = 15,
+                   effect = { kind = "noresist" } },
+    burningweb = { name = "Burning Web",  type = "FIRE",   power = 40, acc = 100, pp = 15,
+                   effect = { kind = "trap", status = "brn", chance = 30 } },
+    panic      = { name = "Panic",        type = "SHADOW", power = 0,  acc = 85,  pp = 5,
+                   effect = { kind = "panic" } },
 }
 
 ---------------------------------------------------------------------------
@@ -220,6 +255,8 @@ D.moves = {
 -- Bloodpetal Flayer 6510 -> 11635, Young Wolf 299 -> 447, Forest Spider 30 -> 382, Kobold Vermin 6 -> 10913,
 -- Strigid Owl 1995 -> 10832, Stonetusk Boar 113 -> 503.
 -- learn = { { level, move }, ... }   evolve = { level = n, into = id }   catch = catch rate (3..255)
+-- evolveItem = { item, into }: using that item from the bag on the beast evolves it (a branch beside `evolve`).
+-- rare = true: a night / day rare (not needed for the Bestiary); legendary = true: met once per save, scripted.
 -- cam = model camera distance factor in battle (1 = default; bigger = smaller on screen);
 -- yoff = extra pixels to lower the model onto its platform.
 ---------------------------------------------------------------------------
@@ -500,6 +537,7 @@ D.species = {
     venomweb = { name = "Venom Web Spider", type = "NATURE", num = 52, display = 955, catch = 90, exp = 150,
         base = { 65, 82, 66, 72, 66, 96 },
         desc = "It webs the trees over the Duskwood road and waits. The Night Watch cuts the webs every morning.",
+        evolve = { level = 46, into = "glassweb" },
         learn = { { 1, "venomsting" }, { 1, "web" }, { 22, "corrosive" }, { 25, "leech" }, { 30, "bite" } } },
     darkrunner = { name = "Nightbane Dark Runner", type = "SHADOW", num = 53, display = 736, catch = 90, exp = 125,
         base = { 70, 92, 60, 45, 55, 92 },
@@ -520,6 +558,7 @@ D.species = {
     mastiff = { name = "Black Ravager Mastiff", type = "BEAST", num = 56, display = 9562, catch = 45, exp = 170,
         base = { 90, 106, 80, 40, 65, 86 },
         desc = "The leader of a ravager pack. It bites first and doesn't bother asking questions.",
+        evolve = { level = 58, into = "corehound" },
         learn = { { 1, "tackle" }, { 1, "growl" }, { 22, "bite" }, { 25, "rend" }, { 28, "howl" }, { 30, "ravage" },
                   { 34, "maul" } } },
     worm = { name = "Flesh Eating Worm", type = "EARTH", num = 57, display = 10996, cam = 1.2, catch = 150, exp = 100,
@@ -675,6 +714,7 @@ D.species = {
         base = { 105, 110, 125, 45, 70, 50 },
         desc = "A harvest golem plated for war. The Defias had it guarding the Dead Acre; now it guards you.",
         evolve = { level = 60, into = "pummeler" },
+        evolveItem = { item = "darkironbar", into = "heavygolem" },     -- a branch: a Dark Iron Bar from the bag
         learn = { { 1, "tackle" }, { 1, "rust" }, { 8, "gears" }, { 14, "scythe" }, { 22, "maul" }, { 36, "buzzsaw" },
                   { 48, "overdrive" } } },
     pummeler = { name = "Crowd Pummeler", type = "MECH", num = 83, display = 6774, cam = 0.85, catch = 20, exp = 265,
@@ -943,6 +983,209 @@ D.species = {
         base = { 145, 140, 115, 110, 105, 115 },
         desc = "Master of the Bloodsail fleet. He means to take Booty Bay, and he has three ships that agree.",
         learn = { { 1, "cutlass" }, { 1, "cannon" }, { 1, "tsunami" }, { 1, "cleave" } } },
+    ---------------------------------------------------------------------------
+    -- Blackrock (Redridge, the Burning Steppes, the Searing Gorge, Blackrock Mountain, the Molten Core). Displays
+    -- from the Blackrock deep-dive mockup (zone_mockup/blackrock/region.py, npc -> displayId on Wowhead TBC):
+    -- Black Dragon Whelp 387, Black Broodling 397, Black Wyrmkin 8249, Rage Talon Dragonspawn 2554, Redridge Mongrel
+    -- 487, Redridge Brute 500, Redridge Alpha 609, Redridge Mystic 10789, Dire Condor 490, Chatter 821, Flamekin
+    -- Spitter 10815 / Rager 10814 / Torcher 10817, Firegut Ogre 11549 / Brute 10707 / Ogre Mage 11550, Scalding
+    -- Drake 9585, Firetail Scorpid 10985, Burning Imp 4449, Volchan 12232, Glassweb Spider 4456, Searing Lava Spider
+    -- 4457, Greater Lava Spider 7510, Blazing Elemental 1070, Inferno Elemental 5488, Magma Elemental 2075, Greater
+    -- Obsidian Elemental 5781, Tempered / Heavy / Faulty War Golem 5747 / 10801 / 10800, Thaurissan Firewalker 8170,
+    -- Fireguard 2172, Flame Imp 12190, Lava Surger 12239, Core Hound 12168, Magmadar 10193.
+    -- Wild beasts here are met at Lv 48-58, so their lists start at 1 and pick up in the 40s like Stranglethorn's.
+    ---------------------------------------------------------------------------
+    blackwhelp = { name = "Black Dragon Whelp", type = "FIRE", num = 131, display = 387, cam = 1.2, catch = 90, exp = 170,
+        base = { 80, 75, 75, 100, 80, 110 },
+        desc = "Onyxia's brood hatches in Redridge's hills. Lakeshire counts its sheep every morning, and comes up short.",
+        evolve = { level = 50, into = "broodling" },
+        learn = { { 1, "scratch" }, { 1, "ember" }, { 44, "flamebreath" }, { 46, "wingbuffet" }, { 48, "flamebuffet" } } },
+    broodling = { name = "Black Broodling", type = "FIRE", num = 132, display = 397, catch = 45, exp = 215,
+        base = { 92, 85, 88, 115, 92, 108 },
+        desc = "A whelp grown into the black flight's foot soldier. It answers to a voice in Blackrock Spire.",
+        evolve = { level = 58, into = "blackwyrmkin" },
+        learn = { { 1, "scratch" }, { 1, "ember" }, { 44, "flamebreath" }, { 46, "wingbuffet" }, { 48, "flamebuffet" },
+                  { 50, "conflagrate" }, { 54, "shadowflame" } } },
+    blackwyrmkin = { name = "Black Wyrmkin", type = "FIRE", num = 133, display = 8249, catch = 25, exp = 260,
+        base = { 105, 95, 100, 130, 105, 105 },
+        desc = "Wyrmkin guard the Spire's upper halls. Nefarius breeds them for loyalty; fire came free.",
+        evolve = { level = 72, into = "ragetalon" },
+        learn = { { 1, "scratch" }, { 1, "ember" }, { 44, "flamebreath" }, { 46, "wingbuffet" }, { 48, "flamebuffet" },
+                  { 50, "conflagrate" }, { 54, "shadowflame" }, { 58, "dragonbreath" }, { 64, "lavaburst" } } },
+    ragetalon = { name = "Rage Talon Dragonspawn", type = "FIRE", num = 134, display = 2554, cam = 0.9, catch = 15, exp = 310,
+        base = { 118, 102, 105, 140, 112, 103 },
+        desc = "Half dragon, half rage, all scales. The Rage Talon held Blackrock Spire for the black flight.",
+        learn = { { 1, "scratch" }, { 1, "ember" }, { 44, "flamebreath" }, { 46, "wingbuffet" }, { 48, "flamebuffet" },
+                  { 50, "conflagrate" }, { 54, "shadowflame" }, { 58, "dragonbreath" }, { 64, "lavaburst" },
+                  { 72, "bellowingroar" }, { 78, "inferno" }, { 86, "firestorm" } } },
+    mongrel = { name = "Redridge Mongrel", type = "BEAST", num = 135, display = 487, catch = 120, exp = 165,
+        base = { 88, 105, 75, 45, 65, 100 },
+        desc = "A Redridge gnoll pup. They travel in threes, and the other two are behind the bush.",
+        evolve = { level = 52, into = "rrbrute" },
+        learn = { { 1, "scratch" }, { 1, "growl" }, { 44, "bite" }, { 46, "ragged" }, { 48, "rend" }, { 50, "maul" } } },
+    rrbrute = { name = "Redridge Brute", type = "BEAST", num = 136, display = 500, catch = 60, exp = 210,
+        base = { 105, 122, 90, 50, 72, 96 },
+        desc = "A grown Redridge gnoll. It knocks the planks out of Lakeshire's bridge for fun.",
+        evolve = { level = 62, into = "rralpha" },
+        learn = { { 1, "scratch" }, { 1, "growl" }, { 44, "bite" }, { 46, "ragged" }, { 48, "rend" }, { 50, "maul" },
+                  { 52, "cleave" }, { 56, "warstomp" } } },
+    rralpha = { name = "Redridge Alpha", type = "BEAST", num = 137, display = 609, catch = 30, exp = 265,
+        base = { 120, 140, 102, 55, 85, 108 },
+        desc = "The pack's alpha. Gath'Ilzogg keeps one on a chain, and the chain is the only thing it respects.",
+        learn = { { 1, "scratch" }, { 1, "growl" }, { 44, "bite" }, { 46, "ragged" }, { 48, "rend" }, { 50, "maul" },
+                  { 52, "cleave" }, { 56, "warstomp" }, { 62, "feralrage" }, { 70, "roar" }, { 80, "crushingbite" } } },
+    rrmystic = { name = "Redridge Mystic", type = "SHADOW", num = 138, display = 10789, catch = 60, exp = 205,
+        base = { 95, 108, 80, 100, 90, 92 },
+        desc = "A gnoll shaman who talks to things in the dark. The things answer, mostly with curses.",
+        learn = { { 1, "curse" }, { 1, "shadowbolt" }, { 48, "hex" }, { 50, "drainlife" }, { 54, "shadowflame" },
+                  { 60, "deathcoil" }, { 70, "nightmare" }, { 80, "terrify" } } },
+    condor = { name = "Dire Condor", type = "AIR", num = 139, display = 490, cam = 1.1, catch = 75, exp = 195,
+        base = { 95, 112, 78, 60, 72, 118 },
+        desc = "It rides the updraft off Lake Everstill and drops on whatever the gnolls leave behind.",
+        learn = { { 1, "peck" }, { 1, "squawk" }, { 46, "whirlwind" }, { 48, "talon" }, { 52, "tailwind" },
+                  { 58, "skydive" }, { 66, "cyclone" }, { 78, "tempest" } } },
+    chatter = { name = "Chatter", type = "SHADOW", num = 140, display = 821, catch = 15, exp = 250, rare = true,
+        base = { 110, 130, 92, 70, 85, 125 },
+        desc = "The spider the Redridge poachers whisper about. Its fangs click in the dark like a gnoll counting coins.",
+        learn = { { 1, "venomfang" }, { 1, "shadowclaw" }, { 1, "web" }, { 1, "hex" }, { 58, "nightmare" } } },
+    spitter = { name = "Flamekin Spitter", type = "FIRE", num = 141, display = 10815, cam = 1.2, catch = 90, exp = 175,
+        base = { 85, 70, 75, 105, 80, 90 },
+        desc = "A little living flame of the Steppes. It spits burning tar at anything that walks too close.",
+        evolve = { level = 56, into = "rager" },
+        learn = { { 1, "ember" }, { 1, "mudslap" }, { 46, "molten" }, { 50, "fireball" }, { 53, "slagtoss" } } },
+    rager = { name = "Flamekin Rager", type = "FIRE", num = 142, display = 10814, catch = 45, exp = 225,
+        base = { 100, 82, 88, 125, 95, 98 },
+        desc = "A Spitter that found the mountain's heart and grew angry with it. The ash around it never settles.",
+        evolve = { level = 66, into = "torcher" },
+        learn = { { 1, "ember" }, { 1, "mudslap" }, { 46, "molten" }, { 50, "fireball" }, { 53, "slagtoss" },
+                  { 56, "firenova" }, { 60, "lavaburst" } } },
+    torcher = { name = "Flamekin Torcher", type = "FIRE", num = 143, display = 10817, catch = 20, exp = 285,
+        base = { 115, 92, 100, 145, 108, 105 },
+        desc = "Thaurissan's fire-priests feed it coal by the cartload. It burns brighter than the Imperial Seat's braziers.",
+        learn = { { 1, "ember" }, { 1, "mudslap" }, { 46, "molten" }, { 50, "fireball" }, { 53, "slagtoss" },
+                  { 56, "firenova" }, { 60, "lavaburst" }, { 66, "conflagrate" }, { 72, "inferno" }, { 84, "firestorm" } } },
+    firegut = { name = "Firegut Ogre", type = "EARTH", num = 144, display = 11549, cam = 0.9, catch = 90, exp = 180,
+        base = { 110, 118, 90, 55, 70, 55 },
+        desc = "A lookout from Dreadmaul Rock. It looks out for food, mostly.",
+        evolve = { level = 56, into = "fgbrute" },
+        learn = { { 1, "tackle" }, { 1, "leer" }, { 46, "ogreslam" }, { 50, "rockthrow" }, { 53, "groundpound" } } },
+    fgbrute = { name = "Firegut Brute", type = "EARTH", num = 145, display = 10707, cam = 0.9, catch = 40, exp = 230,
+        base = { 128, 138, 105, 60, 80, 62 },
+        desc = "Bigger, louder and closer than a Firegut Ogre. The Blackrock orcs pay it in meat to stand at the gate.",
+        evolve = { level = 64, into = "fgmage" },
+        learn = { { 1, "tackle" }, { 1, "leer" }, { 46, "ogreslam" }, { 50, "rockthrow" }, { 53, "groundpound" },
+                  { 56, "warstomp" }, { 60, "chestbeat" } } },
+    fgmage = { name = "Firegut Ogre Mage", type = "EARTH", num = 146, display = 11550, cam = 0.85, catch = 15, exp = 290,
+        base = { 135, 135, 110, 115, 100, 65 },
+        desc = "Two heads, two spells a turn. One head reads the spellbook; the other eats it.",
+        learn = { { 1, "tackle" }, { 1, "leer" }, { 46, "ogreslam" }, { 50, "rockthrow" }, { 53, "groundpound" },
+                  { 56, "warstomp" }, { 60, "chestbeat" }, { 64, "fireball" }, { 70, "earthquake" }, { 78, "stoneskin" },
+                  { 86, "inferno" } } },
+    scaldingdrake = { name = "Scalding Drake", type = "FIRE", num = 147, display = 9585, catch = 60, exp = 205,
+        base = { 85, 80, 70, 120, 75, 135 },
+        desc = "A young drake of the Steppes, fast and frail. Its Flame Buffet has melted Morgan's Vigil's gate twice.",
+        learn = { { 1, "ember" }, { 1, "wingbuffet" }, { 48, "flamebreath" }, { 52, "flamebuffet" },
+                  { 56, "dragonbreath" }, { 62, "tailwind" }, { 70, "inferno" }, { 82, "firestorm" } } },
+    firetail = { name = "Firetail Scorpid", type = "EARTH", num = 148, display = 10985, catch = 75, exp = 195,
+        base = { 95, 108, 135, 45, 80, 72 },
+        desc = "A scorpid baked hard in the Steppes' ash. Its sting is hot enough to light a pipe.",
+        learn = { { 1, "tackle" }, { 1, "leer" }, { 46, "venomsting" }, { 50, "crystalspines" }, { 54, "stoneskin" },
+                  { 58, "venomfang" }, { 66, "crushingbite" }, { 76, "earthquake" } } },
+    burningimp = { name = "Burning Imp", type = "FIRE", num = 149, display = 4449, cam = 1.3, catch = 120, exp = 165,
+        base = { 70, 60, 62, 105, 78, 120 },
+        desc = "Small, rude, and on fire. It sets things alight and then complains about the smoke.",
+        learn = { { 1, "ember" }, { 1, "growl" }, { 46, "fireball" }, { 50, "firenova" }, { 54, "sprint" },
+                  { 60, "shadowflame" }, { 70, "inferno" } } },
+    volchan = { name = "Volchan", type = "EARTH", num = 150, display = 12232, cam = 0.85, catch = 15, exp = 260, rare = true,
+        base = { 140, 135, 140, 70, 95, 40 },
+        desc = "A walking hill of slag that wanders the Steppes by night. Where it sleeps, the ground glows for a week.",
+        learn = { { 1, "slagtoss" }, { 1, "warstomp" }, { 1, "earthquake" }, { 1, "stoneskin" }, { 62, "magmashackles" } } },
+    glassweb = { name = "Glassweb Spider", type = "SHADOW", num = 151, display = 4456, catch = 60, exp = 205,
+        base = { 90, 108, 95, 70, 80, 105 },
+        desc = "A spider with a shell like smoked glass. Duskwood's Venom Webs that wander into the Gorge come back as these.",
+        evolve = { level = 56, into = "lavaspider" },
+        learn = { { 1, "venomsting" }, { 1, "web" }, { 22, "corrosive" }, { 25, "leech" }, { 30, "bite" },
+                  { 46, "shadowclaw" }, { 50, "burningweb" }, { 53, "venomfang" } } },
+    lavaspider = { name = "Searing Lava Spider", type = "FIRE", num = 152, display = 4457, catch = 35, exp = 245,
+        base = { 100, 95, 100, 115, 92, 110 },
+        desc = "It bathed in the Cauldron and came out burning. The Thorium Brotherhood sweeps its webs off the slag heaps.",
+        evolve = { level = 66, into = "greaterlava" },
+        learn = { { 1, "venomsting" }, { 1, "web" }, { 22, "corrosive" }, { 25, "leech" }, { 30, "bite" },
+                  { 46, "shadowclaw" }, { 50, "burningweb" }, { 53, "venomfang" }, { 56, "molten" }, { 60, "lavaburst" } } },
+    greaterlava = { name = "Greater Lava Spider", type = "FIRE", num = 153, display = 7510, cam = 0.9, catch = 15, exp = 295,
+        base = { 112, 102, 108, 135, 100, 113 },
+        desc = "The mother of the Gorge's lava spiders. Its web hangs over the Cauldron, and nothing caught in it cools.",
+        learn = { { 1, "venomsting" }, { 1, "web" }, { 22, "corrosive" }, { 25, "leech" }, { 30, "bite" },
+                  { 46, "shadowclaw" }, { 50, "burningweb" }, { 53, "venomfang" }, { 56, "molten" }, { 60, "lavaburst" },
+                  { 66, "magmashackles" }, { 72, "inferno" }, { 84, "firestorm" } } },
+    blazing = { name = "Blazing Elemental", type = "FIRE", num = 154, display = 1070, cam = 1.1, catch = 60, exp = 200,
+        base = { 85, 70, 80, 115, 85, 100 },
+        desc = "A spark of Ragnaros's realm that slipped out through the Gorge's vents. It wants to go home, through you.",
+        evolve = { level = 60, into = "inferno" },
+        learn = { { 1, "ember" }, { 1, "fireball" }, { 46, "flamebreath" }, { 50, "firenova" }, { 54, "moltenarmor" } } },
+    inferno = { name = "Inferno Elemental", type = "FIRE", num = 155, display = 5488, catch = 20, exp = 280,
+        base = { 110, 85, 98, 145, 105, 112 },
+        desc = "A Blazing Elemental that drank the Cauldron dry. Its Fire Nova once took the roof off Thorium Point.",
+        learn = { { 1, "ember" }, { 1, "fireball" }, { 46, "flamebreath" }, { 50, "firenova" }, { 54, "moltenarmor" },
+                  { 60, "lavaburst" }, { 66, "conflagrate" }, { 74, "inferno" }, { 84, "firestorm" } } },
+    magma = { name = "Magma Elemental", type = "EARTH", num = 156, display = 2075, catch = 60, exp = 205,
+        base = { 110, 110, 140, 60, 85, 35 },
+        desc = "Slow, huge and half molten. The Dark Irons dig around it and hope it doesn't notice.",
+        evolve = { level = 62, into = "obsidian" },
+        learn = { { 1, "tackle" }, { 1, "stoneskin" }, { 48, "rockthrow" }, { 52, "slagtoss" }, { 56, "molten" } } },
+    obsidian = { name = "Greater Obsidian Elemental", type = "EARTH", num = 157, display = 5781, cam = 0.85, catch = 20, exp = 285,
+        base = { 135, 130, 170, 70, 105, 40 },
+        desc = "Cooled lava with a temper. Thaurissan's sorcerers bind them to the mountain's deepest doors.",
+        learn = { { 1, "tackle" }, { 1, "stoneskin" }, { 48, "rockthrow" }, { 52, "slagtoss" }, { 56, "molten" },
+                  { 62, "magmashackles" }, { 66, "bouldertoss" }, { 72, "earthquake" }, { 82, "crushingbite" } } },
+    temperedgolem = { name = "Tempered War Golem", type = "MECH", num = 158, display = 5747, catch = 60, exp = 200,
+        base = { 100, 110, 120, 45, 70, 60 },
+        desc = "Dark Iron work, hammered at the Black Forge. It digs by day and guards the dig by night.",
+        evolve = { level = 58, into = "heavygolem" },
+        learn = { { 1, "gears" }, { 1, "rust" }, { 48, "scythe" }, { 50, "buzzsaw" }, { 54, "steamjet" } } },
+    -- a Tempered War Golem at Lv 58, or a Harvest Watcher given a Dark Iron Bar: the list carries both lines' moves
+    heavygolem = { name = "Heavy War Golem", type = "MECH", num = 159, display = 10801, cam = 0.9, catch = 25, exp = 270,
+        base = { 125, 138, 148, 50, 92, 67 },
+        desc = "Dark Iron plate on a war frame. The Anvilrage set them on Shadowforge City's doors; they never got tired.",
+        learn = { { 1, "tackle" }, { 1, "rust" }, { 8, "gears" }, { 14, "scythe" }, { 22, "maul" }, { 36, "buzzsaw" },
+                  { 48, "overdrive" }, { 54, "steamjet" }, { 60, "rocketpunch" }, { 66, "warstomp" }, { 74, "cannon" },
+                  { 84, "sawstorm" } } },
+    faultygolem = { name = "Faulty War Golem", type = "MECH", num = 160, display = 10800, catch = 15, exp = 255, rare = true,
+        base = { 110, 140, 120, 45, 80, 95 },
+        desc = "Sparks, stalls, and punches anyway. The Dark Irons threw it on the slag heap; it climbed back down.",
+        learn = { { 1, "thrash" }, { 1, "rocketpunch" }, { 1, "steamjet" }, { 1, "overdrive" }, { 62, "sawstorm" } } },
+    firewalker = { name = "Thaurissan Firewalker", type = "FIRE", num = 161, display = 8170, catch = 45, exp = 240,
+        base = { 100, 90, 92, 125, 95, 98 },
+        desc = "Living flame in a Dark Iron's service. It walks the mountain's halls and the halls stay warm behind it.",
+        learn = { { 1, "ember" }, { 1, "flamebreath" }, { 50, "fireball" }, { 54, "moltenarmor" }, { 56, "firenova" },
+                  { 62, "lavaburst" }, { 72, "inferno" }, { 84, "firestorm" } } },
+    fireguard = { name = "Fireguard", type = "FIRE", num = 162, display = 2172, catch = 25, exp = 270,
+        base = { 115, 100, 110, 130, 105, 90 },
+        desc = "A suit of armour with fire where the knight should be. It guards the Imperial Seat and never sleeps.",
+        learn = { { 1, "flamebreath" }, { 1, "molten" }, { 54, "fireball" }, { 58, "moltenarmor" }, { 60, "lavaburst" },
+                  { 66, "conflagrate" }, { 76, "inferno" }, { 86, "firestorm" } } },
+    flameimp = { name = "Flame Imp", type = "FIRE", num = 163, display = 12190, cam = 1.3, catch = 60, exp = 220,
+        base = { 85, 70, 72, 125, 90, 128 },
+        desc = "Ragnaros's own imps, born in the Molten Core. They cackle in a language that sounds like kindling.",
+        learn = { { 1, "ember" }, { 1, "fireball" }, { 58, "firenova" }, { 60, "shadowflame" }, { 64, "sprint" },
+                  { 70, "inferno" }, { 80, "conflagrate" } } },
+    lavasurger = { name = "Lava Surger", type = "FIRE", num = 164, display = 12239, catch = 15, exp = 275, rare = true,
+        base = { 120, 105, 100, 135, 100, 80 },
+        desc = "A wave of the Molten Core's lava that got up and walked. Raiders who drop Al'ar sometimes see one in the Gorge.",
+        learn = { { 1, "lavaburst" }, { 1, "firenova" }, { 1, "slagtoss" }, { 1, "moltenarmor" }, { 66, "firestorm" } } },
+    corehound = { name = "Core Hound", type = "FIRE", num = 165, display = 12168, cam = 0.9, catch = 30, exp = 270,
+        base = { 118, 125, 98, 110, 88, 96 },
+        desc = "Magmadar's pack. A Black Ravager Mastiff that finds the mountain's heat turns into one, and never comes back cold.",
+        learn = { { 1, "tackle" }, { 1, "growl" }, { 22, "bite" }, { 25, "rend" }, { 28, "howl" }, { 30, "ravage" },
+                  { 34, "maul" }, { 46, "molten" }, { 52, "feralrage" }, { 58, "flamebreath" }, { 62, "lavaburst" },
+                  { 70, "crushingbite" }, { 80, "inferno" } } },
+    -- met once per save in the Molten Core (G:LegendaryBattle); never in the grass, never in the arena
+    magmadar = { name = "Magmadar", type = "FIRE", num = 166, display = 10193, cam = 0.8, catch = 3, exp = 340,
+        legendary = true,
+        base = { 150, 135, 125, 145, 115, 90 },
+        desc = "The Core Hounds' sire, Ragnaros's hound. Its howl sends grown raiders running; its lava burns the stone.",
+        learn = { { 1, "panic" }, { 1, "lavaburst" }, { 1, "conflagrate" }, { 1, "crushingbite" }, { 70, "firestorm" },
+                  { 80, "inferno" } } },
 }
 
 -- Dex order.
@@ -973,8 +1216,8 @@ D.shinyDisplay = {
     coyote = 4124,                                -- a plagued coyote
     ghostpaw = 1950,                              -- a spectral wolf
     bigbadwolf = 523,                             -- white worgen
-    webling = 4457,                               -- a magma tarantula
-    minespider = 4456,                            -- crystal spider
+    -- (the webling's magma tarantula 4457 and the mine spider's crystal spider 4456 are Blackrock's Searing Lava
+    -- Spider and Glassweb Spider now, so those two shimmer gold instead)
     motherfang = 963,                             -- blood-red spider
     -- (the kobolds' only other skin is the Geomancer's own albino one, so a shiny kobold glows instead)
     owlet = 16428,                                -- a spirit owl
@@ -1066,8 +1309,25 @@ D.items.illusiondust = { name = "Illusion Dust", price = 0, sell = 250, use = "c
     icon = "Interface\\Icons\\INV_Enchant_DustIllusion",
     desc = "Scatter it and the air glimmers: for 30 minutes, shiny beasts are twice as likely.",
     used = "You scatter the Illusion Dust. The air glimmers...\nFor 30 minutes, shiny beasts are twice as likely." }
-D.itemOrder = { "potion", "superpotion", "antidote", "net", "greatnet", "illusiondust" }
+-- Blackrock
+D.items.greatpotion = { name = "Greater Healing Potion", price = 1500, heal = 100, use = "heal",
+    icon = "Interface\\Icons\\INV_Potion_53", desc = "Restores 100 HP to one beast." }
+D.items.truesilverrod = { name = "Truesilver Taming Rod", price = 1200, ball = 2, use = "ball",
+    icon = "Interface\\Icons\\INV_Wand_06",
+    desc = "Truesilver from the Searing Gorge, and twice the odds of a Taming Rod. The Thorium Brotherhood swears by it." }
+D.items.darkironale = { name = "Dark Iron Ale", price = 0, sell = 100, heal = 9999, use = "heal",
+    icon = "Interface\\Icons\\INV_Drink_05",
+    desc = "The Grim Guzzler's finest. Restores all of one beast's HP. Plugger Spazzring guards the tap." }
+D.itemOrder = { "potion", "superpotion", "greatpotion", "darkironale", "antidote", "net", "greatnet", "truesilverrod",
+                "illusiondust" }
 D.shopStock = { "net", "potion", "antidote", "greatnet", "superpotion" }
+-- Shops with more on the shelf (G:Shop(name, stockId)); a shop without a stock id sells D.shopStock.
+-- (fireprotection is an alchemy potion, Crafting.lua; Thorium Point sells it too)
+D.shopStocks = {
+    lakeshire = { "net", "potion", "antidote", "greatnet", "superpotion", "greatpotion" },
+    thorium = { "net", "antidote", "greatnet", "truesilverrod", "superpotion", "greatpotion", "fireprotection" },
+}
+function D.ShopStock(stockId) return (stockId and D.shopStocks[stockId]) or D.shopStock end
 
 ---------------------------------------------------------------------------
 -- Status names
@@ -1433,6 +1693,66 @@ D.trainers = {
               team = { { "eldergorilla", 49 }, { "silverback", 51 }, { "mukla", 52 } },
               intro = "(King Mukla drops from the canopy. The ground shakes. So do you.)",
               lose = "(King Mukla sits down, very carefully, and looks at you with something like respect.)" },
+    -- Blackrock: Redridge (Three Corners, Lake Everstill, Stonewatch Keep)
+    rrpoacher = { name = "Redridge Poacher", class = "redridge", prize = 80,
+                  team = { { "mongrel", 49 }, { "condor", 50 } },
+                  intro = "Grrr! Lakeshire's road belongs to the pack now!",
+                  lose = "Grr... the pack will hear of this. Yip." },
+    yowler = { name = "Yowler", class = "boss", prize = 120, vanish = true,
+               vanishText = "Yowler yelps and bolts for the hills. Lakeshire's bridge crew can get back to work.",
+               team = { { "rrbrute", 51 }, { "rrmystic", 51 }, { "rralpha", 52 } },
+               intro = "Yip! You walk on Yowler's bridge? Yowler eats travellers!",
+               lose = "Yowler... not hungry any more." },
+    bwgrunt = { name = "Blackrock Grunt", class = "blackrock", prize = 84,
+                team = { { "emberworg", 52 }, { "firegut", 52 } },
+                intro = "Lok'tar! The Warlord sees no one!",
+                lose = "The Warlord... will see you. And then you'll wish he hadn't." },
+    bwshadow = { name = "Blackrock Shadowcaster", class = "blackrock", prize = 86,
+                 team = { { "rrmystic", 52 }, { "broodling", 53 } },
+                 intro = "The shadows told me you would come. They lied about how small you are.",
+                 lose = "The shadows... said nothing about this." },
+    gath = { name = "Gath'Ilzogg", class = "boss", prize = 210, badge = "stonewatch", vanish = true,
+             requires = { "bwgrunt", "bwshadow" },
+             notYet = "Gath'Ilzogg: You crawl past my guards? No. Beat them first, whelp, and then you may bleed for me.",
+             vanishText = "Gath'Ilzogg flings down his banner and storms north into Render's Valley. Stonewatch Keep falls quiet.",
+             team = { { "rralpha", 53 }, { "emberworg", 53 }, { "fgbrute", 54 }, { "blackwyrmkin", 55 } },
+             intro = "Lakeshire burns because I allow it, whelp. Show me your beasts. Then show me your back as you run.",
+             lose = "Blackrock does not forget. Neither will I." },
+    -- the Burning Steppes and Blackrock Mountain: Lord Victor Nefarius, twice
+    nef1 = { name = "Lord Victor Nefarius", class = "boss", prize = 180, vanish = true,
+             vanishText = "Lord Victor Nefarius smiles, bows, and is simply not there any more. Ash drifts where he stood.",
+             cache = { needs = { "nef1", "nef2" }, flag = "nef_cache", items = { blackdragonscale = 5 },
+                       text = "Nefarius left something behind: a cache of Black Dragonscales, still warm." },
+             team = { { "broodling", 55 }, { "scaldingdrake", 55 }, { "greaterlava", 56 } },
+             intro = "Such a charming little menagerie. Do keep collecting. I collect too: champions.",
+             lose = "Fascinating. We shall meet again on the mountain, little collector." },
+    nef2 = { name = "Lord Victor Nefarius", class = "boss", prize = 190, vanish = true,
+             vanishText = "Lord Victor Nefarius steps back into the dark of the Spire. Somewhere above, something very large stirs.",
+             cache = { needs = { "nef1", "nef2" }, flag = "nef_cache", items = { blackdragonscale = 5 },
+                       text = "Nefarius left something behind: a cache of Black Dragonscales, still warm." },
+             team = { { "blackwyrmkin", 57 }, { "scaldingdrake", 56 }, { "greaterlava", 57 }, { "ragetalon", 57 } },
+             intro = "Again? You do make an excellent experiment. Let us see what fire does to you.",
+             lose = "Enough. My sister would have liked you. Briefly." },
+    -- the Searing Gorge and Blackrock Depths
+    dimaster = { name = "Dark Iron Taskmaster", class = "darkiron", prize = 90,
+                 team = { { "temperedgolem", 55 }, { "magma", 56 }, { "glassweb", 56 } },
+                 intro = "Back to the dig, slave! ...Oh. You're not one of mine.",
+                 lose = "Fine. Dig your own hole, then." },
+    senator = { name = "Shadowforge Senator", class = "darkiron", prize = 92,
+                team = { { "fireguard", 57 }, { "firewalker", 57 } },
+                intro = "The Senate is in session. You are out of order.",
+                lose = "The motion... fails." },
+    warden = { name = "Anvilrage Warden", class = "darkiron", prize = 92,
+               team = { { "heavygolem", 57 }, { "lavaspider", 57 } },
+               intro = "Prisoners stay in the Detention Block. Visitors stay dead.",
+               lose = "Visitors... may leave." },
+    thaurissan = { name = "Emperor Dagran Thaurissan", class = "boss", prize = 230, badge = "darkiron", vanish = true,
+                   requires = { "senator", "warden" },
+                   notYet = "Emperor Dagran Thaurissan: The Emperor does not fight. My Senator and my Warden will deal with you.",
+                   vanishText = "Thaurissan staggers from the throne and is gone in a gout of flame. Princess Moira stays at the Seat.",
+                   team = { { "firewalker", 58 }, { "heavygolem", 58 }, { "obsidian", 59 }, { "torcher", 59 }, { "fireguard", 60 } },
+                   intro = "You dare stand before the throne of Thaurissan? Ragnaros hears every beast you lose here.",
+                   lose = "Ragnaros... my lord... I have failed you..." },
 }
 
 ---------------------------------------------------------------------------
@@ -1450,6 +1770,10 @@ D.badges = {
                    text = "King Bangalash's paw print, cast in bronze. Every hunter in the vale knows what it means." },
     blackwater = { name = "Blackwater Seal", order = 5,
                    text = "The seal of Booty Bay's Blackwater Raiders. Baron Revilgaz will want to see it." },
+    stonewatch = { name = "Stonewatch Seal", order = 6,
+                   text = "Gath'Ilzogg's seal from Stonewatch Keep. Lakeshire's guards will let you through Render's Valley now." },
+    darkiron = { name = "Dark Iron Signet", order = 7,
+                 text = "The Emperor's own signet. Lothos Riftwaker opens the way to the Molten Core for whoever carries it." },
 }
 
 ---------------------------------------------------------------------------
@@ -1514,4 +1838,7 @@ D.raidRares = {
     { boss = "Magtheridon", sp = "pitling",    map = "forestedge", level = 16, hours = 24 },
     { boss = "Lurker",      sp = "lurkling",   map = "westfall",   level = 16, hours = 24, coast = true },
     { boss = "Alar",        sp = "ashling",    map = "westfall",   level = 16, hours = 24 },
+    -- Blackrock: a second beast for two bosses (both roam once the boss falls)
+    { boss = "Magtheridon", sp = "corehound",  map = "steppes",    level = 55, hours = 24 },
+    { boss = "Alar",        sp = "lavasurger", map = "gorge",      level = 56, hours = 24 },
 }
