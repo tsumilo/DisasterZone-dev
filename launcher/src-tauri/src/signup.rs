@@ -207,7 +207,7 @@ fn accept_menu(raid: &str, chars: &[Char], snap: &Value) -> Answer {
         let Some((cname, specs)) = class_info(&c.class) else { continue };
         for (si, s) in specs.iter().enumerate() {
             if options.len() < 24 {
-                options.push(option(format!("{} · {s}", c.name), format!("{ci}|{}", si + 1), Some(cname.into()), ci == 0 && si as u32 + 1 == c.spec));
+                options.push(option(format!("{} · {s}", c.name), format!("{ci}|{}", si + 1), Some(if si as u32 + 1 == c.spec { format!("{cname} · current") } else { cname.to_string() }), false));
             }
         }
     }
@@ -263,13 +263,20 @@ pub fn button(user: &str, name: &str, custom: &str, now: u64) -> Answer {
         return form(raid, if st == "S" { "A" } else { st });
     }
     let snap = snap();
-    if st == "A" || st == "S" {
+    // Change spec: the character × spec menu. Accept / Tentative / Can't come: at once with my only character (its
+    // spec), else a character menu. (Menus never pre-select: picking the option already shown is no choice in
+    // Discord, so nothing would happen.)
+    if st == "S" {
         return accept_menu(raid, &chars, &snap);
     }
     if chars.len() == 1 {
         return text(queue(raid, &chars[0], None, st, user, name, now, &snap));
     }
-    let options = chars.iter().enumerate().map(|(i, c)| option(c.name.clone(), i.to_string(), None, i == 0)).collect();
+    let options = chars
+        .iter()
+        .enumerate()
+        .map(|(i, c)| option(c.name.clone(), i.to_string(), Some(format!("{} {}", spec_name(&c.class, c.spec), class_info(&c.class).map_or("", |x| x.0))), false))
+        .collect();
     Answer::Text("Which character?".into(), vec![menu(format!("pc:{raid}:{st}"), "Character", options)])
 }
 
@@ -585,7 +592,7 @@ pub fn my_raids(user: &str, picked: Option<&str>) -> Answer {
                 format!("{name} · {day}"),
                 id.to_string(),
                 Some(if ans.is_some() { "answered" } else { "not answered" }.into()),
-                picked == Some(id),
+                false, // (never pre-selected: picking it again must still count)
             ));
         }
     }
