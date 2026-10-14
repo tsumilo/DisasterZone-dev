@@ -248,6 +248,8 @@ local KNOWN_MESSAGES = {
     LIST_UPDATED = true, LISTS_RESET = true, ITEMINFO_READY = true,
     DROP = true, LEDGER_UPDATED = true, PEERS_UPDATED = true,
     SYNC_STATUS = true, SETTINGS_CHANGED = true, DEMO_TOGGLED = true,
+    RESERVES_CHANGED = true, RESERVES_OPENED = true, RESERVES_CLOSED = true, RESERVES_CLEARED = true,
+    RESERVES_RULES = true, RESERVE_ADDED = true, RESERVE_REMOVED = true, RESERVE_DEMO_STEP = true,
     -- Core/Layout.lua: LAYOUT_CHANGED (what: "profiles" | "profile" | "items" | "hidden" | "applied"), LAYOUT_RECEIVED
     -- (owner, profile id, data | nil) a shared layout came; UI/EditMode.lua: EDIT_LAYOUT (on) the overlay opened / closed
     LAYOUT_CHANGED = true, LAYOUT_RECEIVED = true, EDIT_LAYOUT = true,

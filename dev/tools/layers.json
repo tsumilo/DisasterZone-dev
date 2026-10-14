@@ -63,6 +63,11 @@
   "Core/Dungeon.lua": 3,
   "Core/Loot.lua": 3,
   "Core/Roll.lua": 3,
+  "Core/Reserves.lua": 3,
+  "Core/ReserveChat.lua": 3,
+  "Core/ReserveLR.lua": 3,
+  "Core/ReserveIO.lua": 3,
+  "Core/ReserveDemo.lua": 3,
   "Core/Loon.lua": 3,
   "Core/Ledger.lua": 3,
   "Core/Prized.lua": 3,
@@ -116,8 +121,8 @@
   ["^UI/(MyBiS|PaperDoll|ImportExport|Sim\\w*|KitView|Wardrobe)\\.lua$", "Gear"],
   ["^Sim/", "Gear"],
 
-  ["^Core/(Loot|Roll|Loon|Ledger|Prized|Dungeon|SessionInfo)\\.lua$", "Loot"],
-  ["^UI/(Council|LootLog|DropPanel|RollFrame|SessionBar|SessionDrawer|PrizedUI|LootRulesUI|CouncilRules)\\.lua$", "Loot"],
+  ["^Core/(Loot|Roll|Loon|Ledger|Prized|Dungeon|SessionInfo|Reserves|ReserveChat|ReserveLR|ReserveIO|ReserveDemo)\\.lua$", "Loot"],
+  ["^UI/(Council|LootLog|DropPanel|RollFrame|SessionBar|SessionDrawer|PrizedUI|LootRulesUI|CouncilRules|Reserves)\\.lua$", "Loot"],
 
   ["^Core/(RaidNights|RaidPlan|Attendance|RaidComp|RaidInvite|RaidLink|GuestBook|DungeonRuns|GroupFinder|RaidLog)\\.lua$", "Raids"],
   ["^UI/(RaidGroups|RaidPlanUI|RaidSheet|GuestBook|RaidLeadersUI|AttendanceUI|RaidsTab|DungeonsTab)\\.lua$", "Raids"],

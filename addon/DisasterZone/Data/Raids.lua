@@ -14,6 +14,7 @@ local addonName, ns = ...
 --   mapNames    the names the client may give the raid's map (lower case, found as a part of the name)
 --   mapIDs      the raid's uiMapIDs as the TBC clients number them (a fallback when the names don't match)
 --   icon        the raid's LFG icon (a file id: My BiS's source rows)
+--   lr          LootReserve's category id of the raid (1.4.3: Core/ReserveLR.lua speaks its protocol)
 ns.Data = ns.Data or {}
 
 local ART_TOP = 0.29
@@ -23,24 +24,24 @@ local function Art(fdid, cx, cy)
 end
 
 ns.Data.RaidMeta = {
-    Karazhan = { icon = 136343, short = "Kara", planKey = "kara", instanceID = 532, art = Art(131849, 0.30, 0.45), artTop = ART_TOP,
+    Karazhan = { lr = 2010, icon = 136343, short = "Kara", planKey = "kara", instanceID = 532, art = Art(131849, 0.30, 0.45), artTop = ART_TOP,
                  mapNames = { "karazhan" },
                  mapIDs = { 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363, 364, 365, 366 } },
-    GruulsLair = { icon = 136337, short = "Gruul", planKey = "gruul", instanceID = 565, art = Art(131842, 0.30, 0.45), artTop = ART_TOP,
+    GruulsLair = { lr = 2020, icon = 136337, short = "Gruul", planKey = "gruul", instanceID = 565, art = Art(131842, 0.30, 0.45), artTop = ART_TOP,
                    mapNames = { "gruul" }, mapIDs = { 330 } },
-    MagtheridonsLair = { icon = 136340, short = "Mag", planKey = "mag", instanceID = 544, art = Art(131846, 0.50, 0.42),
+    MagtheridonsLair = { lr = 2030, icon = 136340, short = "Mag", planKey = "mag", instanceID = 544, art = Art(131846, 0.50, 0.42),
                          artTop = ART_TOP, mapNames = { "magtheridon" }, mapIDs = { 331 } },
-    SerpentshrineCavern = { icon = 136356, short = "SSC", planKey = "ssc", instanceID = 548, art = Art(131832, 0.32, 0.46),
+    SerpentshrineCavern = { lr = 2040, icon = 136356, short = "SSC", planKey = "ssc", instanceID = 548, art = Art(131832, 0.32, 0.46),
                             artTop = ART_TOP, mapNames = { "serpentshrine" }, mapIDs = { 332 } },
-    TempestKeep = { icon = 136362, short = "TK", planKey = "tk", instanceID = 550, art = Art(131875, 0.50, 0.40), artTop = ART_TOP,
+    TempestKeep = { lr = 2050, icon = 136362, short = "TK", planKey = "tk", instanceID = 550, art = Art(131875, 0.50, 0.40), artTop = ART_TOP,
                     mapNames = { "tempest keep", "the eye" }, mapIDs = { 334 } },
-    HyjalSummit = { icon = 136341, short = "Hyjal", planKey = "hyjal", instanceID = 534, art = Art(131847, 0.40, 0.45), artTop = ART_TOP,
+    HyjalSummit = { lr = 2060, icon = 136341, short = "Hyjal", planKey = "hyjal", instanceID = 534, art = Art(131847, 0.40, 0.45), artTop = ART_TOP,
                     mapNames = { "hyjal" }, mapIDs = { 329 } },
-    BlackTemple = { icon = 136328, short = "BT", planKey = "bt", instanceID = 564, art = Art(131826, 0.30, 0.56), artTop = ART_TOP,
+    BlackTemple = { lr = 2070, icon = 136328, short = "BT", planKey = "bt", instanceID = 564, art = Art(131826, 0.30, 0.56), artTop = ART_TOP,
                     mapNames = { "black temple" }, mapIDs = { 339, 340, 341, 342, 343, 344, 345, 346 } },
-    ZulAman = { icon = 136367, short = "ZA", planKey = "za", instanceID = 568, art = Art(131884, 0.30, 0.45), artTop = ART_TOP,
+    ZulAman = { lr = 2080, icon = 136367, short = "ZA", planKey = "za", instanceID = 568, art = Art(131884, 0.30, 0.45), artTop = ART_TOP,
                 mapNames = { "zul'aman", "zul aman" }, mapIDs = { 333 } },
-    SunwellPlateau = { icon = 136361, short = "SWP", planKey = "swp", instanceID = 580, art = Art(131873, 0.55, 0.50), artTop = ART_TOP,
+    SunwellPlateau = { lr = 2090, icon = 136361, short = "SWP", planKey = "swp", instanceID = 580, art = Art(131873, 0.55, 0.50), artTop = ART_TOP,
                        mapNames = { "sunwell" }, mapIDs = { 335, 336 } },
     -- (not an instance: no planner key, map or art of its own)
     WorldBosses = { short = "World" },

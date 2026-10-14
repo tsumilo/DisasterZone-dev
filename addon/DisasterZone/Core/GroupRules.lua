@@ -126,8 +126,10 @@ local function Setting(path)
 end
 
 -- Raid features on the wire: "lrk" letters, "-" when none is on.
-local FEATURE_LETTER = { loot = "l", rolls = "r", lock = "k" }
-local FEATURE_ORDER = { "loot", "rolls", "lock" }
+-- 1.4.3: reserves (Core/Reserves.lua) are "v": kept apart on the wire (GS rv = 1), since clients before 1.4.3 drop an
+-- rf with a letter they don't know (and would then run everything).
+local FEATURE_LETTER = { loot = "l", rolls = "r", lock = "k", reserve = "v" }
+local FEATURE_ORDER = { "loot", "rolls", "lock", "reserve" }
 
 local function EncodeFeatures(f)
     if type(f) ~= "table" then return nil end
@@ -154,8 +156,23 @@ local function CleanFeatures(features)
     for _, name in ipairs(FEATURE_ORDER) do
         f[name] = type(features) ~= "table" or features[name] ~= false
     end
+    -- 1.4.3: reserves only when asked for; they keep the loot council (for the guild's hard reserves) and rolls on,
+    -- and the BiS lists unlocked
+    f.reserve = type(features) == "table" and features.reserve == true
+    if f.reserve then
+        f.loot, f.rolls, f.lock = true, true, false
+    end
     if not f.loot then f.lock = false end
     return f
+end
+
+-- The features as they go on the wire: the letters older clients accept, and rv (1.4.3: reserves).
+local function WireFeatures(f)
+    local rf = EncodeFeatures(f)
+    if not rf then return nil, nil end
+    rf = rf:gsub("v", "")
+    if rf == "" then rf = "-" end
+    return rf, (type(f) == "table" and f.reserve) and 1 or nil
 end
 
 -- The session's features run the loot council (nil: a session from 1.1 or older, which runs everything).
@@ -388,7 +405,7 @@ local function MyValues()
         if mySession then
             v.rs = mySession.id                     -- Addendum I §48: raid session
             v.rsAt = mySession.at
-            v.rf = EncodeFeatures(mySession.f)      -- its features (nil: all, as before 1.2)
+            v.rf, v.rv = WireFeatures(mySession.f)  -- its features (nil: all, as before 1.2; rv 1.4.3: reserves)
             if mySession.rpAt then
                 v.rp = mySession.rp                 -- Addendum J §61: the planned raid it is linked to (1.3: rpAt
                 v.rpAt = mySession.rpAt             -- without rp = unlinked on purpose; older clients drop it)
@@ -422,6 +439,8 @@ local function ValidateSessionFields(msg)
     -- The session's features (optional; needs a session): letters of "lrk", or "-".
     local rf = msg.rf
     if not (rs and type(rf) == "string" and #rf >= 1 and #rf <= 8 and rf:find("^[lrk%-]+$")) then rf = nil end
+    -- 1.4.3: reserves run (rv = 1): kept with the letters from here on
+    if rf and msg.rv == 1 then rf = (rf == "-" and "" or rf) .. "v" end
     return { lk = lk, lkAt = lkAt, rs = rs, rsAt = rsAt, rp = rp, rpAt = rpAt, rf = rf }
 end
 
@@ -612,7 +631,10 @@ local function MyAnswer()
         return nil
     end
     local m = {}
-    if s then m.rs, m.rsAt, m.rf, m.rp, m.rpAt = s.id, s.at, EncodeFeatures(s.f), s.rp, s.rpAt end
+    if s then
+        m.rs, m.rsAt, m.rp, m.rpAt = s.id, s.at, s.rp, s.rpAt
+        m.rf, m.rv = WireFeatures(s.f)
+    end
     if lock then m.lk, m.lkAt = true, lock.at end
     return m
 end
@@ -1097,6 +1119,11 @@ end
 -- rules yet (the first seconds after joining or a /reload, also when I am only the stand-in authority because the
 -- raid leader's addon has not spoken yet): the sender's client checked the feature itself.
 function GroupRules:IsFeatureOn(name, incoming)
+    -- 1.4.3: reserves are never on by default (only a session that names them)
+    if name == "reserve" then
+        local s = IsInRaid() and self:GetSession()
+        return (s and s.f and s.f.reserve == true) and true or false
+    end
     if not IsInRaid() then return true end
     if incoming and not active then
         local auth, pos = Resolve()

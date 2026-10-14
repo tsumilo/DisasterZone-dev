@@ -22,7 +22,7 @@ local Util = ns.Util
 
 local type, pairs, ipairs, tonumber, tostring, pcall = type, pairs, ipairs, tonumber, tostring, pcall
 local floor, min, max, abs = math.floor, math.min, math.max, math.abs
-local tsort, tremove, tinsert = table.sort, table.remove, table.insert
+local tsort, tremove, tinsert, tconcat = table.sort, table.remove, table.insert, table.concat
 local strformat = string.format
 
 ---------------------------------------------------------------------------
@@ -58,6 +58,8 @@ local ROLL_FORMAT_FALLBACK = "%s rolls %d (%d-%d)"   -- enUS RANDOM_ROLL_RESULT
 local MAX_RT_ENTRIES = 40        -- tiers per RT message
 local MAX_NOTE_LEN = 64
 local LOOT_MATCH_AGE = 15 * 60   -- a loot message resolves sessions created at most 15 min ago
+local SOLO_DURATION = 5          -- 1.4.3: an item one player reserved: no roll, the session only names them
+local MAX_RK = 40                -- reservers named in an RS
 
 local MAX_VOTES = 40             -- voters per session (one vote per council member in the group)
 
@@ -165,6 +167,27 @@ local function PlainRaid()
     if not IsInRaid() then return false end
     local GR = ns.GroupRules
     return (GR and GR.IsFeatureOn and not GR:IsFeatureOn("loot")) and true or false
+end
+
+-- 1.4.3: how reserves (Core/Reserves.lua) decide a roll: "s" + the reservers (only they roll; one reserver: theirs,
+-- no roll), "g" (held for the guild: the loot council among guild members), "o" (up for grabs: everyone rolls), nil
+-- (reserves are not the loot method). Decided by the starter when the roll opens (RS rv / rk). ses.force = "o": the
+-- council opened a guild item to everyone (Roll:StartUpForGrabs).
+local function ReserveDecision(ses)
+    if ses.party then return nil end
+    local R = ns.Reserves
+    if not (R and R.Decide) then return nil end
+    local kind, keys = R:Decide(ses.i)
+    if kind and ses.force == "o" then return "o" end
+    return kind, keys
+end
+
+-- A player outside my guild (a pug); false while the guild roster isn't known yet.
+local function IsGuestKey(key)
+    local G = ns.Guild
+    if not (G and G.IsInGuild) or Util.IsMe(key) then return false end
+    if G.IsReady and not G:IsReady() then return false end
+    return not G:IsInGuild(key)
 end
 
 -- 1.3: may I end and award a roll of this kind (plain: rolled without the loot council in a raid; party: a dungeon-mode
@@ -610,9 +633,22 @@ local function OpenLocal(ses)
     end
     ses.party = (not ses.demo and channel == "PARTY") or nil   -- a dungeon-mode (5-man party) roll
     ses.plain = (not ses.demo and not ses.party and PlainRaid()) or nil
+    -- 1.4.3: reserves decide: the reservers roll plain, up for grabs rolls plain, a guild item is a council roll
+    local rv, rk = ReserveDecision(ses)
+    ses.rv, ses.rk = rv, nil
+    if rv == "s" then
+        local list = {}
+        for i = 1, min(#rk, MAX_RK) do list[i] = rk[i] end
+        ses.rk = list
+        ses.plain = true
+    elseif rv == "o" then
+        ses.plain = true
+    elseif rv == "g" then
+        ses.plain = nil
+    end
     ses.state = "open"
     ses.startedAt = GetServerTime()
-    ses.duration = Duration()
+    ses.duration = (rv == "s" and #ses.rk == 1) and SOLO_DURATION or Duration()
     ses.endsAt = GetTime() + ses.duration
     ses.openedAt = GetTime()
     SnapshotTiers(ses)
@@ -620,8 +656,9 @@ local function OpenLocal(ses)
     if not ses.demo then
         -- pl (1.3, ignored by older clients): 1 = a plain roll, every client suggests the highest roll; 0 = a loot
         -- council roll. Always said in a raid: a receiver that just reloaded does not know the raid's rules yet.
+        -- rv / rk (1.4.3, ignored by older clients): how reserves decide it, and who reserved it
         Send({ t = "RS", id = id, i = ses.i, s = ses.s, b = ses.b, d = ses.duration, ts = ses.startedAt, c = ses.c,
-               pl = (not ses.party) and (ses.plain and 1 or 0) or nil })
+               pl = (not ses.party) and (ses.plain and 1 or 0) or nil, rv = ses.rv, rk = ses.rk })
         -- A council starter tells a non-council master looter the tiers too (it may be the only council member in
         -- the raid). A moment later, so the RS is there first.
         Util.After(0.5, function()
@@ -632,7 +669,7 @@ local function OpenLocal(ses)
     Util.After(ANNOUNCE_DELAY, function()
         WhenItemReady(ses, function()
             if ses.state ~= "open" then return end
-            local body = strformat("Roll for %s now — /roll (%ds)", ItemText(ses), ses.duration)
+            local body = Roll:ReserveAnnounce(ses) or strformat("Roll for %s now — /roll (%ds)", ItemText(ses), ses.duration)
             if ses.demo then
                 Announce(body, true, " |cff999999(demo: only shown to you)|r")
             elseif AnnounceOn() then
@@ -724,7 +761,7 @@ end
 -- A roll of a player who left the group is shown but never suggested (they cannot get the item).
 local function BaseRowGroup(r)
     -- (a class that can't use the item sits at the bottom with the passes: never suggested, votes or not)
-    if r.response == "pass" or r.cantUse then return 3 end
+    if r.response == "pass" or r.cantUse or r.unres or r.notGuild then return 3 end
     if r.roll and not r.invalid and r.inRaid then return 1 end
     return 2
 end
@@ -826,6 +863,15 @@ local function BuildResults(ses)
     end
     for key in pairs(ses.rolls) do Row(key) end
     for key in pairs(ses.responses) do Row(key) end
+    -- 1.4.3: every reserver still in the group is listed (waiting for their roll); anyone else's roll doesn't count
+    local reserved
+    if ses.rv == "s" and type(ses.rk) == "table" then
+        reserved = {}
+        for _, key in ipairs(ses.rk) do
+            reserved[key] = true
+            if InGroupFor(ses, key) then Row(key) end
+        end
+    end
 
     -- A plain roll (1.3) lists only who rolled or passed: no BiS tiers, no council votes.
     local plain = ses.plain
@@ -940,6 +986,12 @@ local function BuildResults(ses)
         r.isMe = Util.IsMe(key)
         r.isWinner = (ses.winner == key)
         r.name = Util.ShortName(key)
+        -- 1.4.3: reserves: a roll of someone who didn't reserve it, a guest on an item the guild holds: listed, never
+        -- suggested
+        r.unres = (reserved and not reserved[key]) or nil
+        r.reserved = (reserved and reserved[key]) or nil
+        r.notGuild = (ses.rv == "g" and (ses.demo and ns.Demo and ns.Demo.IsGuest and ns.Demo:IsGuest(key)
+            or (not ses.demo and IsGuestKey(key)))) or nil
         out[#out + 1] = r
     end
 
@@ -961,7 +1013,8 @@ local function BuildResults(ses)
             end
         end
     end
-    return Roll:RankRows(out, { plain = plain, mat = mat, prized = przRec })
+    local solo = (ses.rv == "s" and type(ses.rk) == "table" and #ses.rk == 1) and ses.rk[1] or nil
+    return Roll:RankRows(out, { plain = plain, mat = mat, prized = przRec, solo = solo })
 end
 
 -- Orders result rows and marks the suggestion (suggested / suggestedBy / tie / split), in place; returns them.
@@ -1001,7 +1054,10 @@ function Roll:RankRows(out, ctx)
     -- Votes that count for the suggestion: for a player still in the group who did not pass (and is not under the
     -- guild's attendance floor).
     local function VoteRank(r)
-        if r.votes > 0 and r.inRaid and r.response ~= "pass" and not r.lowAtt and not r.cantUse then return r.votes end
+        if r.votes > 0 and r.inRaid and r.response ~= "pass" and not r.lowAtt and not r.cantUse and not r.notGuild
+            and not r.unres then
+            return r.votes
+        end
         return 0
     end
     local function ValidRoll(r)
@@ -1053,7 +1109,17 @@ function Roll:RankRows(out, ctx)
     -- rolled, there is no suggestion.
     local function Suggestible(r)
         return not r.lockChanged and not r.cantUse and not r.wonCopy and not r.lowAtt
-            and not (r.prz and r.prz.ok == false)
+            and not (r.prz and r.prz.ok == false) and not r.unres and not r.notGuild
+    end
+    -- 1.4.3: an item only one player reserved is theirs: no roll needed (unless they passed or left)
+    if ctx.solo then
+        for _, r in ipairs(out) do
+            if r.key == ctx.solo and r.inRaid and r.response ~= "pass" then
+                r.suggested = true
+                r.suggestedBy = "reserve"
+                return out
+            end
+        end
     end
     -- A prized item: the most-voted player who meets the rules; when the council decides (its vote rule), never a
     -- roll (no votes yet: no suggestion).
@@ -1280,7 +1346,7 @@ local function DropFields(drop)
     return s, b
 end
 
-local function StartInternal(itemID, drop, copyIndex, link, quiet)
+local function StartInternal(itemID, drop, copyIndex, link, quiet, force)
     itemID = tonumber(itemID)
     if not IsValidItemID(itemID) then return nil end
     if not Roll:CanStart() then
@@ -1322,6 +1388,7 @@ local function StartInternal(itemID, drop, copyIndex, link, quiet)
     end
     Prune()
     local ses = NewLocalSession(itemID, s, b, c, DemoOn(), link)
+    ses.force = force
     if IsBusy() then
         ses.state = "queued"
         queue[#queue + 1] = ses
@@ -1341,6 +1408,61 @@ end
 -- than once; nil picks the first copy without a session. Returns the session (or nil).
 function Roll:Start(itemID, drop, copyIndex)
     return StartInternal(itemID, drop, copyIndex, nil, false)
+end
+
+-- 1.4.3: an item the guild holds that no guild member wanted: a new roll for everyone (up for grabs).
+function Roll:StartUpForGrabs(itemID, drop, copyIndex)
+    return StartInternal(itemID, drop, copyIndex, nil, false, "o")
+end
+
+-- 1.4.3: how reserves decide session id (or a session): kind ("s" / "g" / "o" / nil), the reservers { key, ... }.
+function Roll:ReserveKind(id)
+    local ses = type(id) == "table" and id or self:Get(id)
+    if not ses then return nil end
+    return ses.rv, ses.rk
+end
+
+-- 1.4.3: the rolls reserves decided (rv set), oldest first: demo ones in demo mode, real ones otherwise.
+function Roll:ReserveSessions()
+    local out, demo = {}, DemoOn()
+    for _, ses in pairs(sessions) do
+        if ses.rv and (ses.demo and true or false) == demo and ses.state ~= "cancelled" then out[#out + 1] = ses end
+    end
+    tsort(out, function(a, b)
+        local ta, tb = a.startedAt or 0, b.startedAt or 0
+        if ta ~= tb then return ta < tb end
+        return a.seq < b.seq
+    end)
+    return out
+end
+
+-- 1.4.3: a player passed outside the addon (LootReserve's roll window): noted on my own open roll.
+function Roll:NoteRemotePass(id, key)
+    local ses = sessions[id]
+    if not (ses and ses.isLocal and ses.state == "open" and type(key) == "string") then return false end
+    if ses.responses[key] or (ses.rolls[key] and not ses.rolls[key].invalid) then return false end
+    ses.responses[key] = "pass"
+    Updated(ses)
+    return true
+end
+
+-- The raid chat line that opens a reserves roll, or nil (no reserves).
+function Roll:ReserveAnnounce(ses)
+    if not (ses and ses.rv) then return nil end
+    local item = ItemText(ses)
+    if ses.rv == "s" and type(ses.rk) == "table" then
+        local names = {}
+        for i = 1, min(#ses.rk, 6) do names[i] = Util.ShortName(ses.rk[i]) end
+        local who = tconcat(names, ", ")
+        if #ses.rk > 6 then who = who .. strformat(" +%d", #ses.rk - 6) end
+        if #ses.rk == 1 then return strformat("%s goes to %s: the only reserve", item, who) end
+        return strformat("Roll for %s: reserved by %s. Only they /roll (%ds)", item, who, ses.duration or 0)
+    elseif ses.rv == "g" then
+        return strformat("%s is held for the guild: the loot council decides", item)
+    elseif ses.rv == "o" then
+        return strformat("%s: nobody reserved it, up for grabs. Everyone /roll (%ds)", item, ses.duration or 0)
+    end
+    return nil
 end
 
 -- Ledger awards of a drop's items that did not come from a roll (Award menu, loot chat). The same drop-scoped
@@ -2329,6 +2451,18 @@ local function OnRollStart(sender, msg, dist)
         ses.plain = (dist == "RAID" and pl == 1) or nil
     else
         ses.plain = (dist == "RAID" and PlainRaid()) or nil
+    end
+    -- 1.4.3: reserves (rv "s" the reservers in rk roll, "g" held for the guild, "o" up for grabs)
+    if dist == "RAID" and (msg.rv == "s" or msg.rv == "g" or msg.rv == "o") then
+        ses.rv = msg.rv
+        if msg.rv == "s" then
+            local list = {}
+            for _, k in ipairs(type(msg.rk) == "table" and msg.rk or {}) do
+                if type(k) == "string" and #k <= 48 and #list < MAX_RK then list[#list + 1] = k end
+            end
+            if #list == 0 then ses.rv = "o" else ses.rk = list end
+        end
+        ses.plain = (ses.rv ~= "g") or nil
     end
     ses.startedAt = floor(ts)
     ses.duration = d
