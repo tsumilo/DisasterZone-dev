@@ -30,5 +30,13 @@
   "build": "e89959e2fae8452f",
   "time": "2026-10-14 03:02:53",
   "local": null
+ },
+ {
+  "seq": 5,
+  "channel": "stable",
+  "version": "1.4.3",
+  "build": "bef6ba69fe3910db",
+  "time": "2026-10-14 14:16:01",
+  "local": null
  }
 ]
