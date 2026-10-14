@@ -328,6 +328,29 @@ BINGO_CODEX = ("local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(
                "end ")
 
 
+# The Binding of Illidan: a run put in a room or before a boss and stepped (simple aim: shoot up, drift)
+BOI_AUD = ("BOI_AUD = BOI_AUD or {} local E = ns.BoI "
+           "function BOI_AUD.start(n) ns.GamesUI:Select('illidan') local r = E.New({ class = 'MAGE', seed = 777 }) "
+           "  if n > 1 then E.EnterFloor(r, n) end r.mode, r.god = 'play', true r.items = { 'eye' } r.has.eye = true "
+           "  ns.BoIUI._SetRun(r) ns.BoIUI._Focus(true) return r end "
+           "function BOI_AUD.run(r, frames) for i = 1, frames do E.Step(r, { shoot = 'up', mx = (i % 120 < 60) and 0.6 or -0.6 }) end "
+           "  ns.BoIUI._Draw() end "
+           "function BOI_AUD.room(n, frames) local r = BOI_AUD.start(n) "
+           "  for _, nb in ipairs(E.Neighbours(r.map, r.room)) do if nb.room.type == 'normal' then E.ChangeRoom(r, nb.dir) break end end "
+           "  r.mode = 'play' BOI_AUD.run(r, frames) end "
+           "function BOI_AUD.boss(n, frames, setup) local r = BOI_AUD.start(n) local boss "
+           "  for _, x in ipairs(r.map.list) do if x.type == 'boss' then boss = x end end "
+           "  local nb = E.Neighbours(r.map, boss, true)[1] r.room = nb.room r.room.cleared = true E.ChangeRoom(r, E.OPP[nb.dir]) "
+           "  r.mode = 'play' if setup then setup(r.bossF, r) end BOI_AUD.run(r, frames) end ")
+BOI_BOARD = ("do local B, day, realm = ns.BoIBoard, ns.BoIBoard:Today(), '-' .. ns.Util.GetPlayerRealm() "
+             "for _, e in ipairs({ { 'Xiavor', { c = 'MAGE', f = 5, w = true, t = 702, k = 61, i = 7 } }, "
+             "  { 'Yubell', { c = 'WARLOCK', f = 5, w = true, t = 785, k = 70, i = 9 } }, "
+             "  { 'Dinalingus', { c = 'PALADIN', f = 4, t = 640, k = 44, i = 5, by = 'Mother Shahraz' } }, "
+             "  { 'Quentrell', { c = 'HUNTER', f = 2, t = 260, k = 19, i = 2, by = 'Supremus' } }, "
+             "  { 'Lidevna', { c = 'SHAMAN', f = 1, t = 95, k = 6, i = 0, by = 'Felhunter' } } }) do "
+             "  B._Store(day, e[1] .. realm, e[2]) end end ")
+
+
 def opened(key, lua=None):
     """A state: Gina's main window on tab `key`, then optional Lua (... = occ, strategy id, team id, ssc occ)."""
     def fn(w, c):
@@ -1866,6 +1889,48 @@ STATES = [
                                    "ns.GamesUI:Select('chess') ns.ChessUI:OpenGame(T_AUD.g)")),
     ("Games - Chess over", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.Chess:Prefs().moves = nil "
                                   "ns.GamesUI:Select('chess') ns.ChessUI:OpenGame(ns.Chess:Get('ov1'))")),
+    # The Binding of Illidan: the title, a fight in a room, the bosses (god mode, a few seconds in)
+    ("Games - Illidan title", opened("games", BOI_BOARD + "ns.GamesUI:Select('illidan') ns.BoIUI._Focus(true) ns.BoIUI._Draw()")),
+    ("Games - Illidan grave", opened("games", BOI_BOARD + BOI_AUD + "local r = BOI_AUD.start(1) r.mode = 'play' "
+                                     "r.graves = { { f = 1, rx = r.room.x, ry = r.room.y, x = 200, y = 330, who = 'Xiavor', cls = 'MAGE', by = 'Felhunter' } } "
+                                     "r.daily, r.counted = ns.BoIBoard:Today(), true BOI_AUD.run(r, 30)")),
+    ("Games - Illidan room", opened("games", BOI_AUD + "BOI_AUD.room(1, 120)")),
+    ("Games - Illidan Magtheridon", opened("games", BOI_AUD + "BOI_AUD.boss(1, 300)")),
+    ("Games - Illidan Supremus", opened("games", BOI_AUD + "BOI_AUD.boss(2, 200, function(f) f.sw = 2 end)")),
+    ("Games - Illidan Teron", opened("games", BOI_AUD + "BOI_AUD.boss(3, 330, function(f) f.sodT = 1 end)")),
+    ("Games - Illidan Shahraz", opened("games", BOI_AUD + "BOI_AUD.boss(4, 150)")),
+    ("Games - Illidan Illidan", opened("games", BOI_AUD + "BOI_AUD.boss(5, 100, function(f, r) f.hp = f.max * 0.64 "
+                                       "ns.BoI.Step(r, {}) f.eye = 1 end)")),
+    ("Games - Illidan dying", opened("games", BOI_AUD + "BOI_AUD.room(2, 60) local r = ns.BoIUI._Run() r.god = nil "
+                                     "r.hp, r.soul, r.p.inv = 1, 0, 0 ns.BoI.Hurt(r, r.room.foes[1].d) "
+                                     "for _ = 1, 95 do ns.BoI.Step(r, {}) end ns.BoIUI._Focus(false) ns.BoIUI._Draw()")),
+    ("Games - Illidan dead", opened("games", BOI_AUD + "BOI_AUD.room(2, 60) local r = ns.BoIUI._Run() r.god = nil "
+                                    "r.items = { 'eye', 'pws', 'chain' } r.hp, r.soul, r.p.inv = 1, 0, 0 ns.BoI.Hurt(r, r.room.foes[1].d) "
+                                    "for _ = 1, ns.BoI.DYING + 99 do ns.BoI.Step(r, {}) end r.newBest = true "
+                                    "ns.BoIUI._Focus(false) ns.BoIUI._Draw()")),
+    # the vault's padlocked portcullis, seen from the room next to it
+    ("Games - Illidan vault door", opened("games", BOI_AUD + "local r = BOI_AUD.start(1) local v "
+                                          "for _, x in ipairs(r.map.list) do if x.type == 'treasure' then v = x end end "
+                                          "local nb = ns.BoI.Neighbours(r.map, v, true)[1] r.room = nb.room r.room.cleared, r.room.foes = true, {} "
+                                          "r.p.x, r.p.y = ns.BoI.CX, ns.BoI.CY BOI_AUD.run(r, 10)")),
+    # an enemy bursting (a few frames after its death) with tears splashing round it
+    # every kind of stain an enemy leaves, a few seconds old (blood, fel, shadow, embers, bone dust; a boss's big one)
+    ("Games - Illidan stains", opened("games", BOI_AUD + "BOI_AUD.room(1, 30) local r = ns.BoIUI._Run() r.room.foes = {} "
+                                      "r.room.cleared = true r.room.decals = {} local K = { 'brute', 'imp', 'void', 'abyssal', 'dead', 'bat' } "
+                                      "for i, k in ipairs(K) do ns.BoI.Die(r, r.room, { kind = k, x = 130 + (i - 1) * 92, y = 150 + (i % 2) * 70, r = 14, d = {} }) end "
+                                      "ns.BoI.Die(r, r.room, { kind = 'boss', x = 360, y = 330, r = 26, d = {} }) "
+                                      "for _, dc in ipairs(r.room.decals) do dc.t = 240 end r.fx = {} ns.BoIUI._Draw()")),
+    ("Games - Illidan burst", opened("games", BOI_AUD + "BOI_AUD.room(1, 90) local r = ns.BoIUI._Run() "
+                                     "for i = 1, 2 do if r.room.foes[i] then r.room.foes[i].hp = 0 end end "
+                                     "r.room.cleared = true for _ = 1, 7 do ns.BoI.Step(r, { shoot = 'up' }) end ns.BoIUI._Focus(false) r.mode = 'dying' r.dyingT = 999 "
+                                     "r.mode = 'play' ns.BoIUI._Focus(true) ns.BoIUI._Draw()")),
+    # the poster in front: the game playing itself, four seconds in
+    ("Games - Illidan in front", opened("games", "local d = ns.Games:GetData('illidan') d.best, d.runs = 3, 4 "
+                                        "ns.GamesUI:ShowHub() ns.GamesUI:ShowFront('illidan') "
+                                        "for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'illidan' then for _ = 1, 240 do p.cover:Tick(1 / 60) end end end")),
+    ("Games - Illidan won", opened("games", BOI_AUD + "local r = BOI_AUD.start(5) r.items = { 'eye', 'pws', 'chain', 'glaive', 'mongoose' } "
+                                   "r.mode, r.wonT, r.time, r.kills, r.gold = 'won', 99, 1385 * 60, 212, 14 "
+                                   "ns.BoIUI._Focus(false) ns.BoIUI._Draw()")),
     ("Games - Chess ladder", opened("games", CHESS_GAMES + CHESS_LADDER + "ns.GamesUI:Select('chess') "
                                     "ns.ChessUI:OpenLobby() ns.ChessUI._Tab('ladder')")),
     ("Games - Chess in front", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = nil ns.GamesUI:ShowHub() "
