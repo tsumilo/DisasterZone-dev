@@ -71,8 +71,18 @@ local function NewRoom(rooms, list, x, y, kind)
     return r
 end
 
+-- (kept per room until a secret room is found: the panel asks several times a frame; callers only read the list)
+local nbCache = setmetatable({}, { __mode = "k" })
 function E.Neighbours(map, r, withSecret)
+    local slot, key
+    if map.ready then
+        slot = nbCache[r]
+        if not slot then slot = {} nbCache[r] = slot end
+        key = (withSecret and 1 or 0) + 2 * (map.reveals or 0)
+        if slot[key] then return slot[key] end
+    end
     local out = {}
+    if slot then slot[key] = out end
     for _, d in ipairs(DIRLIST) do
         local o = map.rooms[Key(r.x + DIRS[d][1], r.y + DIRS[d][2])]
         -- (a secret room's doors stay hidden until a bomb opens the wall)
@@ -146,6 +156,7 @@ function E.GenFloor(run, n)
                 s.cleared = true
             end
             map.depth = depth
+            map.ready = true                  -- (built: E.Neighbours may keep its lists from now on)
             return map
         end
     end
@@ -851,7 +862,7 @@ function E.Step(run, input)
             for _, nb in ipairs(Nbs(run.map, room, true)) do
                 if nb.room.type == "secret" and not nb.room.revealed then
                     local dp = DOOR[nb.dir]
-                    if Hyp(b.x - dp[1], b.y - dp[2]) < 90 then nb.room.revealed = true E.Toast(run, "A secret room", 100) end
+                    if Hyp(b.x - dp[1], b.y - dp[2]) < 90 then nb.room.revealed = true run.map.reveals = (run.map.reveals or 0) + 1 E.Toast(run, "A secret room", 100) end
                 end
             end
         else
@@ -1004,12 +1015,19 @@ function E.GravesHere(run)
 end
 
 -- The doors of the room you are in: { dir, room, open, locked, kind } for the panel.
+-- (the records are reused: read them now, keep none of them)
+local doorsCache = setmetatable({}, { __mode = "k" })
 function E.Doors(run)
-    local out = {}
+    local out = doorsCache[run]
+    if not out then out = {} doorsCache[run] = out end
+    local n = 0
     for _, nb in ipairs(Nbs(run.map, run.room)) do
-        out[#out + 1] = { dir = nb.dir, room = nb.room, open = run.room.cleared and not nb.room.locked, locked = nb.room.locked,
-                          kind = nb.room.type }
+        n = n + 1
+        local d = out[n] or {}
+        out[n] = d
+        d.dir, d.room, d.open, d.locked, d.kind = nb.dir, nb.room, run.room.cleared and not nb.room.locked, nb.room.locked, nb.room.type
     end
+    for i = n + 1, #out do out[i] = nil end
     return out
 end
 

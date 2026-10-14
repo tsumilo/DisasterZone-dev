@@ -24,6 +24,16 @@ local FONT = "Fonts\\FRIZQT__.TTF"
 local CLASS_CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
 local STEP = 1 / 60
 local GOLD, FELC, WHITE = ns.Style.C.GOLD, { 0.65, 0.94, 0.29 }, { 1, 1, 1 }
+-- colours drawn every frame live here: a table written inside a call is a new one on every call (garbage per frame)
+local BLACK, INK = { 0, 0, 0 }, { 0.95, 0.92, 0.85 }
+local IRON, IRON_DARK = { 0.08, 0.06, 0.05 }, { 0.05, 0.04, 0.03 }
+local RING = { boss = { 1, 0.23, 0.18 }, spirit = { 0.6, 0.9, 1 }, foe = { 0.48, 0.1, 0.07 }, heart = { 0.45, 0.75, 0.25 },
+               soul = { 0.62, 0.38, 1 }, glaive = { 0.49, 1, 0.23 }, shade = { 0.63, 0.24, 1 } }
+local DOOR_LIGHT = { boss = { 1, 0.16, 0.12 }, treasure = GOLD, shop = { 0.4, 0.85, 1 }, secret = { 0.6, 0.45, 1 },
+                     normal = { 1, 0.85, 0.6 } }
+local BARS_GOLD, BARS_IRON = { 1, 0.85, 0.5 }, { 0.85, 0.85, 0.9 }
+local MAP_HERE, MAP_SEEN, MAP_NEAR, MAP_EDGE = { 1, 0.95, 0.8 }, { 0.5, 0.45, 0.38 }, { 0.2, 0.17, 0.14 }, { 0.02, 0.015, 0.01 }
+local NOOPTS, TOK = {}, {}
 local LOADING = { mag = 131846, bt = 131826 }
 
 local root, screen, layers, focusOverlay
@@ -120,6 +130,7 @@ local function Line(pool, x1, y1, x2, y2, thick, c, a)
 end
 
 -- a round token: shadow, a ring in `ring`, a black rim, the picture (an icon, a class circle or an EJ bust)
+local TOKEN_PARTS = { "shadow", "ring", "rim", "bg", "pic", "flash" }
 local function NewToken(frame)
     local o = { kind = "token" }
     o.shadow = frame:CreateTexture(nil, "ARTWORK", nil, 0)
@@ -139,15 +150,15 @@ local function NewToken(frame)
     o.pic:AddMaskTexture(o.mask)
     o.flash = frame:CreateTexture(nil, "ARTWORK", nil, 5)
     o.flash:SetTexture(CIRCLE)
-    function o.Show() for _, k in ipairs({ "shadow", "ring", "rim", "bg", "pic", "flash" }) do o[k]:Show() end end
-    function o.Hide() for _, k in ipairs({ "shadow", "ring", "rim", "bg", "pic", "flash" }) do o[k]:Hide() end end
+    function o.Show() for _, k in ipairs(TOKEN_PARTS) do o[k]:Show() end end
+    function o.Hide() for _, k in ipairs(TOKEN_PARTS) do o[k]:Hide() end end
     return o
 end
 
 -- pic: an icon path / FileDataID; opts = { ej = true (a 128 x 64 bust), cls = "MAGE" (a class circle), flash, alpha,
 -- shadow = false, lift (px the token floats above its shadow) }
 local function Token(x, y, r, pic, ring, opts)
-    opts = opts or {}
+    opts = opts or NOOPTS
     local pool = pools.token
     pool.n = pool.n + 1
     local o = pool.items[pool.n]
@@ -180,6 +191,12 @@ local function Token(x, y, r, pic, ring, opts)
     o.flash:SetVertexColor(1, 1, 1, opts.flash or 0)
     Place(o.flash, x, y - lift, r * 2)
     return o
+end
+
+-- Token's options for the calls made every frame, in one table refilled each time (Token keeps nothing of it)
+local function Opts(ej, cls, flash, alpha, lift, shadow)
+    TOK.ej, TOK.cls, TOK.flash, TOK.alpha, TOK.lift, TOK.shadow = ej, cls, flash, alpha, lift, shadow
+    return TOK
 end
 
 local function Label(key, parent, size, x, y, text, c, a, justify)
@@ -234,8 +251,8 @@ local function DrawStatic()
         local f = 0.88 + 0.08 * sin(t * 7 + i * 1.7) + 0.04 * sin(t * 13 + i)
         Glow("floorGlow", s[1], s[2] + s[3] * 46, 130, c, (F.lightK or 0.25) * f)
         Glow("floorGlow", s[1], s[2] - 3, 30 * f, c, 0.5 * f)
-        Rect("floorRect", s[1] - 6, s[2] + 3.5, 12, 5, { 0.08, 0.06, 0.05 }, 0.95)
-        Rect("floorRect", s[1] - 2, s[2] + 7, 4, 6, { 0.05, 0.04, 0.03 }, 0.9)
+        Rect("floorRect", s[1] - 6, s[2] + 3.5, 12, 5, IRON, 0.95)
+        Rect("floorRect", s[1] - 2, s[2] + 7, 4, 6, IRON_DARK, 0.9)
         Place(Glow("floorGlow", 0, 0, 1, c, 0.95), s[1], s[2] - 4, 13, 24 * f)
         Place(Glow("floorGlow", 0, 0, 1, FLAME, 0.95), s[1], s[2] - 1, 6, 11 * f)
     end
@@ -318,8 +335,7 @@ local function DrawDoors()
     -- the arch and fading into the passage's dark, a light from beyond, the portcullis, the frame over it all
     for _, d in ipairs(E.Doors(run)) do
         local st = doorState[d.dir] or { open = d.open and 1 or 0 }
-        local c = d.kind == "boss" and { 1, 0.16, 0.12 } or d.kind == "treasure" and GOLD or d.kind == "shop" and { 0.4, 0.85, 1 }
-            or d.kind == "secret" and { 0.6, 0.45, 1 } or { 1, 0.85, 0.6 }
+        local c = DOOR_LIGHT[d.kind] or DOOR_LIGHT.normal
         local fl = DoorQuad("doorFloor", d.dir, -17, 17, -12, 36, 0, 0.21, 0, 0.3)
         if fl.file ~= run.F.floor then fl:SetTexture(run.F.floor) fl.file = run.F.floor end
         local k = (run.F.floorK or 0.5) * 0.8
@@ -335,7 +351,7 @@ local function DrawDoors()
         local shut = 1 - st.open
         if shut > 0.01 then
             local bars = DoorQuad("bars", d.dir, -17, 17, 36 - 48 * shut, 36, 0, 1, 1 - shut, 1)
-            local r, g, b = DoorLight(d.dir, d.kind == "treasure" and { 1, 0.85, 0.5 } or { 0.85, 0.85, 0.9 })
+            local r, g, b = DoorLight(d.dir, d.kind == "treasure" and BARS_GOLD or BARS_IRON)
             bars:SetVertexColor(r, g, b, 1)
         end
         local fr = DoorQuad("door", d.dir, -30, 30, -12, 48)
@@ -429,7 +445,7 @@ local function DrawFloorThings()
         for _, b in ipairs(run.glaives) do
             Disc("lowDisc", b.x, b.y, 220, FELC, 0.04)
             Glow("lowGlow", b.x, b.y, 30, FELC, 0.35)
-            Token(b.x, b.y, 13, D.ITEMS.glaive.i, { 0.49, 1, 0.23 })
+            Token(b.x, b.y, 13, D.ITEMS.glaive.i, RING.glaive)
         end
     end
     for _, v in ipairs(run.volcs) do
@@ -521,13 +537,13 @@ local function DrawActors()
         local boss = x.kind == "boss"
         if boss then Glow("airGlow", x.x, x.y, x.r * 2.2, x.boss.glow, x.immune and 0.4 or 0.8) end
         if x.kind == "azflame" and x.enraged then Glow("airGlow", x.x, x.y, 44, { 1, 0.31, 0.16 }, 0.6) end
-        if x.kind == "sdemon" then Line("airLine", x.x, x.y, p.x, p.y, 2, { 0.63, 0.24, 1 }, 0.5) end
+        if x.kind == "sdemon" then Line("airLine", x.x, x.y, p.x, p.y, 2, RING.shade, 0.5) end
         if x.kind == "dash" or (x.d.ai == "dash" and x.state > 0) then Glow("airGlow", x.x, x.y, x.r * 1.8, FELC, 0.3) end
-        local ring = boss and { 1, 0.23, 0.18 } or x.kind == "sheep" and WHITE or x.spiritOnly and { 0.6, 0.9, 1 } or { 0.48, 0.1, 0.07 }
+        local ring = boss and RING.boss or x.kind == "sheep" and WHITE or x.spiritOnly and RING.spirit or RING.foe
         local bob = boss and sin(x.t * 0.05) * 3 or sin(x.t * 0.15) * 1.5
         local lift = x.d.ai == "flit" and 8 or 0
-        Token(x.x, x.y + bob, x.r, x.d.i, ring, { ej = x.d.ej, flash = x.flash > 0 and (boss and 0.22 or 0.55) or 0, lift = lift,
-                                                   alpha = x.spiritOnly and 0.7 or 1 })
+        Token(x.x, x.y + bob, x.r, x.d.i, ring, Opts(x.d.ej, nil, x.flash > 0 and (boss and 0.22 or 0.55) or 0,
+                                                     x.spiritOnly and 0.7 or 1, lift))
     end
     for _, m in ipairs(run.mflames) do
         Glow("airGlow", m.x, m.y, 26, { 0.31, 0.67, 1 }, 0.6)
@@ -554,9 +570,9 @@ local function DrawActors()
         local lift = moving and abs(sin(run.frame * 0.25)) * 3 or 0
         if run.meta then
             Glow("airGlow", p.x, p.y, 30, FELC, 0.5)
-            Token(p.x, p.y, p.r + 3, D.METAMORPH, FELC, { lift = lift })
+            Token(p.x, p.y, p.r + 3, D.METAMORPH, FELC, Opts(nil, nil, nil, nil, lift))
         else
-            Token(p.x, p.y, p.r, CLASS_CIRCLES, c, { cls = run.class, lift = lift, alpha = run.spirit and 0.6 or 1 })
+            Token(p.x, p.y, p.r, CLASS_CIRCLES, c, Opts(nil, run.class, nil, run.spirit and 0.6 or 1, lift))
         end
         if run.shield then
             Disc("airDisc", p.x, p.y, p.r + 8, { 1, 0.94, 0.67 }, 0.22)
@@ -674,9 +690,9 @@ end
 
 -- a healthstone or soul shard: a round gem in a socket; half: its right half dark; empty: the bare socket
 local function Gem(x, y, file, ring, fill)
-    Disc("hudDisc", x, y, 9.5, { 0, 0, 0 }, 0.75)
+    Disc("hudDisc", x, y, 9.5, BLACK, 0.75)
     if fill > 0 then
-        Token(x, y, 8, file, ring, { shadow = false })
+        Token(x, y, 8, file, ring, Opts(nil, nil, nil, nil, nil, false))
         if fill == 1 then
             local t = Take(pools.hudHalf)
             t:SetTexCoord(0.5, 1, 0, 1)
@@ -690,28 +706,31 @@ local function Gem(x, y, file, ring, fill)
     end
 end
 
+local COUNTS, COUNT_KEYS, COUNT_FIELD = { "gold", "bomb", "key" }, { "count1", "count2", "count3" },
+                                          { gold = "gold", bomb = "bombs", key = "keys" }
+
 local function DrawHud()
     local keep = pools.token
     pools.token = pools.hudToken
-    local ink = { 0.95, 0.92, 0.85 }
+    local ink = INK
     -- left: healthstones and shards over gold, bombs, keys; the active item in its slot at the end
     local gems = run.maxHp + math.ceil(run.soul / 2)
     local pw = max(150, 18 + gems * 21) + (run.active and 40 or 0)
     HudPlate("left", 8, 5, pw, 40)
     local x = 20
     for i = 0, run.maxHp - 1 do
-        Gem(x, 16, D.PICKUPS.heart.i, { 0.45, 0.75, 0.25 }, max(0, min(2, run.hp - i * 2)))
+        Gem(x, 16, D.PICKUPS.heart.i, RING.heart, max(0, min(2, run.hp - i * 2)))
         x = x + 21
     end
     local sl = run.soul
     while sl > 0 do
-        Gem(x, 16, D.PICKUPS.soul.i, { 0.62, 0.38, 1 }, min(2, sl))
+        Gem(x, 16, D.PICKUPS.soul.i, RING.soul, min(2, sl))
         sl, x = sl - 2, x + 21
     end
-    for i, c in ipairs({ { "gold", run.gold }, { "bomb", run.bombs }, { "key", run.keys } }) do
+    for i, k in ipairs(COUNTS) do
         local cx = 18 + (i - 1) * 46
-        Icon("hud", D.PICKUPS[c[1]].i, cx, 34, 12, 1, c[1] ~= "gold" and nil or false)
-        Label("count" .. i, layers.hud, 11, cx + 9, 34, string.format("%02d", c[2]), ink, 1, "LEFT")
+        Icon("hud", D.PICKUPS[k].i, cx, 34, 12, 1, k ~= "gold" and nil or false)
+        Label(COUNT_KEYS[i], layers.hud, 11, cx + 9, 34, string.format("%02d", run[COUNT_FIELD[k]]), ink, 1, "LEFT")
     end
     if run.active then
         local it = D.ITEMS[run.active]
@@ -764,9 +783,8 @@ local function DrawHud()
         if seen then
             local rx, ry = mx + 6 + (r.x - minx) * cw, oy + (r.y - miny) * ch
             local here = r == run.room
-            Rect("hudMap", rx, ry, cw - 1.5, ch - 1.5, here and GOLD or { 0.02, 0.015, 0.01 }, here and 1 or 0.9)
-            Rect("hudMap", rx + 1, ry + 1, cw - 3.5, ch - 3.5,
-                here and { 1, 0.95, 0.8 } or (seen == true) and { 0.5, 0.45, 0.38 } or { 0.2, 0.17, 0.14 })
+            Rect("hudMap", rx, ry, cw - 1.5, ch - 1.5, here and GOLD or MAP_EDGE, here and 1 or 0.9)
+            Rect("hudMap", rx + 1, ry + 1, cw - 3.5, ch - 3.5, here and MAP_HERE or (seen == true) and MAP_SEEN or MAP_NEAR)
             local ic = (r.type == "boss" and D.SKULL) or (r.type == "treasure" and D.icon("INV_Misc_Key_10"))
                 or (r.type == "shop" and D.PICKUPS.gold.i) or nil
             if ic then Icon("hud", ic, rx + cw / 2 - 0.75, ry + ch / 2 - 0.75, min(10, ch + 1), 1, false) end
@@ -785,7 +803,7 @@ local function DrawHud()
         bar:SetPoint("TOPLEFT", screen, "TOPLEFT", bx, -by)
         bar:SetSize(max(0.1, bw * f), 12)
         Rect("hudBar", bx, by, bw * f, 3, WHITE, 0.16)
-        Token(bx - 16, by + 6, 15, boss.d.i, { 0.05, 0.04, 0.03 }, { ej = boss.d.ej, shadow = false })
+        Token(bx - 16, by + 6, 15, boss.d.i, IRON_DARK, Opts(boss.d.ej, nil, nil, nil, nil, false))
         local ring = Take(pools.hudRing)
         ring:SetTexCoord(0, 40 / 64, 0, 40 / 64)
         ring:ClearAllPoints()
@@ -1162,7 +1180,8 @@ local attract = false        -- (drawing the poster's view: the room only)
 
 local function Draw()
     Begin()
-    hud.used = {}
+    hud.used = hud.used or {}
+    wipe(hud.used)
     for _, p in pairs(panels) do p.used = false end
     for _, p in pairs(plates) do p.used = false end
     if not run then
