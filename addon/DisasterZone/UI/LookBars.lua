@@ -58,7 +58,10 @@ local SHEET2 = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\uiglyphs"
 -- the stone art of the classic main bar
 local ART = { "MainMenuBarTexture0", "MainMenuBarTexture1", "MainMenuBarTexture2", "MainMenuBarTexture3",
     "MainMenuBarTextureExtender", "MainMenuBarLeftEndCap", "MainMenuBarRightEndCap", "MainMenuMaxLevelBar0",
-    "MainMenuMaxLevelBar1", "MainMenuMaxLevelBar2", "MainMenuMaxLevelBar3" }
+    "MainMenuMaxLevelBar1", "MainMenuMaxLevelBar2", "MainMenuMaxLevelBar3",
+    -- (the latency bar: its own frame beside the stone, left standing wherever the game put it; the micro menu's
+    -- tooltip still shows the latency)
+    "MainMenuBarPerformanceBarFrame" }
 
 local skinned = {}       -- button -> its skin
 local plates = {}        -- bar name -> plate

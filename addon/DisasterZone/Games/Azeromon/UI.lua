@@ -1603,7 +1603,7 @@ function Scr.OpenRecipes(prof, onClose)
         end
     end
     menu = PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 32, level = 70, desc = true,
-        title = string.format("%s  %d / %d", p.name:upper(), C.Skill(prof) or 0, D.SKILL_MAX),
+        title = string.format("%s  %d / %d", p.name:upper(), C.Skill(prof) or 0, C.Cap(prof)),
         onCancel = function(m)
             PopMenu(m)
             R.bagDesc:Hide()
@@ -1622,8 +1622,8 @@ function Scr.OpenProfessions()
         local p = D.professions[id]
         local skill = C.Skill(id)
         items[#items + 1] = { text = p.name, icon = p.icon, prof = id,
-            right = skill and string.format("%d / %d", skill, D.SKILL_MAX) or "not learned",
-            bar = skill and skill / D.SKILL_MAX or nil, disabled = not skill,
+            right = skill and string.format("%d / %d", skill, C.Cap(id)) or "not learned",
+            bar = skill and skill / C.Cap(id) or nil, disabled = not skill,
             onSelect = function()
                 if p.gather and id ~= "mining" then
                     Message(p.howto)
@@ -1731,6 +1731,20 @@ function OpenStartMenu()
                 end
                 if def.use == "material" then Message("It's a crafting material. See PROFESSIONS.") return end
                 if def.use == "boost" then Message("Drink it in battle: it raises the stat of the beast fighting.") return end
+                if def.use == "evolve" then                    -- an evolution item: the scene plays as a script
+                    OpenParty("item", function(idx, partyMenu)
+                        if partyMenu then PopMenu(partyMenu) end
+                        if not idx then return end
+                        if not M.ItemEvolution(G.save.party[idx], id) then
+                            Message("It won't have any effect.")
+                            return
+                        end
+                        CloseAllMenus()
+                        R.bagDesc:Hide()
+                        G:Run(function(g) g:UseEvolveItem(idx, id) end)
+                    end)
+                    return
+                end
                 if def.use == "gear" or def.use == "flask" then
                     OpenParty(def.use == "gear" and "equip" or "item", function(idx, partyMenu)
                         if partyMenu then PopMenu(partyMenu) end
@@ -1823,10 +1837,10 @@ function Scr.OpenSell()
         end })
 end
 
-local function OpenShop(keeper)
+local function OpenShop(keeper, stock)
     ns.AzeroSound:Play("shop")
     local items = {}
-    for _, id in ipairs(D.shopStock) do
+    for _, id in ipairs(D.ShopStock(stock)) do
         local def = D.items[id]
         items[#items + 1] = { text = def.name, right = D.Money(def.price), icon = def.icon, item = id,
             onSelect = function(_, menu)
@@ -2449,6 +2463,11 @@ local function OpenFightMenu()
         end,
         onMove = function(i, menu)
             local mv = menu.items[i].move
+            -- the battle text box stays up (UpdateText shows it every frame) and spans the whole bottom: keep
+            -- the info window over it and the move list, whatever level the screen sits at
+            local lvl = max(R.textbox:GetFrameLevel(), menu.frame:GetFrameLevel()) + 5
+            info:SetFrameLevel(lvl)
+            info.type:SetFrameLevel(lvl + 1)
             info:Show()
             if mv then
                 local md = D.moves[mv.id]
@@ -2494,7 +2513,8 @@ local function OpenActionMenu()
                     R.bagDesc:Hide()
                     UI:BattleAct({ kind = "item", item = id, target = target })
                 end
-                if def.use == "charm" or def.use == "gear" or def.use == "flask" or def.use == "material" then
+                if def.use == "charm" or def.use == "gear" or def.use == "flask" or def.use == "material"
+                    or def.use == "evolve" then
                     Message("Now is not the time to use that!")
                 elseif def.use == "boost" then
                     local st = b.ally.stages[def.stat] or 0
@@ -2644,7 +2664,7 @@ local function StartBattleView(b)
     ApplyBattleTheme(G.map and G.map.def.theme)
     R.battleSkyAlpha = ApplySky(R.battleSky, G.map and G.map.def.outdoor, 0.75, G.map and G.map.def.gloom)
     local foeSp = b.foe and b.foe.mon and D.species[b.foe.mon.sp]
-    if b.wild and foeSp and foeSp.rare and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
+    if b.wild and foeSp and (foeSp.rare or foeSp.legendary) and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
     ns.AzeroSound:Play("encounter")
     -- the battle takes the keys: overworld menus still open (a guildmate's challenge accepted over the start
     -- menu) close, and so do their boxes
@@ -2670,6 +2690,7 @@ end
 local function EndBattleView()
     BT.battle, BT.actionOpen = nil, nil
     R.battle:Hide()
+    R.moveInfo:Hide()                        -- (on the screen, not the battle layer)
     world:Show()
     CloseAllMenus()
     ClearText()
@@ -4209,7 +4230,7 @@ local function SyncPending()
         StartBattleView(p.battle)
     elseif p.kind == "shop" then
         ClearText()
-        OpenShop(p.keeper)
+        OpenShop(p.keeper, p.stock)
     elseif p.kind == "relearn" then
         ClearText()
         Scr.OpenRelearn()
@@ -5165,7 +5186,8 @@ local function BuildBattle()
     R.net:SetTexture("Interface\\Icons\\Ability_Hunter_BeastTaming")
     R.net:Hide()
 
-    R.moveInfo = Box(b, 170, BOX_H, 75)
+    -- on the screen like the menus and text box, not the battle layer (that one is scaled past the stage and clips)
+    R.moveInfo = Box(screen, 170, BOX_H, 75)
     R.moveInfo:SetPoint("BOTTOMRIGHT", screen, "BOTTOMRIGHT", 0, 0)
     R.moveInfo.pp = Font(R.moveInfo, 15, nil, true)
     R.moveInfo.pp:SetPoint("TOPLEFT", 18, -14)

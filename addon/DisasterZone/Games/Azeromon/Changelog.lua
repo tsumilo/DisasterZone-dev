@@ -6,6 +6,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.25", date = "15 October 2026", title = "A painted world map",
+      lines = {
+          "The world map is repainted: coasts, fields and forests.",
+          "Waves, clouds, chimney smoke and gryphons move on it.",
+          "The map follows the time of day: lamps light at night.",
+          "Mist hides places you haven't found; ? marks a way in.",
+          "A new place lifts its mist the next time you look.",
+          "A card shows each place: beasts, trainers, badge, shops.",
+      } },
     { version = "0.24", date = "14 October 2026", title = "The Grand Guild Hall",
       lines = {
           "The Guild Hall is rebuilt: a cathedral under the inn.",
@@ -17,6 +26,7 @@ ns.AzeroChangelog = {
           "Sunwell's light fills the throne once the plateau falls.",
           "Coloured sun by day; moonlight and fire at night.",
           "Champions stand in stone on lit pedestals.",
+          "Fight menu: the move's PP, type and power show again.",
       } },
     { version = "0.23", date = "14 October 2026", title = "Every zone, alive",
       lines = {

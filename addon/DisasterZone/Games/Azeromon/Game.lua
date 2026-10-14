@@ -388,14 +388,17 @@ local ROLE_TITLES = { inn = "Innkeeper", shop = "Trade Goods", stable = "Stable 
 local CLASS_TITLES = { rival = "Rival", hunter = "Hunter", druid = "Druid", miner = "Miner", captain = "Stormwind Guard",
                        gnoll = "Riverpaw Gnoll", defias = "Defias Brotherhood", farmer = "Farmer", goblin = "Goblin",
                        watch = "Night Watch", ogre = "Ogre", militia = "People's Militia", kurzen = "Kurzen's Expedition",
-                       troll = "Troll", pirate = "Bloodsail Buccaneers" }
+                       troll = "Troll", pirate = "Bloodsail Buccaneers", redridge = "Redridge Gnoll",
+                       blackrock = "Blackrock Clan", darkiron = "Dark Iron Dwarf" }
 local TRAINER_TITLES = { marine = "Blackwater Raiders", bruiser = "Blackwater Raiders", castaway = "Castaway",
                          venture1 = "Venture Company", venture2 = "Venture Company", venture3 = "Venture Company",
                          venture4 = "Venture Company", venture5 = "Venture Company", venture6 = "Venture Company",
                          ogre1 = "Splinter Fist", ogrewd = "Mosh'Ogg", ogreshaman = "Mosh'Ogg",
                          skull1 = "Skullsplitter", skull2 = "Skullsplitter", trollhunter = "Skullsplitter",
                          bloodscalp1 = "Bloodscalp", bloodscalp2 = "Bloodscalp", zanzilwd = "Zanzil's Outcasts",
-                         bighunter = "Big Game Hunter" }
+                         bighunter = "Big Game Hunter", yowler = "Redridge Gnoll Chief",
+                         gath = "Warlord of the Blackrock Clan", nef1 = "Lord of Blackrock", nef2 = "Lord of Blackrock",
+                         thaurissan = "Emperor of the Dark Iron", senator = "Shadowforge City", warden = "Anvilrage Guard" }
 local NPC_TITLES = { guard = "Stormwind Guard", farmer = "Farmer", furlbrow = "Farmer", saldean = "Farmer", sven = "Farmer",
                      aldric = "Huntmaster", gryan = "People's Militia", danuvin = "People's Militia", galiaan = "Scout",
                      abercrombie = "Hermit", watchguard = "Night Watch", dsguard = "Night Watch", ello = "Lord of Darkshire",
@@ -573,7 +576,8 @@ function G:Sleep(secs) return self:Wait({ kind = "wait", t = secs }) end
 -- loads it early, so the evolution animation can swap between the two).
 function G:ShowSpecies(sp, shiny, nxt) self.showSpecies, self.showShiny, self.showNext = sp, shiny, nxt end
 
-function G:Shop(keeper) return self:Wait({ kind = "shop", keeper = keeper }) end
+-- stockId: a shelf from D.shopStocks ("lakeshire", "thorium"); none = D.shopStock.
+function G:Shop(keeper, stockId) return self:Wait({ kind = "shop", keeper = keeper, stock = stockId }) end
 
 -- The pet trainer's lessons (the UI picks the beast and the move, then calls G:Relearn). Returns true when a
 -- beast was taught something.
@@ -680,7 +684,7 @@ function G:RunBattle(foes, trainerId, opts)
         trainer = trainerId and self:TrainerDef(trainerId), bag = s.bag, rng = self.rng,
         catchMult = self:Perk("catch"), expMult = self:Perk("exp"), startAtk = self:Perk("startAtk"),
         prizeMult = self:Perk("prize"), perk = self:PerkInfo(),
-        rare = opts and opts.rare,
+        rare = opts and opts.rare, legendary = opts and opts.legendary,
         onSeen = function(sp) s.seen[sp] = true self:Emit("seen", { sp = sp }) end,
         onCaught = function(mon) return self:AddMon(mon, "caught") end,
     })
@@ -701,7 +705,10 @@ function G:RunBattle(foes, trainerId, opts)
     self:Emit("battle", { result = result, wild = trainerId == nil, trainer = trainerId, used = used, foes = foeSp,
                           party = s.party, lastStanding = (#standing == 1) and standing[1] or nil })
     for mon in pairs(b.leveled or {}) do self:Emit("level", { mon = mon, lvl = mon.lvl }) end
-    if ns.AzeroCraft then ns.AzeroCraft:AfterBattle(self) end
+    if ns.AzeroCraft then
+        if result == "win" and trainerId == nil then ns.AzeroCraft:BeastDrops(self, foes) end
+        ns.AzeroCraft:AfterBattle(self)
+    end
     if result == "lose" and not (opts and opts.noBlackout) then
         self:Emit("blackout")
         self:Blackout()
@@ -746,7 +753,7 @@ end
 -- Returns true when it evolved.
 G.EVOLVE_TIME = 4.2
 
-function G:EvolveNow(mon, into)
+function G:EvolveNow(mon, into, byItem)
     local old = M.Name(mon)
     self:ShowSpecies(mon.sp, mon.shiny, into)
     self:Sfx("evolve")
@@ -754,7 +761,8 @@ function G:EvolveNow(mon, into)
     if self:Wait({ kind = "evolve", t = G.EVOLVE_TIME, mon = mon, from = mon.sp, into = into }) == "cancel" then
         -- it waits for its next level; at the top level there is none, so it asks again after its next battle.
         -- A trade evolution stopped here is kept (tradeEvo) and comes back the same way.
-        mon.evoStop = (mon.lvl >= D.MAX_LEVEL) and (mon.lvl - 1) or mon.lvl
+        -- (an item evolution stopped here just keeps the item: the level evolution is not held back)
+        if not byItem then mon.evoStop = (mon.lvl >= D.MAX_LEVEL) and (mon.lvl - 1) or mon.lvl end
         if M.TradeEvolution(mon) == into then mon.tradeEvo = into end
         self:ShowSpecies(mon.sp, mon.shiny)
         self:Say(string.format("Huh? %s stopped evolving!", old))
@@ -774,6 +782,41 @@ function G:EvolveNow(mon, into)
     self:Say(string.format("Congratulations! Your %s evolved into %s!", old, D.species[into].name))
     self:ShowSpecies(nil)
     return true
+end
+
+-- An evolution item used from the bag on party beast `idx` (inside a script: the evolution scene plays). The
+-- item is used up only when the beast evolves. Returns true when it evolved.
+function G:UseEvolveItem(idx, item)
+    local mon = self.save.party[idx]
+    local into = mon and M.ItemEvolution(mon, item)
+    if not into or (self.save.bag[item] or 0) <= 0 then
+        self:Sfx("error")
+        self:Say("It won't have any effect.")
+        return false
+    end
+    if not self:EvolveNow(mon, into, true) then return false end
+    local bag = self.save.bag
+    bag[item] = bag[item] - 1
+    if bag[item] <= 0 then bag[item] = nil end
+    -- the moves the new form learns at this level (Gen III: evolving teaches them); no room = the pet trainer
+    for _, id in ipairs(M.NewMovesAt(mon, mon.lvl)) do
+        if M.TryLearn(mon, id) then self:Say(string.format("%s learned %s!", M.Name(mon), D.moves[id].name)) end
+    end
+    return true
+end
+
+-- A legendary beast (species with legendary = true), met by a map script: one scripted wild battle. Tamed, it is
+-- gone for good (flag caught_<sp>); beaten or fled from, it waits there for the next visit.
+-- Returns the battle's result, or "gone" when it was tamed before.
+function G:LegendaryBattle(sp, level)
+    if self:Flag("caught_" .. sp) then return "gone" end
+    local mon = M.New(sp, level, self.rng)
+    local result = self:RunBattle({ mon }, nil, { legendary = true, rare = true })
+    if result == "caught" then
+        self:SetFlag("caught_" .. sp)
+        self:Emit("legendary", { sp = sp })
+    end
+    return result
 end
 
 function G:WildBattle(sp, lvl, rare)
@@ -894,6 +937,25 @@ function G:TrainerEncounter(npc, spotted)
             self:Say(string.format("{PLAYER} received %s!", badge.name))
             if badge.text then self:Say(badge.text) end
         end
+        self:TrainerCache(def)
+    end
+end
+
+-- def.cache = { needs = { trainer ids }, flag, items = { id = n }, text }: once every trainer in `needs` is beaten,
+-- the first win that completes the set gives the items (once per save).
+function G:TrainerCache(def)
+    local c = def.cache
+    if not c or self:Flag(c.flag) then return end
+    for _, id in ipairs(c.needs or {}) do
+        if not self:Flag("beat_" .. id) then return end
+    end
+    self:SetFlag(c.flag)
+    if c.text then self:Say(self:Fmt(c.text)) end
+    local ids = {}
+    for item in pairs(c.items) do ids[#ids + 1] = item end
+    table.sort(ids)
+    for _, item in ipairs(ids) do
+        if D.items[item] then self:Give(item, c.items[item]) end
     end
 end
 
@@ -1353,8 +1415,8 @@ function G:UseItemOutside(item, idx)
         bag[item] = bag[item] - 1
         if bag[item] <= 0 then bag[item] = nil end
         return string.format("%s was rejuvenated!", M.Name(mon))
-    elseif def.use == "cure" then
-        if mon.status ~= def.cures then self:Sfx("error") return "It won't have any effect." end
+    elseif def.use == "cure" or def.use == "freeaction" then
+        if mon.status ~= (def.cures or "par") then self:Sfx("error") return "It won't have any effect." end
         self:Sfx("cure")
         mon.status = nil
         bag[item] = bag[item] - 1
@@ -1388,17 +1450,10 @@ end
 G.RELEARN_PRICE = 500
 
 function G:RelearnableMoves(mon)
-    local lists = { D.species[mon.sp].learn }
-    -- every earlier form in the chain (a Tidecaller remembers the Murkling's moves too)
-    local cur, guard = mon.sp, 0
-    while cur and guard < 8 do
-        local prev
-        for id, sp in pairs(D.species) do
-            if sp.evolve and sp.evolve.into == cur then prev = id break end
-        end
-        if prev then lists[#lists + 1] = D.species[prev].learn end
-        cur, guard = prev, guard + 1
-    end
+    -- its own list and every earlier form's (a Tidecaller remembers the Murkling's moves too; a Heavy War Golem
+    -- both the Tempered War Golem's and the Harvest Watcher's)
+    local lists = {}
+    for _, sp in ipairs(M.Lineage(mon.sp)) do lists[#lists + 1] = D.species[sp].learn end
     local found, order = {}, {}
     for _, learn in ipairs(lists) do
         for _, e in ipairs(learn) do

@@ -4,7 +4,9 @@ Covers: every map belongs to exactly one place; places count as visited once you
 before the map are filled in from beaten trainers and opened chests; roads follow the maps' edges and warps, and
 gryphon routes show once both ends are known (and the flight learned); what a place offers (NPC roles, boards,
 crafting stations), wild levels, beasts seen / tamed, trainers beaten, its badge; guildmates there now; the panel
-through the UI (opens on your place, arrows move between places, ??? for unvisited ones, X closes).
+through the UI (opens on your place, arrows move between places, ??? for unvisited ones, X closes); the painted map
+(gen_azeromon_worldmap.py: files there, WorldArt.lua up to date with the places and roads), mist over unknown places
+with a "?" where a road leads in, a place found since the last look revealed with a banner, lamps after dark.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_worldmap.py [-k name]
 """
@@ -18,6 +20,9 @@ sys.path.insert(0, HERE)
 
 from _common import case, run_all, solo, no_errors  # noqa: E402
 from _azero_bot import BOT  # noqa: E402
+
+DEV = os.path.dirname(TESTS)
+sys.path.insert(0, os.path.join(DEV, "generators"))
 
 
 def game(ui=False):
@@ -89,11 +94,14 @@ def roads_follow_the_maps_and_flights_need_both_ends():
         out[#out + 1] = a .. '-' .. b
       end
       table.sort(out) return out""")
-    assert roads == ["arena-stvsouth", "arena-zulmamwe", "bootybay-wildshore", "crystalvein-stvsouth",
+    assert roads == sorted(["arena-stvsouth", "arena-zulmamwe", "bootybay-wildshore", "crystalvein-stvsouth",
                      "darkshire-duskwood", "darkshire-rebelcamp", "deadmines-moonbrook", "duskwood-ravenhill",
                      "elwynn-forestedge", "elwynn-goldshire", "elwynn-westfall", "kurzen-rebelcamp",
                      "moonbrook-sentinel", "moshogg-zulmamwe", "ravenhill-sentinel", "rebelcamp-stvnorth",
-                     "sentinel-westfall", "stvnorth-zulmamwe", "stvsouth-wildshore"], roads
+                     "sentinel-westfall", "stvnorth-zulmamwe", "stvsouth-wildshore",
+                     # Blackrock (0.25)
+                     "darkshire-threecorners", "lakeshire-threecorners", "everstill-lakeshire", "everstill-stonewatch",
+                     "steppes-stonewatch", "brm-steppes", "brm-gorge", "brd-brm", "brm-moltencore"]), roads
     shown = "local W = ns.AzeroWorld return { W.FlightShown(W.FLIGHTS[1]), W.FlightShown(W.FLIGHTS[2]) }"
     assert c.eval_py(shown) == [False, False]
     c.eval("ns.Azero:EnterMap('sentinel', 5, 9, 'down', true) ns.Azero:EnterMap('arena', 7, 11, 'up', true)")
@@ -181,6 +189,94 @@ def the_map_through_the_ui():
     w.tick(0.1)
     assert c.eval("return ns.AzeroWorld._State()") is None
     assert c.eval_py("return ns.AzeroUI._MenuItems()") == items             # back on the START menu
+    no_errors(w)
+
+
+@case
+def the_painted_map_is_baked_and_up_to_date():
+    from PIL import Image
+    import gen_azeromon_worldmap as GW
+    w, c = game()
+    art = c.eval_py("return ns.AzeroWorldArt")
+    assert art["v"] == GW.inputs_hash(GW.world_data(c)), "WorldArt.lua is stale: run generators/gen_azeromon_worldmap.py"
+    for name, size in (("worldmap", (art["tw"], art["th"])), ("worldmap_fog1", (512, art["fogH"])),
+                       ("worldmap_fog2", (512, art["fogH"])), ("worldmap_lap", (art["lap"]["tw"], art["lap"]["th"])),
+                       ("worldmap_dusk", (art["tw"], art["th"])), ("worldmap_sprites", (128, 64))):
+        f = os.path.join(GW.OUT_DIR, name + ".tga")
+        assert os.path.exists(f), f
+        assert Image.open(f).size == size, (f, Image.open(f).size, size)
+    places = c.eval_py("local out = {} for _, p in ipairs(ns.AzeroWorld.PLACES) do out[#out + 1] = p.id end return out")
+    assert sorted(art["places"]) == sorted(places), art["places"]
+    assert sorted(art["fog"]) == sorted(places + ["peaks"]), sorted(art["fog"])
+    no_errors(w)
+
+
+def open_map(c, w):
+    c.eval("ns.AzeroUI._HandleKey('START')")
+    w.tick(0.1)
+    items = c.eval_py("return ns.AzeroUI._MenuItems()")
+    for _ in range(items.index("MAP")):
+        c.eval("ns.AzeroUI._HandleKey('down')")
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.1)
+    return c.eval_py("return ns.AzeroWorld._State()")
+
+
+def close_map(c, w):
+    c.eval("ns.AzeroUI._HandleKey('B')")
+    w.tick(0.1)
+    c.eval("ns.AzeroUI._HandleKey('B')")
+    w.tick(0.1)
+
+
+@case
+def mist_hides_unknown_places_and_lifts_when_you_find_them():
+    w, c = game(ui=True)
+    s = open_map(c, w)
+    assert s["artOK"], s
+    assert "goldshire" not in s["fog"] and "westfall" in s["fog"] and "peaks" in s["fog"], s["fog"]
+    assert s["pins"] == ["elwynn"], s["pins"]                         # a road leads from Goldshire into the mist
+    assert s["reveal"] == [] and s.get("banner") is None, s              # (the first look shows what you know, quietly)
+    close_map(c, w)
+    c.eval("ns.Azero:EnterMap('route1', 11, 20, 'up', true)")
+    s = open_map(c, w)
+    assert s["reveal"] == ["elwynn"] and s["sel"] == "elwynn", s
+    assert "elwynn" in s["fog"] and s["name"] == "Elwynn Forest", s   # the mist is still lifting; the card knows it
+    w.tick(0.6)
+    assert c.eval_py("return ns.AzeroWorld._State()")["banner"] == "Elwynn Forest"
+    w.tick(2.5)
+    s = c.eval_py("return ns.AzeroWorld._State()")
+    assert s["reveal"] == [] and "elwynn" not in s["fog"], s
+    assert s["pins"] == ["forestedge", "westfall"], s["pins"]
+    close_map(c, w)
+    s = open_map(c, w)
+    assert s["reveal"] == [], s                                      # shown once
+    no_errors(w)
+
+
+@case
+def lamps_light_up_after_dark():
+    w, c = game(ui=True)
+    lit = """local f = ns.AzeroWorld.frame local n = 0
+      for _, g in ipairs(f.glows) do if g.tex:IsShown() then n = n + 1 end end
+      for _, x in ipairs(f.windows) do if x.tex:IsShown() then n = n + 1 end end
+      return { n = n, dark = f.dark:IsShown() }"""
+    c.eval("ns.Azero.clockHour = 12")
+    s = open_map(c, w)
+    assert s["period"] == "day" and c.eval_py(lit) == {"n": 0, "dark": False}
+    close_map(c, w)
+    c.eval("ns.Azero.clockHour = 23")
+    s = open_map(c, w)
+    r = c.eval_py(lit)
+    assert s["period"] == "night" and r["dark"] and r["n"] > 0, r
+    # lamps under the mist stay dark: only Goldshire's are known in a new game
+    gold = c.eval_py("""local f, A = ns.AzeroWorld.frame, ns.AzeroWorldArt local far = 0
+      local gx, gy = A.places.goldshire[1], A.places.goldshire[2]
+      for _, g in ipairs(f.glows) do
+        if g.tex:IsShown() and (math.abs(g.x - gx) > 14 or math.abs(g.y - gy) > 14) then far = far + 1 end
+      end
+      return far""")
+    assert gold == 0, gold
     no_errors(w)
 
 

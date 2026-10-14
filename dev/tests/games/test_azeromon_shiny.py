@@ -129,7 +129,7 @@ def the_battle_shows_the_other_skin_the_star_and_the_sparkle():
     w, c = game(ui=True)
     c.eval("""local G = ns.Azero
       G.shinyOdds = 1
-      G:Run(function(g) g:WildBattle('webling', 10) end)""")
+      G:Run(function(g) g:WildBattle('wolfpup', 10) end)""")
     # play the intro in the UI until the foe is out
     got = None
     for _ in range(60):
@@ -139,7 +139,7 @@ def the_battle_shows_the_other_skin_the_star_and_the_sparkle():
             got = s
             break
     assert got, c.eval_py("return ns.AzeroUI._Shiny()")
-    assert got["display"] == 4457 and got["glow"] is False and got["star"] is True, got
+    assert got["display"] == 644 and got["glow"] is False and got["star"] is True, got
     no_errors(w)
 
 

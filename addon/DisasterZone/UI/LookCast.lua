@@ -260,6 +260,27 @@ function Cast:Paint(f)
     if f.spark then f.spark:SetVertexColor(math.min(1, c[1] + 0.25), math.min(1, c[2] + 0.2), math.min(1, c[3] + 0.3), 0.8) end
 end
 
+-- The game's placeholder icon (Interface\Icons\Temp, the laughing face) comes with casts that have no icon of their
+-- own, like learning a recipe: the item just used (the recipe) when there is one, else a book.
+local TEMP_ICON, NO_ICON = 136235, "Interface\\Icons\\INV_Misc_Book_09"
+local lastUsed      -- { icon, at }: the item last used from the bags
+local function RememberUse(bag, slot)
+    local info = C_Container and C_Container.GetContainerItemInfo and C_Container.GetContainerItemInfo(bag, slot)
+    if info and info.iconFileID then lastUsed = { icon = info.iconFileID, at = GetTime and GetTime() or 0 } end
+end
+if hooksecurefunc then
+    if C_Container and C_Container.UseContainerItem then pcall(hooksecurefunc, C_Container, "UseContainerItem", RememberUse) end
+    if type(UseContainerItem) == "function" then pcall(hooksecurefunc, "UseContainerItem", RememberUse) end
+end
+local function CastIcon(icon, unit)
+    local temp = icon == TEMP_ICON or (type(icon) == "string" and icon:lower():match("icons[\\/]temp$"))
+    if icon and not temp then return icon end
+    local now = GetTime and GetTime() or 0
+    if unit == "player" and lastUsed and now - lastUsed.at < 2 then return lastUsed.icon end
+    return NO_ICON
+end
+Cast.CastIcon = CastIcon
+
 -- What a unit is casting: name, icon, start, end (seconds), channel, can't be interrupted.
 local function Info(unit)
     if UnitCastingInfo then
@@ -290,7 +311,7 @@ function Cast:Start(f, fake)
     f:SetAlpha(1)
     if f.cl then f.cl.flash:Show(false) end
     f.name:SetText((f.look and f.look.upper) and name:upper() or name)
-    f.icon:SetTexture(icon)
+    f.icon:SetTexture(CastIcon(icon, f.unit))
     -- my casts: the time the server needs (world latency) as the end piece
     if f.unit == "player" and Look():Opt("cast", "latency", true) and not chan and GetNetStats then
         local _, _, _, world = GetNetStats()

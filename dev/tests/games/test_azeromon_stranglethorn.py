@@ -218,7 +218,7 @@ def every_new_beast_lives_in_the_vale_and_the_chains_reach_four_forms():
       end
       local out = { missing = {}, bosses = {}, chains = {}, rares = {} }
       for id, s in pairs(D.species) do
-        if s.num >= 96 then
+        if s.num >= 96 and s.num <= 130 then          -- (Blackrock: test_azeromon_blackrock_beasts.py)
           if s.boss then out.bosses[#out.bosses + 1] = id
           elseif s.rare then out.rares[#out.rares + 1] = id
           elseif not met[id] then out.missing[#out.missing + 1] = id end
