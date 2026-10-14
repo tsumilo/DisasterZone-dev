@@ -66,7 +66,7 @@ def tga(img, name):
     print("wrote", name + ".tga", img.size)
 
 
-ATLAS_H = 512          # 16 columns x 32 rows of 16px tiles (power of two)
+ATLAS_H = 1024         # 16 columns x 64 rows of 16px tiles (power of two; 512 rows were full at 0.25)
 
 
 def build_atlas():
@@ -106,6 +106,10 @@ def build_atlas():
     # pattern the ground baker draws between neighbouring trees inside the map)
     for g, tree in (("grass1", "tree"), ("wgrass1", "wtree"), ("dgrass1", "dtree"), ("jgrass1", "jtree")):
         add(g + "_forest", forest_tile(atlas, index[g + "_shade"], index[tree]), 0, 0)
+    # Blackrock (0.25): the finished tiles recoloured into Redridge / Steppes / Gorge / Blackrock, Lakeshire's red
+    # roofs (the rrhouse stamp) and the zone's gather nodes (appended, so earlier slots never move)
+    for name, arr in blackrock_art.tiles(lambda n: np.array(atlas.crop(_cell_box(index[n])), dtype=np.float64)):
+        add(name, Image.fromarray(arr, "RGBA"), 0, 0)
     tga(atlas, "atlas")
     return index
 
@@ -117,6 +121,8 @@ def build_atlas():
 # ---------------------------------------------------------------------------------------------------------------
 import azeromon_props  # noqa: E402
 import azeromon_interiors  # noqa: E402
+import azeromon_blackrock_art as blackrock_art  # noqa: E402
+import numpy as np  # noqa: E402
 
 SHADE = 0.74            # forest floor under the trees (the ground baker uses the same)
 GRASS_TILES = ("grass1", "grass2", "wgrass1", "wgrass2", "dgrass1", "dgrass2", "jgrass1", "jgrass2")
