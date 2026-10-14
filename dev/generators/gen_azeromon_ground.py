@@ -35,6 +35,7 @@ import azeromon_interiors as interiors  # noqa: E402
 import gen_azeromon_hall as hall  # noqa: E402
 import azeromon_battle as battle  # noqa: E402
 import azeromon_blp  # noqa: E402
+import azeromon_blackrock_art as blackrock_art  # noqa: E402
 
 ADDON = os.path.join(os.path.dirname(DEV), "addon", "DisasterZone")
 MEDIA = os.path.join(ADDON, "Media", "Azeromon")
@@ -61,7 +62,7 @@ WARM = (255, 226, 176)
 LIGHT_SCALE = 4                                                # light maps are stored at a quarter of the size
 
 # which map themes get a baked ground (more zones are added as they are checked in game)
-GROUND_THEMES = ("elwynn", "westfall", "duskwood", "jungle", "mine", "arena")
+GROUND_THEMES = ("elwynn", "westfall", "duskwood", "jungle", "mine", "arena", "redridge", "steppes", "gorge", "blackrock")
 WALLS = {"R": "ruinwall"}            # wall chars -> the props' joined wall pieces, unless the theme says otherwise
 
 # ------------------------------------------------------------------------------------------- noise (as the mockup)
@@ -135,7 +136,29 @@ THEMES = {
                    water=dict(out=(20, 58, 66), foam=(204, 242, 230), light=(84, 184, 192), mid=(50, 150, 170), deep=(34, 118, 148)),
                    decor=dict(flowers=["redflower", "fern", "fern"], edge=["fern", "pebble", "tuft"],
                               tree=["fern", "shroom"], bank=["reeds", "fern"])),
+    # Blackrock (0.25; the approved mockup's bake.py): Redridge's autumn by a lake; the Steppes, the Gorge and the
+    # mountain's 'w' is lava (LAVA: glowing, lit at night); Blackrock Mountain is a cave (always this dim)
+    "redridge": dict(g1="rgrass1", g2="rgrass2", tall="rtall_", path="rpath_", tree="rtree", walls={"R": "ruinwall"},
+                     water=dict(out=(34, 58, 84), foam=(214, 232, 236), light=(128, 178, 214), mid=(86, 140, 196), deep=(60, 104, 170)),
+                     decor=dict(flowers=["leaves", "butter", "leaves", "daisy"], edge=["tuft", "pebble", "leaves", "pebble2"],
+                                tree=["leaves", "shroom"], bank=["reeds", "pebble"])),
+    "steppes": dict(g1="sgrass1", g2="sgrass2", tall="stall_", path="spath_", tree="stree", walls={"R": "basaltwall"},
+                    water="lava", sparse=True,
+                    decor=dict(flowers=["bones", "pebble", "pebble2"], edge=["pebble", "pebble2", "bones"], tree=["pebble"],
+                               bank=["pebble2"])),
+    "gorge": dict(g1="ggrass1", g2="ggrass2", tall="gtall_", path="gpath_", tree=None, walls={"T": "gorgewall"},
+                  water="lava", sparse=True,
+                  decor=dict(flowers=["pebble", "pebble2"], edge=["pebble", "pebble2", "bones"], tree=["pebble"],
+                             bank=["pebble2"])),
+    "blackrock": dict(g1="bfloor1", g2="bfloor2", tall="stall_", path="bpath_", tree=None, cave=True, dark=(150, 118, 112),
+                      sparse=True, walls={"T": "basaltwall", "R": "basaltwall"}, water="lava",
+                      decor=dict(flowers=["pebble", "bones"], edge=["pebble", "pebble2", "bones"], tree=["pebble"],
+                                 bank=["pebble2"])),
 }
+LAVA = dict(out=(70, 18, 8), foam=(255, 226, 130), light=(255, 196, 90), mid=(244, 112, 30), deep=(196, 58, 18))
+for _th in THEMES.values():
+    if _th.get("water") == "lava":
+        _th["water"], _th["lava"] = LAVA, True
 
 # hand-placed decor; "a"/"b" = the ground's own dark/light green
 SPR = {
@@ -657,6 +680,18 @@ def lights(m, atlas):
     return out
 
 
+def lava_lights(m, th):
+    """lava glows: a light every few lava tiles (the light maps are what make it read at night and in caves)"""
+    out = []
+    if not th.get("lava"):
+        return out
+    for y in range(m["h"]):
+        for x in range(m["w"]):
+            if m["rows"][y][x] == "w" and (x * 3 + y * 5) % 3 == 0:
+                out.append((x * 16 + 8, y * 16 + 8, 36, 1, 0))
+    return out
+
+
 def light_map(W, H, ls, dark):
     """the darkness for dusk or night with stepped warm pools round each light, at 1 / LIGHT_SCALE size"""
     w, h = -(-W // LIGHT_SCALE), -(-H // LIGHT_SCALE)
@@ -848,7 +883,7 @@ def load_maps():
 
 def _src_digest():
     h = hashlib.sha1()
-    for p in (__file__, azeromon_props.__file__, interiors.__file__, battle.__file__):
+    for p in (__file__, azeromon_props.__file__, interiors.__file__, battle.__file__, blackrock_art.__file__):
         h.update(open(p, "rb").read().replace(b"\r\n", b"\n"))
     h.update(open(os.path.join(MEDIA, "atlas.tga"), "rb").read())
     return h.hexdigest()
@@ -994,11 +1029,7 @@ def bake_interior(mid, m, atlas, src):
 
 def main():
     atlas = Atlas()
-    walls = {}
-    for name, img in azeromon_props.images().items():
-        kind, _, m_ = name.rpartition("_")
-        if kind in ("ruinwall", "cavewall", "arenawall"):
-            walls.setdefault(kind, {})[int(m_)] = np.array(img, dtype=np.float64)
+    walls = blackrock_art.walls(azeromon_props.images())          # + the canyon and basalt cave walls
     maps = load_maps()
     src = _src_digest()
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -1029,9 +1060,9 @@ def main():
             tex[:h, :w] = cut
             _save(Image.fromarray(tex, "RGBA"), os.path.join(OUT_DIR, "%s_m%d.tga" % (mid, i + 1)))
             ms.append((x, y, w, h, tw_, th_))
-        ls = lights(m, atlas)
+        ls = lights(m, atlas) + lava_lights(m, th)
         lc = []
-        for period, dark in (({"night": CAVE_DARK}).items() if th.get("cave") else NIGHT.items()):
+        for period, dark in (({"night": th.get("dark", CAVE_DARK)}).items() if th.get("cave") else NIGHT.items()):
             lm = light_map(img.shape[1], img.shape[0], ls, dark)
             lc = []
             for cx, cy, uw, uh, tw_, th_, tex in chunks(lm):

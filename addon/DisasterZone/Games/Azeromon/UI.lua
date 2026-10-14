@@ -2612,7 +2612,7 @@ local function BattleScene()
     local art = ns.AzeroBattleArt
     if not art then return nil end
     local def = G.map and G.map.def
-    local sc = def and art.scenes[def.theme or ""]
+    local sc = def and (art.scenes[G.map.id] or art.scenes[def.theme or ""])     -- (a map's own scene: the Molten Core)
     if not sc then sc = (def and not def.outdoor) and art.indoor or art.outdoor end
     return sc
 end
@@ -2956,12 +2956,20 @@ Amb.MOODS = {
     jungle = { tint = { 0.92, 1, 0.94 }, motes = { 0.9, 1, 0.7 }, shafts = true, fireflies = true, rain = true },
     mine = { tint = { 0.94, 0.88, 0.82 }, motes = { 0.8, 0.74, 0.62 }, duskMotes = { 0.8, 0.74, 0.62 } },
     arena = { tint = { 1, 0.94, 0.84 }, motes = { 0.96, 0.86, 0.66 }, duskMotes = { 1, 0.78, 0.44 } },
+    -- Blackrock: Redridge's warm autumn with falling leaves (their colours), the Steppes' red-ash grade with ash
+    -- falling and embers rising off the lava, the Gorge's warm dust, the mountain's caves with embers
+    redridge = { tint = { 1, 0.93, 0.84 }, motes = { 1, 0.86, 0.6 }, duskMotes = { 1, 0.74, 0.42 }, rain = true,
+                 leaves = { { 0.86, 0.42, 0.16 }, { 0.74, 0.24, 0.12 }, { 0.94, 0.66, 0.22 } } },
+    steppes = { tint = { 1, 0.84, 0.76 }, ash = true, embers = true },
+    gorge = { tint = { 1, 0.9, 0.78 }, motes = { 0.96, 0.74, 0.5 }, duskMotes = { 1, 0.66, 0.36 }, embers = true },
+    blackrock = { tint = { 1, 0.88, 0.8 }, embers = true, motes = { 0.7, 0.5, 0.4 }, duskMotes = { 0.7, 0.5, 0.4 } },
 }
 Amb.GLINT = { elwynn = { 0.82, 0.92, 1 }, westfall = { 0.84, 0.94, 1 }, duskwood = { 0.5, 0.6, 0.76 },
-              jungle = { 0.7, 0.96, 0.96 }, mine = { 0.36, 0.46, 0.56 }, arena = { 0.84, 0.94, 1 } }
+              jungle = { 0.7, 0.96, 0.96 }, mine = { 0.36, 0.46, 0.56 }, arena = { 0.84, 0.94, 1 },
+              redridge = { 0.84, 0.92, 1 }, steppes = { 1, 0.86, 0.5 }, gorge = { 1, 0.86, 0.5 }, blackrock = { 1, 0.86, 0.5 } }
 Amb.parts = {}        -- footstep dust and leaves: { kind, x, y, t0, seed } in map pixels
 Amb.GLOW = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
-Amb.CHIMNEY_KINDS = { house = true, darkhouse = true, farmhouse = true, stonehouse = true }
+Amb.CHIMNEY_KINDS = { house = true, darkhouse = true, farmhouse = true, stonehouse = true, rrhouse = true }
 Amb.CRITTERS = {                -- butterfly wing colours and the flock's colours, per map theme
     elwynn = { wings = { { 1, 1, 1 }, { 0.96, 0.89, 0.48 }, { 0.62, 0.83, 1 } }, flies = 4,
                bird = { 0.17, 0.16, 0.19 }, bird2 = { 0.17, 0.16, 0.19 } },
@@ -2972,6 +2980,10 @@ Amb.CRITTERS = {                -- butterfly wing colours and the flock's colour
     westfall = { wings = { { 0.96, 0.89, 0.48 }, { 1, 1, 1 } }, flies = 3, bird = { 0.12, 0.1, 0.12 },
                  bird2 = { 0.12, 0.1, 0.12 } },
     arena = { wings = {}, flies = 0, bird = { 0.3, 0.24, 0.2 }, bird2 = { 0.3, 0.24, 0.2 } },     -- vultures
+    redridge = { wings = { { 0.96, 0.62, 0.26 }, { 1, 1, 1 } }, flies = 3, bird = { 0.14, 0.12, 0.12 },
+                 bird2 = { 0.14, 0.12, 0.12 } },
+    steppes = { wings = {}, flies = 0, bird = { 0.1, 0.08, 0.08 }, bird2 = { 0.1, 0.08, 0.08 } },          -- crows in the ash
+    gorge = { wings = {}, flies = 0, bird = { 0.3, 0.22, 0.18 }, bird2 = { 0.3, 0.22, 0.18 } },           -- buzzards
 }
 
 function Amb.Water(m, g, px, py)
@@ -3391,7 +3403,48 @@ function Amb.Mood(m, g, px, py, period)
             local life = H + 40
             local y = ((((k * 0.37) % 1) * life + now * (6 + (k % 5))) % life) - 20
             local x = ((k * 0.618) % 1) * W + math.sin(now * 1.4 + k) * 6
-            Amb.Pix(px, py, x, y, 2, 1, k % 3 > 0 and 0.71 or 0.54, k % 3 > 0 and 0.42 or 0.29, 0.2, 1, "ARTWORK", 6)
+            local lc = type(mood.leaves) == "table" and mood.leaves[k % #mood.leaves + 1]
+            if lc then
+                Amb.Pix(px, py, x, y, 2, 1, lc[1], lc[2], lc[3], 1, "ARTWORK", 6)
+            else
+                Amb.Pix(px, py, x, y, 2, 1, k % 3 > 0 and 0.71 or 0.54, k % 3 > 0 and 0.42 or 0.29, 0.2, 1, "ARTWORK", 6)
+            end
+        end
+    end
+    -- ash drifting down over the Burning Steppes (screen-anchored, like the rain, but slow)
+    if mood.ash then
+        local VWp, VHp = VW * 16, VH * 16
+        for k = 0, 27 do
+            local fall = VHp + 8
+            local y = (((k * 0.7548) % 1) * fall + now * (5 + (k % 4))) % fall - 4
+            local x = (((k * 0.5698) % 1) * (VWp + 20) + math.sin(now * 0.9 + k) * 5 + y * 0.2) % (VWp + 20) - 10
+            local gr = (k % 3 == 0) and 0.36 or 0.62
+            Amb.Pix(px, py, ox + x, oy + y, 1, 1, gr, gr * 0.94, gr * 0.9, 0.8, "OVERLAY", 2)
+        end
+    end
+    -- embers rising off the lava (m.lava: its lava tiles, gathered once), or anywhere in a cave without lava
+    if mood.embers then
+        if not m.lava then
+            m.lava = {}
+            for k in pairs(m.water) do m.lava[#m.lava + 1] = k end
+            table.sort(m.lava)
+        end
+        local n = #m.lava
+        for k = 0, 23 do
+            local t = now * 0.35 + k * 0.37
+            local age, cyc = t % 1, floor(t)
+            local tx, ty
+            if n > 0 then
+                local key = m.lava[(cyc * 7919 + k * 104729) % n + 1]
+                tx, ty = key % m.w, floor(key / m.w)
+            else
+                tx, ty = (cyc * 31 + k * 17) % m.w, (cyc * 13 + k * 29) % m.h
+            end
+            local x = tx * 16 + 4 + (k * 5) % 9 + math.sin(t * 9 + k) * 2
+            local y = ty * 16 + 10 - age * 38
+            if x > ox - 16 and x < ox + VW * 16 + 16 and y > oy - 16 and y < oy + VH * 16 + 16 then
+                Amb.Pix(px, py, x, y, 1, 1, 1, 0.55 + 0.3 * (1 - age), 0.2, 1 - age * 0.8, "OVERLAY", 6)
+            end
         end
     end
     -- fireflies at dusk and night (Stranglethorn)
@@ -3472,7 +3525,7 @@ function Amb.Steps(m, px, py)
         if not G:Data().calm then
             local ch = m.def.rows[mv.fromY + 1] and m.def.rows[mv.fromY + 1]:sub(mv.fromX + 1, mv.fromX + 1) or "."
             local kind = (ch == "\"" or ch == ";") and "leaf" or ((ch == "=" or ch == "s" or (m.def.theme == "mine")
-                or (m.def.theme == "arena")) and "dust") or nil
+                or (m.def.theme == "arena") or (m.def.theme == "gorge") or (m.def.theme == "blackrock")) and "dust") or nil
             local running = mv.dur < (G.STEP_TIME or 0.25) * 0.8
             if kind then
                 for k = 1, running and 2 or 1 do
