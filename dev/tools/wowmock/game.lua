@@ -1102,6 +1102,11 @@ local function plate_frame(token)
     f:SetPoint("CENTER", WorldFrame, "CENTER", 0, 0)
     f.UnitFrame = CreateFrame("Frame", nil, f)
     f.UnitFrame:SetAllPoints(f)
+    -- (the client's mouse-over highlight ignores its parent's alpha: Blizzard_NamePlates.xml selectionHighlight)
+    local hb = CreateFrame("StatusBar", nil, f.UnitFrame)
+    f.UnitFrame.healthBar = hb
+    f.UnitFrame.selectionHighlight = hb:CreateTexture(nil, "OVERLAY")
+    f.UnitFrame.selectionHighlight:SetIgnoreParentAlpha(true)
     M.plate_frames[token] = f
   end
   f.namePlateUnitToken = token

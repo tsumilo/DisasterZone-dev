@@ -233,9 +233,10 @@ function HALO.Draw(c, p)
     local x0, y0 = -w / 2, -h / 2
     if p.glow then c:Glow(0, 0, w + 26, h + 18, p.glow, 0.75 * p.pulse) end
     if p.target then c:Pill(x0 - 3.5, 0, w + 7, h + 7, WHITE, 0.95, true) end
-    c:Pill(x0 - 1, 0, w + 2, h + 2, BLACK, 0.9)
-    c:Pill(x0, 0, w, h, DARK, 0.94)
-    if p.hp > 0 then FadePill(c, x0, 0, w * p.hp, h, p.col, 0.9 * 0.45, 0.92) end
+    -- (the fill nearly solid: a faint start let the dark track show at the ends, read as a dark box edge in game)
+    c:Pill(x0 - 1, 0, w + 2, h + 2, BLACK, 0.6)
+    c:Pill(x0, 0, w, h, DARK, 0.85)
+    if p.hp > 0 then FadePill(c, x0, 0, w * p.hp, h, p.col, 0.75, 1) end
     c:Rect(x0 + h / 2, y0 + 1, w - h, h / 2 - 1, WHITE, 0.06)
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0 + 2, 1, h - 4, WHITE, 0.55) end
     c:Text(Pct(p), x0 + w - 6, 0.5, "ArialN", 9.5, p.execReady and GOLD or WHITE, 1, "RIGHT")

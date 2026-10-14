@@ -92,6 +92,9 @@ def ours_on_every_plate_and_the_games_handed_back():
     t.step(2)
     assert t.game_alpha() == 0
     assert t.regions() > 5
+    # (the game's mouse-over highlight ignores its parent's alpha: made to follow it while ours are on)
+    hl = "return __MOCK.plate_frame(...).UnitFrame.selectionHighlight:IsIgnoringParentAlpha()"
+    assert t.c.eval(hl, t.token) is False
     # (the game setting its plate's alpha again: kept see-through)
     t.c.eval("__MOCK.plate_frame(...).UnitFrame:SetAlpha(1)", t.token)
     assert t.game_alpha() == 0
@@ -101,6 +104,7 @@ def ours_on_every_plate_and_the_games_handed_back():
     assert not t.rec()
     assert t.game_alpha() == 1
     assert t.c.eval("return GetCVar('nameplateMotion')") == "0"
+    assert t.c.eval(hl, t.token) is True
     # a look for everything brings them back
     t.c.eval("ns.Look:UseEverywhere('sigil'); if ns.Popup then ns.Popup:HideAll() end")
     t.w.tick(0.2)

@@ -536,7 +536,8 @@ local Region = define("Region", nil, {
     return s
   end,
   SetIgnoreParentScale = function() end,
-  SetIgnoreParentAlpha = function() end,
+  SetIgnoreParentAlpha = function(self, on) S(self).ignoreParentAlpha = on and true or false end,
+  IsIgnoringParentAlpha = function(self) return S(self).ignoreParentAlpha == true end,
   IsMouseOver = function() return false end,
   IsMouseMotionFocus = function() return false end,
   SetDrawLayer = function(self, layer, sub)

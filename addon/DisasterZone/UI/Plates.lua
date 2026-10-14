@@ -273,9 +273,37 @@ local function GameSeen(plate, seen)
         end
         uf.dzHidden = true
         uf:SetAlpha(0)
+        -- (pieces that ignore their parent's alpha stay seen through alpha 0: the mouse-over highlight under the bar,
+        -- selectionHighlight, is one in the client's Blizzard_NamePlates.xml; they follow it while ours are on)
+        local list = uf.dzIgnoring or {}
+        uf.dzIgnoring = list
+        local function Walk(f, depth)
+            if depth > 6 then return end
+            local regions = { f:GetRegions() }
+            for _, r in ipairs(regions) do
+                if r.IsIgnoringParentAlpha and r:IsIgnoringParentAlpha() then
+                    r:SetIgnoreParentAlpha(false)
+                    list[#list + 1] = r
+                end
+            end
+            for _, k in ipairs({ f:GetChildren() }) do
+                if not (k.IsForbidden and k:IsForbidden()) then
+                    if k.IsIgnoringParentAlpha and k:IsIgnoringParentAlpha() then
+                        k:SetIgnoreParentAlpha(false)
+                        list[#list + 1] = k
+                    end
+                    Walk(k, depth + 1)
+                end
+            end
+        end
+        Walk(uf, 0)
     elseif uf.dzHidden then
         uf.dzHidden = nil
         uf:SetAlpha(1)
+        for i, r in ipairs(uf.dzIgnoring or {}) do
+            if r.SetIgnoreParentAlpha then r:SetIgnoreParentAlpha(true) end
+            uf.dzIgnoring[i] = nil
+        end
     end
 end
 P.GameSeen = GameSeen
