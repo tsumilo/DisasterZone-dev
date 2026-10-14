@@ -67,7 +67,11 @@ fn slots(snap: &Value, entry: &Value, name: &str, phase: u8, off: bool, queue: &
     };
     // sid -> (main, main got, alt)
     let mut by: std::collections::BTreeMap<u64, (u64, bool, u64, bool)> = Default::default();
-    let ph = entry.get(if off { "oph" } else { "ph" }).and_then(|p| p.get(phase.to_string()));
+    let mut ph = entry.get(if off { "oph" } else { "ph" }).and_then(|p| p.get(phase.to_string()));
+    // (a snapshot from before 1.4.2's phases: only the guild phase's main-spec picks, in "slots")
+    if entry.get("ph").is_none() && !off && snap.get("phase").and_then(|p| p.as_u64()) == Some(phase as u64) {
+        ph = entry.get("slots");
+    }
     for s in lua_list(ph) {
         let sid = s.get("sid").and_then(|x| x.as_u64()).unwrap_or(0);
         by.insert(sid, (
@@ -112,7 +116,12 @@ fn slots(snap: &Value, entry: &Value, name: &str, phase: u8, off: bool, queue: &
 /// The sheet message of a character: (embed, components, file).
 fn sheet(snap: &Value, name: &str, phase: Option<u8>, off: bool) -> Option<(Embed, Vec<Component>, Option<(String, Vec<u8>)>)> {
     let (key, entry) = find(snap, name)?;
-    let class = entry.get("class").and_then(|x| x.as_str()).unwrap_or("");
+    // (the class from the list, else from the guild roster)
+    let roster_class = lua_list(snap.get("roster"))
+        .into_iter()
+        .find(|m| m.get("key").and_then(|k| k.as_str()) == Some(key.as_str()))
+        .and_then(|m| m.get("class").and_then(|c| c.as_str()));
+    let class = entry.get("class").and_then(|x| x.as_str()).or(roster_class).unwrap_or("");
     let phase = phase.unwrap_or_else(|| snap.get("phase").and_then(|p| p.as_u64()).unwrap_or(1) as u8);
     let has_off = entry.get("oph").is_some();
     let off = off && has_off;
