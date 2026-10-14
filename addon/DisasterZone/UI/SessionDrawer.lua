@@ -623,7 +623,7 @@ function Sec.Reserves(y, idle)
         or S:Wrap("SUB", L and "none · the council decides what you hold" or "pick them once reserves are open"))
     v:SetWidth(W - PAD - x - 8 - (pickBtn and 58 or 0) - PAD)
     y = y + PROW_H + 2
-    y = P.Prow(y, "Nobody reserved", "Up for grabs" .. S:Wrap("SUB", " · everyone rolls, highest wins"))
+    y = P.Prow(y, "Unreserved","Up for grabs" .. S:Wrap("SUB", " · everyone rolls, highest wins"))
     local imp = (L and not L.foreign) and P.Button("Import", 60, nil, function() RUI:ShowImport() end,
         { "Import", "A softres.it sheet (CSV or the Gargul string), LootReserve's or Gargul's CSV." }) or nil
     y = P.Prow(y, "Ways in", "Whisper !sr" .. S:Wrap("SUB", " · ") .. "LootReserve" .. S:Wrap("SUB", " · ")
