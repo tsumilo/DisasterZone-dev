@@ -223,6 +223,16 @@ local function FadePill(c, L0, y, w, h, col0, col1)
     c:Img(tex, L0 + w - e / 2, y, e, h, col1, 1, 1 - u, 1, 0, 1)
 end
 
+-- A bar piece from xa (square) to xb (round), middle on y 0, h high.
+local function RightRound(c, xa, xb, h, col, a)
+    if xb - xa <= 0.5 then return end
+    if not (Pen.Smooth and Pen.Smooth()) then c:Rect(xa, -h / 2, xb - xa, h, col, a) return end
+    local e = h / 2
+    local ce = min(e, xb - xa)
+    if xb - xa > e then c:Rect(xa, -h / 2, xb - xa - e, h, col, a) end
+    c:Img(Pen.PEN .. "pill", xb - ce / 2, 0, ce, h, col, a, 1 - (32 / 256) * (ce / e), 1, 0, 1)
+end
+
 local HALO = { key = "halo" }
 function HALO.Geom(p)
     if p.nameOnly then local g = NameOnlyGeom(p); g.l, g.r, g.top, g.bot = g.l - 9, g.r + 9, -9, 7 return g end
@@ -241,14 +251,22 @@ function HALO.Draw(c, p)
     if p.glow then c:Glow(0, 0, w + 26, h + 18, p.glow, 0.75 * p.pulse) end
     if p.target then c:Pill(x0 - 3.5, 0, w + 7, h + 7, WHITE, 0.95, true) end
     -- (the fill nearly solid: a faint start let the dark track show at the ends, read as a dark box edge in game)
-    c:Pill(x0 - 1, 0, w + 2, h + 2, BLACK, 0.6)
-    c:Pill(x0, 0, w, h, DARK, 0.85)
-    if p.trail then        -- (from under the bar's round end: the fill's right end is solid and covers it)
-        local L0 = max(x0, x0 + w * p.hp - h)
-        c:Pill(L0, 0, max(h, x0 + w * p.trail - L0), h, Chunk(p.col), 0.7)
+    -- (nothing under the fill: a dimmed plate draws every piece see-through, WoW fades each region on its own, so
+    -- a rim or track under the fill showed through as dark hard-looking ends. The track and the chunk only cover
+    -- what the fill doesn't, from under its round end.)
+    local fw = w * p.hp
+    local fend = (p.hp > 0) and (x0 + max(fw, h)) or x0
+    if p.hp <= 0 then c:Pill(x0, 0, w, h, DARK, 0.85)
+    elseif fend < x0 + w - 0.5 then
+        local from = fend - h / 2
+        if p.trail then
+            local tend = min(x0 + w, x0 + w * p.trail)
+            RightRound(c, from, tend, h, Chunk(p.col), 0.75)
+            from = max(from, tend - h / 2)
+        end
+        RightRound(c, from, x0 + w, h, DARK, 0.85)
     end
-    if p.hp > 0 then FadePill(c, x0, 0, w * p.hp, h, Shade(p.col, 0.62), p.col) end
-    c:Rect(x0 + h / 2, y0 + 1, w - h, h / 2 - 1, WHITE, 0.06)
+    if p.hp > 0 then FadePill(c, x0, 0, fw, h, Shade(p.col, 0.62), p.col) end
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0 + 2, 1, h - 4, WHITE, 0.55) end
     c:Text(Pct(p), x0 + w - 6, 0.5, "ArialN", 9.5, p.execReady and GOLD or WHITE, 1, "RIGHT")
     local ny = y0 - (p.target and 12 or 9)

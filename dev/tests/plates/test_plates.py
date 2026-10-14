@@ -91,7 +91,7 @@ def ours_on_every_plate_and_the_games_handed_back():
     assert t.rec()
     t.step(2)
     assert t.game_alpha() == 0
-    assert t.regions() > 5
+    assert t.regions() >= 4
     # (the game's mouse-over highlight ignores its parent's alpha: made to follow it while ours are on)
     hl = "return __MOCK.plate_frame(...).UnitFrame.selectionHighlight:IsIgnoringParentAlpha()"
     assert t.c.eval(hl, t.token) is False
