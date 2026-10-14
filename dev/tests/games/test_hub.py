@@ -45,9 +45,9 @@ def tab_opens_on_the_carousel_and_turns_every_way():
     c.world = w
     hub(c)
     assert c.eval("return ns.GamesUI:GetSelected()") is None
-    assert c.eval("return #%s" % POSTERS) == 4
+    assert c.eval("return #%s" % POSTERS) == 5
     order = c.eval_py("local o = {} for i, p in ipairs(%s) do o[i] = p.id end return o" % POSTERS)
-    assert order == ["bingo", "trainer", "azeromon", "chess"], order
+    assert order == ["bingo", "trainer", "azeromon", "chess", "illidan"], order
     n = len(order)
     start = front(c)
     i0 = order.index(start)
@@ -101,6 +101,32 @@ def front_poster_grows_into_the_game_and_back_returns():
     assert c.eval("return ns.GamesUI:GetSelected()") is None
     assert front(c) == "trainer"
     assert c.eval("return ns.Share:CurrentRef()") == "games"
+    no_errors(w)
+
+
+@case
+def azeromon_poster_is_a_film_of_the_game_crossfading_shot_to_shot():
+    """Azeromon's poster plays its film (Games/Azeromon/Poster.lua): every shot draws the baked ground, its props and
+    the walking hero; the next shot fades in on the upper reel over the last 1.6 s, then the reels swap."""
+    w, c = solo()
+    c.world = w
+    hub(c)
+    c.eval("ns.GamesUI:ShowFront('azeromon') ns.GamesUI:PauseAnim(true)")
+    FILM = ("local f for _, p in ipairs(%s) do if p.id == 'azeromon' then f = p.cover end end " % POSTERS)
+    n = c.eval(FILM + "return #ns.AzeroPoster.SHOTS")
+    assert n >= 5, n
+    for i in range(1, n + 1):
+        got = c.eval_py(FILM + "f:Seek(%d, 3) f:Tick(0.01) local r = f.reels[1] "
+                        "return { r.view:IsShown(), r.hero:IsShown(), #r.pools.ground, #r.pools.over, "
+                        "f.reels[2].view:IsShown() }" % i)
+        assert got[0] and got[1], (i, got)
+        assert got[2] > 0 and got[3] > 0, (i, got)                 # the baked ground and the props are drawn
+        assert not got[4], (i, got)                                 # (no second shot mid-shot; a tick is at most 0.1 s)
+    # the last 1.6 s: the next shot over it, half faded in at 7.2 s; past 8 s it is the shot playing
+    up = c.eval_py(FILM + "f:Seek(1, 7.2) f:Tick(0.01) local u = f.reels[2] return { u.view:IsShown(), u.view:GetAlpha() }")
+    assert up[0] and 0.3 < up[1] < 0.7, up
+    shot = c.eval(FILM + "for _ = 1, 9 do f:Tick(0.1) end return f.shot")
+    assert shot == 2, shot
     no_errors(w)
 
 

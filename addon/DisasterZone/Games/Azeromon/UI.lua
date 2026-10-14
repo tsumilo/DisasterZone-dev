@@ -3547,7 +3547,9 @@ end
 
 local function BuildWorld()
     world = CreateFrame("Frame", nil, screen)
-    world:SetAllPoints()
+    world:SetSize(SW, SH)                 -- centred, and scaled a little past the screen to fill the stage (FitScreen)
+    world:SetPoint("CENTER")
+    pcall(world.SetClipsChildren, world, true)   -- (the tile grid and the ground reach past the view)
     for i = 0, VW + 2 do
         grid[i] = {}
         for j = 0, VH + 1 do
@@ -3613,7 +3615,7 @@ local function BuildWorld()
     R.banner.fs:SetJustifyV("MIDDLE")
 
     R.fade = Tex(screen, "OVERLAY", 7)
-    R.fade:SetAllPoints()
+    R.fade:SetAllPoints(root)
     R.fade:SetColorTexture(0, 0, 0, 1)
     R.fade:Hide()
 
@@ -4117,11 +4119,12 @@ function KH.PlaceKeyStrip(h)
     local ks = R.keyStrip
     if not ks then return end
     local sc = screen:GetScale() or 1
-    local room = ((h or root:GetHeight() or 0) - SH * sc) / 2
+    local bleed = SH * sc * ((R.bleed or 1) - 1) / 2      -- how far the world reaches past the screen (FitScreen)
+    local room = ((h or root:GetHeight() or 0) - SH * sc) / 2 - bleed
     ks:ClearAllPoints()
     ks:SetWidth(SW * sc)
     if room >= 26 then
-        ks:SetPoint("TOP", screen, "BOTTOM", 0, -3)
+        ks:SetPoint("TOP", screen, "BOTTOM", 0, -3 - bleed)
         ks.bg:SetAlpha(0)
         ks.outside = true
     else
@@ -4746,7 +4749,9 @@ end
 
 local function BuildBattle()
     local b = CreateFrame("Frame", nil, screen)
-    b:SetAllPoints()
+    b:SetSize(SW, SH)                     -- like the world: fills the stage edge to edge (FitScreen)
+    b:SetPoint("CENTER")
+    pcall(b.SetClipsChildren, b, true)
     b:SetFrameLevel(screen:GetFrameLevel() + 20)
     R.battle = b
     -- backdrop: sky, field, a horizon stripe, soft bands; recoloured per map theme (ApplyBattleTheme)
@@ -4901,7 +4906,8 @@ function UI:CreatePanel(parent)
     screen = CreateFrame("Frame", nil, root)
     screen:SetSize(SW, SH)
     screen:SetPoint("CENTER")
-    pcall(screen.SetClipsChildren, screen, true)
+    -- the clip is the stage's: the world / battle / title reach a little past the screen to meet its edges
+    pcall(root.SetClipsChildren, root, true)
     R.screen = screen
 
     BuildWorld()
@@ -4946,7 +4952,7 @@ function UI:CreatePanel(parent)
     R.speciesModel2:SetFrameLevel(screen:GetFrameLevel() + 45)
     R.speciesModel2:Hide()
     local glow = CreateFrame("Frame", nil, screen)                  -- the evolution light behind the beast
-    glow:SetAllPoints()
+    glow:SetAllPoints(root)
     glow:SetFrameLevel(screen:GetFrameLevel() + 44)
     glow.t = Tex(glow, "BACKGROUND")
     glow.t:SetAllPoints()
@@ -4954,7 +4960,7 @@ function UI:CreatePanel(parent)
     glow:Hide()
     R.evoGlow = glow
     local flash = CreateFrame("Frame", nil, screen)                 -- and the white flash in front of it
-    flash:SetAllPoints()
+    flash:SetAllPoints(root)
     flash:SetFrameLevel(screen:GetFrameLevel() + 47)
     flash.t = Tex(flash, "OVERLAY")
     flash.t:SetAllPoints()
@@ -5178,7 +5184,9 @@ function UI:CreatePanel(parent)
 
     -- title
     R.title = CreateFrame("Frame", nil, screen)
-    R.title:SetAllPoints()
+    R.title:SetSize(SW, SH)
+    R.title:SetPoint("CENTER")
+    pcall(R.title.SetClipsChildren, R.title, true)
     R.title:SetFrameLevel(screen:GetFrameLevel() + 30)
     local tbg = Tex(R.title, "BACKGROUND")
     tbg:SetAllPoints()
@@ -5255,9 +5263,21 @@ function UI:CreatePanel(parent)
     ks:Hide()
     R.keyStrip = ks
 
+    -- The text boxes and menus fit inside the stage (the smaller scale); the world, the battle and the title screen
+    -- scale on up to the larger one so they meet all four edges (a few game pixels cut off, no dark bars). Past
+    -- BLEED_MAX the stage's shape is too far off: they stop there and the bars come back.
+    local BLEED_MAX = 1.05
     local function FitScreen(w, h)
         w, h = w or root:GetWidth(), h or root:GetHeight()
-        if w and h and w > 0 and h > 0 then screen:SetScale(max(0.3, min(w / SW, h / SH))) end
+        if w and h and w > 0 and h > 0 then
+            local fit = max(0.3, min(w / SW, h / SH))
+            screen:SetScale(fit)
+            local k = min(BLEED_MAX, max(1, max(w / SW, h / SH) / fit))
+            R.bleed = k
+            world:SetScale(k)
+            R.battle:SetScale(k)
+            R.title:SetScale(k)
+        end
         KH.PlaceKeyStrip(h)
     end
     root:SetScript("OnSizeChanged", function(self, w, h) FitScreen(w, h) end)
@@ -5338,6 +5358,9 @@ UI.Kit = {
     Screen = function() return screen end,
     Now = function() return now end,
     Tile = function(t, name) SetPixelTexture(t, ATLAS) SetTile(t, name) end,     -- an overworld tile on a texture
+    -- (the Games hub's poster film, Poster.lua: the same tiles and people on its own textures)
+    PixelTexture = SetPixelTexture, SetTile = SetTile, Char = SetChar,
+    HasTile = function(name) return (name and A[name]) and true or false end,
 }
 
 -- UI:RegisterScreen(kind, fn): shows G.pending of `kind` (fn(pending)); the screen calls G:Advance() when done.

@@ -16,6 +16,8 @@ ns.AzeroChangelog = {
           "The sea and big lakes glint; people glance around.",
           "Fences, crates, barrels, windmills and more redrawn.",
           "Start menu: MOTION turns the world's motion off.",
+          "The world meets the window's edges: no dark bars.",
+          "The Games poster now plays a film of the zones.",
       } },
     { version = "0.22", date = "14 October 2026", title = "Wide screen, painted battles",
       lines = {

@@ -31,7 +31,7 @@ local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 -- the games' colours (the front poster's edge, the room's glow, the rule under the text)
 local ACCENT = {
     bingo = ns.Style.C.GOLD, trainer = { 0.31, 0.83, 0.88 }, azeromon = { 0.53, 0.85, 0.42 },
-    chess = { 0.74, 0.58, 1 },
+    chess = { 0.74, 0.58, 1 }, illidan = { 0.65, 0.94, 0.29 },
 }
 local DEFAULT_ACCENT = ns.Style.C.GOLD
 
@@ -280,6 +280,35 @@ INFO.chess = function()
         out.stat = n > 0 and string.format("Beat Medivh |cffffffff%d|r of %d", w, n) or "|cff8a8a8aNot played yet|r"
     end
     if open > 0 then out.foot = string.format("%d %s open", open, open == 1 and "game" or "games") end
+    return out
+end
+
+-- The Binding of Illidan: your wins and fastest, else the deepest floor; the items you have found.
+INFO.illidan = function()
+    local out = { kicker = "ROGUELIKE", art = "bt" }
+    local data = Saved("illidan")
+    local G = ns.BoIGame
+    if (tonumber(data.wins) or 0) > 0 and G then
+        out.stat = string.format("|cffffffff%d|r %s  \194\183  fastest |cffffffff%s|r", data.wins, data.wins == 1 and "win" or "wins",
+            G.Clock(tonumber(data.fastest) or 0))
+    elseif (tonumber(data.best) or 0) > 0 then
+        local f = ns.BoIData.FLOORS[data.best]
+        out.stat = string.format("Deepest |cffffffff%s|r", f and f.name or ("floor " .. data.best))
+    else
+        out.stat = "|cff8a8a8aNot played yet|r"
+    end
+    if G then
+        local n, all = G:ItemCount()
+        if n > 0 then out.foot = string.format("%d of %d items found", n, all) end
+    end
+    -- today's dungeon: who played it, and the best of the day
+    local B = ns.BoIBoard
+    local list = B and B:Board() or {}
+    if #list > 0 then
+        out.faces = {}
+        for i = 1, #list do out.faces[i] = list[i].key end
+        out.foot = string.format("Today: %d played  \194\183  %s %s", #list, list[1].name, B:ResultText(list[1].e))
+    end
     return out
 end
 
@@ -747,112 +776,30 @@ COVERS.trainer = function(parent)
 end
 
 
--- Azeromon: a little Elwynn of the game's own tiles (a house, its path, tall grass, trees) with the hero walking
--- down the path and back. Drawn into the poster's art box (clipped there).
--- (the meadow is wider than any poster: the front one grows to the whole tab when its game opens, and the scene
--- must still reach both edges; the house and its path sit in the middle at column SCENE_OX + 6)
-local SCENE_C, SCENE_R, SCENE_OX, TILE = 32, 16, 9, 32
-local function SceneTiles()
-    local t = {}
-    local function put(name, x, y) t[#t + 1] = { name, x, y } end
-    for y = 0, SCENE_R - 1 do
-        for x = 0, SCENE_C - 1 do put(((x * 7 + y * 3) % 5 == 0) and "grass2" or "grass1", x, y) end
-    end
-    local function big(prefix, x, y, w, h)
-        for j = 0, h - 1 do for i = 0, w - 1 do put(prefix .. "_" .. i .. "_" .. j, x + i, y + j) end end
-    end
-    local function tall(x0, y0, w, h)
-        for y = y0, y0 + h - 1 do
-            for x = x0, x0 + w - 1 do
-                local e = (y == y0 and "t" or y == y0 + h - 1 and "b" or "") .. (x == x0 and "l" or x == x0 + w - 1 and "r" or "")
-                put(e == "" and "tall_c" or ("tall_" .. e), x, y)
-            end
-        end
-    end
-    -- the middle: the house, its path, the tall grass, trees and flowers round it
-    local X = SCENE_OX
-    for y = 7, SCENE_R - 1 do put("path_l", X + 5, y) put("path_c", X + 6, y) put("path_r", X + 7, y) end
-    big("house", X + 4, 1, 5, 6)
-    big("bigtree", X + 0, 2, 3, 3)
-    big("bigtree", X + 10, 0, 3, 3)
-    for _, p in ipairs({ { 9, 4 }, { 12, 4 }, { 1, 6 }, { 0, 9 }, { 12, 13 }, { 1, 14 } }) do put("tree", X + p[1], p[2]) end
-    put("pine", X + 13, 6) put("pine", X + 2, 0) put("oak", X + 3, 11)
-    tall(X + 9, 9, 4, 4)
-    for _, p in ipairs({ { 3, 8 }, { 2, 12 }, { 8, 8 }, { 4, 14 }, { 9, 14 }, { 13, 10 } }) do put("flowers", X + p[1], p[2]) end
-    put("sign", X + 8, 7)
-    -- the meadow beyond, left and right
-    big("bigtree", 1, 1, 3, 3)
-    big("bigtree", 25, 8, 3, 3)
-    big("bigtree", 28, 0, 3, 3)
-    tall(1, 9, 4, 3)
-    tall(24, 3, 3, 3)
-    for _, p in ipairs({ { 6, 3 }, { 7, 7 }, { 0, 6 }, { 5, 13 }, { 2, 14 }, { 7, 11 }, { 23, 0 }, { 30, 5 },
-                         { 23, 8 }, { 29, 12 }, { 24, 14 }, { 31, 9 } }) do put("tree", p[1], p[2]) end
-    for _, p in ipairs({ { 5, 0 }, { 8, 12 }, { 22, 11 }, { 31, 14 }, { 27, 4 } }) do put("pine", p[1], p[2]) end
-    for _, p in ipairs({ { 4, 5 }, { 0, 12 }, { 6, 9 }, { 3, 15 }, { 26, 13 }, { 28, 6 }, { 22, 3 }, { 30, 11 },
-                         { 24, 11 } }) do put("flowers", p[1], p[2]) end
-    put("rock", 8, 4) put("rock", 27, 15) put("oak", 31, 3)
-    return t
-end
-
-local function PixelTexture(t, file)
-    if not pcall(t.SetTexture, t, file, nil, nil, "NEAREST") then t:SetTexture(file) end
-    if t.SetSnapToPixelGrid then pcall(t.SetSnapToPixelGrid, t, false) end
-    if t.SetTexelSnappingBias then pcall(t.SetTexelSnappingBias, t, 0) end
-end
-
-COVERS.azeromon = function(parent, poster)
-    local A = ns.AzeroAtlas
+-- The Binding of Illidan: the game playing itself (ns.BoIUI:NewAttract - its own engine and renderer, demo scenes of
+-- your class through rooms and bosses), filling the painting as Azeromon's film does; the poster's shades lie over it.
+COVERS.illidan = function(parent, poster)
     local c = CreateFrame("Frame", nil, poster.artFrame)
     c:SetAllPoints(poster.artFrame)
-    if not A then return c end
-    local AH = ns.AzeroAtlasHeight or 256
-    local E = 0.02 / 256
-    c.world = CreateFrame("Frame", nil, c)
-    c.world:SetSize(SCENE_C * TILE, SCENE_R * TILE)
-    for _, tl in ipairs(SceneTiles()) do
-        local i = A[tl[1]]
-        if i then
-            local t = c.world:CreateTexture(nil, "ARTWORK", nil, tl[1]:find("^grass") and -1 or (tl[1]:find("^path") and 0 or 1))
-            PixelTexture(t, MEDIA .. "Azeromon\\atlas")
-            local col, row = i % 16, floor(i / 16)
-            t:SetTexCoord(col * 16 / 256 + E, (col + 1) * 16 / 256 - E, row * 16 / AH + E, (row + 1) * 16 / AH - E)
-            t:SetSize(TILE, TILE)
-            t:SetPoint("TOPLEFT", tl[2] * TILE, -tl[3] * TILE)
-        end
-    end
-    c.hero = c.world:CreateTexture(nil, "ARTWORK", nil, 3)
-    PixelTexture(c.hero, MEDIA .. "Azeromon\\chars")
-    c.hero:SetSize(TILE, TILE)
-    c.y, c.dir, c.pause, c.clock = 7.4, 1, 1.2, 0
-    local function frame(face, f)
-        local col, row = 3 + f, (face == "up") and 3 or 0
-        c.hero:SetTexCoord(col * 16 / 256 + E, (col + 1) * 16 / 256 - E, row * 16 / 128 + E, (row + 1) * 16 / 128 - E)
-    end
-    function c:Layout(w, h)
-        self.world:ClearAllPoints()
-        -- the house and the path in the middle of the art, the roof just under the kicker
-        self.world:SetPoint("TOPLEFT", self, "TOP", -(SCENE_OX + 6.5) * TILE, 0.4 * TILE)
-    end
+    c:SetClipsChildren(true)
+    c.frontOnly = true                       -- (only the front poster plays; the sides keep their painting)
+    local demo = ns.BoIUI and ns.BoIUI.NewAttract and ns.BoIUI:NewAttract(c)
+    function c:Layout() end
     function c:Refresh() end
-    function c:Tick(elapsed)
-        self.clock = self.clock + elapsed
-        if self.pause > 0 then
-            self.pause = self.pause - elapsed
-            frame(self.dir > 0 and "down" or "up", 1)
-        else
-            self.y = self.y + self.dir * elapsed * 2.2
-            if self.y >= 10.2 or self.y <= 7.2 then
-                self.y = max(7.2, min(10.2, self.y))
-                self.dir, self.pause = -self.dir, 1.6
-            end
-            local steps = { 0, 1, 2, 1 }
-            frame(self.dir > 0 and "down" or "up", steps[floor(self.clock * 7) % 4 + 1])
-        end
-        self.hero:ClearAllPoints()
-        self.hero:SetPoint("TOPLEFT", self.world, "TOPLEFT", (SCENE_OX + 6) * TILE, -floor(self.y * TILE + 0.5))
+    function c:Tick(elapsed) if demo then demo:Tick(elapsed) end end
+    c.demo = demo
+    return c
+end
+
+-- Azeromon: a short film of the game as it looks now (Games/Azeromon/Poster.lua: real maps, the hero walking their
+-- roads, a battle), filling the painting; the poster's shades lie over it.
+COVERS.azeromon = function(parent, poster)
+    local c = ns.AzeroPoster and ns.AzeroPoster:New(poster.artFrame)
+    if not c then
+        c = CreateFrame("Frame", nil, poster.artFrame)
+        c:SetAllPoints(poster.artFrame)
     end
-    frame("down", 1)
+    c.frontOnly = true                       -- (only the front poster plays; the sides keep their painting)
     return c
 end
 
