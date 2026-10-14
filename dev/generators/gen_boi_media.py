@@ -7,6 +7,9 @@
                              bottom (the room's side), darker at the sides
   Media/Illidan/vignette.tga 256 x 256: black, clear in the middle, darkening towards the edges and most in the
                              corners (a superellipse), laid over a room's floor
+  Media/Illidan/splat.tga    512 x 128: four stains side by side (what an enemy leaves on the floor), white so the
+                             game tints them per kind: a ragged pool with droplets and streaks thrown out, a darker
+                             rim, a wet sheen towards the top left; alpha thicker in the middle
 The textures come from dev/art/casc/tex (decoded from the installed client: ui_look / the room tools put them there).
 Pictures read top = the door's outer end (into the wall), bottom = the room's side, as UI.lua turns them per side.
 Run (from dev): luaenv\\Scripts\\python.exe generators\\gen_boi_media.py"""
@@ -108,12 +111,56 @@ def vignette():
     img.save(OUT / "vignette.tga")
 
 
+def splats():
+    import numpy as np
+    C = 128
+    atlas = Image.new("RGBA", (C * 4, C))
+    yy, xx = np.mgrid[0:C, 0:C].astype(float)
+    u, v = (xx + 0.5) / C - 0.5, (yy + 0.5) / C - 0.5
+    for cell in range(4):
+        rng = np.random.default_rng(1700 + cell * 31)
+        f = np.zeros((C, C))
+
+        def ball(cx, cy, r, sx=1.0, sy=1.0):
+            d2 = ((u - cx) / sx) ** 2 + ((v - cy) / sy) ** 2 + 1e-6
+            return r * r / d2
+
+        for _ in range(5):                                      # the pool: a few overlapping blobs
+            a, d = rng.uniform(0, 2 * np.pi), rng.uniform(0, 0.1)
+            f += ball(np.cos(a) * d, np.sin(a) * d, rng.uniform(0.09, 0.15))
+        for _ in range(rng.integers(7, 11)):                    # droplets thrown out, some with a streak behind them
+            a, d = rng.uniform(0, 2 * np.pi), rng.uniform(0.26, 0.42)
+            f += ball(np.cos(a) * d, np.sin(a) * d, rng.uniform(0.012, 0.03))
+            if rng.random() < 0.5:
+                for k in (0.55, 0.72, 0.86):
+                    f += ball(np.cos(a) * d * k, np.sin(a) * d * k, 0.012 * k)
+        ang = np.arctan2(v, u)                                  # a ragged edge
+        f *= 1 + 0.18 * np.sin(ang * 5 + cell) + 0.1 * np.sin(ang * 11 + cell * 2.3)
+        f *= np.clip((0.48 - np.maximum(abs(u), abs(v))) / 0.04, 0, 1)
+        m = np.clip((f - 0.95) / 0.12, 0, 1)
+        m = m * m * (3 - 2 * m)
+        mi = Image.fromarray((m * 255).astype("uint8"))
+        depth = np.asarray(mi.filter(ImageFilter.GaussianBlur(3.5)), dtype=float) / 255
+        shade = 0.55 + 0.45 * np.clip(depth * 1.4, 0, 1) ** 0.8      # darker at the rim
+        soft = np.asarray(mi.filter(ImageFilter.GaussianBlur(2)), dtype=float) / 255
+        sheen = np.clip(soft - np.roll(np.roll(soft, 4, 0), 4, 1), 0, 1) * m   # inside the edges facing the top left
+        noise = Image.fromarray((rng.random((16, 16)) * 255).astype("uint8")).resize((C, C), Image.BICUBIC)
+        mottle = 0.86 + 0.14 * np.asarray(noise.filter(ImageFilter.GaussianBlur(3)), dtype=float) / 255   # thicker, thinner
+        shade = np.clip(shade * 0.85 * mottle + sheen * 1.3, 0, 1)
+        alpha = m * (0.72 + 0.28 * np.clip(depth * 1.5, 0, 1))
+        rgb = (shade * 255).astype("uint8")
+        img = np.dstack([rgb, rgb, rgb, (alpha * 255).astype("uint8")])
+        atlas.paste(Image.fromarray(img, "RGBA"), (cell * C, 0))
+    atlas.save(OUT / "splat.tga")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     door()
     bars()
     passage()
     vignette()
+    splats()
     print("wrote", ", ".join(p.name for p in sorted(OUT.glob("*.tga"))))
 
 

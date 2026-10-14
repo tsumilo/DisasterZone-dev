@@ -392,13 +392,14 @@ local KIND_ICHOR = { imp = "demon", felhunter = "demon", void = "shadow", sdemon
                      blossom = "shadow", dead = "undead", abyssal = "fire", azflame = "demon", mchan = "blood", channeler = "blood",
                      watcher = "shadow", priestess = "blood", brute = "blood", bat = "blood", spider = "blood", sheep = "blood" }
 function E.Die(run, room, f)
-    local col = ICHOR[KIND_ICHOR[f.kind] or (f.kind == "boss" and "demon") or "blood"]
+    local ichor = KIND_ICHOR[f.kind] or (f.kind == "boss" and "demon") or "blood"
+    local col = ICHOR[ichor]
     E.Fx(run, "die", f.x, f.y, f.r, col, f.kind == "boss" and 70 or 26,
          { i = f.d.i, ej = f.d.ej, boss = f.kind == "boss", ring = f.kind == "boss" and { 1, 0.23, 0.18 } or { 0.48, 0.1, 0.07 } })
     room.decals = room.decals or {}
     if #room.decals > 24 then table.remove(room.decals, 1) end
     room.decals[#room.decals + 1] = { x = f.x, y = f.y, r = f.r * (f.kind == "boss" and 1.8 or 1.15), col = col, t = 0,
-                                      seed = floor(f.x * 7 + f.y * 13) % 97 }
+                                      ichor = ichor, seed = floor(f.x * 7 + f.y * 13) % 97 }
 end
 
 local function Shoot(run, f, ang, sp, r, col, by)

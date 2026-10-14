@@ -1841,6 +1841,12 @@ STATES = [
                                           "local nb = ns.BoI.Neighbours(r.map, v, true)[1] r.room = nb.room r.room.cleared, r.room.foes = true, {} "
                                           "r.p.x, r.p.y = ns.BoI.CX, ns.BoI.CY BOI_AUD.run(r, 10)")),
     # an enemy bursting (a few frames after its death) with tears splashing round it
+    # every kind of stain an enemy leaves, a few seconds old (blood, fel, shadow, embers, bone dust; a boss's big one)
+    ("Games - Illidan stains", opened("games", BOI_AUD + "BOI_AUD.room(1, 30) local r = ns.BoIUI._Run() r.room.foes = {} "
+                                      "r.room.cleared = true r.room.decals = {} local K = { 'brute', 'imp', 'void', 'abyssal', 'dead', 'bat' } "
+                                      "for i, k in ipairs(K) do ns.BoI.Die(r, r.room, { kind = k, x = 130 + (i - 1) * 92, y = 150 + (i % 2) * 70, r = 14, d = {} }) end "
+                                      "ns.BoI.Die(r, r.room, { kind = 'boss', x = 360, y = 330, r = 26, d = {} }) "
+                                      "for _, dc in ipairs(r.room.decals) do dc.t = 240 end r.fx = {} ns.BoIUI._Draw()")),
     ("Games - Illidan burst", opened("games", BOI_AUD + "BOI_AUD.room(1, 90) local r = ns.BoIUI._Run() "
                                      "for i = 1, 2 do if r.room.foes[i] then r.room.foes[i].hp = 0 end end "
                                      "r.room.cleared = true for _ = 1, 7 do ns.BoI.Step(r, { shoot = 'up' }) end ns.BoIUI._Focus(false) r.mode = 'dying' r.dyingT = 999 "

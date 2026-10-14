@@ -364,6 +364,10 @@ local function DrawDoors()
     end
 end
 
+-- how each kind of stain looks: brightness, alpha, a glow (ADD) over it
+local STAIN = { blood = { 1.05, 0.9 }, demon = { 0.5, 0.88, 0.22 }, shadow = { 1, 0.8 }, fire = { 1.2, 0.85, 0.3 },
+                undead = { 1.1, 0.55 } }
+
 local function DrawFloorThings()
     local room = run.room
     -- the controls, painted on the first room's floor
@@ -376,13 +380,27 @@ local function DrawFloorThings()
         Label("ctrl5", layers.low, 13, CX, CY + 70, "E  bomb      Space  item      Esc  pause", c, 0.45)
     end
     for _, dc in ipairs(room.decals or {}) do
-        -- a stain: three blots (their spread from the enemy's spot), full for 15 s, gone by 25 s
+        -- a stain: one of the four splats (Media/Illidan/splat), mirrored by its seed; it splashes out over the first
+        -- 10 frames, stays for 15 s and is gone by 25 s. Fel ichor and embers glow a little; bone dust is thin.
         local a = dc.t < 900 and 1 or max(0, 1 - (dc.t - 900) / 600)
         if a > 0 then
-            local sd = dc.seed
-            Disc("lowDisc", dc.x, dc.y + 2, dc.r, dc.col, 0.42 * a, dc.r * 2.1, dc.r * 1.5)
-            Disc("lowDisc", dc.x + (sd % 11 - 5) * dc.r * 0.12, dc.y - (sd % 7) * dc.r * 0.08, dc.r * 0.5, dc.col, 0.45 * a)
-            Disc("lowDisc", dc.x - (sd % 13 - 6) * dc.r * 0.15, dc.y + (sd % 5) * dc.r * 0.12, dc.r * 0.35, dc.col, 0.5 * a)
+            local sd, look = dc.seed, STAIN[dc.ichor] or STAIN.blood
+            local k = min(1, (dc.t + 2) / 10)
+            local s = dc.r * 3.2 * (0.55 + 0.45 * (1 - (1 - k) * (1 - k)))
+            local l, r = (sd % 4) / 4, (sd % 4 + 1) / 4
+            if floor(sd / 4) % 2 == 1 then l, r = r, l end
+            local t0, t1 = 0, 1
+            if floor(sd / 8) % 2 == 1 then t0, t1 = 1, 0 end
+            -- the soak (the floor gone dark and wet under it, a little wider), then the stain itself, the floor's
+            -- grain showing through
+            for i = 1, 2 do
+                local t = Take(pools.splat)
+                t:SetTexCoord(l, r, t0, t1)
+                local b, al, w = look[1] * (i == 1 and 0.3 or 1), look[2] * (i == 1 and 0.6 or 0.72) * a, i == 1 and 1.08 or 1
+                t:SetVertexColor(dc.col[1] * b, dc.col[2] * b, dc.col[3] * b, al)
+                Place(t, dc.x, dc.y + 2, s * w, s * 0.82 * w)
+            end
+            if look[3] then Glow("lowGlow", dc.x, dc.y + 2, dc.r * 1.5, dc.col, look[3] * a) end
         end
     end
     for _, q in ipairs(run.patches) do
@@ -1379,6 +1397,7 @@ local function BuildScreen(parent)
     pools.doorLock = NewPool(st, "tex", "OVERLAY", 0, nil, LOCK)
     pools.doorTop = NewPool(st, "tex", "OVERLAY", 1)
     pools.lowGlow = NewPool(layers.low, "tex", "BACKGROUND", 0, "ADD", RADIAL)
+    pools.splat = NewPool(layers.low, "tex", "BACKGROUND", -1, nil, KIT .. "splat")
     pools.lowDisc = NewPool(layers.low, "tex", "BORDER", 0, nil, CIRCLE)
     pools.lowLine = NewPool(layers.low, "line", "BORDER", 1)
     pools.pedestal = NewPool(layers.low, "tex", "ARTWORK", 0, nil, D.PEDESTAL)
