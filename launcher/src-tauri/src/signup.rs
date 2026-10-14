@@ -227,6 +227,13 @@ pub fn button(user: &str, name: &str, custom: &str, now: u64) -> Answer {
     if custom == "wk:chars" {
         return characters(user);
     }
+    if custom == "rt:toggle" {
+        crate::remind::toggle(user);
+        return match characters(user) {
+            Answer::Text(t, c) => Answer::Update(t, c),
+            other => other,
+        };
+    }
     if custom == "wk:bis" {
         // (the board's button: the sheet privately; /bis show posts it in the channel)
         return match crate::bis::show(user, None) {
@@ -419,18 +426,31 @@ fn user_name_of(user: &str) -> String {
 /// /character: my characters, with remove and add.
 pub fn characters(user: &str) -> Answer {
     let chars = bridge::load_profiles().get(user).cloned().unwrap_or_default();
+    let on = crate::remind::is_on(user);
     let add = Component::ActionRow(ActionRow {
         id: None,
-        components: vec![Component::Button(Button {
-            id: None,
-            custom_id: Some("ch:add".into()),
-            disabled: false,
-            emoji: None,
-            label: Some("Add a character".into()),
-            style: ButtonStyle::Primary,
-            url: None,
-            sku_id: None,
-        })],
+        components: vec![
+            Component::Button(Button {
+                id: None,
+                custom_id: Some("ch:add".into()),
+                disabled: false,
+                emoji: None,
+                label: Some("Add a character".into()),
+                style: ButtonStyle::Primary,
+                url: None,
+                sku_id: None,
+            }),
+            Component::Button(Button {
+                id: None,
+                custom_id: Some("rt:toggle".into()),
+                disabled: false,
+                emoji: crate::emoji::button("dz_hourglass"),
+                label: Some(if on { "Reminders: DM 1 h before" } else { "Reminders: off" }.into()),
+                style: ButtonStyle::Secondary,
+                url: None,
+                sku_id: None,
+            }),
+        ],
     });
     if chars.is_empty() {
         return Answer::Text("You have no characters yet. Add one, or just press a raid post's Accept.".into(), vec![add]);

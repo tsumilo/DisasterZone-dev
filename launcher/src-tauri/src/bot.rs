@@ -166,10 +166,18 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
     // the game's answer (SavedVariables) is looked at every few seconds; a new save clears what it took
     let mut watch = tokio::time::interval(std::time::Duration::from_secs(5));
     let mut seen: Option<SystemTime> = None;
+    let mut beats: u32 = 0;
     loop {
         let item = tokio::select! {
             item = shard.next_event(wanted) => match item { Some(x) => x, None => break },
             _ = watch.tick() => {
+                beats += 1;
+                if beats % 12 == 1 {
+                    if let Some(snap) = crate::signup::current_snap() {
+                        let h = http.clone();
+                        tauri::async_runtime::spawn(async move { crate::remind::tick(&h, &snap, unix_now() as i64).await; });
+                    }
+                }
                 if let Some(dir) = state::load().flavor_dir() {
                     let now = newest_saved_variables(&dir);
                     if now != seen {
@@ -309,6 +317,21 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
     let name = i.author().map(|u| u.global_name.clone().unwrap_or_else(|| u.name.clone())).unwrap_or_default();
     let now = unix_now();
     match &i.data {
+        Some(InteractionData::MessageComponent(c)) if ["rl:", "rm:", "rx:"].iter().any(|p| c.custom_id.starts_with(p)) => {
+            let (text, embed, comps) = crate::remind::click(http, &user, &name, &c.custom_id, &c.values).await;
+            let resp = InteractionResponse {
+                kind: InteractionResponseType::UpdateMessage,
+                data: Some(InteractionResponseData {
+                    content: Some(text),
+                    embeds: embed.map(|e| vec![e]),
+                    components: Some(comps),
+                    ..Default::default()
+                }),
+            };
+            http.interaction(app_id).create_response(i.id, &i.token, &resp).await.map_err(|e| crate::core::Error::Net(e.to_string()))?;
+            crate::posts::refresh(http).await;
+            return Ok(());
+        }
         Some(InteractionData::MessageComponent(c)) if c.custom_id.starts_with('b') && c.custom_id.as_bytes().get(2) == Some(&b':') => {
             let r = if c.values.is_empty() {
                 crate::bis::button(&user, &c.custom_id)

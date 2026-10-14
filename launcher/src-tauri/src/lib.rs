@@ -6,6 +6,7 @@ mod bot;
 mod emoji;
 mod items;
 mod posts;
+mod remind;
 mod render;
 mod signup;
 pub mod core;

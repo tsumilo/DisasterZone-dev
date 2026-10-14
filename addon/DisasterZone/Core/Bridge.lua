@@ -475,7 +475,8 @@ function Bridge:FindMember(name)
     return nil
 end
 
--- A sign-up given in Discord: body { raid, name, class, sp, st = "A"|"T"|"X" }. A guild member signs up as
+-- A sign-up given in Discord: body { raid, name, class, sp, st = "A"|"T"|"X", note }  (note: "late 15 min" from a
+-- reminder's Running late; absent = the note stays as it was). A guild member signs up as
 -- themselves (RaidPlan:SignUpFor, their roster class); anyone else joins as a guest (accept only).
 Bridge:RegisterType("signup", function(r)
     local b = type(r.body) == "table" and r.body or {}
@@ -486,7 +487,7 @@ Bridge:RegisterType("signup", function(r)
     if key then
         -- (a spec picked for another class than the roster's is dropped: their last one counts)
         if b.class and ns.Guild:GetClass(key) ~= b.class then sp = nil end
-        return RP:SignUpFor(b.raid, key, b.st, sp)
+        return RP:SignUpFor(b.raid, key, b.st, sp, type(b.note) == "string" and b.note or nil)
     end
     if b.st ~= "A" then return false, "Guests can only accept (" .. tostring(b.name) .. " is not in the guild)." end
     return RP:AddGuest(b.raid, b.name, b.class, sp)

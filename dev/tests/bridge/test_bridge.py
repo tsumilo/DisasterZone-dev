@@ -167,6 +167,11 @@ def discord_signup_from_the_host_reaches_the_guild():
     assert m1["ok"] is True, m1
     su = rp.signups(rita, occ)[rp.K("Lee")]
     assert su["st"] == "A" and su["sp"] == 3 and su["dc"] == 1, su
+    # a reminder's Running late: the note says it
+    gina.eval("local o = ...; DZBridgeInbox = { records = { { id = 'dc_late', type = 'signup', body = { raid = o, name = 'Lee', class = 'WARRIOR', sp = 3, st = 'A', note = 'late 15 min' } } } }", occ)
+    login(gina)
+    w.tick(3)
+    assert rp.signups(rita, occ)[rp.K("Lee")]["n"] == "late 15 min"
     # a raid it can't take: marked not ok with the reason
     rp.call(bob, "CancelRaid", occ, "one")
     w.tick(3)
