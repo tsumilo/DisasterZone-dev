@@ -72,7 +72,12 @@ function B.New(opts)
         b:Emit({ t = "send", side = "foe", mon = b.foe.mon })
         b:Say("%s sent out %s!", b.pvp.name, foeName)
     elseif b.wild then
-        b:Say(opts.rare and "A rare %s appeared!" or "A wild %s appeared!", foeName)
+        b.legendary = opts.legendary and true or nil
+        if opts.legendary then
+            b:Say("The legendary %s blocks the way!", foeName)
+        else
+            b:Say(opts.rare and "A rare %s appeared!" or "A wild %s appeared!", foeName)
+        end
         b:Emit({ t = "send", side = "foe", mon = b.foe.mon })
     else
         b:Say("%s would like to battle!", b.trainer.name)
@@ -160,10 +165,17 @@ function B:Damage(atkSide, defSide, mv, forceCrit)
     if crit == nil then crit = self.rng(1, 16) == 1 end
     local A = self:EffStat(atkSide, physical and "atk" or "spa", crit, true)
     local Dv = self:EffStat(defSide, physical and "def" or "spd", crit, false)
-    local base = floor(floor(floor(2 * attacker.lvl / 5 + 2) * mv.power * A / Dv) / 50) + 2
+    local power, e = mv.power, mv.effect
+    if e and (e.kind == "vsstatus" or e.kind == "consume") and defender.status == e.status then
+        power = floor(power * e.mult)                   -- Lava Burst on a burn, Conflagrate
+    end
+    local base = floor(floor(floor(2 * attacker.lvl / 5 + 2) * power * A / Dv) / 50) + 2
     local eff = mv.type == "NONE" and 1 or D.Effectiveness(mv.type, D.species[defender.sp].type)
+    if e and e.kind == "noresist" and eff > 0 and eff < 1 then eff = 1 end          -- Steam Jet
     local stab = (mv.type == D.species[attacker.sp].type) and 1.5 or 1
     local dmg = base * (crit and 2 or 1) * stab * eff * self.rng(85, 100) / 100
+    -- gear and flasks: a Fiery Chain Girdle takes the edge off fire, a Flask of Flowing Water sharpens water
+    dmg = dmg * M.TypeMult(attacker, "typePower", mv.type) * M.TypeMult(defender, "resist", mv.type)
     dmg = floor(dmg)
     if eff > 0 then dmg = max(1, dmg) else dmg = 0 end
     return dmg, eff, crit
@@ -184,9 +196,11 @@ end
 
 local function Other(side) return side == "ally" and "foe" or "ally" end
 
-function B:ApplyStatus(side, status)
+-- pierce: burns even a FIRE type (Shadow Flame); otherwise FIRE types can't be burned (Gen III).
+function B:ApplyStatus(side, status, pierce)
     local mon = self[side].mon
     if mon.status or mon.hp <= 0 then return false end
+    if status == "brn" and not pierce and D.species[mon.sp].type == "FIRE" then return false end
     mon.status = status
     if status == "slp" then mon.sleep = self.rng(1, 3) end
     self:Emit({ t = "status", side = side })
@@ -195,31 +209,91 @@ function B:ApplyStatus(side, status)
     return true
 end
 
+function B:StatChange(target, stat, stages, damaged)
+    local s = self[target]
+    local cur = s.stages[stat]
+    local nxt = max(-6, min(6, cur + stages))
+    if nxt == cur then
+        if not damaged then
+            self:Say("%s's %s won't go any %s!", self:SideName(target), D.statNames[stat], stages > 0 and "higher" or "lower")
+        end
+        return
+    end
+    s.stages[stat] = nxt
+    self:Emit({ t = "sfx", sound = stages > 0 and "statup" or "statdown" })
+    self:Say("%s's %s %s!", self:SideName(target), D.statNames[stat], stages > 0 and "rose" or "fell")
+end
+
+-- Is `side` held by Magma Shackles / a Burning Web? Only while the beast that trapped it is still out.
+function B:Trapped(side)
+    local s, o = self[side], self[Other(side)]
+    return s.trappedBy ~= nil and s.trappedBy == o.mon and o.mon.hp > 0
+end
+
+-- A flinch: the beast on `side` loses its move if it has not moved yet this turn (cleared at the end of the turn).
+function B:Flinch(side)
+    self.flinch = self.flinch or {}
+    self.flinch[side] = true
+end
+
 function B:ApplyEffect(side, mv, damaged)
     local e = mv.effect
     if not e then return end
+    if e.kind == "armor" then                       -- Molten Armor: on the user
+        self[side].armor = e.turns
+        self:Emit({ t = "sfx", sound = "statup" })
+        self:Say("%s is sheathed in molten armor!", self:SideName(side))
+        return
+    end
     local target = (e.who == "self") and side or Other(side)
-    if self[target].mon.hp <= 0 then return end
+    local s = self[target]
+    if s.mon.hp <= 0 then return end
+    if e.kind == "trap" then
+        if not self:Trapped(target) then
+            s.trappedBy = self[side].mon
+            self:Say("%s can't escape now!", self:SideName(target))
+        elseif not damaged and not e.stat then
+            self:Say("But it failed!")
+        end
+        if e.stat then self:StatChange(target, e.stat, e.stages, damaged) end
+        if e.status and (not e.chance or self.rng(1, 100) <= e.chance) then self:ApplyStatus(target, e.status, e.pierce) end
+        return
+    elseif e.kind == "fear" then
+        s.fear, s.fearChance = e.turns, e.chance
+        self:Emit({ t = "sfx", sound = "statdown" })
+        self:Say("%s cowers before the roar!", self:SideName(target))
+        return
+    elseif e.kind == "panic" then
+        if s.free then
+            self:Say("%s's Free Action keeps it calm!", self:SideName(target))
+        elseif s.panicked then
+            self:Say("But it failed!")
+        else
+            s.panic, s.panicked = true, true
+            self:Emit({ t = "sfx", sound = "statdown" })
+            self:Say("%s panics!", self:SideName(target))
+        end
+        return
+    elseif e.kind == "consume" then                 -- Conflagrate: the burn it fed on is gone
+        if s.mon.status == e.status then
+            s.mon.status = nil
+            self:Emit({ t = "status", side = target })
+            self:Say("%s's burn flared out!", self:SideName(target))
+        end
+        return
+    elseif e.kind ~= "stat" and e.kind ~= "status" and e.kind ~= "flinch" then
+        return                                      -- vsstatus / noresist / drain: done in the damage
+    end
     local chance = e.chance or 100
     if chance < 100 and self.rng(1, 100) > chance then return end
     if e.kind == "stat" then
-        local s = self[target]
-        local cur = s.stages[e.stat]
-        local nxt = max(-6, min(6, cur + e.stages))
-        if nxt == cur then
-            if not damaged then
-                self:Say("%s's %s won't go any %s!", self:SideName(target), D.statNames[e.stat],
-                    e.stages > 0 and "higher" or "lower")
-            end
-            return
-        end
-        s.stages[e.stat] = nxt
-        self:Emit({ t = "sfx", sound = e.stages > 0 and "statup" or "statdown" })
-        self:Say("%s's %s %s!", self:SideName(target), D.statNames[e.stat], e.stages > 0 and "rose" or "fell")
+        self:StatChange(target, e.stat, e.stages, damaged)
     elseif e.kind == "status" then
-        if not self:ApplyStatus(target, e.status) and not damaged then
+        if not self:ApplyStatus(target, e.status, e.pierce) and not damaged then
             self:Say("But it failed!")
         end
+    elseif e.kind == "flinch" then
+        self:Flinch(target)
     end
 end
 
@@ -246,6 +320,24 @@ function B:UseMove(side, mv)
         self:Emit({ t = "sfx", sound = "par" })
         self:Say("%s is paralyzed! It can't move!", name)
         return
+    end
+    local me = self[side]
+    if self.flinch and self.flinch[side] then
+        self.flinch[side] = nil
+        self:Say("%s flinched and couldn't move!", name)
+        return
+    end
+    if me.panic then
+        me.panic = nil
+        self:Say("%s is panicking and can't move!", name)
+        return
+    end
+    if (me.fear or 0) > 0 then
+        me.fear = me.fear - 1
+        if self.rng(1, 100) <= (me.fearChance or 50) then
+            self:Say("%s is too afraid to move!", name)
+            return
+        end
     end
 
     self:Say("%s used %s!", name, mv.name)
@@ -285,6 +377,7 @@ function B:UseMove(side, mv)
         elseif mv.effect then
             self:ApplyEffect(side, mv, true)
         end
+        if dealt > 0 then self:AfterHit(side, target, mv) end
         if mv.recoil and dealt > 0 then
             self:SetHP(side, user.hp - max(1, floor(dealt / mv.recoil)))
             self:Emit({ t = "sfx", sound = "recoil" })
@@ -292,6 +385,38 @@ function B:UseMove(side, mv)
         end
     else
         self:ApplyEffect(side, mv, false)
+    end
+end
+
+-- After a hit that did damage: the target's Molten Armor burns a physical attacker; a stunning weapon (Dark Iron
+-- Pulverizer) may make the target flinch.
+function B:AfterHit(side, target, mv)
+    local user = self[side].mon
+    local physical = mv.type == "NONE" or (D.types[mv.type] and D.types[mv.type].physical)
+    if (self[target].armor or 0) > 0 and physical and user.hp > 0 and not user.status then
+        if self:ApplyStatus(side, "brn") then
+            self:Say("%s was scorched by the molten armor!", self:SideName(side))
+        end
+    end
+    local stun = M.GearValue(user, "stun")
+    if stun and self[target].mon.hp > 0 and self.rng(1, 100) <= stun then self:Flinch(target) end
+end
+
+-- End of every turn (before burn and poison), in `order`: Molten Armor cools, a regenerating piece of gear
+-- (Truesilver Breastplate) heals; flinches end.
+function B:TurnExtras(order)
+    self.flinch = nil
+    for _, side in ipairs(order) do
+        local s = self[side]
+        if s.armor and s.armor > 0 then
+            s.armor = s.armor - 1
+            if s.armor == 0 and s.mon.hp > 0 then self:Say("%s's molten armor cooled.", self:SideName(side)) end
+        end
+        local regen, item = M.GearValue(s.mon, "regen")
+        if regen and s.mon.hp > 0 and s.mon.hp < M.MaxHP(s.mon) then
+            self:SetHP(side, s.mon.hp + max(1, floor(M.MaxHP(s.mon) / regen)))
+            self:Say("%s's %s restored a little HP.", self:SideName(side), item.name)
+        end
     end
 end
 
@@ -345,6 +470,10 @@ function B:Act(a)
             self:Say("No! There's no running from a trainer battle!")
             return true
         end
+        if self:Trapped("ally") then
+            self:Say("%s is trapped and can't get away!", M.Name(self.ally.mon))
+            return true
+        end
         self.runs = self.runs + 1
         local mine, theirs = self:EffStat("ally", "spe"), self:EffStat("foe", "spe")
         local odds = floor(mine * 128 / theirs + 30 * self.runs)       -- past 255 it always works (Gen III)
@@ -364,6 +493,10 @@ function B:Act(a)
     elseif a.kind == "switch" then
         local mon = self.party[a.idx]
         if not mon or mon.hp <= 0 or a.idx == self.allyIdx then return false end
+        if self:Trapped("ally") then
+            self:Say("%s is trapped and can't be recalled!", M.Name(self.ally.mon))
+            return true
+        end
         self:Say("%s, come back!", M.Name(self.ally.mon))
         self:Emit({ t = "recall", side = "ally" })
         self:SendAlly(a.idx)
@@ -421,6 +554,7 @@ end
 -- End of turn: burn / poison on every beast still standing - also when the other one fainted this turn.
 -- Returns true (the action was accepted).
 function B:EndTurn()
+    if self.need ~= "done" then self:TurnExtras({ "ally", "foe" }) end
     for _, side in ipairs({ "ally", "foe" }) do
         if self.need == "done" then break end
         local mon = self[side].mon
@@ -623,16 +757,36 @@ function B:UseItem(item, target)
             self:Say("%s was cured!", M.Name(mon))
         end
         return true
-    elseif def.use == "boost" then                      -- an elixir: one stage up for the beast fighting
+    elseif def.use == "boost" then                      -- an elixir: a stage up (or def.stages) for the beast fighting
         local s = self.ally
         local cur = s.stages[def.stat] or 0
         if cur >= 6 then return false end
         self.bag[item] = self.bag[item] - 1
-        s.stages[def.stat] = min(6, cur + 1)
+        local up = (def.typeStages and def.typeStages[D.species[s.mon.sp].type]) or def.stages or 1
+        s.stages[def.stat] = min(6, cur + up)
         self:Emit({ t = "sfx", sound = "drink" })
         self:Say("%s drank the %s.", M.Name(s.mon), def.name)
         self:Emit({ t = "sfx", sound = "statup" })
         self:Say("%s's %s rose!", M.Name(s.mon), D.statNames[def.stat])
+        return true
+    elseif def.use == "freeaction" then                 -- cures paralysis; the beast fighting can't be panicked
+        local mon = self.party[target or self.allyIdx]
+        if not mon or mon.hp <= 0 then return false end
+        local active = mon == self.ally.mon
+        if mon.status ~= "par" and not (active and not self.ally.free) then return false end
+        self.bag[item] = self.bag[item] - 1
+        self:Emit({ t = "sfx", sound = "drink" })
+        self:Say("%s drank the %s.", M.Name(mon), def.name)
+        if mon.status == "par" then
+            mon.status = nil
+            if active then self:Emit({ t = "status", side = "ally" }) end
+            self:Emit({ t = "sfx", sound = "cure" })
+            self:Say("%s was cured of paralysis!", M.Name(mon))
+        end
+        if active then
+            self.ally.free, self.ally.panic = true, nil
+            self:Say("%s moves freely. Nothing can panic it now!", M.Name(mon))
+        end
         return true
     elseif def.use == "rejuv" then
         local mon = self.party[target or self.allyIdx]
@@ -706,7 +860,9 @@ function B:ValidPvP(side, a)
         local idx = tonumber(a.idx)                  -- (a string "2" from the wire is a number here, or nothing)
         idx = idx and idx == floor(idx) and idx or 0
         local mon = TeamOf(self, side)[idx]
-        if mon and mon.hp > 0 and idx ~= IdxOf(self, side) then return { kind = "switch", idx = idx } end
+        if mon and mon.hp > 0 and idx ~= IdxOf(self, side) and not self:Trapped(side) then
+            return { kind = "switch", idx = idx }
+        end
     end
     local mon = self[side].mon
     local idx = tonumber(a.idx)
@@ -725,7 +881,7 @@ function B:ActPvP(a)
         if self:HasPP(self.ally.mon) and (not slot or slot.pp <= 0) then return false end
     elseif a.kind == "switch" then
         local mon = self.party[a.idx]
-        if not mon or mon.hp <= 0 or a.idx == self.allyIdx then return false end
+        if not mon or mon.hp <= 0 or a.idx == self.allyIdx or self:Trapped("ally") then return false end
     elseif a.kind ~= "forfeit" then
         return false
     end
@@ -864,6 +1020,7 @@ function B:ResolvePvP()
         if self:PvPFaints() then fainted = true break end
     end
     if self.need == "done" then return end
+    self:TurnExtras({ p1, p2 })
 
     -- end of turn: burn / poison, challenger first
     for _, side in ipairs({ p1, p2 }) do
