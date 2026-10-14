@@ -2879,6 +2879,7 @@ local function DrawGround(m, px, py)
     local n = 0
     if g then
         local S = TILE / 16
+        local eve = (g.indoor and G:Period() ~= "day") and "e_" or ""
         for _, c in ipairs(g.chunks) do
             local x0, y0, w, h, tw, th = c[1], c[2], c[3], c[4], c[5], c[6]
             local sx, sy = PicToScreen(g, x0, y0, px, py)
@@ -2889,7 +2890,7 @@ local function DrawGround(m, px, py)
                     t = Tex(world, "BACKGROUND", 1)
                     groundTex[n] = t
                 end
-                local file = MEDIA .. "Ground\\" .. m.id .. "_" .. floor(x0 / 256) .. "_" .. floor(y0 / 256)
+                local file = MEDIA .. "Ground\\" .. m.id .. "_" .. eve .. floor(x0 / 256) .. "_" .. floor(y0 / 256)
                 if t.file ~= file then
                     t.file = file
                     SetPixelTexture(t, file)
@@ -3091,8 +3092,10 @@ function Amb.Legs(sp, m, g, mx, my, px, py)
     return false
 end
 
--- Wind: a gust rolls across the meadows; thin strips under it are drawn again one pixel over (the blades bend) with a
--- little light added. Only the strips under the gust exist, so this costs a handful of textures.
+-- Wind: a gust rolls across the meadows in the clouds' direction (Amb.Clouds drifts right and a little down: WIND_X,
+-- WIND_Y); small cells under the gust are drawn again one pixel over (the blades bend) with a little light added.
+-- Only the cells under the gust exist, so this costs a handful of textures.
+Amb.WIND_X, Amb.WIND_Y, Amb.WIND_SPEED = 0.92, 0.39, 42
 function Amb.Wind(m, g, px, py)
     local n = 0
     if g and g.meadows then
@@ -3102,36 +3105,39 @@ function Amb.Wind(m, g, px, py)
         for i, r in ipairs(g.meadows) do
             if r[1] < vx1 and r[1] + r[3] > vx0 and r[2] < vy1 and r[2] + r[4] > vy0 then
                 local file = MEDIA .. "Ground\\" .. m.id .. "_m" .. i
-                for sx = r[1], r[1] + r[3] - 1, 4 do
-                    local phase = ((sx - ox) * 0.8 - now * 42) % 150
-                    if phase < 16 and sx + 4 > vx0 and sx < vx1 then
-                        local w = min(4, r[1] + r[3] - sx)
-                        local u0 = (sx - r[1] - 1) / r[5]
-                        for k = 1, 2 do                   -- the bent strip, then its light (added)
-                            n = n + 1
-                            local tx = Amb.windTex[n]
-                            if not tx then
-                                tx = Tex(world, "BACKGROUND", 3)
-                                Amb.windTex[n] = tx
+                for cy = r[2], r[2] + r[4] - 1, 8 do
+                    for cx = r[1], r[1] + r[3] - 1, 4 do
+                        local phase = ((cx - ox) * Amb.WIND_X + (cy - oy) * Amb.WIND_Y - now * Amb.WIND_SPEED) % 150
+                        if phase < 16 and cx + 4 > vx0 and cx < vx1 and cy + 8 > vy0 and cy < vy1 then
+                            local w, h = min(4, r[1] + r[3] - cx), min(8, r[2] + r[4] - cy)
+                            local u0, v0 = (cx - r[1] - 1) / r[5], (cy - r[2]) / r[6]
+                            for k = 1, 2 do               -- the bent cell, then its light (added)
+                                n = n + 1
+                                local tx = Amb.windTex[n]
+                                if not tx then
+                                    tx = Tex(world, "BACKGROUND", 3)
+                                    Amb.windTex[n] = tx
+                                end
+                                if tx.file ~= file then
+                                    tx.file = file
+                                    SetPixelTexture(tx, file)
+                                end
+                                tx:SetDrawLayer("BACKGROUND", 2 + k)
+                                if k == 2 then
+                                    pcall(tx.SetBlendMode, tx, "ADD")
+                                    local a = phase < 8 and 0.09 or 0.05
+                                    tx:SetVertexColor(a, a, a * 0.6)
+                                else
+                                    pcall(tx.SetBlendMode, tx, "BLEND")
+                                    tx:SetVertexColor(1, 1, 1)
+                                end
+                                tx:SetTexCoord(u0, u0 + w / r[5], v0, v0 + h / r[6])
+                                tx:SetSize(w * S, h * S)
+                                local x, y = PicToScreen(g, cx, cy, px, py)
+                                tx:ClearAllPoints()
+                                tx:SetPoint("TOPLEFT", world, "TOPLEFT", x, -y)
+                                tx:Show()
                             end
-                            if tx.file ~= file then
-                                tx.file = file
-                                SetPixelTexture(tx, file)
-                            end
-                            tx:SetDrawLayer("BACKGROUND", 2 + k)
-                            if k == 2 then
-                                pcall(tx.SetBlendMode, tx, "ADD")
-                                tx:SetVertexColor(phase < 8 and 0.09 or 0.05, phase < 8 and 0.09 or 0.05, 0.03)
-                            else
-                                pcall(tx.SetBlendMode, tx, "BLEND")
-                                tx:SetVertexColor(1, 1, 1)
-                            end
-                            tx:SetTexCoord(u0, u0 + w / r[5], 0, r[4] / r[6])
-                            tx:SetSize(w * S, r[4] * S)
-                            local x, y = PicToScreen(g, sx, r[2], px, py)
-                            tx:ClearAllPoints()
-                            tx:SetPoint("TOPLEFT", world, "TOPLEFT", x, -y)
-                            tx:Show()
                         end
                     end
                 end
@@ -3162,6 +3168,7 @@ end
 function Amb.Night(m, g, px, py)
     local period = G:Period()
     local key = (period == "night" and "n") or ((period == "dusk" or period == "dawn") and "d") or nil
+    if g and g.indoor and key then key = "n" end
     local n, gn = 0, 0
     if g and key and g.lightChunks and Amb.modOK ~= false then
         local S, sc = TILE / 16, g.lightScale or 2
@@ -3198,10 +3205,12 @@ function Amb.Night(m, g, px, py)
                     Glow(gn, sx, sy, l[3] * 1.5 * S, 1, 0.66, 0.31, (l[5] == 1 and 0.3 or 0.45) * fl * k)
                 end
             end
-            -- the player's lantern
-            gn = gn + 1
-            Glow(gn, HX * TILE + TILE / 2, HY * TILE + TILE * 0.6, 44 * S, 1, 0.7, 0.35,
-                 (0.4 + 0.05 * math.sin(now * 7)) * k)
+            -- the player's lantern (outdoors)
+            if not g.indoor then
+                gn = gn + 1
+                Glow(gn, HX * TILE + TILE / 2, HY * TILE + TILE * 0.6, 44 * S, 1, 0.7, 0.35,
+                     (0.4 + 0.05 * math.sin(now * 7)) * k)
+            end
         end
     end
     for i = n + 1, #Amb.lightTex do Amb.lightTex[i]:Hide() end
@@ -3211,6 +3220,19 @@ end
 
 -- The zone's mood (Amb.MOODS): its tint and the soft frame, multiplied over the world, and motes in the air by day.
 function Amb.Mood(m, g, px, py, period)
+    if g and g.indoor then
+        R.mood:Hide()
+        if Amb.modOK ~= false then
+            if not R.vignette.ready then
+                R.vignette.ready = true
+                R.vignette:SetTexture(MEDIA .. "Ground\\vignette")
+                pcall(R.vignette.SetBlendMode, R.vignette, "MOD")
+            end
+            R.vignette:Show()
+        end
+        if period == "day" then Amb.Dust(g, px, py) end
+        return
+    end
     local mood = g and Amb.MOODS[m.def.theme or "elwynn"]
     if not mood or Amb.modOK == false then
         R.mood:Hide()
@@ -3239,13 +3261,28 @@ function Amb.Mood(m, g, px, py, period)
     end
 end
 
+-- dust motes drifting down through an interior's sun shafts (Ground.lua shafts: x, y, width in picture pixels)
+function Amb.Dust(g, px, py)
+    local ox, oy = g.mx * 16, g.my * 16
+    for si, sh in ipairs(g.shafts or {}) do
+        for k = 0, 11 do
+            if math.sin(now * 2 + k * 1.7 + si) > 0 then
+                local life = (now * 0.07 + k / 12) % 1
+                local y = sh[2] + 14 + life * 48 + math.sin(now * 0.9 + k) * 2
+                local x = sh[1] + 2 + (y - sh[2] - 13) * 0.3 + (k * 7) % sh[3] + math.sin(now * 0.6 + k * 2) * 1.5
+                Amb.Pix(px, py, x - ox, y - oy, 1, 1, 1, 0.97, 0.86, 0.8, "ARTWORK", 6)
+            end
+        end
+    end
+end
+
 function Amb.Draw(m, g, px, py)
     local period = G:Period()
     Amb.Water(m, g, px, py)
     Amb.Wind(m, g, px, py)
     Amb.Clouds(m, g, px, py)
     Amb.pixN = 0
-    if g then
+    if g and m.def.outdoor then
         Amb.Critters(m, px, py, period)
         Amb.Smoke(m, px, py)
     end

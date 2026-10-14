@@ -116,6 +116,7 @@ def build_atlas():
 # other grass around them.
 # ---------------------------------------------------------------------------------------------------------------
 import azeromon_props  # noqa: E402
+import azeromon_interiors  # noqa: E402
 
 SHADE = 0.74            # forest floor under the trees (the ground baker uses the same)
 GRASS_TILES = ("grass1", "grass2", "wgrass1", "wgrass2", "dgrass1", "dgrass2", "jgrass1", "jgrass2")
@@ -183,7 +184,8 @@ def forest_tile(atlas, shade_i, tree_i):
 
 
 def redraw_props(atlas, index):
-    for name, img in azeromon_props.images().items():
+    furniture = {name: fn().image() for name, fn in azeromon_interiors.FURNITURE.items()}
+    for name, img in list(azeromon_props.images().items()) + list(furniture.items()):
         if name.startswith("ruinwall_"):
             continue                                   # walls are baked into the ground, by their neighbours
         w, h = img.size[0] // 16, img.size[1] // 16

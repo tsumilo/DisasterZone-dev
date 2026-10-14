@@ -400,10 +400,137 @@ def ruinwall(mask):
     return s
 
 
+# ---------------------------------------------------------------------------- herb and ore nodes (16 x 16, shown
+# while they can be picked; each carries its own see-through ground shadow since it is not baked)
+
+def _node_shadow(s, cx, rx):
+    for y, k in ((13, 0.7), (14, 1), (15, 0.6)):
+        for x in range(int(cx - rx * k), int(cx + rx * k) + 1):
+            if s.get(x, y) is None:
+                core = abs(x - cx) < rx * k - 1.5
+                s.p[y][x] = (10, 24, 14, 90 if core else 48)
+
+
+def _leaf(s, x0, y0, dx, dy, n, ramp):
+    for k in range(n):
+        x, y = x0 + dx * k, y0 + dy * k
+        s.put(x, y, ramp[3] if k < n - 1 else ramp[4])
+        s.put(x + (1 if dx <= 0 else -1) * (k % 2), y + 1, ramp[2])
+
+
+def herb_peacebloom():
+    s = Spr(16, 16)
+    for x0, y0, dx, dy, n in ((7, 12, -1, -1, 4), (8, 12, 1, -1, 4), (7, 12, -1, 0, 4), (9, 12, 1, 0, 4)):
+        _leaf(s, x0, y0, dx, dy, n, LEAF)
+    for cx, cy in ((4, 6), (8, 3), (12, 6), (8, 8)):
+        s.rect(cx, cy - 1, cx, cy + 1, (244, 244, 236)); s.rect(cx - 1, cy, cx + 1, cy, (244, 244, 236))
+        s.put(cx - 1, cy - 1, (214, 214, 206)); s.put(cx + 1, cy + 1, (196, 196, 190)); s.put(cx, cy, (250, 210, 80))
+    s.line(8, 9, 8, 12, LEAF[1]); s.line(4, 7, 6, 11, LEAF[1]); s.line(12, 7, 10, 11, LEAF[1])
+    s.outline(0.42)
+    _node_shadow(s, 8, 6)
+    return s
+
+
+def herb_silverleaf():
+    s = Spr(16, 16)
+    SIL = [(40, 70, 64), (70, 110, 100), (120, 160, 150), (184, 210, 204), (232, 244, 240)]
+    for x0, dx, n in ((8, 0, 9), (7, -1, 7), (9, 1, 7), (6, -2, 5), (10, 2, 5)):
+        for k in range(n):
+            x, y = x0 + dx * k * 0.45, 12 - k
+            s.put(x, y, SIL[3] if k > n - 3 else SIL[2])
+            s.put(x + (1 if dx >= 0 else -1), y, SIL[1])
+    for x, y in ((8, 3), (5, 6), (11, 6), (8, 7)):
+        s.put(x, y, SIL[4])
+    s.outline(0.42)
+    _node_shadow(s, 8, 6)
+    return s
+
+
+def herb_earthroot():
+    s = Spr(16, 16)
+    DIRT = [(60, 40, 28), (96, 66, 44), (132, 94, 62), (164, 122, 82)]
+    s.ellipse(8, 12, 6.5, 2.6, lambda x, y: DIRT[2] if y < 12 else DIRT[1])                          # the mound
+    for x in (4, 7, 11):
+        s.put(x, 11, DIRT[3])
+    ROOT = [(70, 42, 30), (120, 74, 46), (164, 108, 68), (200, 146, 96)]
+    for i, (x, y) in enumerate(((5, 11), (6, 10), (6, 9), (7, 8), (8, 7), (8, 6), (9, 5), (10, 5), (11, 4))):
+        s.put(x, y, ROOT[2]); s.put(x + 1, y, ROOT[1]); s.put(x, y - 1, ROOT[3] if i % 2 else ROOT[2])
+    s.put(12, 3, ROOT[2]); s.put(4, 12, ROOT[1]); s.put(10, 11, ROOT[1]); s.put(11, 11, ROOT[2])         # tip, rootlets
+    for x, y, c in ((9, 3, LEAF[3]), (10, 2, LEAF[4]), (8, 3, LEAF[2]), (12, 2, LEAF[3]), (13, 1, LEAF[4])):
+        s.put(x, y, c)
+    s.outline(0.42)
+    _node_shadow(s, 8, 7)
+    return s
+
+
+def herb_mageroyal():
+    s = Spr(16, 16)
+    PUR = [(70, 30, 80), (120, 52, 134), (170, 86, 180), (214, 140, 222), (246, 200, 250)]
+    for x0, y0, dx, dy, n in ((7, 12, -1, -1, 3), (9, 12, 1, -1, 3), (6, 13, -1, 0, 3), (10, 13, 1, 0, 3)):
+        _leaf(s, x0, y0, dx, dy, n, LEAF)
+    for x, top in ((5, 4), (8, 2), (11, 4)):                                                           # three stalks
+        s.line(x, top + 4, x, 12, LEAF[1])
+        for k in range(4):
+            s.put(x, top + k, PUR[3] if k % 2 == 0 else PUR[2])
+            s.put(x - 1, top + k + 1, PUR[2] if k % 2 else PUR[1])
+            s.put(x + 1, top + k + 1, PUR[1])
+        s.put(x, top - 1, PUR[4])
+    s.outline(0.42)
+    _node_shadow(s, 8, 6)
+    return s
+
+
+def herb_briarthorn():
+    s = Spr(16, 16)
+    VINE = [(50, 30, 26), (90, 50, 38), (126, 74, 52), (160, 104, 70)]
+    pts = [(3, 12), (4, 10), (6, 9), (7, 7), (9, 6), (10, 4), (12, 3)]
+    pts2 = [(13, 12), (12, 10), (10, 10), (9, 8), (7, 5), (5, 4)]
+    for line in (pts, pts2):
+        for (x0, y0), (x1, y1) in zip(line, line[1:]):
+            s.line(x0, y0, x1, y1, VINE[2])
+        for x, y in line[1:-1:2]:
+            s.put(x, y - 1, VINE[3]); s.put(x + 1, y + 1, VINE[0])                                    # thorns
+    for x, y in ((5, 8), (11, 8), (8, 4), (12, 5)):
+        s.put(x, y, RED[2]); s.put(x, y - 1, RED[3]); s.put(x + 1, y, RED[1])                         # berries
+    for x, y in ((4, 11), (11, 11), (9, 9)):
+        s.put(x, y, LEAF[2]); s.put(x + 1, y, LEAF[3])
+    s.outline(0.42)
+    _node_shadow(s, 8, 6)
+    return s
+
+
+def _ore_rock(ore):
+    s = Spr(16, 16)
+    def rock(x, y):
+        lx, ly = (x - 8) / 6.5, (y - 8.5) / 4.6
+        c = STONE[3] if lx + ly < -0.5 else STONE[2] if lx + ly < 0.6 else STONE[1]
+        if y <= 5 and lx < 0.3: c = STONE[4] if H(x, y, 3) < 0.5 else STONE[3]
+        return c
+    s.poly([(2, 12.5), (2, 9), (4, 6), (7, 4.5), (11, 5), (14, 8), (14.5, 12.5)], rock)
+    s.line(6, 7, 8, 10, STONE[1]); s.line(10, 6, 11, 9, STONE[1])                                     # cracks
+    for x, y in ((4, 9), (7, 6), (10, 9), (12, 7), (6, 11)):                                          # ore nuggets
+        s.put(x, y, ore[2]); s.put(x + 1, y, ore[1]); s.put(x, y - 1, ore[3]); s.put(x + 1, y + 1, ore[0])
+    s.put(8, 4, (255, 255, 240))                                                                      # a glint
+    s.outline(0.42)
+    _node_shadow(s, 8, 7)
+    return s
+
+
+def vein_copper():
+    return _ore_rock([(96, 44, 20), (170, 86, 40), (224, 132, 64), (250, 196, 130)])
+
+
+def vein_tin():
+    return _ore_rock([(70, 84, 96), (130, 150, 166), (188, 204, 214), (236, 244, 250)])
+
+
 # atlas name -> sprite; multi-tile ones are stamps (cut into name_x_y cells by the atlas build)
 PROPS = {"sign": sign, "wantedboard": wantedboard, "forge": forge, "anvil": anvil, "alchemy": alchemy,
          "lamppost": lamppost, "deadtree": deadtree, "jtree": palm, "dtree": pine,
-         "tent": tent, "hut": hut, "totem": totem}
+         "tent": tent, "hut": hut, "totem": totem,
+         "node_peacebloom": herb_peacebloom, "node_silverleaf": herb_silverleaf, "node_earthroot": herb_earthroot,
+         "node_mageroyal": herb_mageroyal, "node_briarthorn": herb_briarthorn, "node_copper": vein_copper,
+         "node_tin": vein_tin}
 
 
 def sprites():

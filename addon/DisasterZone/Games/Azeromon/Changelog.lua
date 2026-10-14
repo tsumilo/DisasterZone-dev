@@ -6,6 +6,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.21", date = "14 October 2026", title = "Cosy rooms",
+      lines = {
+          "Houses and inns have plank floors and timbered walls.",
+          "Beds, tables, dressers, pots and the inn's bar redrawn.",
+          "Each room has its own dressing: hearth, trophies, banners.",
+          "By day the sun falls through the windows, dust drifting in it.",
+          "In the evening hearths, candles and sconces light the rooms.",
+          "Herbs and ore veins redrawn.",
+          "Gusts in the meadows now travel with the clouds.",
+      } },
     { version = "0.20", date = "14 October 2026", title = "Elwynn comes alive",
       lines = {
           "Ponds glint and lap at the shore; cloud shadows drift by.",

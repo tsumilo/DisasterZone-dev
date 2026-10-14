@@ -30,6 +30,7 @@ DEV = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(DEV, "tests", "boot-ui"))
 import azeromon_props  # noqa: E402
+import azeromon_interiors as interiors  # noqa: E402
 
 ADDON = os.path.join(os.path.dirname(DEV), "addon", "DisasterZone")
 MEDIA = os.path.join(ADDON, "Media", "Azeromon")
@@ -697,7 +698,7 @@ def wall_mask(T, x, y):
 
 LOAD = """local out = {}
 for id, def in pairs(ns.AzeroMaps) do
-  if type(def) == 'table' and def.rows and def.outdoor and not def.dynamic then
+  if type(def) == 'table' and def.rows and not def.dynamic and (def.outdoor or not def.theme) then
     local m = ns.Azero.Compile(id)
     local base, over = {}, {}
     for y = 0, m.h - 1 do for x = 0, m.w - 1 do
@@ -710,8 +711,11 @@ for id, def in pairs(ns.AzeroMaps) do
     for _, n in ipairs(def.npcs or {}) do if type(n.x) == 'number' then npcs[#npcs + 1] = { x = n.x, y = n.y } end end
     for _, s in ipairs(def.stamps or {}) do stamps[#stamps + 1] = { kind = s.kind, x = s.x, y = s.y } end
     for _, c in ipairs(def.chests or {}) do chests[#chests + 1] = { x = c.x, y = c.y } end
-    out[id] = { w = m.w, h = m.h, base = base, over = over, rows = rows, npcs = npcs, stamps = stamps,
-                chests = chests, theme = def.theme or 'elwynn' }
+    for _, o in ipairs(def.objects or {}) do
+      if type(o.tile) == 'string' then over[m.key(o.x, o.y) + 1] = o.tile end
+    end
+    out[id] = { id = id, w = m.w, h = m.h, base = base, over = over, rows = rows, npcs = npcs, stamps = stamps,
+                chests = chests, theme = def.theme or 'elwynn', indoor = not def.outdoor }
   end
 end
 return out"""
@@ -728,7 +732,7 @@ def load_maps():
 
 def _src_digest():
     h = hashlib.sha1()
-    for p in (__file__, azeromon_props.__file__):
+    for p in (__file__, azeromon_props.__file__, interiors.__file__):
         h.update(open(p, "rb").read().replace(b"\r\n", b"\n"))
     h.update(open(os.path.join(MEDIA, "atlas.tga"), "rb").read())
     return h.hexdigest()
@@ -779,6 +783,8 @@ def write_lua(entries):
         "--   lights       { x, y, radius, flickers, window }",
         "--   lightChunks  like chunks, at 1/%d size: <map>_d_<cx>_<cy>.tga (dusk), <map>_n_<cx>_<cy>.tga (night)"
         % LIGHT_SCALE,
+        "--   shafts       { x, y, w }: sun through a window (interiors, by day: dust drifts in it)",
+        "--   indoor       an interior: <map>_e_<cx>_<cy>.tga is the room by evening (night windows); its light map is _n_",
         "--   v            a hash of what the picture was made from (the ground test checks it against the maps)",
         "local addonName, ns = ...",
         "ns.AzeroGround = {",
@@ -786,9 +792,10 @@ def write_lua(entries):
     for mid in sorted(entries):
         e_ = entries[mid]
         lines.append('    %s = {' % mid)
-        lines.append('        v = "%s", mx = %d, my = %d, lightScale = %d,' % (e_["v"], MX, MY, LIGHT_SCALE))
-        for key in ("chunks", "water", "meadows", "lights", "lightChunks"):
-            lines.append("        %s = { %s }," % (key, ", ".join(row(c) for c in e_[key])))
+        lines.append('        v = "%s", mx = %d, my = %d, lightScale = %d,%s' % (
+            e_["v"], e_.get("mx", MX), e_.get("my", MY), LIGHT_SCALE, " indoor = true," if e_.get("indoor") else ""))
+        for key in ("chunks", "water", "meadows", "lights", "lightChunks", "shafts"):
+            lines.append("        %s = { %s }," % (key, ", ".join(row(c) for c in e_.get(key, []))))
         lines.append("    },")
     lines.append("}")
     with open(GROUND_LUA, "w", newline="\n", encoding="utf-8") as f:
@@ -796,7 +803,35 @@ def write_lua(entries):
 
 
 def selected(maps):
-    return sorted(n for n, m in maps.items() if m["theme"] in GROUND_THEMES)
+    """outdoor maps of GROUND_THEMES, and every interior (houses and inns)"""
+    return sorted(n for n, m in maps.items() if m.get("indoor") or m["theme"] in GROUND_THEMES)
+
+
+INDOOR_DARK = (112, 96, 120)        # an interior's evening, multiplied (the light map), warm pools round its lights
+
+
+def bake_interior(mid, m, atlas, src):
+    """an interior: the room by day (sun shafts, bright windows) and by evening (night windows, no shafts), and its
+    evening light map; the room's 16 px wall thickness is the margin (mx = my = 1)"""
+    furn = {k: interiors._img(fn()) for k, fn in interiors.FURNITURE.items()}
+    day, lights, shafts, span = interiors.bake_room(m, atlas, furn, "day")
+    day = interiors.light_room(day, lights, shafts, span, "day")
+    eve, _, _, _ = interiors.bake_room(m, atlas, furn, "night")
+    cs = []
+    for prefix, img in (("", day), ("e_", eve)):
+        img = np.clip(np.round(img), 0, 255).astype(np.uint8)
+        cs = []
+        for cx, cy, uw, uh, tw_, th_, tex in chunks(img):
+            Image.fromarray(tex, "RGB").save(os.path.join(OUT_DIR, "%s_%s%d_%d.tga" % (mid, prefix, cx // CHUNK, cy // CHUNK)))
+            cs.append((cx, cy, uw, uh, tw_, th_))
+    ls = [(int(x), int(y), int(r * 1.6), f, 0) for x, y, r, f in lights]
+    lm = light_map(day.shape[1], day.shape[0], ls, INDOOR_DARK)
+    lc = []
+    for cx, cy, uw, uh, tw_, th_, tex in chunks(lm):
+        Image.fromarray(tex, "RGB").save(os.path.join(OUT_DIR, "%s_n_%d_%d.tga" % (mid, cx // CHUNK, cy // CHUNK)))
+        lc.append((cx, cy, uw, uh, tw_, th_))
+    return {"v": inputs_hash(m, src), "chunks": cs, "water": [], "meadows": [], "lights": ls, "lightChunks": lc,
+            "shafts": [(int(x), int(y), int(w)) for x, y, w in shafts], "indoor": True, "mx": 1, "my": 1}
 
 
 def main():
@@ -810,6 +845,10 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     entries = {}
     for mid in selected(maps):
+        if maps[mid].get("indoor"):
+            entries[mid] = bake_interior(mid, maps[mid], atlas, src)
+            print("baked", mid, "(interior)")
+            continue
         th = THEMES.get(maps[mid]["theme"], THEMES["elwynn"])
         m = extend(maps[mid], th)
         img, cls, dist = bake(m, atlas, walls)
@@ -848,6 +887,8 @@ def main():
     keep |= {"%s_m%d.tga" % (mid, i + 1) for mid, e in entries.items() for i in range(len(e["meadows"]))}
     keep |= {"%s_%s_%d_%d.tga" % (mid, q, c[0] // CHUNK, c[1] // CHUNK) for mid, e in entries.items()
              for c in e["lightChunks"] for q in "dn"}
+    keep |= {"%s_e_%d_%d.tga" % (mid, c[0] // CHUNK, c[1] // CHUNK) for mid, e in entries.items()
+             if e.get("indoor") for c in e["chunks"]}
     keep |= {"clouds.tga", "vignette.tga"}
     for f in os.listdir(OUT_DIR):
         if f.endswith(".tga") and f not in keep:
