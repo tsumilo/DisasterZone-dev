@@ -1767,7 +1767,7 @@ function OpenStartMenu()
         end },
         { text = "EXIT", onSelect = function(_, menu) PopMenu(menu) end },
     }
-    PushMenu(items, { w = 210, rowH = 27, level = 60, desc = true, onMove = StartMenuHelp, onCancel = function(menu) PopMenu(menu) end })
+    PushMenu(items, { w = 210, rowH = 25, level = 60, desc = true, onMove = StartMenuHelp, onCancel = function(menu) PopMenu(menu) end })
     R.money:Show()
 end
 

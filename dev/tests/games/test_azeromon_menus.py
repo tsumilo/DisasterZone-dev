@@ -164,7 +164,7 @@ def controls_scrolls_above_the_description_box():
     w, c = game()
     key(w, c, "START")
     n = layout(c)["n"]
-    key(w, c, *(["down"] * (n - 2)))           # CONTROLS, the one before EXIT
+    key(w, c, *(["down"] * (n - 3)))           # CONTROLS (then MOTION, then EXIT)
     key(w, c, "A")
     L = layout(c)
     assert L["n"] >= 11 and L["desc"] > 0, L
