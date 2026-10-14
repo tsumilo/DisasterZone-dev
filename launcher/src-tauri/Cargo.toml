@@ -2,6 +2,9 @@
 name = "dz-launcher"
 version = "0.2.0"
 description = "DisasterZone Launcher: installs and updates the DisasterZone addon"
+authors = ["tsumilo"]
+license = "MIT"
+repository = "https://github.com/tsumilo/DisasterZone-releases"
 edition = "2021"
 publish = false
 
