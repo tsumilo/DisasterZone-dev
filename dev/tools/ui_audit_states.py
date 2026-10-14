@@ -162,7 +162,7 @@ def close_all(cl):
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
                               'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZLookLongNames', 'DZAuditFull', 'DZGroupStage',
-                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons' }) do
+                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       -- (the shared pop-ups of UI:Toast, which replaced some of the named ones above)
@@ -914,6 +914,38 @@ def st_session_bar(w, c):
     g = raid_with_session(w, c, {"loot": False, "rolls": True, "lock": False})
     g.eval("__MOCK.real_geometry = true; ns.SessionBar:Update(); ns.SessionBar:Peek(true)")
     return g
+
+
+# Loot reserves (1.4.3): Gina hosts reserves in Karazhan (2 each, the Champion helm held for the guild); the raid
+# reserved by every way there is (the picker, LootReserve, whispers, an import). Keys come from the group itself (a
+# pug from another realm).
+RESERVES_SEED = r"""
+local R = ns.Reserves
+R:_Reset()
+R:Open({ rk = 'Karazhan', n = 2, hr = { 29760 } })
+local keys = {}
+for _, k in ipairs(ns.Util.GetGroupKeys()) do keys[ns.Util.ShortName(k)] = k end
+for _, e in ipairs({ { 'Victhar', 28766, 'd' }, { 'Victhar', 28770, 'd' }, { 'Shadowmelder', 28770, 'l' },
+                     { 'Vaenyria', 28764, 'w' }, { 'Moonwhisper', 28766, 'd' }, { 'Lightbringer', 28763, 's' },
+                     { 'Pugsyhealer', 28766, 'w' }, { 'Darkstalkerr', 28764, 'l' }, { 'Gina', 28757, 'd' },
+                     { 'Lightbringer', 28477, 'h' } }) do
+  if keys[e[1]] then R:AddFor(keys[e[1]], e[2], e[3], true) end
+end
+"""
+
+
+def st_reserves(view, viewer="Gina", lua=""):
+    """The reserves window: view "pick" (My reserves, at Prince), "list" or "wrap"; lua runs on the host after the seed."""
+    def fn(w, c):
+        g = raid_with_session(w, c, {"loot": True, "rolls": True, "lock": False, "reserve": True})
+        g.eval(RESERVES_SEED + lua)
+        w.tick(3)
+        v = c[viewer]
+        close_all(v)
+        v.eval("__MOCK.real_geometry = true; ns.ReservesUI:GetState().boss = 'Prince'; ns.ReservesUI:Show(...)", view)
+        w.tick(0.5)
+        return v
+    return fn
 
 
 def st_session_crest(open_=False, idle=False):
@@ -2141,6 +2173,11 @@ STATES = [
     ("Demo - session crest (after Vashj)", st_crest_demo("done")),
     ("Demo - session crest (boss fight)", st_crest_demo("pull", open_=False)),
     ("Demo - session crest (between bosses)", st_crest_demo("between", open_=False)),
+    ("Reserves - my reserves (raider)", st_reserves("pick", "Victhar")),
+    ("Reserves - my reserves (guild items)", st_reserves("pick", "Gina", "ns.ReservesUI:GetState().holdMode = true")),
+    ("Reserves - list (host)", st_reserves("list")),
+    ("Reserves - list (raider)", st_reserves("list", "Moonwhisper")),
+    ("Reserves - wrap-up", st_reserves("wrap")),
     ("Raid - drop panel (council)", st_drop({"loot": True, "rolls": True, "lock": False})),
     ("Raid - drop panel (council, rolling)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True)),
     ("Raid - roll popup (raider)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,

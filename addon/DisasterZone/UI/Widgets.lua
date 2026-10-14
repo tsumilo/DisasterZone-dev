@@ -1782,6 +1782,8 @@ UI.ICON.stopwatch = 59
 -- (prized items, Raids > Loot rules, art pack 7: 60 a seal with a star, 61 one person, 62 a shield, 63 two links,
 -- 64 a ballot box; check ns:HasAssets(7) first)
 UI.ICON.prized, UI.ICON.person, UI.ICON.shield, UI.ICON.pair, UI.ICON.ballot = 60, 61, 62, 63, 64
+-- (loot reserves, 1.4.3: 7 a map pin, the reserve switch and chips)
+UI.ICON.reserve = 7
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }

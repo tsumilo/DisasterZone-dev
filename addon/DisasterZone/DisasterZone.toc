@@ -251,6 +251,7 @@ UI\SessionDrawer.lua
 UI\SessionBar.lua
 UI\DropPanel.lua
 UI\RollFrame.lua
+UI\Reserves.lua
 UI\Tooltip.lua
 UI\Settings.lua
 UI\BossModSettings.lua

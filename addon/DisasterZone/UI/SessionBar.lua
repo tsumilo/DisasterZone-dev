@@ -85,9 +85,14 @@ local FEATURES = {
       tip = "The drop panel opens for the raid leader and the council to start rolls; raiders get the Roll / Pass "
           .. "popup, players without DisasterZone type /roll. Off: no roll popups." },
     { key = "lock", label = "Lock everyone's BiS lists", desc = "Nobody edits their list until the raid ends",
-      off = "Needs the loot council",
+      off = "Needs the loot council", offReserve = "Reserves don't use BiS lists",
       tip = "Nobody changes their BiS list while the raid runs (it unlocks when the raid ends). "
           .. "Needs the loot council." },
+    -- 1.4.3: reserves (Core/Reserves.lua): only when picked (optIn); they keep the council for the guild's items
+    { key = "reserve", label = "Reserves", desc = "Soft reserves decide; the council keeps the guild's items",
+      optIn = true,
+      tip = "Whoever soft reserved an item rolls on it; nobody reserved it: everyone rolls. Items the guild holds "
+          .. "go to the loot council among guild members. Pugs reserve by whisper, in LootReserve or softres.it." },
 }
 
 -- The window: a tool window of W (its content W - 10), the switches as rich rows under a caps header (18 high).
@@ -102,8 +107,21 @@ local function LastFeatures()
     local saved = ns.db and ns.db.settings and ns.db.settings.raidStart
     local f = {}
     for _, feat in ipairs(FEATURES) do
-        f[feat.key] = type(saved) ~= "table" or saved[feat.key] ~= false
+        if feat.optIn then
+            f[feat.key] = type(saved) == "table" and saved[feat.key] == true
+        else
+            f[feat.key] = type(saved) ~= "table" or saved[feat.key] ~= false
+        end
     end
+    if f.reserve then f.loot, f.lock = true, false end
+    return f
+end
+
+-- The features a pick / the window / a switch hands GroupRules (reserves keep the council on, the lock off).
+local function CleanPick(p)
+    local f = { loot = p.loot and true or false, rolls = p.rolls and true or false,
+                lock = (p.loot and p.lock and not p.reserve) and true or false, reserve = p.reserve and true or false }
+    if f.reserve then f.loot, f.rolls = true, true end
     return f
 end
 
@@ -129,7 +147,9 @@ local function NewSwitchRow(w, body, i, feat)
     local get = function() return w.f[key] end
     local set = function(on)
         w.f[key] = on and true or false
-        if key == "loot" then SessionBar:SyncLockBox() end
+        if key == "reserve" and on then w.f.loot = true end
+        if key == "loot" and not on then w.f.reserve = false end
+        if key == "loot" or key == "reserve" then SessionBar:SyncLockBox() end
     end
     local cb = UI.CreateSwitch and UI:CreateSwitch(row, get, set) or UI:CreateCheckbox(row, "", get, set)
     cb:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
@@ -177,16 +197,22 @@ function SessionBar:SyncLockBox()
     local w = startWin
     local cb = w and w.boxes and w.boxes.lock
     if not cb then return end
-    local on = w.f.loot and true or false
+    local on = (w.f.loot and not w.f.reserve) and true or false
     if not on then w.f.lock = false end
     cb:SetEnabled(on)
     if w.labels and w.labels.lock then w.labels.lock:SetTextColor(S:Color(on and "TEXT" or "DIM")) end
     if w.descs and w.descs.lock then
         for _, feat in ipairs(FEATURES) do
-            if feat.key == "lock" then w.descs.lock:SetText(on and feat.desc or feat.off) end
+            if feat.key == "lock" then
+                w.descs.lock:SetText(on and feat.desc or (w.f.reserve and feat.offReserve or feat.off))
+            end
         end
     end
     cb:Refresh()
+    for _, k in ipairs({ "loot", "reserve" }) do
+        local b = w.boxes[k]
+        if b and b.Refresh then b:Refresh() end
+    end
 end
 
 -- mode: "start" | "change" | "demo".
@@ -248,7 +274,7 @@ function SessionBar:OpenOptions()
         return false
     end
     local cur = ns.GroupRules:GetSessionFeatures() or LastFeatures()
-    ShowStartWindow("change", { loot = cur.loot, rolls = cur.rolls, lock = cur.lock })
+    ShowStartWindow("change", { loot = cur.loot, rolls = cur.rolls, lock = cur.lock, reserve = cur.reserve })
     return true
 end
 
@@ -256,8 +282,7 @@ end
 function SessionBar:ConfirmStart()
     local w = startWin
     if not w then return false end
-    local f = { loot = w.f.loot and true or false, rolls = w.f.rolls and true or false,
-                lock = (w.f.loot and w.f.lock) and true or false }
+    local f = CleanPick(w.f)
     if w.mode == "demo" then
         ns:Print("Demo: a real raid would start now with %s.", SessionBar:DescribeFeatures(f))
         w:Hide()
@@ -290,6 +315,7 @@ function SessionBar:DescribeFeatures(f)
     if #on > 0 then parts[#parts + 1] = table.concat(on, " and ") .. " on" end
     if #off > 0 then parts[#parts + 1] = table.concat(off, " and ") .. " off" end
     parts[#parts + 1] = f.lock and "BiS lists locked" or "BiS lists open"
+    if f.reserve then return "reserves (the council keeps the guild's items), " .. table.concat(parts, ", ") end
     return table.concat(parts, ", ")
 end
 
@@ -629,9 +655,12 @@ local TOGGLES = {
       on = "On: BiS candidates and council votes on every drop.", off = "Off: no BiS candidates or votes." },
     { key = "rolls", glyph = "games", title = "Rolls",
       on = "On: Roll / Pass pop-ups for everyone in the raid.", off = "Off: no roll pop-ups." },
+    { key = "reserve", glyph = "reserve", title = "Reserves",
+      on = "On: soft reserves decide the loot; the council keeps the guild's items.",
+      off = "Off: the loot council and rolls as usual." },
     { key = "lock", glyph = "lock", title = "Lock everyone's BiS lists",
       on = "On: nobody edits their list until the raid ends.", off = "Off: lists stay open.",
-      needs = "Needs the loot council." },
+      needs = "Needs the loot council (and no reserves)." },
 }
 function B.Toggle(line, i)
     local t = line.toggles[i]
@@ -651,7 +680,7 @@ function B.Toggle(line, i)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText(d.title, S:Color("GOLD"))
         GameTooltip:AddLine(on and d.on or d.off, 0.8, 0.8, 0.8, true)
-        if d.needs and not (pick and pick.loot) then GameTooltip:AddLine(d.needs, S.C.WARN[1], S.C.WARN[2], S.C.WARN[3], true) end
+        if d.needs and not (pick and pick.loot and not pick.reserve) then GameTooltip:AddLine(d.needs, S.C.WARN[1], S.C.WARN[2], S.C.WARN[3], true) end
         GameTooltip:AddLine("Click to turn it " .. (on and "off" or "on") .. ".", 0.5, 0.5, 0.52, true)
         GameTooltip:Show()
     end)
@@ -666,7 +695,7 @@ end
 function B.PaintToggle(t)
     local key = t.def.key
     local on = pick and pick[key] and true or false
-    local can = key ~= "lock" or (pick and pick.loot)
+    local can = key ~= "lock" or (pick and pick.loot and not pick.reserve)
     if on then
         B.Edge(t, GOLD[1], GOLD[2], GOLD[3], 0.65)
         t.bg:Show()
@@ -1099,10 +1128,12 @@ function SessionBar:LastFeatures() return LastFeatures() end
 -- An idle switch flipped (the lock needs the loot council).
 function SessionBar:FlipPick(key)
     pick = pick or LastFeatures()
-    if key == "lock" and not pick.loot then return end
+    if key == "lock" and not (pick.loot and not pick.reserve) then return end
     pick[key] = not pick[key]
-    if key == "loot" and not pick.loot then pick.lock = false end
+    if key == "loot" and not pick.loot then pick.lock, pick.reserve = false, false end
+    if key == "reserve" and pick.reserve then pick.loot, pick.rolls, pick.lock = true, true, false end
     self:Render()
+    ns:Fire("RESERVES_CHANGED")
 end
 
 function SessionBar:GetPick() return pick end
@@ -1110,8 +1141,7 @@ function SessionBar:GetPick() return pick end
 -- Start raid on the line: what the switches say, no window.
 function SessionBar:StartNow()
     pick = pick or LastFeatures()
-    local f = { loot = pick.loot and true or false, rolls = pick.rolls and true or false,
-                lock = (pick.loot and pick.lock) and true or false }
+    local f = CleanPick(pick)
     if B.Demo() then
         B.DemoSays("a real raid would start now with " .. self:DescribeFeatures(f))
         return true
@@ -1133,9 +1163,10 @@ function SessionBar:SetFeature(key, on)
     if not (Session() and IsAuthority()) then return false end
     local cur = ns.GroupRules:GetSessionFeatures() or LastFeatures()
     local f = { loot = cur.loot and true or false, rolls = cur.rolls and true or false,
-                lock = ns.GroupRules:IsLocked() and true or false }
+                lock = ns.GroupRules:IsLocked() and true or false, reserve = cur.reserve and true or false }
     f[key] = on and true or false
-    if not f.loot then f.lock = false end
+    if not f.loot then f.lock, f.reserve = false, false end
+    f = CleanPick(f)
     local function apply()
         local ok, err = ns.GroupRules:SetSessionFeatures(f)
         if ok then
@@ -1262,6 +1293,7 @@ function SessionBar:MaybeToast(state)
     if feats.rolls then on[#on + 1] = (#on > 0 and "rolls" or "Rolls") end
     local text = #on > 0 and (table.concat(on, " and ") .. " on") or "No loot council or rolls tonight"
     if ns.GroupRules:IsLocked() then text = text .. " · your BiS list is locked until the raid ends" end
+    if feats.reserve then text = "Soft reserves decide the loot · the council keeps the guild's items" end
     local now = SI() and SI():Get()
     local key = now and now.raidKey
     local art
