@@ -69,6 +69,14 @@ local SWIM_SINK, WALK_EYE = 1.5, 2.2
 local RACE_DISPLAY = { Human = { 49, 50 }, Orc = { 51, 52 }, Dwarf = { 53, 54 }, NightElf = { 55, 56 },
                        Scourge = { 57, 58 }, Tauren = { 59, 60 }, Gnome = { 1563, 1564 }, Troll = { 1478, 1479 },
                        BloodElf = { 15476, 15475 }, Draenei = { 16125, 16126 } }
+-- What the others draw for those: the race's own model is a bare body (its skin comes from a character's looks, so
+-- on its own it draws white), so a dressed NPC of that race and sex instead (Wowhead model meta, Character.Race /
+-- Gender checked): Stormwind City Guard, Innkeeper Allison, Orgrimmar Grunt, Innkeeper Gryshka, Ironforge Guard,
+-- Fandral Staghelm, Darnassus Sentinel, Deathguard Elite, Innkeeper Renee, Bluffwatcher, Innkeeper Pala, Tinkmaster
+-- Overspark, Innkeeper Kalarin, Innkeeper Delaniel, Exodar Peacekeeper, Caregiver Chellan.
+local RACE_LOOK = { [49] = 3167, [50] = 5444, [51] = 4259, [52] = 5706, [53] = 3524, [54] = 3041, [55] = 1542,
+                    [56] = 2306, [57] = 7117, [58] = 8190, [59] = 2141, [60] = 5487, [1563] = 7028, [1564] = 3067,
+                    [1478] = 3608, [1479] = 3999, [15476] = 16701, [15475] = 15530, [16125] = 17372, [16126] = 16785 }
 
 -- Floor marks (yd over the floor, so they never sink into it), posts (yd)
 local LIFT, LIFT_HATCH, LIFT_SEL = 0.08, 0.06, 0.11
@@ -2431,7 +2439,7 @@ local function GroupUnit(key)
     return nil
 end
 
--- The others walking here, drawn: where they are now (from their last word and speed, at most 1.5 s on, eased there
+-- The others walking here, drawn: where they are now (from their last word and speed, at most 2.5 s on, eased there
 -- so a new word never makes them jump), looking as they do (in my group: their own character), running or standing,
 -- their name over them in their class colour; each an occluder. -> n with theirs added to occ.
 function V:DrawWalkers(occ, n)
@@ -2445,7 +2453,7 @@ function V:DrawWalkers(occ, n)
             -- (a pool of their own: an actor shared with the bosses' kept their scale and centre, and lost Hydross)
             a = table.remove(self.walkerPool) or self.view:NewActor()
             if a then
-                a.look, a.display, a.anim, a.bb, a.wx, a.wy = nil, nil, nil, nil, nil, nil
+                a.look, a.display, a.anim, a.bb, a.wx, a.wy, a.wf = nil, nil, nil, nil, nil, nil, nil
                 a.scale, a.ctr, a.ctrMode, a.box, a.partIds = 1, nil, nil, nil, nil
                 self.walkers[rw.key] = a
             end
@@ -2455,7 +2463,7 @@ function V:DrawWalkers(occ, n)
             -- (their own character only while the client can see them: else it draws a white, untextured body)
             local unit = GroupUnit(rw.key)
             if unit and not (UnitIsVisible and UnitIsVisible(unit)) then unit = nil end
-            local look = unit or rw.d or 49
+            local look = unit or RACE_LOOK[rw.d] or rw.d or RACE_LOOK[49]
             if a.look ~= look then
                 a.look = look
                 pcall(a.ClearModel, a)
@@ -2463,7 +2471,10 @@ function V:DrawWalkers(occ, n)
                 pcall(a.SetUseCenterForOrigin, a, false, false, false)
                 pcall(a.SetScale, a, 1)
             end
-            local t = min(rw.age, 1.5)
+            -- (on from their speed only while they run or fall: a member on an older version sends the speed they
+            -- stopped with, and was drawn sliding on, then snapping back at their next word)
+            local falling, swimming = floor(rw.s / 4) % 2 == 1, floor(rw.s / 8) % 2 == 1
+            local t = (rw.s % 2 == 1 or falling) and min(rw.age, 2.5) or 0
             local px, py = rw.x + rw.vx * t, rw.y + rw.vy * t
             if not a.wx or (px - a.wx) ^ 2 + (py - a.wy) ^ 2 > 100 then
                 a.wx, a.wy = px, py
@@ -2471,13 +2482,19 @@ function V:DrawWalkers(occ, n)
                 local e = min(1, 10 * dt)
                 a.wx, a.wy = a.wx + (px - a.wx) * e, a.wy + (py - a.wy) * e
             end
-            local falling, swimming = floor(rw.s / 4) % 2 == 1, floor(rw.s / 8) % 2 == 1
             local z = rw.z
             if not falling and ground then z = ground(a.wx, a.wy, rw.z + 0.5) or rw.z end
             if swimming then z = z - SWIM_SINK end
-            local dx, dy = self.view:CentreShift(a, 1, rw.f)
+            -- their turn eased too (a word comes every 20 degrees or so: drawn as it came, they turned in jerks)
+            if not a.wf then
+                a.wf = rw.f
+            else
+                local turn = (rw.f - a.wf + pi) % (2 * pi) - pi
+                a.wf = a.wf + turn * min(1, 12 * dt)
+            end
+            local dx, dy = self.view:CentreShift(a, 1, a.wf)
             pcall(a.SetPosition, a, a.wx + dx, self.view:SY(a.wy + dy), z)
-            pcall(a.SetYaw, a, self.cam.mirror * rw.f)
+            pcall(a.SetYaw, a, self.cam.mirror * a.wf)
             pcall(a.SetShown, a, true)
             local moving, back = rw.s % 2 == 1, floor(rw.s / 2) % 2 == 1
             local anim = (falling and WANIM.fall) or (swimming and (moving and WANIM.swim or WANIM.swimIdle))
@@ -2571,7 +2588,8 @@ function V:WalkStep(elapsed)
             left = left - s
         end
     else
-        k.moving, k.backward, k.bodyTurn = false, false, 0      -- (stood still: no step ran to say so)
+        -- (stood still: no step ran to say so; a running speed kept here had the others see me slide on and back)
+        k.moving, k.backward, k.bodyTurn, k.vx, k.vy = false, false, 0, 0, 0
     end
     wk.jump = nil
     self:ShareWalk()

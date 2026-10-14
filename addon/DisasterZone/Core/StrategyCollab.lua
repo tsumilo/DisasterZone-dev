@@ -856,7 +856,7 @@ function Collab:SendWalk(w)
     if w then
         local function r2(v) return floor((v or 0) * 100 + 0.5) / 100 end
         msg = { t = "SWK", id = mine.id, r = w.r, x = r2(w.x), y = r2(w.y), z = r2(w.z), f = r2(w.f), vx = r2(w.vx),
-                vy = r2(w.vy), s = w.s or 0, d = w.d }
+                vy = r2(w.vy), s = w.s or 0, d = w.d, ts = r2(GetTime()) }
     else
         msg = { t = "SWK", id = mine.id, off = true }
     end
@@ -874,17 +874,28 @@ local function OnWalk(sender, msg, dist)
     if type(msg.r) ~= "string" or #msg.r > 60 then return end
     if not (Num(msg.x, -WALK_MAX, WALK_MAX) and Num(msg.y, -WALK_MAX, WALK_MAX) and Num(msg.z, -WALK_MAX, WALK_MAX)
             and Num(msg.f, -1000, 1000) and Num(msg.vx, -100, 100) and Num(msg.vy, -100, 100)) then return end
+    -- when they were there, on my clock: a word held up in the send queue is older than its arrival says, and
+    -- counted from the arrival it drew them behind, then ahead at the next one (to and fro). Their clock's offset
+    -- from mine is the smallest gap yet between their stamp and my arrival (it creeps up 0.05 s a word, for a
+    -- clock that moved); a member on an older version sends no stamp: from the arrival, as before
+    local now, at, gap = GetTime(), nil, nil
+    if Num(msg.ts, 0, 1e9) then
+        local old = walkers[sender]
+        gap = now - msg.ts
+        if old and old.gap then gap = math.min(gap, old.gap + 0.05) end
+        at = math.min(now, msg.ts + gap)
+    end
     walkers[sender] = { id = msg.id, r = msg.r, x = msg.x, y = msg.y, z = msg.z, f = msg.f, vx = msg.vx, vy = msg.vy,
                         s = Num(msg.s, 0, 15) and floor(msg.s) or 0, d = Num(msg.d, 1, 1e7) and floor(msg.d) or nil,
-                        at = GetTime() }
+                        at = at or now, gap = gap, heard = now }
 end
 
 -- Who walks in strategy `id`'s room `roomKey` now (not me): { key, x, y, z, f, vx, vy, s, d, age (seconds since
--- their last word), r, g, b (their class colour) }, by name.
+-- they were where their last word says, sent time on my clock), r, g, b (their class colour) }, by name.
 function Collab:RemoteWalkers(id, roomKey)
     local out, now = {}, GetTime()
     for key, w in pairs(walkers) do
-        if now - w.at > WALK_TTL then
+        if now - w.heard > WALK_TTL then
             walkers[key] = nil
         elseif w.id == id and w.r == roomKey then
             local r, g, b = self:ColorOf(key)

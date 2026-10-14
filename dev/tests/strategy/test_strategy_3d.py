@@ -702,6 +702,19 @@ def walking_shows_on_the_boards_of_the_others_who_have_the_strategy_open():
                         "return { n = #ws, x = a and a.wx - T3.ox, y = a and a.wy - T3.oy }")
     assert seen["n"] == 1 and math.hypot(seen["x"] - k["x"], seen["y"] - k["y"]) < 1, (seen, k)
     assert gina.eval("local ws = T3.v():RemoteWalkers() return T3.v().walkerLabels[ws[1].key]:GetText()") == "Bob"
+    # dressed, not the race's bare (white) body
+    look = gina.eval_py("local ws = T3.v():RemoteWalkers() local a = T3.v().walkers[ws[1].key] "
+                        "return a.display or a.pending")
+    assert look and look not in (49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 1563, 1564, 1478, 1479, 15476,
+                                 15475, 16125, 16126), look
+    # stood still, he stays where he stopped through his next words (no slide on with the speed he stopped with,
+    # as when no step ran after the keys came up)
+    bob.eval("T3.v().walk.k.vx = 7")
+    for _ in range(6):
+        tick(w, 0.5)
+        seen = gina.eval_py("local ws = T3.v():RemoteWalkers() local a = ws[1] and T3.v().walkers[ws[1].key] "
+                            "return { x = a and a.wx - T3.ox, y = a and a.wy - T3.oy }")
+        assert math.hypot(seen["x"] - k["x"], seen["y"] - k["y"]) < 0.2, (seen, k)
     # he stops walking: gone from her room
     walk_key(bob, "ESCAPE", True)
     tick(w, 0.5)
@@ -716,6 +729,44 @@ def walking_shows_on_the_boards_of_the_others_who_have_the_strategy_open():
     tick(w, 1.5)
     walk_key(bob, "W", False)
     assert not [e for e in w.addon_log[n0:] if e["prefix"] == "CDLw"]
+    no_errors(w)
+
+
+@case
+def a_walker_whose_words_come_late_by_turns_runs_on_smoothly():
+    # The send queue holds words back by more or less: counted from their arrival, a late one drew him behind and the
+    # next one ahead (to and fro). Counted from when he sent it, he runs on where he is.
+    w, c = world()
+    bob, gina = c["Bob"], c["Gina"]
+    for cl in (bob, gina):
+        cl.eval(HELPERS)
+    bob.eval("ns.StrategyBoard:NewStrategy(...)", TERON)
+    w.tick(0.2)
+    sid = bob.eval_py("local s = ns.StrategyBoard:GetState().strat local ok, r = ns.Strategy:SaveStrategy(s) "
+                      "return r")
+    w.tick(1)
+    for cl in (bob, gina):
+        cl.eval("ns.StrategyBoard:OpenStrategy(...)", sid)
+        w.tick(2)
+        cl.eval("local s = ns.Render3D.RoomForBoss(...).spot T3.ox, T3.oy = s.x - 29.9, s.y - 85.2", TERON)
+        go3d(w, cl)
+    tick(w, 2)
+    bob.eval("local o = T3.v().orb o.x, o.y = 30 + T3.ox, 20 + T3.oy T3.v():StartWalk()")
+    walk_key(bob, "W", True)
+    tick(w, 0.6)
+    worst = 0
+    for i in range(16):
+        w.latency = 1.1 if i % 4 < 2 else 0.1
+        tick(w, 0.1)
+        k = bob.eval_py(WALKER)
+        seen = gina.eval_py("local ws = T3.v():RemoteWalkers() local a = ws[1] and T3.v().walkers[ws[1].key] "
+                            "return { x = a and a.wx - T3.ox, y = a and a.wy - T3.oy }")
+        if seen.get("x") is not None and i >= 4:
+            worst = max(worst, math.hypot(seen["x"] - k["x"], seen["y"] - k["y"]))
+    walk_key(bob, "W", False)
+    w.latency = 0.1
+    assert k["y"] > 30, k                                                    # (he ran the whole time)
+    assert worst < 1.5, worst
     no_errors(w)
 
 
