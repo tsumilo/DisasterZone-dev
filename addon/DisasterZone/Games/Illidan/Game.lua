@@ -74,6 +74,7 @@ function G:ItemCount()
 end
 
 function G:OnInit()
+    if not ns:HasAssets(11) then return end      -- its doors, splats and vignette came with art pack 11
     ns.Games:Register(GAME_ID, {
         name = "The Binding of Illidan",
         desc = "A roguelike through the Black Temple: one room at a time, your class's bolts as tears, items that stack, and raid bosses that fight with their raid mechanics. A new dungeon every run.",

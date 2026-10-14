@@ -2,7 +2,7 @@
 ## Title: |cffff8000Disaster|rZone 3D rooms
 ## Notes: The boss rooms of DisasterZone's 3D strategy boards, Raid Trainer and chess hall. Loads only when one of them opens.
 ## Author: Casual Disaster
-## Version: 1.4.3
+## Version: 1.4.4
 ## Dependencies: DisasterZone
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\DisasterZone\Media\Launcher\seal

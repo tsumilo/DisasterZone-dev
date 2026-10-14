@@ -6,6 +6,28 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.4", date = "14 October 2026", title = "The Binding of Illidan and a living Azeromon",
+      sections = {
+          { heading = "The Binding of Illidan", area = "games", kind = "new", hi = true, open = "games",
+            lead = "A roguelike through the Black Temple, played as your own class.", lines = {
+              "Five floors of random rooms, each ending in a raid boss with its real mechanics.",
+              "Magtheridon, Supremus, Teron Gorefiend, Mother Shahraz and Illidan himself.",
+              "Your class's bolt is your shot; 18 items, fel bargains and Naaru gifts on the way.",
+              "Locked vaults, a goblin vendor and a secret room behind a wall on every floor.",
+              "Today's dungeon: one a day for the whole guild; your first try goes on the board.",
+              "Fall in a counted run and guildmates find your grave in that room.",
+              "Rooms lit by flickering sconces; the Games poster plays the game itself.",
+          } },
+          { heading = "Azeromon, alive", area = "games", kind = "changed", open = "games",
+            lead = "Every zone redrawn, with weather, light and a new title screen.", lines = {
+              "Elwynn, Westfall, Duskwood, Stranglethorn and the mines all redrawn.",
+              "Mist in Duskwood, sun shafts and fireflies in the jungle, rain for the whole guild.",
+              "Cosy houses and inns: hearths at night, sunlight through the windows by day.",
+              "The game fills the whole window; battles have a painted scene for every zone.",
+              "A new title screen, and the Games poster plays a film of the zones.",
+              "Start menu: MOTION turns the world's motion off.",
+          } },
+      } },
     { version = "1.4.3", date = "14 October 2026", title = "Loot reserves and new nameplates",
       sections = {
           { heading = "Loot reserves", area = "loot", kind = "new", hi = true, open = "settings/session",
