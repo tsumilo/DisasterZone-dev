@@ -146,7 +146,7 @@ def the_controls_page_from_the_menu_and_the_title():
     items = c2.eval_py("return ns.AzeroUI._MenuItems()")
     assert items[-1] == "CONTROLS", items
     for _ in range(len(items) - 1):
-        key(w2, c2, "down")
+        key(w2, c2, "right")              # (the title menu is one row)
     key(w2, c2, "A")
     assert title(c2) == "CONTROLS"
     no_errors(w2)
@@ -196,7 +196,7 @@ def whats_new_on_the_title_screen():
     items = c.eval_py("return ns.AzeroUI._MenuItems()")
     assert "WHAT'S NEW" in items and c.eval("return ns.AzeroUI._ChangelogUnseen()") is True, items
     for _ in range(items.index("WHAT'S NEW")):
-        key(w, c, "down")
+        key(w, c, "right")
     key(w, c, "A")
     page = c.eval_py("return ns.AzeroUI._Changelog()")
     n = c.eval("return #ns.AzeroChangelog")
