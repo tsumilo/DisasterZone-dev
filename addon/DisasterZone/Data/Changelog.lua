@@ -23,6 +23,7 @@ ns.CHANGELOG = {
               "Elwynn, Westfall, Duskwood, Stranglethorn and the mines all redrawn.",
               "Mist in Duskwood, sun shafts and fireflies in the jungle, rain for the whole guild.",
               "Cosy houses and inns: hearths at night, sunlight through the windows by day.",
+              "The Guild Hall is a cathedral now: each raid's wing opens with the guild's first kill.",
               "The game fills the whole window; battles have a painted scene for every zone.",
               "A new title screen, and the Games poster plays a film of the zones.",
               "Start menu: MOTION turns the world's motion off.",
