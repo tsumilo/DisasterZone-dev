@@ -655,7 +655,51 @@ local function HolderOf(session)
     return ok and key or nil
 end
 
+-- 1.4.3: loot reserves (Core/Reserves.lua): how they decide an item, in a word (kind "s" the reservers roll, "g" held
+-- for the guild, "o" up for grabs).
+local Rv = {}   -- (the helpers in one local: the file is near Lua's limits)
+function Rv.Tag(kind, keys)
+    if kind == "s" then
+        local n = type(keys) == "table" and #keys or 0
+        return Paint(n == 1 and "Only reserve" or format("Reserved · %d", n), "main")
+    elseif kind == "g" then
+        return Paint("Held for the guild", "warn")
+    elseif kind == "o" then
+        return Paint("Up for grabs", "main")
+    end
+    return nil
+end
+
+-- An item reserves decide, before its roll: who reserved it / held for the guild / up for grabs.
+function Rv.Sub(kind, keys)
+    if kind == "s" and type(keys) == "table" then
+        local names = {}
+        for i, key in ipairs(keys) do
+            if i > 4 then
+                names[#names + 1] = Paint(format("+%d", #keys - 4), "muted")
+                break
+            end
+            names[#names + 1] = ColoredName(key)
+        end
+        return Paint(#keys == 1 and "Only reserve: " or "Reserved by ", "main") .. tconcat(names, Paint(", ", "muted"))
+            .. (#keys == 1 and Paint("  ·  no roll needed", "muted") or Paint("  ·  only they roll", "muted"))
+    elseif kind == "g" then
+        return Paint("Held for the guild", "warn") .. Paint("  ·  the loot council decides, guild members only", "muted")
+    elseif kind == "o" then
+        return Paint("Nobody reserved it", "main") .. Paint("  ·  up for grabs, everyone rolls", "muted")
+    end
+    return nil
+end
+
 local function RollStateText(session, stats, queuePos)
+    local text = Rv.Base(session, stats, queuePos)
+    local tag = type(session) == "table" and not queuePos and session.state ~= "awarded"
+        and Rv.Tag(session.rv, session.rk)
+    if tag then return tag .. Paint("  ·  ", "muted") .. text end
+    return text
+end
+
+Rv.Base = function(session, stats, queuePos)
     if not session or queuePos then
         if queuePos and queuePos > 1 then
             return Paint(format("Queued #%d  ·  starts after the current roll", queuePos), "muted")
@@ -1492,6 +1536,10 @@ local function RollTag(row, session)
         return Paint("Winner", "obtained")
     end
     if row.tie then return Paint("tie", "warn") end
+    -- 1.4.3: reserves: a roll that doesn't count (didn't reserve it; a guest on the guild's item), the only reserve
+    if row.unres then return Paint("didn't reserve", "muted") end
+    if row.notGuild then return Paint("not guild", "muted") end
+    if row.suggestedBy == "reserve" then return Paint("only reserve", "main") end
     -- (the suggested row is marked gold: no word for it)
     if row.cantUse then return Paint("can't use", "bad") end
     if row.wonCopy then return Paint("won a copy", "muted") end
@@ -2778,6 +2826,16 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     -- Roll mode lists roll results; the Award menu then fetches the wanters itself. The plain roll panel (1.3, no
     -- loot council) lists no BiS candidates.
     local plain = PlainMode(drop, rolling and session or nil)
+    -- 1.4.3: reserves decide this item: before its roll the reservers / held for the guild / up for grabs (no BiS
+    -- candidates then, except for the guild's items: the council's)
+    local rvKind, rvKeys
+    if rolling then
+        rvKind, rvKeys = session.rv, session.rk
+    elseif ns.Reserves and ns.Reserves.Decide then
+        rvKind, rvKeys = ns.Reserves:Decide(itemID)
+    end
+    if not rolling and (rvKind == "s" or rvKind == "o") then plain = true end
+    b.rvKind = rvKind
     local wanters = (not rolling) and (plain and {} or UniqueWanters(itemID, { includeObtained = false, list = "both" }))
         or nil
     b.wanters = wanters
@@ -2861,7 +2919,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         if mode == "queued" then
             b.sub:SetText(DropPanel.PrzSub(itemID, RollStateText(nil, nil, queuePos or 1)))
         else
-            b.sub:SetText(DropPanel.PrzSub(itemID, ItemSubtitle(itemID)))
+            b.sub:SetText(DropPanel.PrzSub(itemID, Rv.Sub(rvKind, rvKeys) or ItemSubtitle(itemID)))
         end
         local limit = (n > MAX_ROWS + 1) and MAX_ROWS or n
         for i = 1, limit do
@@ -2999,6 +3057,9 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             end
         end
     end
+    if rvKind == "g" and not winnerKey and canRoll and (not rolling or session.state == "closed") then
+        more[#more + 1] = { key = "grabs", icon = 21, label = "Up for grabs" }
+    end
     local conflict = rolling and type(session.lootOther) == "string" and IsCouncil()
     if gold ~= b.award and not locked
         and ((canAwardItem and not winnerKey) or (winnerKey and IsCouncil()) or conflict) then
@@ -3053,6 +3114,8 @@ function DropPanel:MoreTooltip(b, key)
         return "Announce this item and its BiS candidates in " .. GroupWord() .. " chat."
     elseif key == "de" or key == "bank" then
         return self:TargetTooltip(key)
+    elseif key == "grabs" then
+        return "Nobody from the guild wants it: a roll for everyone in the raid (the highest roll wins)."
     end
     return "Award it to someone else, or change the recorded award (its reason, or void it)."
 end
@@ -3073,6 +3136,10 @@ function DropPanel:RunMoreAction(b, key)
         self:AwardToTarget(b, key)
     elseif key == "award" then
         self:OpenAwardMenu(b, b.moreBtn)
+    elseif key == "grabs" then
+        if b.rollSession and b.rollSession.state == "open" then CallRoll("End", b.rollSession.id) end
+        CallRoll("StartUpForGrabs", b.itemID, self.drop, b.copy)
+        self:RequestRefresh(0.1)
     end
 end
 

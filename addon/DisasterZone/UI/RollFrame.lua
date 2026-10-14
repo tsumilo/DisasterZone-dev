@@ -564,12 +564,48 @@ function RollFrame:SkipsPrized(session)
     return true
 end
 
+-- 1.4.3: loot reserves: how a roll stands for me. "mine" (I reserved it), "solo" (only I did: no roll needed),
+-- "other" (others reserved it, not me: no pop-up), "guild" (held for the guild and I'm a guest: no pop-up), "grabs"
+-- (up for grabs), "council" (held for the guild, I'm in it); nil without reserves.
+function RollFrame:ReserveStand(session)
+    local kind = type(session) == "table" and session.rv
+    if not kind then return nil end
+    if kind == "o" then return "grabs" end
+    if kind == "g" then
+        local G = ns.Guild
+        local guest = G and G.IsInGuild and session.starter and not IsMe(session.starter)
+            and (not G.IsReady or G:IsReady()) and not G:IsInGuild(session.starter)
+        return guest and "guild" or "council"
+    end
+    local me = ns.Util.PlayerKey()
+    for _, k in ipairs(type(session.rk) == "table" and session.rk or {}) do
+        if k == me then return #session.rk == 1 and "solo" or "mine" end
+    end
+    return "other"
+end
+
+-- The short line instead of the pop-up (5 s, no buttons).
+function RollFrame:ReserveLine(session, stand)
+    if not (UI and UI.Toast) then return end
+    local itemID = tonumber(session.i)
+    local n = type(session.rk) == "table" and #session.rk or 0
+    UI:Toast({ key = "dz-reserve-line", title = ItemText(itemID), duration = 5,
+        icon = UI.ItemIcon and UI:ItemIcon(itemID) or nil,
+        text = stand == "guild" and "Held for the guild: the loot council decides it."
+            or (n == 1 and "Reserved by someone else: not yours to roll." or format("Reserved by %d others: only they roll.", n)) })
+end
+
 function RollFrame:OnRollStarted(session)
     if type(session) == "string" then session = CallRoll("Get", session) end
     if type(session) ~= "table" or type(session.id) ~= "string" then return end
     if not Setting("roll.popup", true) or not InRaidOrDemo() then return end
     if session.state ~= nil and session.state ~= "open" then return end
     if self:SkipsPrized(session) then return end
+    local stand = self:ReserveStand(session)
+    if stand == "other" or stand == "guild" then
+        self:ReserveLine(session, stand)
+        return
+    end
     self:ShowSession(session)
 end
 
@@ -781,6 +817,21 @@ function RollFrame:RefreshItem()
         f.bis:SetWidth(TEXT_W)
     end
     f.bis:SetText(detail)
+    -- 1.4.3: loot reserves: what this roll is to me in place of the list line (the pill still says BiS / Alt)
+    local stand = self:ReserveStand(s)
+    if stand then
+        local others = {}
+        for _, k in ipairs(type(s.rk) == "table" and s.rk or {}) do
+            if not IsMe(k) then others[#others + 1] = ns.Util.ShortName(k) end
+        end
+        local line = ({
+            mine = Paint("Your reserve", "main") .. Paint("  ·  you and " .. table.concat(others, ", ") .. " roll", "muted"),
+            solo = Paint("Only you reserved it", "main") .. Paint("  ·  no roll needed", "muted"),
+            grabs = Paint("Nobody reserved it", "main") .. Paint("  ·  up for grabs", "muted"),
+            council = Paint("Held for the guild", "warn") .. Paint("  ·  the loot council decides", "muted"),
+        })[stand]
+        if line then f.bis:SetText(line) end
+    end
     f.forBtn:SetShown(craft ~= nil and #crafts > 1)
     if craft then
         f.forBtn:ClearAllPoints()
