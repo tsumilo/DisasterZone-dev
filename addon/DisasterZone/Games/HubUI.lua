@@ -839,6 +839,7 @@ local function SetFaces(p, keys)
     else
         p.footText:SetPoint("LEFT", p.foot, "LEFT", 0, 0)
     end
+    p.footText:SetPoint("RIGHT", p.foot, "RIGHT", 0, 0)   -- (long lines cut with "..." inside the poster)
 end
 
 -- A side poster: the title and the stat only, smaller. A front poster without a "who plays" line keeps its stat at
@@ -1012,6 +1013,8 @@ local function CreatePoster(i, def)
     p.more:SetTextColor(ns.Style:Color("SUB"))
     p.footText = UI:Text(p.foot, 11)
     p.footText:SetTextColor(0.81, 0.81, 0.81)
+    p.footText:SetJustifyH("LEFT")
+    p.footText:SetWordWrap(false)
 
     p.stat = UI:Text(p.words, 12)
     p.stat:SetTextColor(0.74, 0.74, 0.74)
