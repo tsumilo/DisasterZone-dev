@@ -351,7 +351,7 @@ def totem():
     return s
 
 
-def ruinwall(mask):
+def ruinwall(mask, RUIN=RUIN, moss=True, glyph=True, timber=False):
     """mask bits: 1 = wall to the north, 2 = east, 4 = south, 8 = west. Low troll wall in 3/4 view."""
     s = Spr(16, 16)
     n, e, so, w = mask & 1, mask & 2, mask & 4, mask & 8
@@ -377,11 +377,11 @@ def ruinwall(mask):
             if x == x0 and not w: c = RUIN[2]
             return c
         s.fill(x0, top_end + 1, x1, 15, front)
-        if H(mask, 5, 7) < 0.5:                                                                     # a carved glyph
+        if glyph and H(mask, 5, 7) < 0.5:                                                                     # a carved glyph
             gx = 6
             for dx, dy in ((0, 0), (1, 1), (2, 0), (1, 2)): s.put(gx + dx, top_end + 2 + dy, TEAL[1])
     # moss on top and dripping over the face
-    for x in range(x0, x1 + 1):
+    for x in (range(x0, x1 + 1) if moss else ()):
         hm = H(x, mask, 11)
         if hm < 0.45:
             ys = y0 + int(H(x, 3, mask) * 3)
@@ -391,6 +391,8 @@ def ruinwall(mask):
     # broken crumbs
     if not n and H(mask, 1, 2) < 0.6:
         s.put(x0 + 4, y0, None) if False else None
+    if timber and face and mask & 10 and (mask & 2):
+        s.rect(x1 - 2, top_end + 1, x1, 15, WOOD[2]); s.rect(x1 - 2, top_end + 1, x1 - 2, 15, WOOD[3])
     s.outline(0.42)
     # outline must not cut where the wall continues
     for y in range(16):
@@ -524,13 +526,262 @@ def vein_tin():
     return _ore_rock([(70, 84, 96), (130, 150, 166), (188, 204, 214), (236, 244, 250)])
 
 
+BLUE = [(26, 40, 74), (44, 66, 116), (70, 100, 160), (120, 150, 204)]
+GOLD = [(110, 74, 20), (176, 128, 36), (224, 182, 64), (250, 228, 130)]
+
+# ---------------------------------------------------------------------------- the rest of the world's props
+
+ROCK = [(36, 32, 30), (62, 56, 52), (92, 84, 76), (124, 114, 102), (156, 146, 130)]
+SAND = [(110, 82, 52), (156, 120, 80), (196, 160, 110), (226, 196, 146), (244, 222, 178)]
+STRAW = [(110, 80, 30), (164, 124, 44), (206, 168, 70), (232, 204, 110), (248, 232, 160)]
+ORANGE = [(120, 50, 14), (184, 86, 24), (228, 126, 40), (246, 168, 76)]
+
+
+def gravestone():
+    s = Spr(16, 16)
+    def stone(x, y):
+        c = STONE[3] if x < 7 else STONE[2]
+        if y < 5 and x < 9: c = STONE[4]
+        if H(x, y, 4) < 0.08: c = STONE[1]
+        return c
+    s.poly([(4, 15), (4, 5), (6, 2), (10, 2), (12, 5), (12, 15)], stone)
+    s.rect(7, 5, 8, 11, STONE[1]); s.rect(5, 7, 10, 8, STONE[1])                                     # the cross
+    s.put(7, 5, STONE[0]); s.put(8, 6, STONE[0])
+    for x, y in ((4, 13), (5, 14), (11, 12), (11, 13), (6, 2)):                                      # moss
+        s.put(x, y, (70, 96, 60))
+    s.rect(3, 15, 13, 15, (70, 60, 50))                                                               # the mound
+    s.outline(0.42)
+    return s
+
+
+def ironfence():
+    """repeats sideways: bars with spear tips between two rails"""
+    s = Spr(16, 16)
+    for y in (5, 12):
+        s.rect(0, y, 15, y, IRON[2]); s.rect(0, y + 1, 15, y + 1, IRON[1])
+    for x in (1, 5, 9, 13):
+        s.rect(x, 3, x, 15, IRON[2]); s.put(x + 1, 4, IRON[1])
+        s.put(x, 1, IRON[3]); s.put(x - 1, 2, IRON[2]); s.put(x + 1, 2, IRON[2]); s.put(x, 2, IRON[3])
+    s.outline(0.5)
+    return s
+
+
+def fence():
+    """repeats sideways: posts and two rails, lit from the top left"""
+    s = Spr(16, 16)
+    for y in (6, 11):
+        s.rect(0, y, 15, y + 1, WOOD[3]); s.rect(0, y, 15, y, WOOD[4]); s.rect(0, y + 2, 15, y + 2, WOOD[1])
+    for x in (2, 13):
+        s.rect(x, 3, x + 1, 15, WOOD[2]); s.rect(x, 3, x, 15, WOOD[3]); s.put(x, 3, WOOD[4]); s.put(x + 1, 3, WOOD[3])
+    s.outline(0.42)
+    return s
+
+
+def crate():
+    s = Spr(16, 16)
+    s.rect(2, 3, 13, 15, WOOD[3]); s.rect(2, 3, 13, 3, WOOD[4]); s.rect(13, 4, 13, 15, WOOD[2])
+    for y in (7, 11):
+        s.rect(3, y, 12, y, WOOD[2])
+    s.line(3, 4, 12, 14, WOOD[1]); s.line(4, 4, 12, 13, WOOD[2])
+    s.rect(2, 3, 2, 15, WOOD[2]); s.rect(2, 15, 13, 15, WOOD[1])
+    for x, y in ((3, 4), (12, 4), (3, 14), (12, 14)):
+        s.put(x, y, IRON[3])
+    s.outline(0.42)
+    return s
+
+
+def barrel():
+    """the Defias' powder keg"""
+    s = Spr(16, 16)
+    def stave(x, y):
+        lx = (x - 8) / 5.5
+        c = WOOD[3] if lx < -0.3 else WOOD[2] if lx < 0.4 else WOOD[1]
+        if x % 3 == 0: c = WOOD[1]
+        return c
+    s.ellipse(8, 9.5, 5.6, 6.2, stave)
+    s.ellipse(8, 4.2, 5, 1.6, lambda x, y: WOOD[4])
+    for y in (5, 13):
+        for x in range(3, 14):
+            if s.get(x, y): s.put(x, y, IRON[2] if x < 9 else IRON[1])
+    s.rect(6, 8, 10, 10, RED[2]); s.put(7, 9, (250, 230, 200)); s.put(9, 9, (250, 230, 200))           # the powder mark
+    s.put(8, 3, (40, 30, 24)); s.put(9, 2, (200, 180, 140))                                            # a fuse
+    s.outline(0.42)
+    return s
+
+
+def hay():
+    s = Spr(16, 16)
+    def straw(x, y):
+        c = STRAW[3] if (x + y * 2) % 5 else STRAW[2]
+        if y < 7: c = STRAW[4] if (x + y) % 4 else STRAW[3]
+        if x > 11: c = STRAW[1] if (x + y) % 3 else STRAW[2]
+        return c
+    s.poly([(1, 15.5), (1, 6), (3, 4), (13, 4), (15, 6), (15, 15.5)], straw)
+    s.rect(1, 9, 15, 9, (130, 80, 40)); s.rect(1, 13, 15, 13, (130, 80, 40))                           # twine
+    s.put(4, 3, STRAW[3]); s.put(9, 2, STRAW[4]); s.put(12, 3, STRAW[3])
+    s.outline(0.42)
+    return s
+
+
+def pumpkin():
+    s = Spr(16, 16)
+    def rind(x, y):
+        lx = (x - 8) / 6
+        c = ORANGE[3] if lx < -0.4 else ORANGE[2] if lx < 0.35 else ORANGE[1]
+        if x in (5, 8, 11): c = ORANGE[1] if lx < 0.35 else ORANGE[0]
+        return c
+    s.ellipse(8, 10.5, 6.5, 4.8, rind)
+    s.put(5, 7, ORANGE[3]); s.put(6, 7, ORANGE[3])
+    s.rect(8, 4, 8, 6, (90, 70, 30)); s.put(9, 4, (110, 86, 40))
+    s.put(10, 5, LEAF[2]); s.put(11, 5, LEAF[3]); s.put(11, 4, LEAF[2])
+    s.outline(0.42)
+    return s
+
+
+def cannon():
+    s = Spr(16, 16)
+    s.rect(2, 10, 13, 12, WOOD[2]); s.rect(2, 10, 13, 10, WOOD[3])                                    # carriage
+    s.ellipse(5, 13, 2.6, 2.6, lambda x, y: WOOD[1]); s.put(5, 13, IRON[3])                              # wheels
+    s.ellipse(11, 13, 2.6, 2.6, lambda x, y: WOOD[1]); s.put(11, 13, IRON[3])
+    for i, x in enumerate(range(1, 14)):                                                                  # the barrel
+        y0 = 6 - (1 if x > 10 else 0)
+        s.rect(x, y0, x, y0 + 3, IRON[3] if x < 5 else IRON[2])
+        s.put(x, y0, IRON[4] if x < 8 else IRON[3])
+    s.ellipse(14, 6.5, 1.2, 2, lambda x, y: IRON[0])
+    s.rect(1, 6, 1, 9, IRON[1])
+    s.outline(0.42)
+    return s
+
+
+def scarecrow():
+    s = Spr(16, 32)
+    s.rect(7, 12, 8, 31, WOOD[2]); s.rect(7, 12, 7, 31, WOOD[3])                                       # pole
+    s.rect(1, 14, 14, 15, WOOD[2]); s.rect(1, 14, 14, 14, WOOD[3])                                     # crossbar
+    for x in range(2, 14):                                                                            # the shirt
+        for y in range(13, 22):
+            if abs(x - 7.5) < 4 or y < 17:
+                plaid = RED[2] if (x // 2 + y // 2) % 2 else RED[1]
+                if x % 4 == 0 or y % 4 == 0: plaid = (60, 40, 50)
+                s.put(x, y, plaid)
+    for x in (1, 14):
+        s.put(x, 16, STRAW[3]); s.put(x, 17, STRAW[2])                                                 # straw hands
+    s.ellipse(7.5, 9, 3.4, 3.6, lambda x, y: CANVAS[3] if x < 8 else CANVAS[2])                       # sack head
+    s.put(6, 8, (30, 20, 20)); s.put(9, 8, (30, 20, 20))
+    for x in range(5, 11):
+        if x % 2: s.put(x, 11, (60, 40, 30))                                                           # stitched mouth
+    s.rect(2, 5, 13, 6, STRAW[2]); s.rect(5, 1, 10, 5, STRAW[3]); s.rect(5, 1, 10, 1, STRAW[4])        # the hat
+    s.rect(5, 4, 10, 4, RED[1])
+    for x in (6, 9):
+        s.put(x, 22, STRAW[3]); s.put(x, 23, STRAW[2])
+    s.outline(0.42)
+    return s
+
+
+def windmill():
+    s = Spr(32, 48)
+    def tower(x, y):
+        lx = (x - 16) / 9
+        c = STONE[3] if lx < -0.3 else STONE[2] if lx < 0.4 else STONE[1]
+        if y % 5 == 4 or (x + (y // 5) * 3) % 7 == 0: c = STONE[1] if lx < 0.4 else STONE[0]
+        return c
+    s.poly([(7, 47.5), (10, 18), (22, 18), (25, 47.5)], tower)
+    s.rect(14, 38, 18, 47, WOOD[1]); s.rect(15, 39, 17, 47, (40, 26, 20))                               # door
+    s.rect(15, 26, 17, 29, BLUE[1]); s.put(15, 26, BLUE[3])                                              # window
+    s.poly([(8, 19), (16, 10), (24, 19)], lambda x, y: WOOD[3] if x < 16 else WOOD[2])                  # cap
+    hub = (16, 16)
+    for ang in (0.35, 0.35 + math.pi / 2, 0.35 + math.pi, 0.35 + 3 * math.pi / 2):                       # sails
+        for r in range(2, 15):
+            for w in range(-2, 3):
+                x = hub[0] + math.cos(ang) * r - math.sin(ang) * w
+                y = hub[1] + math.sin(ang) * r + math.cos(ang) * w
+                c = CANVAS[3] if (r + w) % 3 else WOOD[2]
+                if w in (-2, 2): c = WOOD[1]
+                s.put(x, y, c)
+    s.ellipse(16, 16, 1.6, 1.6, lambda x, y: WOOD[1])
+    s.outline(0.42)
+    return s
+
+
+def mineentrance():
+    """a timber-framed opening in the rock (the walkable door tile is the middle of the bottom row)"""
+    s = Spr(48, 32)
+    def rock(x, y):
+        n = H(x // 3, y // 3, 6)
+        c = ROCK[3] if n > 0.6 else ROCK[2] if n > 0.2 else ROCK[1]
+        if y < 4 and n > 0.4: c = ROCK[4]
+        return c
+    s.poly([(0, 31.5), (2, 10), (8, 3), (20, 0), (30, 1), (42, 5), (47.9, 12), (47.9, 31.5)], rock)
+    s.rect(14, 10, 33, 31, (14, 10, 10))                                                               # the dark
+    for y in range(10, 32):
+        for x in range(14, 34):
+            if y < 16 and H(x, y, 2) < 0.15: s.put(x, y, (30, 24, 20))
+    s.rect(12, 8, 35, 10, WOOD[3]); s.rect(12, 8, 35, 8, WOOD[4]); s.rect(12, 11, 35, 11, WOOD[1])     # lintel
+    for x in (12, 33):
+        s.rect(x, 11, x + 2, 31, WOOD[2]); s.rect(x, 11, x, 31, WOOD[3])
+    s.rect(18, 29, 29, 29, IRON[2]); s.rect(18, 31, 29, 31, IRON[2])                                    # rails out
+    for x in range(19, 29, 3):
+        s.rect(x, 28, x + 1, 31, WOOD[1])
+    s.rect(38, 22, 39, 25, (246, 240, 220)); s.put(38, 21, FIRE[3])                                     # a candle (kobolds)
+    s.outline(0.42)
+    return s
+
+
+def mast():
+    s = Spr(16, 48)
+    s.rect(7, 0, 8, 47, WOOD[2]); s.rect(7, 0, 7, 47, WOOD[3])
+    s.rect(2, 6, 13, 7, WOOD[2]); s.rect(3, 26, 12, 27, WOOD[2])                                       # yards
+    s.rect(2, 8, 13, 12, CANVAS[3]); s.rect(2, 12, 13, 12, CANVAS[2])                                  # furled sail
+    for x in range(3, 13, 3):
+        s.put(x, 10, CANVAS[1])
+    s.line(2, 7, 0, 47, (120, 100, 70)); s.line(13, 7, 15, 47, (120, 100, 70))                         # ropes
+    s.rect(6, 0, 9, 1, (40, 40, 44)); s.put(10, 1, (30, 30, 30)); s.put(11, 2, (30, 30, 30))             # a black flag
+    s.outline(0.42)
+    return s
+
+
+def _plinth_base(s):
+    s.rect(3, 9, 12, 15, STONE[2]); s.rect(3, 9, 12, 9, STONE[4]); s.rect(12, 10, 12, 15, STONE[1])
+    s.rect(2, 14, 13, 15, STONE[1]); s.rect(2, 14, 13, 14, STONE[3])
+
+
+def plinth():
+    s = Spr(16, 16)
+    _plinth_base(s)
+    s.rect(6, 6, 9, 8, GOLD[2]); s.rect(5, 2, 10, 5, GOLD[2]); s.rect(5, 2, 10, 2, GOLD[3])             # the cup
+    s.put(4, 3, GOLD[1]); s.put(11, 3, GOLD[1]); s.put(6, 3, GOLD[3]); s.rect(7, 8, 8, 8, GOLD[1])
+    s.outline(0.42)
+    return s
+
+
+def plinthempty():
+    s = Spr(16, 16)
+    _plinth_base(s)
+    s.rect(5, 8, 10, 8, STONE[0])
+    s.outline(0.42)
+    return s
+
+
+def trophyboard():
+    s = Spr(16, 16)
+    s.rect(1, 2, 14, 13, DWOOD[2]); s.rect(1, 2, 14, 2, DWOOD[3]); s.rect(2, 3, 13, 12, PAPER[2])
+    for y in (5, 7, 9, 11):
+        s.rect(4, y, 11 - (y % 3), y, DWOOD[1]); s.put(3, y, GOLD[2])
+    s.rect(3, 14, 4, 15, DWOOD[1]); s.rect(11, 14, 12, 15, DWOOD[1])
+    s.outline(0.42)
+    return s
+
+
 # atlas name -> sprite; multi-tile ones are stamps (cut into name_x_y cells by the atlas build)
 PROPS = {"sign": sign, "wantedboard": wantedboard, "forge": forge, "anvil": anvil, "alchemy": alchemy,
          "lamppost": lamppost, "deadtree": deadtree, "jtree": palm, "dtree": pine,
          "tent": tent, "hut": hut, "totem": totem,
          "node_peacebloom": herb_peacebloom, "node_silverleaf": herb_silverleaf, "node_earthroot": herb_earthroot,
          "node_mageroyal": herb_mageroyal, "node_briarthorn": herb_briarthorn, "node_copper": vein_copper,
-         "node_tin": vein_tin}
+         "node_tin": vein_tin,
+         "gravestone": gravestone, "ironfence": ironfence, "fence": fence, "crate": crate, "barrel": barrel,
+         "hay": hay, "pumpkin": pumpkin, "cannon": cannon, "scarecrow": scarecrow, "windmill": windmill,
+         "mineentrance": mineentrance, "mast": mast, "plinth": plinth, "plinthempty": plinthempty,
+         "trophyboard": trophyboard}
 
 
 def sprites():
@@ -538,6 +789,8 @@ def sprites():
     out = {name: fn() for name, fn in PROPS.items()}
     for m in range(16):
         out["ruinwall_%d" % m] = ruinwall(m)
+        out["cavewall_%d" % m] = ruinwall(m, RUIN=ROCK, moss=False, glyph=False, timber=True)
+        out["arenawall_%d" % m] = ruinwall(m, RUIN=SAND, moss=False, glyph=False)
     return out
 
 

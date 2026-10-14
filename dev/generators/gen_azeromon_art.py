@@ -186,7 +186,7 @@ def forest_tile(atlas, shade_i, tree_i):
 def redraw_props(atlas, index):
     furniture = {name: fn().image() for name, fn in azeromon_interiors.FURNITURE.items()}
     for name, img in list(azeromon_props.images().items()) + list(furniture.items()):
-        if name.startswith("ruinwall_"):
+        if name.rpartition("_")[0] in ("ruinwall", "cavewall", "arenawall"):
             continue                                   # walls are baked into the ground, by their neighbours
         w, h = img.size[0] // 16, img.size[1] // 16
         if w == 1 and h == 1:

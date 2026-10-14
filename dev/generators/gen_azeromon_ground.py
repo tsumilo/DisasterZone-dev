@@ -7,17 +7,18 @@ a darker tree tucked between neighbouring trees (the forest wall), troll ruin wa
 flowers / pebbles / reeds, and the shadow of every static sprite (3 px right, 2 px down, 30% black). The game draws
 the picture under the over tiles (trees, houses, props) and the people, and moves it with the camera.
 
-The picture is cut into chunks of at most 256 x 256 px (power-of-two textures, 256-colour palette BLPs: azeromon_blp.py), so the camera's view
+The picture is cut into chunks of at most 256 x 256 px (power-of-two textures, TGA), so the camera's view
 (11 x 9 tiles) never needs more than four of them.
 
 Outputs:
-  addon/DisasterZone/Media/Azeromon/Ground/<map>_<cx>_<cy>.blp
+  addon/DisasterZone/Media/Azeromon/Ground/<map>_<cx>_<cy>.tga
   addon/DisasterZone/Games/Azeromon/Ground.lua   ns.AzeroGround[map] = { v = <inputs hash>, chunks = { {x, y, w, h, tw, th}, ... } }
 
 The maths (hash, value noise, masks) matches the mockup's JavaScript, so the game looks like the mockup.
 Run: luaenv\\Scripts\\python.exe generators\\gen_azeromon_ground.py [map ...]     (default: GROUND_THEMES' maps)
 """
 import hashlib
+import math
 import json
 import os
 import sys
@@ -56,10 +57,11 @@ LIGHT_TILES = {"lamppost": (8, 3, 30, 0), "forge": (8, 9, 34, 1), "torch1": (8, 
                "chandelier": (8, 8, 34, 1)}
 NIGHT = {"dusk": (238, 188, 156), "night": (100, 112, 172)}     # the darkness colour (multiplied over the world)
 WARM = (255, 226, 176)
-LIGHT_SCALE = 2                                                # light maps are stored at half resolution
+LIGHT_SCALE = 4                                                # light maps are stored at a quarter of the size
 
 # which map themes get a baked ground (more zones are added as they are checked in game)
-GROUND_THEMES = ("elwynn",)
+GROUND_THEMES = ("elwynn", "westfall", "duskwood", "jungle", "mine", "arena")
+WALLS = {"R": "ruinwall"}            # wall chars -> the props' joined wall pieces, unless the theme says otherwise
 
 # ------------------------------------------------------------------------------------------- noise (as the mockup)
 
@@ -113,7 +115,22 @@ THEMES = {
                      water=dict(out=(22, 30, 48), foam=(150, 168, 190), light=(72, 98, 132), mid=(54, 76, 110), deep=(40, 58, 90)),
                      decor=dict(flowers=["leaves", "glowshroom", "leaves"], edge=["tuft", "pebble", "leaves", "bones"],
                                 tree=["glowshroom", "leaves"], bank=["reeds", "pebble"])),
-    "jungle": dict(g1="jgrass1", g2="jgrass2", tall="jtall_", path="jpath_", tree="jtree",
+    "westfall": dict(g1="wgrass1", g2="wgrass2", tall="wtall_", path="wpath_", tree="wtree",
+                     water=dict(out=(40, 70, 104), foam=(222, 240, 236), light=(128, 190, 222), mid=(90, 154, 204),
+                                deep=(68, 122, 186)),
+                     decor=dict(flowers=["wheat", "butter", "wheat"], edge=["wheat", "pebble", "tuft"],
+                                tree=["tuft", "pebble2"], bank=["reeds", "pebble"])),
+    "mine": dict(g1="mfloor1", g2="mfloor2", tall="tall_", path="path_", tree=None, rails=True, cave=True,
+                 walls={"T": "cavewall", "R": "cavewall"},
+                 water=dict(out=(14, 18, 24), foam=(70, 84, 96), light=(44, 58, 72), mid=(32, 44, 58), deep=(24, 34, 46)),
+                 decor=dict(flowers=["crystal", "pebble"], edge=["pebble", "pebble2", "bones"], tree=["pebble"],
+                            bank=["pebble"]), sparse=True),
+    "arena": dict(g1="sand1", g2="sand2", tall="tall_", path="path_", tree=None, walls={"T": "arenawall"},
+                  water=dict(out=(40, 70, 104), foam=(222, 240, 236), light=(128, 190, 222), mid=(90, 154, 204),
+                             deep=(68, 122, 186)),
+                  decor=dict(flowers=["pebble"], edge=["pebble", "pebble2", "bones"], tree=["pebble"], bank=["pebble"]),
+                  sparse=True),
+    "jungle": dict(g1="jgrass1", g2="jgrass2", tall="jtall_", path="jpath_", tree="jtree", vines=True,
                    water=dict(out=(20, 58, 66), foam=(204, 242, 230), light=(84, 184, 192), mid=(50, 150, 170), deep=(34, 118, 148)),
                    decor=dict(flowers=["redflower", "fern", "fern"], edge=["fern", "pebble", "tuft"],
                               tree=["fern", "shroom"], bank=["reeds", "fern"])),
@@ -133,6 +150,8 @@ SPR = {
     "glowshroom": ({"P": (150, 92, 204), "L": (222, 196, 255), "s": (196, 186, 210), "d": "a"}, [".PP.", "PLPP", ".ss.", "dssd"]),
     "bones": ({"w": (226, 220, 204), "d": (120, 116, 108)}, ["w...w", ".wdw.", "w...w"]),
     "fern": ({"f": (38, 110, 52), "F": (72, 158, 64)}, ["f.....f", ".f.F.f.", "..fFf..", ".FfFfF.", "...f..."]),
+    "wheat": ({"y": (226, 190, 90), "Y": (250, 222, 132), "s": (150, 120, 50)}, ["y.Y..", ".yY.y", "y.y.Y", ".s.s.", ".s..s"]),
+    "crystal": ({"c": (110, 190, 226), "C": (206, 242, 255), "d": (52, 92, 132)}, [".C.", "cCc", "dcd"]),
     "redflower": ({"r": (214, 48, 60), "y": (252, 214, 90), "s": (40, 100, 46)}, [".r...", "ryr.r", ".r.ry", ".s..r", ".s..s"]),
 }
 
@@ -193,17 +212,19 @@ def bake(m, atlas, walls):
 
     base = [[m["base"][y * w + x] for x in range(w)] for y in range(h)]
     over = [[m["over"][y * w + x] for x in range(w)] for y in range(h)]
-    # tile classes: 0 ground, 1 path, 2 water, 3 tall, 4 fixed
+    wallk = th.get("walls", WALLS)
+    # tile classes: 0 ground, 1 path, 2 water, 3 tall, 4 fixed, 5 sand
     tcls = np.zeros((h, w), dtype=np.int8)
     for y in range(h):
         for x in range(w):
             ch, b = rows[y][x], base[y][x]
-            tcls[y, x] = (0 if ch == "R" else 1 if ch == "=" else 2 if ch == "w" else 3 if ch in "\";" else
+            tcls[y, x] = (0 if ch in wallk else 0 if (ch == "=" and th.get("rails")) else 1 if ch == "=" else
+                          2 if ch == "w" else 3 if ch in "\";" else 5 if ch == "s" else
                           0 if b in (th["g1"], th["g2"]) else 4)
     img = np.zeros((H, W, 3))
     for y in range(h):
         for x in range(w):
-            t = atlas.tile(th["g1"] if rows[y][x] == "R" else base[y][x])
+            t = atlas.tile(th["g1"] if (rows[y][x] in wallk or tcls[y, x] == 5) else base[y][x])
             if t is not None:
                 img[y * 16:y * 16 + 16, x * 16:x * 16 + 16] = t[..., :3]
     orig = img.copy()
@@ -224,8 +245,8 @@ def bake(m, atlas, walls):
         v = v + (vnoise(xs / 4, ys / 4, s) - 0.5) * amp + (hash_(xs, ys, s) - 0.5) * amp * 0.25
         return np.where(n == 4, True, np.where(n == 0, False, v > 0.5))
 
-    mw, mp, mt = mask(2, 0.16, 11), mask(1, 0.34, 21), mask(3, 0.55, 31)
-    cls = np.where(tc == 4, 4, np.where(mw, 2, np.where(mp, 1, np.where(mt, 3, 0)))).astype(np.int8)
+    mw, mp, mt, ms = mask(2, 0.16, 11), mask(1, 0.34, 21), mask(3, 0.55, 31), mask(5, 0.3, 41)
+    cls = np.where(tc == 4, 4, np.where(mw, 2, np.where(mp, 1, np.where(ms, 5, np.where(mt, 3, 0))))).astype(np.int8)
 
     # distance (4-way) to the nearest pixel of another class, capped at 12
     dist = np.full((H, W), 12, dtype=np.int16)
@@ -305,8 +326,9 @@ def bake(m, atlas, walls):
     light = (pv > 0.63) & patch_ok
     col[dark] = col[dark] * [0.84, 0.88, 0.9] + [0, 0, 4]
     col[light] = col[light] * [1.05, 1.04, 0.9] + [12, 7, 0]
-    col[forest > 0.66] *= SHADE
-    col[(forest > 0.36) & (forest <= 0.66)] *= 0.86
+    if th.get("tree"):
+        col[forest > 0.66] *= SHADE
+        col[(forest > 0.36) & (forest <= 0.66)] *= 0.86
     gnd = cls == 0
     near_w2 = near(2, 2)
     near_p1 = near(1, 1)
@@ -381,6 +403,19 @@ def bake(m, atlas, walls):
     tcol[dist == 1] = tdark
     out[tal] = tcol[tal]
 
+    # sand (beaches): the sand tile with soft patches, a darker rim, wet near the water
+    snd = cls == 5
+    if snd.any():
+        sandT = np.tile(atlas.tile("sand")[..., :3], (h, w, 1))
+        sc_ = sandT.copy()
+        sv = vnoise(xs / 9, ys / 9, 61)
+        sc_[sv < 0.3] *= 0.93
+        sc_[sv > 0.72] = sc_[sv > 0.72] * 1.04 + 6
+        sc_[dist == 1] *= 0.88
+        wet = near(2, 4) & snd
+        sc_[wet] = sc_[wet] * [0.78, 0.8, 0.86]
+        out[snd] = sc_[snd]
+
     out = np.clip(out, 0, 255)
 
     # shadows of every static sprite: its silhouette, 3 px right and 2 px down, 30% black
@@ -403,8 +438,8 @@ def bake(m, atlas, walls):
                 feet.append((x, y, atlas.tile(o)))
             elif o:
                 stamp_sil(atlas.tile(o), x * 16 + 3, y * 16 + 2)
-            if rows[y][x] == "R":
-                stamp_sil(walls[wall_mask(T, x, y)], x * 16 + 3, y * 16 + 2)
+            if rows[y][x] in wallk:
+                stamp_sil(walls[wallk[rows[y][x]]][wall_mask(T, x, y, wallk)], x * 16 + 3, y * 16 + 2)
     for c in m["chests"]:
         feet.append((c["x"], c["y"], atlas.tile("chest")))
     out[sil] = out[sil] * 0.7 + np.array([8, 18, 24]) * 0.3
@@ -446,7 +481,7 @@ def bake(m, atlas, walls):
             x = cx + int(hash_(cx, cy, 61) * 5)
             y = cy + int(hash_(cx, cy, 62) * 4)
             tx, ty = x >> 4, y >> 4
-            if over[ty][tx] or (tx, ty) in occupied or rows[ty][tx] == "R" or cls[y, x] != 0:
+            if over[ty][tx] or (tx, ty) in occupied or rows[ty][tx] in wallk or cls[y, x] != 0:
                 continue
             near_water = False
             for r in range(1, 10, 2):
@@ -494,21 +529,37 @@ def bake(m, atlas, walls):
                     used[y + yy, x + xx] = True
 
     # the forest wall: a darker tree tucked between neighbouring trees, behind them
-    tree = atlas.tile(th["tree"]).copy()
-    tree[..., :3] = np.floor(tree[..., :3] * [0.62, 0.7, 0.74])
+    tree = atlas.tile(th["tree"]).copy() if th.get("tree") else None
+    if tree is not None:
+        tree[..., :3] = np.floor(tree[..., :3] * [0.62, 0.7, 0.74])
     for y in range(h):
         for x in range(w):
-            if T(x, y) != "T":
+            if tree is None or T(x, y) != "T":
                 continue
             if T(x + 1, y) == "T":
                 blit(out, tree, x * 16 + 8, y * 16 - 3)
             if T(x, y + 1) == "T":
                 blit(out, tree, x * 16 + (-2 if float(hash_(x, y, 71)) < 0.5 else 2), y * 16 + 8)
-    # troll ruin walls, joined to their neighbours
+    # walls (troll ruins, cave rock, the arena's stone), joined to their neighbours
     for y in range(h):
         for x in range(w):
-            if rows[y][x] == "R":
-                blit(out, walls[wall_mask(T, x, y)], x * 16, y * 16)
+            if rows[y][x] in wallk:
+                blit(out, walls[wallk[rows[y][x]]][wall_mask(T, x, y, wallk)], x * 16, y * 16)
+    # vines hanging from the canopy edge (Stranglethorn)
+    if th.get("vines"):
+        for y in range(h - 1):
+            for x in range(w):
+                if T(x, y) != "T" or T(x, y + 1) == "T" or float(hash_(x, y, 81)) < 0.35:
+                    continue
+                for s_ in range(1 if float(hash_(x, y, 82)) < 0.5 else 2):
+                    vx = x * 16 + 3 + int(float(hash_(x, y, 83 + s_)) * 10)
+                    for k in range(5 + int(float(hash_(x, y, 85 + s_)) * 10)):
+                        wob = int(round(math.sin(k * 0.7 + s_) * 0.6))
+                        yy, xx = y * 16 + 12 + k, vx + wob
+                        if 0 <= yy < H and 0 <= xx < W:
+                            out[yy, xx] = (70, 140, 52) if k % 3 == 0 else (36, 84, 40)
+                            if k % 4 == 2 and 0 <= xx + (1 if k % 8 == 2 else -1) < W:
+                                out[yy, xx + (1 if k % 8 == 2 else -1)] = (84, 160, 60)
     return np.clip(np.round(out), 0, 255).astype(np.uint8), cls, dist
 
 
@@ -537,7 +588,7 @@ def extend(m, th):
             else:
                 ch = rows[y][x]
                 base.append(th["g1"] if ch == "T" else "water1" if ch == "w" else th["path"] + "c")
-                over.append(th["tree"] if ch == "T" else "")
+                over.append((th.get("tree") or "") if ch == "T" else "")
     shift = lambda lst: [dict(o, x=o["x"] + MX, y=o["y"] + MY) for o in lst]
     return dict(m, w=W2, h=H2, rows=rows, base=base, over=over, stamps=shift(m["stamps"]),
                 chests=shift(m["chests"]), npcs=shift(m["npcs"]))
@@ -620,6 +671,25 @@ def light_map(W, H, ls, dark):
     return np.clip(np.round(img), 0, 255).astype(np.uint8)
 
 
+POND_MAX = 128 * 128      # water bigger than this gets live glints instead of baked frames
+
+
+def glint_tiles(cls, dist):
+    """open-water tiles of the big waters (every pixel water, 3+ from the shore): the game sparkles a few of them"""
+    H_, W_ = cls.shape
+    out = []
+    big = np.zeros_like(cls, dtype=bool)
+    for x0, y0, x1, y1, ys_, xs_ in regions(cls == 2):
+        if (x1 - x0) * (y1 - y0) > POND_MAX:
+            big[ys_, xs_] = True
+    for ty in range(H_ // 16):
+        for tx in range(W_ // 16):
+            blk = big[ty * 16:ty * 16 + 16, tx * 16:tx * 16 + 16]
+            if blk.all() and (dist[ty * 16:ty * 16 + 16, tx * 16:tx * 16 + 16] >= 3).all():
+                out.append((tx, ty))
+    return out
+
+
 WATER_FRAMES = 12            # the water loop: 12 frames, shown at 4 a second (UI.lua WATER_FPS)
 
 
@@ -647,6 +717,8 @@ def water_frames(img, cls, dist, th):
         ys_, xs_ = np.array([p[0] for p in pts]), np.array([p[1] for p in pts])
         x0, y0, x1, y1 = xs_.min(), ys_.min(), xs_.max() + 1, ys_.max() + 1
         w, h = x1 - x0, y1 - y0
+        if w * h > POND_MAX:
+            continue                      # a lake or the sea: its glints are drawn live (glint_tiles), not baked
         cols = max(1, min(WATER_FRAMES, 256 // w))
         rows = -(-WATER_FRAMES // cols)
         strip = np.zeros((rows * h, cols * w, 4), dtype=np.uint8)
@@ -681,6 +753,31 @@ def clouds(size=256):
     return img
 
 
+def mist(size=256):
+    """Duskwood's mist: soft pale banks, seamless both ways (drawn over the world at low alpha, scrolling)"""
+    ys, xs = np.mgrid[0:size, 0:size].astype(np.float64)
+    f = lambda u, v: fbm(u / 46, v / 14, 93)
+    fx, fy = xs / size, ys / size
+    v = (f(xs, ys) * (1 - fx) + f(xs - size, ys) * fx) * (1 - fy) + (f(xs, ys - size) * (1 - fx) + f(xs - size, ys - size) * fx) * fy
+    v = 0.5 + (v - 0.5) * (1 + 0.35 * (fx * (1 - fx) + fy * (1 - fy)) * 2)
+    img = np.zeros((size, size, 4), dtype=np.uint8)
+    img[..., :3] = (198, 212, 236)
+    a = np.clip((v - 0.5) / 0.2, 0, 1)
+    img[..., 3] = (np.floor(a * 4) / 4 * 150).astype(np.uint8)          # four steps: pixel-art banks, few colours
+    return img
+
+
+def shafts(size=256):
+    """sun shafts through a canopy: soft diagonal bands of warm light on black (added over the world), seamless"""
+    ys, xs = np.mgrid[0:size, 0:size].astype(np.float64)
+    d = (xs + ys * 0.5) % 64
+    k = np.clip(1 - np.abs(d - 20) / 9, 0, 1)
+    k = np.floor(k * 3) / 3 * (0.6 + 0.4 * fbm(xs / 30, ys / 30, 95))
+    img = np.zeros((size, size, 3), dtype=np.uint8)
+    img[..., 0], img[..., 1], img[..., 2] = (k * 70).astype(np.uint8), (k * 62).astype(np.uint8), (k * 36).astype(np.uint8)
+    return img
+
+
 def vignette(size=128):
     """the soft dark frame round the screen (multiplied): white in the middle, a cool shade at the edges"""
     ys, xs = np.mgrid[0:size, 0:size].astype(np.float64)
@@ -694,23 +791,29 @@ def vignette(size=128):
 COLOURS = {}            # file -> colours kept, for the run's report (lossless when <= 256)
 
 
+FORMAT = "tga"          # "tga": proven in game. ("blp" = azeromon_blp's palette BLP: smaller, but this client draws
+                        # it as the green missing-texture square - kept for a later try, not used)
+
+
 def _save(img, path):
-    """every baked picture is written as a palette BLP (azeromon_blp): lossless for up to 256 colours, a quarter
-    of a TGA's size; `path` names it .tga (the names the rest of this file uses), the file is .blp"""
-    out = path[:-4] + ".blp"
-    COLOURS[os.path.basename(out)] = azeromon_blp.write(img, out)
+    """every baked picture: a TGA (24-bit, or 32-bit with alpha), or a palette BLP when FORMAT says so"""
+    if FORMAT == "blp":
+        out = path[:-4] + ".blp"
+        COLOURS[os.path.basename(out)] = azeromon_blp.write(img, out)
+    else:
+        img.save(path)
 
 
-def wall_mask(T, x, y):
-    return ((1 if T(x, y - 1) == "R" else 0) | (2 if T(x + 1, y) == "R" else 0) |
-            (4 if T(x, y + 1) == "R" else 0) | (8 if T(x - 1, y) == "R" else 0))
+def wall_mask(T, x, y, wallk=WALLS):
+    w = lambda a, b: T(a, b) in wallk
+    return (1 if w(x, y - 1) else 0) | (2 if w(x + 1, y) else 0) | (4 if w(x, y + 1) else 0) | (8 if w(x - 1, y) else 0)
 
 
 # ------------------------------------------------------------------------------------------- maps, hash, output
 
 LOAD = """local out = {}
 for id, def in pairs(ns.AzeroMaps) do
-  if type(def) == 'table' and def.rows and not def.dynamic and (def.outdoor or not def.theme) then
+  if type(def) == 'table' and def.rows and not def.dynamic then
     local m = ns.Azero.Compile(id)
     local base, over = {}, {}
     for y = 0, m.h - 1 do for x = 0, m.w - 1 do
@@ -727,7 +830,7 @@ for id, def in pairs(ns.AzeroMaps) do
       if type(o.tile) == 'string' then over[m.key(o.x, o.y) + 1] = o.tile end
     end
     out[id] = { id = id, w = m.w, h = m.h, base = base, over = over, rows = rows, npcs = npcs, stamps = stamps,
-                chests = chests, theme = def.theme or 'elwynn', indoor = not def.outdoor }
+                chests = chests, theme = def.theme or 'elwynn', indoor = not def.outdoor and not def.theme }
   end
 end
 return out"""
@@ -788,17 +891,18 @@ def write_lua(entries):
         "-- DisasterZone Games/Azeromon/Ground.lua  (GENERATED by dev/generators/gen_azeromon_ground.py - do not edit)",
         "-- Baked ground per outdoor map, in pixels of the baked picture, which reaches mx, my tiles past the map's edges",
         "-- (map pixel = picture pixel - mx * 16, - my * 16). Files in Media/Azeromon/Ground:",
-        "--   chunks       { x, y, w, h, tw, th }  <map>_<cx>_<cy>.blp: the chunk at x, y, the size used, the texture size",
-        "--   water        { x, y, w, h, cols, rows, tw, th }  <map>_w<i>.blp: a pond's box and its %d moving-water frames"
+        "--   chunks       { x, y, w, h, tw, th }  <map>_<cx>_<cy>.tga: the chunk at x, y, the size used, the texture size",
+        "--   water        { x, y, w, h, cols, rows, tw, th }  <map>_w<i>.tga: a pond's box and its %d moving-water frames"
         % WATER_FRAMES,
-        "--   meadows      { x, y, w, h, tw, th }  <map>_m<i>.blp: a meadow's cut-out (legs in the grass, wind)",
+        "--   glints       { tx, ty }: open-water tiles of a lake or the sea (picture tiles), sparkled live",
+        "--   meadows      { x, y, w, h, tw, th }  <map>_m<i>.tga: a meadow's cut-out (legs in the grass, wind)",
         "--   lights       { x, y, radius, flickers, window }",
-        "--   lightChunks  like chunks, at 1/%d size: <map>_d_<cx>_<cy>.blp (dusk), <map>_n_<cx>_<cy>.blp (night)"
+        "--   lightChunks  like chunks, at 1/%d size: <map>_d_<cx>_<cy>.tga (dusk), <map>_n_<cx>_<cy>.tga (night)"
         % LIGHT_SCALE,
         "--   shafts       { x, y, w }: sun through a window (interiors, by day: dust drifts in it)",
-        "--   sunlight     { w, h, tw, th }  <map>_s.blp: that sun as light added over everything by day (interiors)",
-        "--   anims        { x, y, w, h, cols, rows, tw, th, frames, fps }  <map>_f.blp: a hearth's flames",
-        "--   indoor       an interior: <map>_e_<cx>_<cy>.blp is the room by evening (night windows); its light map is _n_",
+        "--   sunlight     { w, h, tw, th }  <map>_s.tga: that sun as light added over everything by day (interiors)",
+        "--   anims        { x, y, w, h, cols, rows, tw, th, frames, fps }  <map>_f.tga: a hearth's flames",
+        "--   indoor       an interior: <map>_e_<cx>_<cy>.tga is the room by evening (night windows); its light map is _n_",
         "--   v            a hash of what the picture was made from (the ground test checks it against the maps)",
         "local addonName, ns = ...",
         "ns.AzeroGround = {",
@@ -807,8 +911,9 @@ def write_lua(entries):
         e_ = entries[mid]
         lines.append('    %s = {' % mid)
         lines.append('        v = "%s", mx = %d, my = %d, lightScale = %d,%s' % (
-            e_["v"], e_.get("mx", MX), e_.get("my", MY), LIGHT_SCALE, " indoor = true," if e_.get("indoor") else ""))
-        for key in ("chunks", "water", "meadows", "lights", "lightChunks", "shafts", "sunlight", "anims"):
+            e_["v"], e_.get("mx", MX), e_.get("my", MY), LIGHT_SCALE,
+            (" indoor = true," if e_.get("indoor") else "") + (" cave = true," if e_.get("cave") else "")))
+        for key in ("chunks", "water", "meadows", "lights", "lightChunks", "shafts", "sunlight", "anims", "glints"):
             lines.append("        %s = { %s }," % (key, ", ".join(row(c) for c in e_.get(key, []))))
         lines.append("    },")
     lines.append("}")
@@ -817,7 +922,7 @@ def write_lua(entries):
     scenes = ", ".join('%s = "%s"' % (k, v) for k, v in sorted(battle.SCENE_OF.items(), key=lambda kv: str(kv[0])) if k)
     clouds_ = ", ".join("%s = true" % k for k, v in sorted(battle.SCENES.items()) if v.get("clouds"))
     lines += [
-        "-- battle backdrops: Media/Azeromon/Ground/battle_<scene>.blp (w x h used of 256 x 256), battle_clouds.blp",
+        "-- battle backdrops: Media/Azeromon/Ground/battle_<scene>.tga (w x h used of 256 x 256), battle_clouds.tga",
         "ns.AzeroBattleArt = {",
         "    w = %d, h = %d, horizon = %d," % (battle.W, battle.Ht, battle.HORIZON),
         "    foe = { %d, %d }, ally = { %d, %d }," % (battle.FOE[0], battle.FOE[1], battle.ALLY[0], battle.ALLY[1]),
@@ -834,7 +939,8 @@ def selected(maps):
     return sorted(n for n, m in maps.items() if m.get("indoor") or m["theme"] in GROUND_THEMES)
 
 
-INDOOR_DARK = (146, 124, 140)        # an interior's evening, multiplied (the light map), warm pools round its lights
+INDOOR_DARK = (146, 124, 140)
+CAVE_DARK = (104, 92, 104)          # a cave or mine: always this dim, warm pools round its torches        # an interior's evening, multiplied (the light map), warm pools round its lights
 
 
 def bake_interior(mid, m, atlas, src):
@@ -886,8 +992,9 @@ def main():
     atlas = Atlas()
     walls = {}
     for name, img in azeromon_props.images().items():
-        if name.startswith("ruinwall_"):
-            walls[int(name.split("_")[1])] = np.array(img, dtype=np.float64)
+        kind, _, m_ = name.rpartition("_")
+        if kind in ("ruinwall", "cavewall", "arenawall"):
+            walls.setdefault(kind, {})[int(m_)] = np.array(img, dtype=np.float64)
     maps = load_maps()
     src = _src_digest()
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -920,27 +1027,27 @@ def main():
             ms.append((x, y, w, h, tw_, th_))
         ls = lights(m, atlas)
         lc = []
-        for period, dark in NIGHT.items():
+        for period, dark in (({"night": CAVE_DARK}).items() if th.get("cave") else NIGHT.items()):
             lm = light_map(img.shape[1], img.shape[0], ls, dark)
             lc = []
             for cx, cy, uw, uh, tw_, th_, tex in chunks(lm):
                 _save(Image.fromarray(tex, "RGB"), os.path.join(OUT_DIR, "%s_%s_%d_%d.tga" % (mid, period[0], cx // CHUNK, cy // CHUNK)))
                 lc.append((cx, cy, uw, uh, tw_, th_))
         entries[mid] = {"v": inputs_hash(maps[mid], src), "chunks": cs, "water": ws, "meadows": ms, "lights": ls,
-                        "lightChunks": lc}
+                        "lightChunks": lc, "cave": bool(th.get("cave")), "glints": glint_tiles(cls, dist)}
         print("baked", mid, img.shape[1], "x", img.shape[0], len(cs), "chunks")
     keep = {"%s_%d_%d.tga" % (mid, c[0] // CHUNK, c[1] // CHUNK) for mid, e in entries.items() for c in e["chunks"]}
     keep |= {"%s_w%d.tga" % (mid, i + 1) for mid, e in entries.items() for i in range(len(e["water"]))}
     keep |= {"%s_m%d.tga" % (mid, i + 1) for mid, e in entries.items() for i in range(len(e["meadows"]))}
     keep |= {"%s_%s_%d_%d.tga" % (mid, q, c[0] // CHUNK, c[1] // CHUNK) for mid, e in entries.items()
-             for c in e["lightChunks"] for q in "dn"}
+             for c in e["lightChunks"] for q in ("n" if (e.get("indoor") or e.get("cave")) else "dn")}
     keep |= {"%s_e_%d_%d.tga" % (mid, c[0] // CHUNK, c[1] // CHUNK) for mid, e in entries.items()
              if e.get("indoor") for c in e["chunks"]}
     keep |= {"%s_s.tga" % mid for mid, e in entries.items() if e.get("sunlight")}
     keep |= {"%s_f.tga" % mid for mid, e in entries.items() if e.get("anims")}
-    keep |= {"clouds.tga", "vignette.tga", "battle_clouds.tga"} | {"battle_%s.tga" % s for s in battle.THEMES}
+    keep |= {"clouds.tga", "vignette.tga", "battle_clouds.tga", "mist.tga", "shafts.tga"} | {"battle_%s.tga" % s for s in battle.THEMES}
     for f in os.listdir(OUT_DIR):
-        if (f.endswith(".tga") or f.endswith(".blp")) and (f.endswith(".tga") or f[:-4] + ".tga" not in keep):
+        if (f.endswith(".tga") or f.endswith(".blp")) and (f.endswith(".blp") or f not in keep):
             os.remove(os.path.join(OUT_DIR, f))
     _save(Image.fromarray(clouds(), "RGBA"), os.path.join(OUT_DIR, "clouds.tga"))
     # battle backdrops, one per scene, and the clouds that drift across their skies
@@ -951,10 +1058,10 @@ def main():
         _save(Image.fromarray(tex, "RGB"), os.path.join(OUT_DIR, "battle_%s.tga" % sc))
     _save(Image.fromarray(battle.clouds_strip(), "RGBA"), os.path.join(OUT_DIR, "battle_clouds.tga"))
     _save(Image.fromarray(vignette(), "RGB"), os.path.join(OUT_DIR, "vignette.tga"))
+    _save(Image.fromarray(mist(), "RGBA"), os.path.join(OUT_DIR, "mist.tga"))
+    _save(Image.fromarray(shafts(), "RGB"), os.path.join(OUT_DIR, "shafts.tga"))
     write_lua(entries)
-    lossy = sorted(f for f, (n, exact) in COLOURS.items() if not exact)
-    print("wrote Ground.lua", len(entries), "maps;", len(COLOURS), "pictures,", len(lossy), "reduced to 256 colours:",
-          ", ".join(lossy))
+    print("wrote Ground.lua", len(entries), "maps (%s)" % FORMAT)
 
 
 if __name__ == "__main__":

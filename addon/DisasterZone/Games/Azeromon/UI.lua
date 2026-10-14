@@ -51,10 +51,14 @@ local function Tex(parent, layer, sub)
     return t
 end
 
+-- Returns false when the client could not load the file (it then draws WoW's green "missing" square: callers that
+-- multiply a picture over the world hide it instead). Files added to the addon need a client restart to be found.
 local function SetPixelTexture(t, file)
-    if not pcall(t.SetTexture, t, file, nil, nil, "NEAREST") then t:SetTexture(file) end
+    local ok, loaded = pcall(t.SetTexture, t, file, nil, nil, "NEAREST")
+    if not ok then loaded = t:SetTexture(file) end
     if t.SetSnapToPixelGrid then pcall(t.SetSnapToPixelGrid, t, false) end
     if t.SetTexelSnappingBias then pcall(t.SetTexelSnappingBias, t, 0) end
+    return loaded ~= false
 end
 
 local E = 0.02 / 256       -- tiny inset against bleeding between atlas cells
@@ -1424,6 +1428,7 @@ local START_HELP = {
     "Your professions: gather, smelt, brew and forge.",
     "Which types hit which, and how hard.",
     "Every key and button.",
+    "Turn off the world's motion: wind, water, fire, critters, weather.",
     "Close this menu.",
 }
 
@@ -1705,7 +1710,8 @@ local function StartMenuHelp(i)
     R.bagDesc.fs:SetText(START_HELP[i] or "")
 end
 
-local function OpenStartMenu()
+local OpenStartMenu
+function OpenStartMenu()
     ns.AzeroSound:Play("open")
     local items = {
         { text = "BESTIARY", onSelect = function() OpenLog() end },
@@ -1754,6 +1760,11 @@ local function OpenStartMenu()
         { text = "PROFESSIONS", onSelect = function() Scr.OpenProfessions() end },
         { text = "TYPE CHART", onSelect = function() KH.OpenTypeChart() end },
         { text = "CONTROLS", onSelect = function() KH.OpenControls() end },
+        { text = G:Data().calm and "MOTION: OFF" or "MOTION: ON", onSelect = function(_, menu)
+            G:Data().calm = not G:Data().calm or nil
+            PopMenu(menu)
+            OpenStartMenu()
+        end },
         { text = "EXIT", onSelect = function(_, menu) PopMenu(menu) end },
     }
     PushMenu(items, { w = 210, rowH = 27, level = 60, desc = true, onMove = StartMenuHelp, onCancel = function(menu) PopMenu(menu) end })
@@ -2937,8 +2948,16 @@ local Amb = { WATER_FPS = 4, WATER_FRAMES = 12, waterTex = {}, windTex = {}, lig
               pix = {}, pixN = 0 }   -- pix: pooled one-colour squares (critters, smoke, pollen)
 -- each zone's mood: a warm or cold tint over everything (multiplied), the soft dark frame, motes in the air
 Amb.MOODS = {
-    elwynn = { tint = { 1, 0.95, 0.86 }, motes = { 1, 0.96, 0.75 }, duskMotes = { 1, 0.81, 0.47 } },
+    elwynn = { tint = { 1, 0.95, 0.86 }, motes = { 1, 0.96, 0.75 }, duskMotes = { 1, 0.81, 0.47 }, rain = true },
+    westfall = { tint = { 1, 0.95, 0.84 }, motes = { 0.96, 0.88, 0.62 }, duskMotes = { 1, 0.78, 0.44 }, rain = true },
+    duskwood = { tint = { 0.86, 0.9, 1 }, mist = true, leaves = true, rain = true },
+    jungle = { tint = { 0.92, 1, 0.94 }, motes = { 0.9, 1, 0.7 }, shafts = true, fireflies = true, rain = true },
+    mine = { tint = { 0.94, 0.88, 0.82 }, motes = { 0.8, 0.74, 0.62 }, duskMotes = { 0.8, 0.74, 0.62 } },
+    arena = { tint = { 1, 0.94, 0.84 }, motes = { 0.96, 0.86, 0.66 }, duskMotes = { 1, 0.78, 0.44 } },
 }
+Amb.GLINT = { elwynn = { 0.82, 0.92, 1 }, westfall = { 0.84, 0.94, 1 }, duskwood = { 0.5, 0.6, 0.76 },
+              jungle = { 0.7, 0.96, 0.96 }, mine = { 0.36, 0.46, 0.56 }, arena = { 0.84, 0.94, 1 } }
+Amb.parts = {}        -- footstep dust and leaves: { kind, x, y, t0, seed } in map pixels
 Amb.GLOW = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
 Amb.CHIMNEY_KINDS = { house = true, darkhouse = true, farmhouse = true, stonehouse = true }
 Amb.CRITTERS = {                -- butterfly wing colours and the flock's colours, per map theme
@@ -2948,13 +2967,16 @@ Amb.CRITTERS = {                -- butterfly wing colours and the flock's colour
                  nightFlock = true },
     jungle = { wings = { { 0.95, 0.82, 0.29 }, { 0.35, 0.82, 0.91 } }, flies = 4,
                bird = { 0.85, 0.21, 0.18 }, bird2 = { 0.18, 0.6, 0.28 } },
+    westfall = { wings = { { 0.96, 0.89, 0.48 }, { 1, 1, 1 } }, flies = 3, bird = { 0.12, 0.1, 0.12 },
+                 bird2 = { 0.12, 0.1, 0.12 } },
+    arena = { wings = {}, flies = 0, bird = { 0.3, 0.24, 0.2 }, bird2 = { 0.3, 0.24, 0.2 } },     -- vultures
 }
 
 function Amb.Water(m, g, px, py)
     local n = 0
     if g and g.water then
         local S = TILE / 16
-        local f = floor(now * Amb.WATER_FPS) % Amb.WATER_FRAMES
+        local f = G:Data().calm and 0 or floor(now * Amb.WATER_FPS) % Amb.WATER_FRAMES
         for i, wv in ipairs(g.water) do
             local x0, y0, w, h, cols, tw, th = wv[1], wv[2], wv[3], wv[4], wv[5], wv[7], wv[8]
             local sx, sy = PicToScreen(g, x0, y0, px, py)
@@ -3005,7 +3027,7 @@ function Amb.Anims(m, g, px, py)
                     SetPixelTexture(t, file)
                     t:SetSize(w * S, h * S)
                 end
-                local f = floor(now * fps + i * 3) % frames
+                local f = G:Data().calm and 0 or floor(now * fps + i * 3) % frames
                 local c, r = f % cols, floor(f / cols)
                 t:SetTexCoord(c * w / tw, (c + 1) * w / tw, r * h / th, (r + 1) * h / th)
                 t:ClearAllPoints()
@@ -3053,7 +3075,9 @@ function Amb.Pix(px, py, mx, my, w, h, r, g, b, a, layer, sub)
 end
 
 function Amb.Critters(m, px, py, period)
-    local c = Amb.CRITTERS[m.def.theme or "elwynn"] or Amb.CRITTERS.elwynn
+    local c = Amb.CRITTERS[m.def.theme or "elwynn"]
+    if not c then return end
+    if Amb.raining then period = "night" end           -- (nothing flies in the rain)
     local W, H, t = m.w * 16, m.h * 16, now
     local sin = math.sin
     if period ~= "night" then
@@ -3118,13 +3142,14 @@ function Amb.Clouds(m, g, px, py)
     local c = R.clouds
     local a = 0
     if g and m.def.outdoor and not m.def.gloom then a = 0.17 * max(0, 1 - (R.skyAlpha or 0) / 0.3) end
+    if Amb.raining then a = a * 1.8 end
     if a <= 0.005 then c:Hide() return end
-    if not c.ready then
-        c.ready = true
-        if not pcall(c.SetTexture, c, MEDIA .. "Ground\\clouds", "REPEAT", "REPEAT", "NEAREST") then
-            c:SetTexture(MEDIA .. "Ground\\clouds")
-        end
+    if c.ready == nil then
+        local ok, loaded = pcall(c.SetTexture, c, MEDIA .. "Ground\\clouds", "REPEAT", "REPEAT", "NEAREST")
+        if not ok then loaded = c:SetTexture(MEDIA .. "Ground\\clouds") end
+        c.ready = loaded ~= false
     end
+    if not c.ready then c:Hide() return end
     local ox, oy = (px - HX) * 16 - now * 7, (py - HY) * 16 - now * 3
     c:SetTexCoord(ox / 256, (ox + VW * 16) / 256, oy / 256, (oy + VH * 16) / 256)
     c:SetAlpha(a)
@@ -3174,7 +3199,7 @@ end
 Amb.WIND_X, Amb.WIND_Y, Amb.WIND_SPEED = 0.92, 0.39, 42
 function Amb.Wind(m, g, px, py)
     local n = 0
-    if g and g.meadows then
+    if g and g.meadows and not G:Data().calm then
         local S, ox, oy = TILE / 16, g.mx * 16, g.my * 16
         local vx0, vx1 = (px - HX - 1) * 16 + ox, (px - HX + VW + 1) * 16 + ox
         local vy0, vy1 = (py - HY - 1) * 16 + oy, (py - HY + VH + 1) * 16 + oy
@@ -3245,6 +3270,7 @@ function Amb.Night(m, g, px, py)
     local period = G:Period()
     local key = (period == "night" and "n") or ((period == "dusk" or period == "dawn") and "d") or nil
     if g and g.indoor and key then key = "n" end
+    if g and g.cave then key = "n" end                  -- a cave or mine is always dim, lit by its torches
     local n, gn = 0, 0
     if g and key and g.lightChunks and Amb.modOK ~= false then
         local S, sc = TILE / 16, g.lightScale or 2
@@ -3262,13 +3288,13 @@ function Amb.Night(m, g, px, py)
                 local file = MEDIA .. "Ground\\" .. m.id .. "_" .. key .. "_" .. floor(x0 / 256) .. "_" .. floor(y0 / 256)
                 if t.file ~= file then
                     t.file = file
-                    SetPixelTexture(t, file)
+                    t.loaded = SetPixelTexture(t, file)
                     t:SetTexCoord(0, w / tw, 0, h / th)
                     t:SetSize(w * sc * S, h * sc * S)
                 end
                 t:ClearAllPoints()
                 t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
-                t:Show()
+                t:SetShown(t.loaded)
             end
         end
         if n > 0 then
@@ -3295,18 +3321,36 @@ function Amb.Night(m, g, px, py)
 end
 
 -- The zone's mood (Amb.MOODS): its tint and the soft frame, multiplied over the world, and motes in the air by day.
+local function Overlay(tex, file, blend, wrap)
+    -- a full-screen overlay's file, once; false if the client could not load it (it then stays hidden)
+    if tex.ready == nil then
+        local ok, loaded
+        if wrap then ok, loaded = pcall(tex.SetTexture, tex, file, "REPEAT", "REPEAT") end
+        if not ok then loaded = tex:SetTexture(file) end
+        tex.ready = loaded ~= false
+        if blend then pcall(tex.SetBlendMode, tex, blend) end
+    end
+    return tex.ready
+end
+
+-- Rain: some half hours of the realm's day it rains over a zone that has weather (the same for the whole guild)
+function Amb.Raining(m, mood)
+    if not (mood and mood.rain and m.def.outdoor) or G:Data().calm then return false end
+    if G.forceRain ~= nil then return G.forceRain end
+    local t = (GetServerTime and GetServerTime()) or time()
+    local slot = floor(t / 1800)
+    return ((slot * 2654435761) % 4294967296) / 4294967296 < 0.12
+end
+
 function Amb.Mood(m, g, px, py, period)
+    local calm = G:Data().calm
+    R.mist:Hide()
+    R.shafts:Hide()
+    Amb.raining = false
     if g and g.indoor then
         R.mood:Hide()
-        if Amb.modOK ~= false then
-            if not R.vignette.ready then
-                R.vignette.ready = true
-                R.vignette:SetTexture(MEDIA .. "Ground\\vignette")
-                pcall(R.vignette.SetBlendMode, R.vignette, "MOD")
-            end
-            R.vignette:Show()
-        end
-        if period == "day" then Amb.Dust(g, px, py) end
+        R.vignette:SetShown(Amb.modOK ~= false and Overlay(R.vignette, MEDIA .. "Ground\\vignette", "MOD"))
+        if period == "day" and not calm then Amb.Dust(g, px, py) end
         return
     end
     local mood = g and Amb.MOODS[m.def.theme or "elwynn"]
@@ -3315,26 +3359,147 @@ function Amb.Mood(m, g, px, py, period)
         R.vignette:Hide()
         return
     end
-    R.mood:SetColorTexture(mood.tint[1], mood.tint[2], mood.tint[3], 1)
+    Amb.raining = Amb.Raining(m, mood)
+    local tr, tg, tb = mood.tint[1], mood.tint[2], mood.tint[3]
+    if Amb.raining then tr, tg, tb = tr * 0.84, tg * 0.88, tb * 0.94 end
+    R.mood:SetColorTexture(tr, tg, tb, 1)
     if not pcall(R.mood.SetBlendMode, R.mood, "MOD") then Amb.modOK = false end
     R.mood:Show()
-    if not R.vignette.ready then
-        R.vignette.ready = true
-        R.vignette:SetTexture(MEDIA .. "Ground\\vignette")
-        pcall(R.vignette.SetBlendMode, R.vignette, "MOD")
-    end
-    R.vignette:Show()
-    if period == "night" then return end
-    local col = (period == "dusk" or period == "dawn") and mood.duskMotes or mood.motes
+    R.vignette:SetShown(Overlay(R.vignette, MEDIA .. "Ground\\vignette", "MOD"))
     local W, H = m.w * 16, m.h * 16
+    local ox, oy = (px - HX) * 16, (py - HY) * 16          -- the view's top-left in map pixels
+    -- mist rolling low over Duskwood
+    if mood.mist and Overlay(R.mist, MEDIA .. "Ground\\mist", "BLEND", true) then
+        local mx = ox + (calm and 0 or now * 5)
+        R.mist:SetTexCoord(mx / 256, (mx + VW * 16) / 256, oy / 256, (oy + VH * 16) / 256)
+        R.mist:SetAlpha(0.45)
+        R.mist:Show()
+    end
+    -- sun shafts through the jungle canopy by day
+    if mood.shafts and period == "day" and not Amb.raining and Overlay(R.shafts, MEDIA .. "Ground\\shafts", "ADD", true) then
+        R.shafts:SetTexCoord(ox / 256, (ox + VW * 16) / 256, oy / 256, (oy + VH * 16) / 256)
+        R.shafts:SetAlpha(calm and 0.5 or (0.45 + 0.12 * math.sin(now * 0.6)))
+        R.shafts:Show()
+    end
+    if calm then return end
+    if Amb.raining then Amb.Rain(m, px, py, ox, oy) return end
+    -- falling leaves (Duskwood)
+    if mood.leaves then
+        for k = 0, 15 do
+            local life = H + 40
+            local y = ((((k * 0.37) % 1) * life + now * (6 + (k % 5))) % life) - 20
+            local x = ((k * 0.618) % 1) * W + math.sin(now * 1.4 + k) * 6
+            Amb.Pix(px, py, x, y, 2, 1, k % 3 > 0 and 0.71 or 0.54, k % 3 > 0 and 0.42 or 0.29, 0.2, 1, "ARTWORK", 6)
+        end
+    end
+    -- fireflies at dusk and night (Stranglethorn)
+    if mood.fireflies and period ~= "day" then
+        for k = 0, 29 do
+            local x = ((k * 0.618) % 1) * W + math.sin(now * 0.5 + k) * 10
+            local y = ((k * 0.414) % 1) * H + math.cos(now * 0.4 + k * 1.7) * 8
+            local on = 0.5 + 0.5 * math.sin(now * 2.2 + k * 2.4)
+            if on > 0.3 then
+                Amb.Pix(px, py, x - 1, y - 1, 3, 3, 0.78, 1, 0.47, 0.22 * on, "OVERLAY", 7)
+                Amb.Pix(px, py, x, y, 1, 1, 0.9, 1, 0.63, on, "OVERLAY", 7)
+            end
+        end
+    end
+    -- motes in the air by day and dusk
+    if period == "night" or not mood.motes then return end
+    local col = (period == "dusk" or period == "dawn") and (mood.duskMotes or mood.motes) or mood.motes
     for k = 0, 33 do
-        local h1, h2, h3, h4 = (k * 0.6180339) % 1, (k * 0.4142135) % 1, (k * 0.7320508) % 1, (k * 0.2360679) % 1
+        local h1, h2, h3 = (k * 0.6180339) % 1, (k * 0.4142135) % 1, (k * 0.7320508) % 1
         if math.sin(now * 1.7 + k * 1.3) > 0.2 then
             local x = (h1 * W + now * (3 + h2 * 4)) % W
             local y = (h3 * H + math.sin(now * 0.8 + k) * 6 - now * 1.5 + H * 10) % H
             Amb.Pix(px, py, x, y, 1, 1, col[1], col[2], col[3], 0.85, "ARTWORK", 6)
         end
     end
+end
+
+-- rain over the view: streaks falling at a slant (screen-anchored) and little splashes on the ground
+function Amb.Rain(m, px, py, ox, oy)
+    local VWp, VHp = VW * 16, VH * 16
+    for k = 0, 69 do
+        local fall = VHp + 12
+        local y = (((k * 0.7548) % 1) * fall + now * 160) % fall - 6
+        local x = (((k * 0.5698) % 1) * (VWp + 30) - (y * 0.25)) % (VWp + 30) - 10
+        Amb.Pix(px, py, ox + x, oy + y, 1, 3, 0.72, 0.8, 0.95, 0.55, "OVERLAY", 2)
+    end
+    for k = 0, 14 do
+        local cyc = floor(now * 3 + k * 0.37)
+        local sx = ((cyc * 0.618 + k * 0.381) % 1) * VWp
+        local sy = ((cyc * 0.414 + k * 0.732) % 1) * VHp
+        local f = (now * 3 + k * 0.37) % 1
+        if f < 0.5 then
+            Amb.Pix(px, py, ox + sx - 1, oy + sy, 1, 1, 0.8, 0.88, 1, 0.6, "BORDER", 3)
+            Amb.Pix(px, py, ox + sx + 1, oy + sy, 1, 1, 0.8, 0.88, 1, 0.6, "BORDER", 3)
+        else
+            Amb.Pix(px, py, ox + sx, oy + sy - 1, 1, 1, 0.8, 0.88, 1, 0.45, "BORDER", 3)
+        end
+    end
+end
+
+-- the sea's and big lakes' glints (Ground.lua glints: open-water tiles of the baked picture), a few at a time
+function Amb.Glints(m, g, px, py)
+    if not (g and g.glints) or G:Data().calm then return end
+    local col = Amb.GLINT[m.def.theme or "elwynn"] or Amb.GLINT.elwynn
+    local mx0, my0 = g.mx, g.my
+    local vx0, vx1 = px - HX - 1 + mx0, px - HX + VW + 1 + mx0
+    local vy0, vy1 = py - HY - 1 + my0, py - HY + VH + 1 + my0
+    for i, tl in ipairs(g.glints) do
+        local tx, ty = tl[1], tl[2]
+        if tx >= vx0 and tx <= vx1 and ty >= vy0 and ty <= vy1 then
+            local h = ((tx * 73856093 + ty * 19349663) % 1000) / 1000
+            local ph = (now * 0.45 + h) % 1
+            if ph < 0.3 then
+                local x = (tx - mx0) * 16 + 2 + floor(((h * 7.3) % 1) * 11)
+                local y = (ty - my0) * 16 + 2 + floor(((h * 13.7) % 1) * 12)
+                local wide = ph > 0.08 and ph < 0.22
+                Amb.Pix(px, py, x - (wide and 1 or 0), y, wide and 3 or 1, 1, col[1], col[2], col[3], 0.9, "BACKGROUND", 4)
+            end
+        end
+    end
+end
+
+-- footsteps: a puff of dust on paths, sand and cave floors, a few leaves kicked up in tall grass (more when running)
+function Amb.Steps(m, px, py)
+    local mv = G.moving
+    if mv and mv ~= Amb.lastMove then
+        Amb.lastMove = mv
+        if not G:Data().calm then
+            local ch = m.def.rows[mv.fromY + 1] and m.def.rows[mv.fromY + 1]:sub(mv.fromX + 1, mv.fromX + 1) or "."
+            local kind = (ch == "\"" or ch == ";") and "leaf" or ((ch == "=" or ch == "s" or (m.def.theme == "mine")
+                or (m.def.theme == "arena")) and "dust") or nil
+            local running = mv.dur < (G.STEP_TIME or 0.25) * 0.8
+            if kind then
+                for k = 1, running and 2 or 1 do
+                    Amb.parts[#Amb.parts + 1] = { kind = kind, x = mv.fromX * 16 + 8, y = mv.fromY * 16 + 14,
+                                                  t0 = now, seed = #Amb.parts + k }
+                end
+            end
+        end
+    end
+    local keep = {}
+    for _, p in ipairs(Amb.parts) do
+        local age = now - p.t0
+        if p.kind == "dust" and age < 0.45 then
+            keep[#keep + 1] = p
+            local f = age / 0.45
+            local sz = f < 0.4 and 2 or 3
+            Amb.Pix(px, py, p.x - 3 - f * 3, p.y - f * 4, sz, sz, 0.78, 0.7, 0.56, 0.6 * (1 - f), "ARTWORK", 0)
+            Amb.Pix(px, py, p.x + 1 + f * 3, p.y - f * 3, sz, sz, 0.78, 0.7, 0.56, 0.5 * (1 - f), "ARTWORK", 0)
+        elseif p.kind == "leaf" and age < 0.55 then
+            keep[#keep + 1] = p
+            local f = age / 0.55
+            for k = 0, 2 do
+                local dx = (k - 1) * (2 + f * 4)
+                local dy = -8 * f + 14 * f * f - k
+                Amb.Pix(px, py, p.x + dx, p.y - 4 + dy, 1, 1, 0.32, 0.62 + k * 0.08, 0.26, 1 - f * 0.5, "ARTWORK", 4)
+            end
+        end
+    end
+    Amb.parts = keep
 end
 
 -- dust motes drifting down through an interior's sun shafts (Ground.lua shafts: x, y, width in picture pixels)
@@ -3360,10 +3525,12 @@ function Amb.Draw(m, g, px, py)
     Amb.Wind(m, g, px, py)
     Amb.Clouds(m, g, px, py)
     Amb.pixN = 0
-    if g and m.def.outdoor then
+    if g and m.def.outdoor and not G:Data().calm then
         Amb.Critters(m, px, py, period)
         Amb.Smoke(m, px, py)
     end
+    Amb.Glints(m, g, px, py)
+    Amb.Steps(m, px, py)
     Amb.Mood(m, g, px, py, period)
     for i = Amb.pixN + 1, #Amb.pix do Amb.pix[i]:Hide() end
     return Amb.Night(m, g, px, py)
@@ -3409,6 +3576,12 @@ local function BuildWorld()
     R.mood:Hide()
     R.sun = Tex(world, "ARTWORK", 5)                  -- an interior's sunlight (Amb.Sun), added over everything
     R.sun:Hide()
+    R.mist = Tex(world, "OVERLAY", 3)                 -- Duskwood's mist (Amb.Mood), rolling over the ground
+    R.mist:SetAllPoints()
+    R.mist:Hide()
+    R.shafts = Tex(world, "OVERLAY", 4)               -- sun shafts through the jungle canopy (added light)
+    R.shafts:SetAllPoints()
+    R.shafts:Hide()
     R.vignette = Tex(world, "OVERLAY", 5)
     R.vignette:SetAllPoints()
     R.vignette:Hide()
@@ -3620,7 +3793,14 @@ local function DrawWorld()
             local sx, sy = (nx - px + HX) * TILE, -(ny - py + HY) * TILE
             sp:ClearAllPoints()
             sp:SetPoint("TOPLEFT", world, "TOPLEFT", sx, sy)
-            SetChar(sp, npc.def.sprite or "bald", npc.face, nframe)
+            -- now and then a standing NPC glances to the side for a moment (drawn only: the game's facing is unchanged)
+            local face = npc.face
+            if not npc.moving and not npc.exclaim and G:IsFree() and not G:Data().calm then
+                local h = (#(npc.id or "") * 7 + (npc.homeX or 0) * 13 + (npc.homeY or 0) * 29) % 97 / 97
+                local cyc = (now + h * 9) % 9
+                if cyc < 1.1 then face = (face == "left" or face == "right") and "down" or ((h < 0.5) and "left" or "right") end
+            end
+            SetChar(sp, npc.def.sprite or "bald", face, nframe)
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
             sp:Show()
@@ -5358,7 +5538,9 @@ UI._Ambient = function()
              wind = shown(Amb.windTex), dark = shown(Amb.lightTex), glows = shown(Amb.glowTex),
              mood = R.mood and R.mood:IsShown() or false, sky = R.sky and R.sky:IsShown() or false,
              legs = R.player.legs and R.player.legs:IsShown() or false,
-             anims = shown(Amb.animTex), sun = R.sun and R.sun:IsShown() or false }
+             anims = shown(Amb.animTex), sun = R.sun and R.sun:IsShown() or false,
+             mist = R.mist:IsShown(), shafts = R.shafts:IsShown(), raining = Amb.raining or false,
+             parts = #Amb.parts }
 end
 UI._OverAt = function(i, j)            -- the over tile drawn in view cell i, j (0 .. VW + 1, 0 .. VH + 1)
     local o = grid[i] and grid[i][j] and grid[i][j].over

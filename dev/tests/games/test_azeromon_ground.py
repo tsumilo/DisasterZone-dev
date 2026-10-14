@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(DEV, "generators"))
 
-import azeromon_blp  # noqa: E402
+from PIL import Image  # noqa: E402
 
 from _common import case, run_all, solo  # noqa: E402
 from _azero_bot import BOT  # noqa: E402
@@ -53,9 +53,9 @@ def every_chunk_is_a_power_of_two_tga_of_the_listed_size():
     assert e, "Ground.lua lists no maps"
     for mid, (v, chunks) in e.items():
         for x, y, w, h, tw, th in chunks:
-            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.blp" % (mid, x // 256, y // 256))
+            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.tga" % (mid, x // 256, y // 256))
             assert os.path.exists(f), f
-            size = azeromon_blp.size(f)
+            size = Image.open(f).size
             assert size == (tw, th), (f, size, tw, th)
             assert tw & (tw - 1) == 0 and th & (th - 1) == 0 and tw <= 256 and th <= 256, (f, tw, th)
             assert 0 < w <= tw and 0 < h <= th and x % 256 == 0 and y % 256 == 0, (f, x, y, w, h)
@@ -67,13 +67,14 @@ def every_pond_has_a_moving_water_strip_of_twelve_frames():
     assert w.get("town"), "Goldshire's pond has no moving water"
     for mid, ponds in w.items():
         for i, (x, y, pw, ph, cols, rows, tw, th) in enumerate(ponds):
-            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_w%d.blp" % (mid, i + 1))
-            im = azeromon_blp.read(f)
+            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_w%d.tga" % (mid, i + 1))
+            im = Image.open(f).convert("RGBA")
             assert im.size == (tw, th) and im.getextrema()[3][0] == 0, (f, im.size)     # transparent between glints
             assert cols * rows >= 12 and cols * pw <= tw and rows * ph <= th, (f, cols, rows)
-    assert azeromon_blp.size(os.path.join(ADDON, "Media", "Azeromon", "Ground", "clouds.blp")) == (256, 256)
-    left = [f for f in os.listdir(os.path.join(ADDON, "Media", "Azeromon", "Ground")) if not f.endswith(".blp")]
-    assert not left, left                                     # every baked picture is a palette BLP
+    assert Image.open(os.path.join(ADDON, "Media", "Azeromon", "Ground", "clouds.tga")).size == (256, 256)
+    # every baked picture is a TGA (this client draws our palette BLPs as its green missing-texture square)
+    left = [f for f in os.listdir(os.path.join(ADDON, "Media", "Azeromon", "Ground")) if not f.endswith(".tga")]
+    assert not left, left
 
 
 @case
@@ -137,10 +138,10 @@ def walking_moves_the_ground_with_the_camera():
 
 @case
 def a_map_without_a_baked_ground_keeps_its_tiles():
-    w, c = play("darkshire", 10, 8)
+    w, c = play("hideout", 14, 22)                            # the Guild Hall: compiled afresh each visit, not baked
     assert c.eval_py("return ns.AzeroUI._Ground()") in ({}, [], None)
     bases = [b for b in c.eval_py("return ns.AzeroUI._BaseTiles()") if b]
-    assert any(b.startswith("dgrass") for b in bases), set(bases)
+    assert any(b.startswith("hallfloor") for b in bases), set(bases)
 
 
 @case
@@ -169,7 +170,7 @@ def the_pond_moves_and_life_goes_on_around_it():
 
 @case
 def a_map_without_a_baked_ground_has_no_ambient():
-    w, c = play("darkshire", 10, 8)
+    w, c = play("hideout", 14, 22)
     a = c.eval_py("return ns.AzeroUI._Ambient()")
     assert not a["water"] and a["pix"] == 0 and a["clouds"] == 0, a
 
@@ -251,6 +252,61 @@ def rooms_have_sunlight_by_day_and_a_fire_that_moves():
     assert not a["sun"] and a["anims"] >= 1 and a["dark"] >= 1 and a["glows"] >= 1, a
     shown = c.eval_py("return ns.AzeroUI._Ground()")
     assert shown and all("home_e_" in f for f in shown), shown              # the evening picture: night windows
+
+
+@case
+def every_zone_has_its_mood():
+    w, c = play("darkshire", 10, 8)
+    st = lambda: c.eval_py("return ns.AzeroUI._Ambient()")
+    c.eval("ns.Azero.clockHour = 12")
+    w.tick(0.1)
+    assert st()["mist"] and st()["mood"], st()                         # Duskwood's mist
+    c.eval("ns.Azero:EnterMap('stvnorth', 14, 11, 'down', true)")
+    w.tick(0.1)
+    assert st()["shafts"], st()                                        # sun shafts in the jungle by day
+    c.eval("ns.Azero.clockHour = 23")
+    w.tick(0.1)
+    a = st()
+    assert not a["shafts"] and a["pix"] > 10, a                        # fireflies at night
+    c.eval("ns.Azero:EnterMap('crystalvein', 3, 3, 'down', true)")
+    c.eval("ns.Azero.clockHour = 12")
+    w.tick(0.1)
+    assert st()["dark"] >= 1, st()                                     # a cave is dim by day, lit by its torches
+
+
+@case
+def it_rains_now_and_then_and_motion_can_be_turned_off():
+    w, c = play("route1", 11, 20)
+    st = lambda: c.eval_py("return ns.AzeroUI._Ambient()")
+    c.eval("ns.Azero.forceRain = true")
+    w.tick(0.1)
+    a = st()
+    assert a["raining"] and a["pix"] >= 70, a
+    c.eval("ns.Azero.forceRain = false ns.Azero:Data().calm = true")
+    w.tick(0.1)
+    a = st()
+    assert not a["raining"] and a["pix"] == 0 and a["wind"] == 0, a
+
+
+@case
+def footsteps_kick_up_dust_on_the_path():
+    w, c = play("route1", 11, 20)                                      # on Route 1's road
+    c.eval("ns.Azero.forceRain = false")
+    x, y = c.eval_py("""local m = ns.Azero.map
+      for y = 1, m.h - 2 do for x = 1, m.w - 2 do
+        if m.def.rows[y + 1]:sub(x + 1, x + 1) == '=' then return { x, y } end
+      end end""")
+    c.eval("ns.Azero.moving = { t = 0, dur = 0.25, fromX = %d, fromY = %d }" % (x, y))   # a step off the road
+    w.tick(0.02)
+    assert c.eval_py("return ns.AzeroUI._Ambient()")["parts"] >= 1
+    c.eval("ns.Azero.moving = nil")
+
+
+@case
+def the_sea_glints():
+    w, c = play("jaguero", 10, 10)
+    g = c.eval_py("return #(ns.AzeroGround.jaguero.glints or {})")
+    assert g > 20, g
 
 
 @case

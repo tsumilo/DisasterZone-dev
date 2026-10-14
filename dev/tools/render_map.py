@@ -27,10 +27,8 @@ def baked_ground(c, map_id):
     H = max(y + h for x, y, w, h, tw, th in g["chunks"])
     out = Image.new("RGBA", (W, H))
     for x, y, w, h, tw, th in g["chunks"]:
-        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "generators"))
-        import azeromon_blp
-        f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.blp" % (map_id, x // 256, y // 256))
-        out.paste(azeromon_blp.read(f).crop((0, 0, w, h)), (x, y))
+        f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.tga" % (map_id, x // 256, y // 256))
+        out.paste(Image.open(f).convert("RGBA").crop((0, 0, w, h)), (x, y))
     ox, oy = g["mx"] * 16, g["my"] * 16
     return out.crop((ox, oy, W - ox, H - oy))
 

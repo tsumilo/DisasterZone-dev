@@ -6,6 +6,17 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.23", date = "14 October 2026", title = "Every zone, alive",
+      lines = {
+          "Westfall, Duskwood, Stranglethorn and the mines redrawn.",
+          "Mist in Duskwood; sun shafts and fireflies in the jungle.",
+          "Caves and mines are dim, lit by their torches.",
+          "Now and then it rains, for the whole guild at once.",
+          "Dust puffs on the road; leaves fly up in the tall grass.",
+          "The sea and big lakes glint; people glance around.",
+          "Fences, crates, barrels, windmills and more redrawn.",
+          "Start menu: MOTION turns the world's motion off.",
+      } },
     { version = "0.22", date = "14 October 2026", title = "Wide screen, painted battles",
       lines = {
           "The game now fills the whole window, battles too.",
