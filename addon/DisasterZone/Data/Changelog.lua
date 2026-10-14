@@ -15,7 +15,7 @@ ns.CHANGELOG = {
               "Counts your gear, enchants, talents, race and the Gear sim's buffs (dps specs it covers).",
           } },
           { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
-              "Walking together on a 3D strategy board: others show in their race's clothes, not as a white body.",
+              "3D strategy walks: others wear their race's clothes, not a white body.",
               "Walking together: others run and turn smoothly, without jumping to and fro.",
               "Square minimap: addon buttons, mail and queue icons sit on its edge, not on a circle inside it.",
               "Minimap: a long zone name is cut short before the clock instead of running under it.",
