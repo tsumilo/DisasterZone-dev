@@ -494,8 +494,9 @@ function Sec.Runs(y, idle)
                 return o
             end)
             s:SetChecked(feats[key] and true or false)
-            s:SetEnabled(key ~= "lock" or (feats.loot and true or false))
-            if s.label then s.label:SetTextColor(S:Color((key ~= "lock" or feats.loot) and "TEXT" or "DIM")) end
+            local can = key ~= "lock" or (feats.loot and not feats.reserve)
+            s:SetEnabled(can and true or false)
+            if s.label then s.label:SetTextColor(S:Color(can and "TEXT" or "DIM")) end
             s:ClearAllPoints()
             s:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -(y + 2))
             x = x + 34 + 9 + (s.label and s.label:GetStringWidth() or 60) + 16
@@ -526,6 +527,124 @@ function Sec.Runs(y, idle)
     by:SetJustifyH("RIGHT")
     by:SetText(i.leader and ("set by " .. opts.name(i.leader)) or "")
     return y + BTN_H + 2
+end
+
+-- 1.4.3: loot reserves (Core/Reserves.lua): the leader's switch and rules (per player, the guild's items, what
+-- happens to the rest, the ways in) and the list's buttons; everyone else a line and My reserves.
+function Sec.Reserves(y, idle)
+    local i, lead = data, opts.aud == "lead"
+    local R, RUI = ns.Reserves, ns.ReservesUI
+    if not (R and RUI) then return y end
+    local feats = idle and (SB():GetPick() or SB():LastFeatures()) or (i.feats or {})
+    local L = R:Get()
+    local on = feats.reserve and true or false
+    if not lead and not (on or L) then return y end
+    y = P.Rule(y + 4)
+    local right
+    if L then
+        local _, done, size = R:Missing()
+        right = ("%d of %d reserved · %s"):format(done, size, L.foreign and "LootReserve"
+            or (L.o and "open" or "closed"))
+    else
+        right = on and "not open yet" or "off"
+    end
+    y = P.Head(y, "Reserves", right)
+    if not lead then
+        local b = P.Button("My reserves", 92, nil, function() RUI:Show("pick") end,
+            { "My reserves", "Pick what you reserve tonight from the raid's loot." })
+        y = P.Prow(y, "Tonight", RUI:RulesLine(L), b)
+        return y
+    end
+    -- the switch: reserves decide the loot (the council keeps the guild's items)
+    local s = P.Get("switchReserve", function()
+        return UI():CreateSwitch(frame, nil, function(v)
+            if opts.state == "idle" then SB():FlipPick("reserve") else SB():SetFeature("reserve", v) end
+        end, "Reserves decide the loot")
+    end)
+    s:SetChecked(on)
+    s:ClearAllPoints()
+    s:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -(y + 2))
+    local act
+    if not L then
+        act = P.Button("Open reserves", 104, "primary", function() RUI:OpenReserves() end,
+            { "Open reserves", "Posts the rules in raid chat. Players reserve in DisasterZone, LootReserve, by "
+                .. "whisper (!sr), or you import softres.it. They close at the first pull." })
+    else
+        act = P.Button("Reserves", 80, nil, function() RUI:Show("list") end, { "Reserves", "The whole list." })
+    end
+    act:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -y)
+    y = y + BTN_H + 6
+    if not (on or L) then
+        local t = P.Text("small", "DIM")
+        t:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -y)
+        t:SetText("For pug nights: whoever reserved an item rolls on it, the rest is up for grabs.")
+        return y + 14
+    end
+    if L and not L.foreign then
+        -- soft reserves per player
+        local _, v = P.Prow(y, "Soft reserves", "")
+        local x = PAD + LABEL_W
+        for n = 1, 3 do
+            local b = P.Button(tostring(n), 26, L.n == n and "chosen" or nil, function() R:SetPerPlayer(n) end,
+                { n .. " each", "How many items each player may soft reserve." })
+            b:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -(y + 1))
+            x = x + 30
+        end
+        v:ClearAllPoints()
+        v:SetPoint("TOPLEFT", frame, "TOPLEFT", x + 6, -(y + 4))
+        v:SetText(S:Wrap("SUB", "each · only who reserved an item rolls on it"))
+        v:SetWidth(W - PAD - x - 6 - PAD)
+        y = y + PROW_H + 2
+    end
+    -- the guild's items
+    local held = L and L.h or {}
+    local pickBtn = (L and not L.foreign) and P.Button("Pick", 50, nil, function()
+        RUI:Show("pick")
+        if not RUI:GetState().holdMode then RUI:ToggleHoldMode() end
+    end, { "Guild items", "Click items to hold them for the guild: the loot council decides them among guild "
+        .. "members, nobody can reserve them." }) or nil
+    local _, v = P.Prow(y, "Guild items", "", pickBtn)
+    local x = PAD + LABEL_W
+    for k = 1, math.min(#held, 8) do
+        local t = P.Get("heldIcon", function()
+            local tex = frame:CreateTexture(nil, "ARTWORK")
+            tex:SetSize(18, 18)
+            tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            return tex
+        end)
+        t:SetTexture(UI():ItemIcon(held[k]))
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -(y + 2))
+        x = x + 21
+    end
+    v:ClearAllPoints()
+    v:SetPoint("TOPLEFT", frame, "TOPLEFT", x + (#held > 0 and 4 or 0), -(y + 4))
+    v:SetText(#held > 0 and S:Wrap("SUB", "the loot council decides these")
+        or S:Wrap("SUB", L and "none · the council decides what you hold" or "pick them once reserves are open"))
+    v:SetWidth(W - PAD - x - 8 - (pickBtn and 58 or 0) - PAD)
+    y = y + PROW_H + 2
+    y = P.Prow(y, "Nobody reserved", "Up for grabs" .. S:Wrap("SUB", " · everyone rolls, highest wins"))
+    local imp = (L and not L.foreign) and P.Button("Import", 60, nil, function() RUI:ShowImport() end,
+        { "Import", "A softres.it sheet (CSV or the Gargul string), LootReserve's or Gargul's CSV." }) or nil
+    y = P.Prow(y, "Ways in", "Whisper !sr" .. S:Wrap("SUB", " · ") .. "LootReserve" .. S:Wrap("SUB", " · ")
+        .. "softres.it", imp)
+    if L and not L.foreign then
+        local post = P.Button("Post the rules", 100, nil, function() ns.ReserveChat:AnnounceRules() end,
+            { "Post the rules", "The rules in raid warning, for the players without DisasterZone." })
+        post:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -y)
+        local oc = P.Button(L.o and "Close now" or "Reopen", 76, nil, function()
+            if L.o then
+                R:Close()
+                ns.ReserveChat:AnnounceClosed()
+            else
+                R:Open({})
+            end
+        end, L.o and { "Close now", "Reserves close by themselves at the first pull." } or
+            { "Reopen", "Take reserves again (you can always change any player's)." })
+        oc:SetPoint("TOPRIGHT", post, "TOPLEFT", -6, 0)
+        y = y + BTN_H + 2
+    end
+    return y
 end
 
 ---------------------------------------------------------------------------
@@ -564,6 +683,7 @@ function D:Show(crest, i, o)
     y = Sec.Raid(y, idle)
     if idle then y = P.Head(y, "This raid runs", "the line's switches, spelled out") end
     y = Sec.Runs(y, idle)
+    y = Sec.Reserves(y, idle)
     P.Finish()
     f:SetHeight(floor(y + PAD - 2))
     f:ClearAllPoints()

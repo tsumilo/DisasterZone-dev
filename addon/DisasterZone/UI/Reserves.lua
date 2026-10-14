@@ -342,7 +342,7 @@ function RUI:FillPick()
         else
             line = S:Wrap("DIM", "nobody yet")
         end
-        if bis then line = line .. S:Wrap("GOLD", "  \226\152\133 ") .. S:Wrap("GOLD", bis.os and "OS" or "BiS") end
+        if bis then line = line .. S:Wrap("SUB", " · ") .. S:Wrap("GOLD", bis.os and "your OS list" or "your BiS list") end
         t.line:SetText(line)
         t.icon:SetDesaturated(held and not st.holdMode)
         t:SetAlpha((held and not st.holdMode) and 0.55 or 1)

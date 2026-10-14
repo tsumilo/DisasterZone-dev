@@ -8,7 +8,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/SessionInfo.lua", ...) then r
 --
 -- SessionInfo:Get() -> info, or nil outside a raid:
 --   zone, raidKey (ItemDB item key), started, at (session start, server time), by, el (seconds since the start)
---   lead (I run the session: GroupRules:IsAuthority), leader (who runs it), feats { loot, rolls, lock }
+--   lead (I run the session: GroupRules:IsAuthority), leader (who runs it), feats { loot, rolls, lock, reserve }
 --   bosses { { ref, name, enc, portrait (file id), killed, dur, ts } } in the raid's order, kills, total
 --   fight { i (bosses index or nil), name, since (GetTime) } while a boss fight runs
 --   drops { { itemID, drop, copy, state ("queued" | "open" | "closed" | "none"), sid, needMe, votes, left } },
@@ -275,7 +275,7 @@ function SI:Get()
         info.el = max(0, P.Now() - (s.at or P.Now()))
         local f = GR:GetSessionFeatures() or { loot = true, rolls = true }
         info.feats = { loot = f.loot and true or false, rolls = f.rolls and true or false,
-                       lock = GR:IsLocked() and true or false }
+                       lock = GR:IsLocked() and true or false, reserve = f.reserve and true or false }
         info.drops, info.needVote = P.Drops(s.at or 0)
         info.trades, info.myTrades = P.Trades(group)
         info.left, info.missing = P.Attendance(s.id)

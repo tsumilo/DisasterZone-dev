@@ -854,6 +854,16 @@ function B.Chips(i, aud)
                 tip = { "Attendance", table.concat(names, ", "), "Click: tick what they said or swap someone in." },
                 onClick = function() SessionBar:OpenAttendance() end }
         end
+        -- 1.4.3: loot reserves: how many have picked, while they're open (the list after that)
+        local R = ns.Reserves
+        local L = R and R:Get()
+        if L then
+            local _, done, size = R:Missing()
+            out[#out + 1] = { kind = L.o and "gold" or "quiet", glyph = "reserve",
+                text = L.o and ("%d of %d reserved"):format(done, size) or "Reserves",
+                tip = { "Loot reserves", ns.ReservesUI and ns.ReservesUI:RulesLine(L) or "", "Click: the list." },
+                onClick = function() if ns.ReservesUI then ns.ReservesUI:Show("list") end end }
+        end
         if i.unlinked then
             out[#out + 1] = { kind = "warn", glyph = "calendar", text = "Not linked",
                 tip = { "Not linked to a planned raid", "Attendance and boss reminders need the planned raid.",
@@ -1394,7 +1404,7 @@ function SessionBar:OnInit()
         update()
     end)
     for _, m in ipairs({ "SESSION_INFO_CHANGED", "ROLL_UPDATED", "ROLL_STARTED", "DROP", "LEDGER_UPDATED",
-                         "RAIDPLAN_CHANGED", "DEMO_TOGGLED", "SETTINGS_CHANGED" }) do
+                         "RAIDPLAN_CHANGED", "DEMO_TOGGLED", "SETTINGS_CHANGED", "RESERVES_CHANGED" }) do
         ns:On(m, soon)
     end
 end

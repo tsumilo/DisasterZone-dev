@@ -948,6 +948,23 @@ def st_reserves(view, viewer="Gina", lua=""):
     return fn
 
 
+def st_reserve_crest(idle):
+    """The crest's drawer with reserves: before the start (Reserves picked on the line, none open yet) or running (the
+    seeded list)."""
+    def fn(w, c):
+        g = raid_with_session(w, c, None if idle else {"loot": True, "rolls": True, "lock": False, "reserve": True})
+        g.eval("ns.Reserves:_Reset()")
+        if idle:
+            g.eval("local p = ns.SessionBar:GetPick(); if not (p and p.reserve) then ns.SessionBar:FlipPick('reserve') end")
+        else:
+            g.eval(RESERVES_SEED)
+        w.tick(2)
+        g.eval("__MOCK.real_geometry = true; ns.SessionBar:Update(); ns.SessionBar:Peek(true); "
+               "ns.SessionBar:ToggleDrawer(true)")
+        return g
+    return fn
+
+
 def st_session_crest(open_=False, idle=False):
     """The session crest in Gina's raid: before the start (the line with the switches) or running, its drawer open."""
     def fn(w, c):
@@ -2178,6 +2195,8 @@ STATES = [
     ("Reserves - list (host)", st_reserves("list")),
     ("Reserves - list (raider)", st_reserves("list", "Moonwhisper")),
     ("Reserves - wrap-up", st_reserves("wrap")),
+    ("Reserves - crest drawer (before the start)", st_reserve_crest(True)),
+    ("Reserves - crest drawer (running)", st_reserve_crest(False)),
     ("Raid - drop panel (council)", st_drop({"loot": True, "rolls": True, "lock": False})),
     ("Raid - drop panel (council, rolling)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True)),
     ("Raid - roll popup (raider)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
