@@ -304,6 +304,13 @@ local function GameSeen(plate, seen)
             end)
         end
         uf.dzHidden = true
+        -- (alpha alone wasn't enough: the game fades plates you haven't targeted itself and its bar came back
+        -- under ours on those; the game's plate is hidden too, again whenever the game shows it)
+        if not uf.dzShowHooked and uf.HookScript then
+            uf.dzShowHooked = true
+            uf:HookScript("OnShow", function(f) if f.dzHidden then f:Hide() end end)
+        end
+        uf:Hide()
         uf:SetAlpha(0)
         -- (pieces that ignore their parent's alpha stay seen through alpha 0: the mouse-over highlight under the bar,
         -- selectionHighlight, is one in the client's Blizzard_NamePlates.xml; they follow it while ours are on)
@@ -332,6 +339,7 @@ local function GameSeen(plate, seen)
     elseif uf.dzHidden then
         uf.dzHidden = nil
         uf:SetAlpha(1)
+        uf:Show()
         for i, r in ipairs(uf.dzIgnoring or {}) do
             if r.SetIgnoreParentAlpha then r:SetIgnoreParentAlpha(true) end
             uf.dzIgnoring[i] = nil
@@ -413,6 +421,8 @@ local function OnUpdate(_, elapsed)
     local any = false
     for _, rec in pairs(recs) do
         any = true
+        local uf = rec.plate and rec.plate.UnitFrame
+        if uf and uf.dzHidden and uf.IsShown and uf:IsShown() then uf:Hide() end
         if rec.dirty or (second and rec.p.combat) then
             local ok, err = pcall(P.Read, P, rec.token, rec.p, key)
             if not ok then Report(err) end

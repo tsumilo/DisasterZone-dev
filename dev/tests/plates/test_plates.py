@@ -98,6 +98,11 @@ def ours_on_every_plate_and_the_games_handed_back():
     # (the game setting its plate's alpha again: kept see-through)
     t.c.eval("__MOCK.plate_frame(...).UnitFrame:SetAlpha(1)", t.token)
     assert t.game_alpha() == 0
+    # (the game's plate hidden, and hidden again when the game shows it)
+    shown = "return __MOCK.plate_frame(...).UnitFrame:IsShown()"
+    assert t.c.eval(shown, t.token) is False
+    t.c.eval("__MOCK.plate_frame(...).UnitFrame:Show()", t.token)
+    assert t.c.eval(shown, t.token) is False
     assert t.c.eval("return GetCVar('nameplateMotion')") == "1"
     t.c.eval("ns.DB:SetSetting('ui.plates.look', 'blizzard')")
     t.w.tick(0.2)
@@ -105,6 +110,7 @@ def ours_on_every_plate_and_the_games_handed_back():
     assert t.game_alpha() == 1
     assert t.c.eval("return GetCVar('nameplateMotion')") == "0"
     assert t.c.eval(hl, t.token) is True
+    assert t.c.eval(shown, t.token) is True
     # a look for everything brings them back
     t.c.eval("ns.Look:UseEverywhere('sigil'); if ns.Popup then ns.Popup:HideAll() end")
     t.w.tick(0.2)
