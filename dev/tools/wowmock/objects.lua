@@ -898,7 +898,8 @@ define("TextureBase", "Region", {
   SetDesaturation = function(self, v) S(self).desat = (v or 0) > 0 end,
   SetBlendMode = function(self, m) S(self).blend = m end,
   GetBlendMode = function(self) return S(self).blend or "BLEND" end,
-  SetRotation = function(self, r) S(self).rotation = r end,
+  -- (like the client: turning a texture resets its cut to the whole texture)
+  SetRotation = function(self, r) local st = S(self); st.rotation = r; st.texcoord = nil end,
   GetRotation = function(self) return S(self).rotation or 0 end,
   -- (kept for tools/ui_look.py: orientation, min colour, max colour)
   SetGradient = function(self, orient, c1, c2)

@@ -86,6 +86,23 @@ def the_games_plates_while_the_part_wears_blizzard():
 
 
 @case
+def a_reused_piece_gets_its_cut_back():
+    # (in game a piece that once drew a turned shape came back with the whole texture where a slice was asked for:
+    # Halo's plates showed square ends; turning resets the cut in the client, and the mock does it too)
+    w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
+    coords = c.eval_py("""local Pen = ns.CTPen; local h = Pen:Host(10); local out = {}
+        local c = Pen:Begin(h, 0, 0); c:Img(Pen.WHITE, 0, 0, 6, 6, nil, 1, 0, 1, 0, 1, 0.7); Pen:End()
+        for i = 1, 2 do
+            c = Pen:Begin(h, 0, 0); c:Img(Pen.PEN .. 'pill', 3, 0, 6, 12, nil, 1, 0, 0.125, 0, 1); Pen:End()
+            local a, b, _, _, e = h.tx[1]:GetTexCoord(); out[i] = { a, e }
+        end
+        return out""")
+    for left, right in coords:
+        assert left == 0 and abs(right - 0.125) < 1e-6, coords
+    w.assert_no_errors()
+
+
+@case
 def ours_on_every_plate_and_the_games_handed_back():
     t = Plates("halo")
     assert t.rec()

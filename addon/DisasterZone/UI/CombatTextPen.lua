@@ -324,14 +324,17 @@ local function Tex(self, file, r, g, b, a, l, rr, t, bb, grad)
     local k = tx.k
     local layer, sub = Slot(self)
     if k.L ~= layer or k.S ~= sub then tx:SetDrawLayer(layer, sub); k.L, k.S = layer, sub end
-    if k.f ~= file then tx:SetTexture(file); k.f = file; k.wf = nil end
-    l, rr, t, bb = l or 0, rr or 1, t or 0, bb or 1
-    if k.l ~= l or k.r ~= rr or k.t ~= t or k.bb ~= bb then tx:SetTexCoord(l, rr, t, bb); k.l, k.r, k.t, k.bb = l, rr, t, bb end
+    -- (a new file, unbending and unturning can each reset the texture's cut in the client: then the cut is set
+    -- again, else a reused region kept the whole texture where a slice was asked for (Halo's square plate ends))
+    if k.f ~= file then tx:SetTexture(file); k.f = file; k.wf = nil; k.l = nil end
     if k.bent then
         for v = 1, 4 do tx:SetVertexOffset(v, 0, 0) end
         k.bent = nil
+        k.l = nil
     end
-    if k.rot then tx:SetRotation(0); k.rot = nil end
+    if k.rot then tx:SetRotation(0); k.rot = nil; k.l = nil end
+    l, rr, t, bb = l or 0, rr or 1, t or 0, bb or 1
+    if k.l ~= l or k.r ~= rr or k.t ~= t or k.bb ~= bb then tx:SetTexCoord(l, rr, t, bb); k.l, k.r, k.t, k.bb = l, rr, t, bb end
     if not grad then
         tx:SetVertexColor(r, g, b, 1)
         k.grad = nil
@@ -391,7 +394,7 @@ end
 function c:Img(file, cx, cy, w, h, col, a, l, r, t, b, rot)
     local tx = Tex(self, file, col and col[1] or 1, col and col[2] or 1, col and col[3] or 1, a or 1, l, r, t, b)
     PlaceBox(self, tx, cx - w / 2, cy - h / 2, w, h)
-    if rot and rot ~= 0 then tx:SetRotation(rot); tx.k.rot = true end
+    if rot and rot ~= 0 then tx:SetRotation(rot); tx.k.rot = true; tx.k.l = nil end
     return tx
 end
 
@@ -400,7 +403,7 @@ end
 function c:Tile(file, x, y, w, h, l, r, t, b, col, a)
     local tx = Tex(self, file, col and col[1] or 1, col and col[2] or 1, col and col[3] or 1, a or 1)
     local k = tx.k
-    if k.wf ~= file then tx:SetTexture(file, "REPEAT", "REPEAT"); k.wf = file end
+    if k.wf ~= file then tx:SetTexture(file, "REPEAT", "REPEAT"); k.wf = file; k.l = nil end
     if k.l ~= l or k.r ~= r or k.t ~= t or k.bb ~= b then tx:SetTexCoord(l, r, t, b); k.l, k.r, k.t, k.bb = l, r, t, b end
     PlaceBox(self, tx, x, y, w, h)
 end
@@ -695,7 +698,7 @@ local function IconTex(self, u, tex, cx, cy, sz, inset, round, coords)
     local k = u.k
     local layer, sub = Slot(self)
     if k.L ~= layer or k.S ~= sub then t:SetDrawLayer(layer, sub); k.L, k.S = layer, sub end
-    if k.f ~= tex then t:SetTexture(tex); k.f = tex end
+    if k.f ~= tex then t:SetTexture(tex); k.f = tex; k.m = nil end
     local m = coords or (round and 0.06 or 0.08)
     if k.m ~= m then
         if coords then t:SetTexCoord(coords[1], coords[2], coords[3], coords[4]) else t:SetTexCoord(m, 1 - m, m, 1 - m) end

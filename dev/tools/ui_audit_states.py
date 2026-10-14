@@ -3806,8 +3806,11 @@ STATES += [("Combat text - %s alert" % _l, sct_view(_l, 7.95)) for _l in ("flat"
 
 # Nameplates (UI/Plates.lua): the demo's Maulgar council stopped at a moment (t: 1.3 casts, 6.3 threat, 11.3 execute
 # range) over a named box with Gruul's Lair's loading screen behind (ui_look crops to named windows).
-def plates_view(look, t=1.3, role="dps"):
-    lua = ("ns.MainFrame:Close(); __MOCK.real_geometry = true; ns.DB:SetSetting('bossmods.role', '%s'); "
+def plates_view(look, t=1.3, role="dps", plain=False):
+    # plain: no marks, full health, nobody targeted (the plates a player sees most: dimmed, unmarked)
+    pre = ("local P0 = ns.Plates; local dp = P0.DemoPlate; P0.DemoPlate = function(self, ...) local p = dp(self, ...); "
+           "p.mark, p.hp, p.target, p.dim, p.auras, p.castInfo, p.glow = nil, 1, false, true, {}, nil, nil; return p end; ") if plain else ""
+    lua = (pre + "ns.MainFrame:Close(); __MOCK.real_geometry = true; ns.DB:SetSetting('bossmods.role', '%s'); "
            "ns.DB:SetSetting('ui.plates.look', '%s'); if ns.Popup then ns.Popup:HideAll() end; local P = ns.Plates; "
            "local bx = _G.AuditPlatesBox or CreateFrame('Frame', 'AuditPlatesBox', UIParent); bx:SetFrameStrata('BACKGROUND'); "
            "local k = (UIParent:GetHeight() or 768) / 768; "
@@ -3822,5 +3825,6 @@ def plates_view(look, t=1.3, role="dps"):
 
 for _l in ("flat", "halo", "sigil", "slate", "gilded", "classic"):
     STATES += [("Nameplates - %s" % _l, plates_view(_l)), ("Nameplates - %s threat tank" % _l, plates_view(_l, 6.3, "tank")),
-               ("Nameplates - %s threat" % _l, plates_view(_l, 6.3)), ("Nameplates - %s execute" % _l, plates_view(_l, 11.3))]
+               ("Nameplates - %s threat" % _l, plates_view(_l, 6.3)), ("Nameplates - %s execute" % _l, plates_view(_l, 11.3)),
+               ("Nameplates - %s plain" % _l, plates_view(_l, 0.5, plain=True))]
 
