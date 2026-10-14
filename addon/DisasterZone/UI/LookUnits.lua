@@ -129,6 +129,7 @@ function Units.Data(unit, d)
     if not (UnitExists and UnitExists(unit)) then return d end
     d.exists, d.unit = true, unit
     d.name = UnitName(unit)
+    d.guid = UnitGUID and UnitGUID(unit) or nil      -- (another unit on the frame: its bar jumps, no slide)
     d.level = UnitLevel(unit)
     local _, class = UnitClass(unit)
     d.class = class
@@ -806,7 +807,11 @@ function Face:Set(d)
     local frac = (d.hpMax and d.hpMax > 0) and (d.hp or 0) / d.hpMax or 0
     if d.dead or d.offline then frac = d.dead and 0 or frac end
     self.hp:SetColor(HealthColor(part, d, look, self.kind))
-    self.hp:SetValue(frac)
+    -- (health moves like the nameplates': Animated health; a new unit on the frame (another target) jumps there)
+    self.hp:Animate(L:Opt(part, "animate", true) ~= false)
+    local who = d.guid or d.name
+    self.hp:SetValue(frac, who ~= self.who)
+    self.who = who
     if self.pp.f:IsShown() then
         self.pp:SetColor(PowerColor(d, look))
         self.pp:SetValue((d.pwMax and d.pwMax > 0) and (d.pw or 0) / d.pwMax or 0)

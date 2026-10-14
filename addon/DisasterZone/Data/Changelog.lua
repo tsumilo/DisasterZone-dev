@@ -18,6 +18,12 @@ ns.CHANGELOG = {
               "Friendly players show their name until they're hurt. Try it shows the Maulgar council.",
               "Health bars slide, and what was just taken off lingers a moment before it drains.",
           } },
+          { heading = "Moving health bars", area = "other", kind = "changed", open = "settings/looks",
+            lead = "Unit, party and raid frames in our looks: health slides like the nameplates'.", lines = {
+              "A hit leaves a pale piece for a moment; it drains into the bar.",
+              "Switching targets jumps straight to the new one.",
+              "Animated health on each part's page turns it off.",
+          } },
       } },
     { version = "1.4.2", date = "14 October 2026", title = "Edit layout and the UI in our looks",
       sections = {

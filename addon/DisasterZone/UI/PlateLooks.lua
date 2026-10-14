@@ -213,13 +213,14 @@ end
 local RINGC = C(245, 220, 143)
 local DIMRING = C(70, 70, 82)
 
--- A pill (left L, middle y) fading in from alpha a0 at its left to a1 at its right.
-local function FadePill(c, L0, y, w, h, col, a0, a1)
-    if w <= h or not (Pen.Smooth and Pen.Smooth()) then c:Pill(L0, y, max(w, h), h, col, (a0 + a1) / 2) return end
+-- A solid pill (left L, middle y) shading from col0 at its left to col1 at its right. (Solid: a see-through start
+-- let the dark track show at the plate's left end, read in game as a cut-off background.)
+local function FadePill(c, L0, y, w, h, col0, col1)
+    if w <= h or not (Pen.Smooth and Pen.Smooth()) then c:Pill(L0, y, max(w, h), h, col1, 1) return end
     local e, tex, u = h / 2, Pen.PEN .. "pill", 32 / 256
-    c:Img(tex, L0 + e / 2, y, e, h, col, a0, 0, u, 0, 1)
-    c:Grad(L0 + e, y - h / 2, w - 2 * e, h, "H", col, a0, col, a1)
-    c:Img(tex, L0 + w - e / 2, y, e, h, col, a1, 1 - u, 1, 0, 1)
+    c:Img(tex, L0 + e / 2, y, e, h, col0, 1, 0, u, 0, 1)
+    c:Grad(L0 + e, y - h / 2, w - 2 * e, h, "H", col0, 1, col1, 1)
+    c:Img(tex, L0 + w - e / 2, y, e, h, col1, 1, 1 - u, 1, 0, 1)
 end
 
 local HALO = { key = "halo" }
@@ -246,7 +247,7 @@ function HALO.Draw(c, p)
         local L0 = max(x0, x0 + w * p.hp - h)
         c:Pill(L0, 0, max(h, x0 + w * p.trail - L0), h, Chunk(p.col), 0.7)
     end
-    if p.hp > 0 then FadePill(c, x0, 0, w * p.hp, h, p.col, 0.75, 1) end
+    if p.hp > 0 then FadePill(c, x0, 0, w * p.hp, h, Shade(p.col, 0.62), p.col) end
     c:Rect(x0 + h / 2, y0 + 1, w - h, h / 2 - 1, WHITE, 0.06)
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0 + 2, 1, h - 4, WHITE, 0.55) end
     c:Text(Pct(p), x0 + w - 6, 0.5, "ArialN", 9.5, p.execReady and GOLD or WHITE, 1, "RIGHT")

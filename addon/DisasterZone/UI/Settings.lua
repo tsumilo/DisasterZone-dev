@@ -2681,6 +2681,7 @@ local PART_OPTS = {
         { "debuffs", "Auras on target", "Your own first, everyone's, or only yours.", "mine",
           { { value = "mine", text = "Mine first" }, { value = "all", text = "All" }, { value = "onlymine", text = "Only mine" } } },
         { "timers", "Aura timers", "Seconds left under each aura.", true },
+        { "animate", "Animated health", "The bar slides, and what was just taken off lingers a moment.", true },
     },
     group = {
         { "healthColor", "Health colour", "The look's: the game's green in Classic, class colours in the rest.", "theme",
@@ -2692,6 +2693,7 @@ local PART_OPTS = {
           tip = "The raid leader or an assistant sets them: + under the rows, the plan's tanks in one click, or "
               .. "/maintank. Drag a row to reorder; move the block in Edit layout." },
         { "range", "Fade out of range", "Party and raid members too far to heal.", true },
+        { "animate", "Animated health", "The bar slides, and what was just taken off lingers a moment.", true },
         { "dispel", "Light what I can remove", "A debuff you can dispel colours the frame's edge.", true },
     },
     cast = {

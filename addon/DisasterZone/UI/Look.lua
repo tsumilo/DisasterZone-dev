@@ -28,7 +28,7 @@ local addonName, ns = ...
 local Look = ns:NewModule("Look")
 local UI, S = ns.UI, ns.Style
 
-local floor, max, min = math.floor, math.max, math.min
+local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 local pairs, ipairs, type, tonumber, tostring = pairs, ipairs, type, tonumber, tostring
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
@@ -778,11 +778,52 @@ function BarMethods:Span()
     return r, max(0, w - 2 * r)
 end
 
-function BarMethods:SetValue(v)
+function BarMethods:SetValue(v, snap)
     v = tonumber(v) or 0
     if v ~= v then v = 0 end
-    self.v = max(0, min(1, v))
-    self:Layout()
+    v = max(0, min(1, v))
+    if not self.anim or snap or self.target == nil then      -- (its first value: there at once)
+        self.target, self.trail, self.hold = v, nil, nil
+        self.v = v
+        self:Layout()
+        return
+    end
+    -- (animated: the fill slides to v; a drop leaves the piece taken off as a pale chunk that drains after HOLD)
+    if v < (self.target or v) - 0.0005 then
+        self.trail = max(self.trail or 0, self.v or v)
+        self.hold = GetTime() + 0.4
+    end
+    self.target = v
+    self:Wake()
+end
+
+-- Health bars move (the nameplates' motion, UI/Plates.lua): SetValue slides the fill and leaves a chunk.
+function BarMethods:Animate(on)
+    on = on and true or false
+    if self.anim == on then return end
+    self.anim = on
+    if not on then self:SetValue(self.target or self.v or 0, true); self.chunk:Hide(); self.chunkCap:Hide() end
+end
+
+local function BarStep(f, elapsed)
+    local b = f.dzBar
+    local dt = min(1 / 30, elapsed or 0)
+    local t = b.target or 0
+    b.v = (b.v or t) + (t - (b.v or t)) * min(1, dt * 12)
+    if abs(b.v - t) < 0.001 then b.v = t end
+    if b.trail then
+        if b.trail <= b.v then b.trail = nil
+        elseif GetTime() >= (b.hold or 0) then
+            b.trail = b.trail + (b.v - b.trail) * min(1, dt * 5)
+            if b.trail - b.v < 0.002 then b.trail = nil end
+        end
+    end
+    b:Layout()
+    if b.v == t and not b.trail then f:SetScript("OnUpdate", nil) end
+end
+function BarMethods:Wake()
+    self.f.dzBar = self
+    self.f:SetScript("OnUpdate", BarStep)
 end
 
 function BarMethods:Layout()
@@ -798,6 +839,28 @@ function BarMethods:Layout()
         self.tcapR:ClearAllPoints(); self.tcapR:SetSize(r, h); self.tcapR:SetPoint("RIGHT", self.f, "RIGHT", 0, 0)
     end
     local fw = (w - 2 * r) * (self.v or 0)
+    if self.trail and self.trail > (self.v or 0) then
+        local cw = (w - 2 * r) * (self.trail - (self.v or 0))
+        self.chunk:ClearAllPoints()
+        self.chunk:SetPoint("TOPLEFT", self.f, "TOPLEFT", r + fw, 0)
+        self.chunk:SetPoint("BOTTOMLEFT", self.f, "BOTTOMLEFT", r + fw, 0)
+        self.chunk:SetWidth(max(0.01, cw))
+        local cr, cg, cb = self.r or 0.5, self.g or 0.5, self.b or 0.5
+        self.chunk:SetVertexColor(cr * 0.45 + 0.55, cg * 0.45 + 0.55, cb * 0.45 + 0.5, 0.75)
+        self.chunk:Show()
+        if pill then
+            self.chunkCap:ClearAllPoints()
+            self.chunkCap:SetSize(r, h)
+            self.chunkCap:SetPoint("LEFT", self.chunk, "RIGHT", 0, 0)
+            self.chunkCap:SetVertexColor(cr * 0.45 + 0.55, cg * 0.45 + 0.55, cb * 0.45 + 0.5, 0.75)
+            self.chunkCap:Show()
+        else
+            self.chunkCap:Hide()
+        end
+    else
+        self.chunk:Hide()
+        self.chunkCap:Hide()
+    end
     self.fill:ClearAllPoints()
     self.fill:SetPoint("TOPLEFT", self.f, "TOPLEFT", r, 0)
     self.fill:SetPoint("BOTTOMLEFT", self.f, "BOTTOMLEFT", r, 0)
@@ -853,6 +916,11 @@ function Look:Bar(parent)
     b.tcapL = Tex(f, "BACKGROUND", 1, DISC); b.tcapL:SetTexCoord(0, 0.5, 0, 1)
     b.tcapR = Tex(f, "BACKGROUND", 1, DISC); b.tcapR:SetTexCoord(0.5, 1, 0, 1)
     b.fill = Tex(f, "ARTWORK", 1)
+    b.chunk = Tex(f, "ARTWORK", 0)                -- (the piece just taken off, under the fill: Animate)
+    b.chunk:Hide()
+    b.chunkCap = Tex(f, "ARTWORK", 0, DISC)       -- (its round end on a pill: Halo's bar is round, so is the chunk)
+    b.chunkCap:SetTexCoord(0.5, 1, 0, 1)
+    b.chunkCap:Hide()
     b.capL = Tex(f, "ARTWORK", 1, DISC); b.capL:SetTexCoord(0, 0.5, 0, 1)
     b.capR = Tex(f, "ARTWORK", 1, DISC); b.capR:SetTexCoord(0.5, 1, 0, 1)
     b.lit = Tex(f, "ARTWORK", 2)

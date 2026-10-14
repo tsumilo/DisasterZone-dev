@@ -334,5 +334,31 @@ def the_drawer_gathers_the_addon_buttons_and_gives_them_back():
     assert c.eval("return _G[...]:IsShown()", d) is False
     w.assert_no_errors()
 
+@case
+def health_bars_slide_and_leave_a_chunk():
+    w, c = with_look("halo")
+    c.eval("__b = ns.Look:Bar(UIParent); __b:Apply(ns.Look.BY_KEY.halo, nil, 12); __b:SetWidthNow(120); "
+           "__b:SetColor(0.2, 0.8, 0.3); __b:Animate(true); __b:SetValue(1)")
+    c.eval("__b:SetValue(0.5)")
+    w.tick(0.03)
+    v, trail = c.eval_py("return { __b.v, __b.trail }")
+    assert 0.5 < v < 1 and trail == 1, (v, trail)              # (sliding; the piece taken off waits)
+    assert c.eval("return __b.chunk:IsShown()") is True
+    for _ in range(12):
+        w.tick(0.03)
+    assert abs(c.eval("return __b.v") - 0.5) < 0.01
+    assert c.eval("return __b.trail") is not None               # (still held: 0.4 s)
+    for _ in range(60):
+        w.tick(0.03)
+    assert c.eval("return __b.trail") is None and c.eval("return __b.chunk:IsShown()") is False
+    # a new unit on the frame jumps; turned off, the bar is exact at once
+    c.eval("__b:SetValue(0.9, true)")
+    assert c.eval("return __b.v") == 0.9
+    c.eval("__b:Animate(false); __b:SetValue(0.2)")
+    assert c.eval("return __b.v") == 0.2
+    w.assert_no_errors()
+
+
+
 if __name__ == "__main__":
     run_all()
