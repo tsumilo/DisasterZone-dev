@@ -136,6 +136,49 @@ def the_bank_opens_ours_and_closing_it_leaves_the_bank():
 
 
 @case
+def buying_a_bank_slot_and_the_bag_slots_take_bags():
+    w, c = bagged("flat")
+    c.eval("""
+        GetNumBankSlots = function() return 1, false end
+        GetBankSlotCost = function(n) return 10000 * (n + 1) end
+        BankFrame = BankFrame or CreateFrame('Frame', 'BankFrame')
+        BankFrame.nextSlotCost = nil
+        _G.__popup = nil
+        StaticPopup_Show = function(which)
+            -- (the game's dialog shows BankFrame.nextSlotCost: nil threw in MoneyFrame_Update)
+            _G.__popup = which; _G.__cost = BankFrame.nextSlotCost
+        end
+        __MOCK.bags[5] = { size = 14, slots = {} }
+    """)
+    c.eval("__MOCK.set_bags({ { -1, 1, 21877, 20 } }, true)")
+    w.tick(0.2)
+    f = "ns.LookBags.windows.bank"
+    assert c.eval(f"return {f}.buy:IsShown()") is True
+    c.eval(f"{f}.buy:Click()")
+    assert c.eval("return __popup") == "CONFIRM_BUY_BANK_SLOT"
+    assert c.eval("return __cost") == 20000
+    # the footer's bag slots: bought ones take a bag on click / drop, the rest are locked
+    c.eval("""
+        _G.__put, _G.__pick = {}, {}
+        PutItemInBag = function(inv) table.insert(__put, inv) end
+        PickupBagFromSlot = function(inv) table.insert(__pick, inv) end
+    """)
+    icons = f"{f}.bagIcons"
+    assert c.eval(f"return {icons}[1].locked") is False
+    assert c.eval(f"return {icons}[2].locked") is True
+    c.eval(f"{icons}[1]:Click(); {icons}[2]:Click()")
+    assert c.eval("return #__pick") == 1
+    c.eval("CursorHasItem = function() return true end")
+    c.eval(f"{icons}[1]:GetScript('OnReceiveDrag')({icons}[1])")
+    assert c.eval("return #__put") == 1
+    # the player's bags: dragging one off picks it up
+    c.eval("CursorHasItem = function() return false end")
+    c.eval("local ic = ns.LookBags.windows.bags.bagIcons[2]; ic:GetScript('OnDragStart')(ic)")
+    assert c.eval("return #__pick") == 2
+    w.assert_no_errors()
+
+
+@case
 def search_dims_what_does_not_match_and_marks_junk():
     w, c = bagged("flat")
     c.eval("ns.LookBags:Open('bags')")

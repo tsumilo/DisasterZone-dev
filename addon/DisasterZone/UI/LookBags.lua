@@ -267,6 +267,10 @@ local function NewWindow(kind)
         f.buy.bg = Tex(f.buy, "BACKGROUND", 0); f.buy.bg:SetAllPoints()
         f.buy.t = Text(f.buy, "small"); f.buy.t:SetPoint("CENTER")
         f.buy:SetScript("OnClick", function()
+            -- (the game's popup shows BankFrame.nextSlotCost, which only its own bank window sets: ours never opens)
+            local n = GetNumBankSlots and GetNumBankSlots() or 0
+            local ok, cost = pcall(GetBankSlotCost, n)
+            if BankFrame then BankFrame.nextSlotCost = ok and cost or 0 end
             if StaticPopup_Show then StaticPopup_Show("CONFIRM_BUY_BANK_SLOT") end
         end)
         f.bankBags = {}
@@ -804,27 +808,60 @@ function Bags:Footer(f, kind, look)
     for i, bag in ipairs(ids) do
         local ic = f.bagIcons[i]
         if not ic then
-            ic = CreateFrame("Frame", nil, f.ft)
+            ic = CreateFrame("Button", nil, f.ft)
             ic:SetSize(18, 18)
             ic.t = Tex(ic, "ARTWORK", 0)
             ic.t:SetAllPoints(); ic.t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             ic:EnableMouse(true)
+            ic:RegisterForClicks("LeftButtonUp")
+            ic:RegisterForDrag("LeftButton")
+            -- (the bag slot itself, like the game's bag bar: drop a bag on it to equip, drag it off to take it out)
+            local function Put(s)
+                if not s.inv or s.locked then return end
+                if CursorHasItem and CursorHasItem() then
+                    if PutItemInBag then PutItemInBag(s.inv) end
+                elseif PickupBagFromSlot then
+                    PickupBagFromSlot(s.inv)
+                end
+            end
+            ic:SetScript("OnClick", Put)
+            ic:SetScript("OnReceiveDrag", Put)
+            ic:SetScript("OnDragStart", function(s)
+                if s.inv and not s.locked and PickupBagFromSlot then PickupBagFromSlot(s.inv) end
+            end)
             ic:SetScript("OnEnter", function(s)
                 -- (pointing at a bag lights its slots)
                 for b2, list in pairs(f.buttons) do
                     for _, b in pairs(list) do if b:IsShown() then b:SetAlpha(b2 == s.bag and 1 or 0.3) end end
                 end
+                if GameTooltip then
+                    GameTooltip:SetOwner(s, "ANCHOR_TOP")
+                    if s.locked then
+                        GameTooltip:SetText(BANK_BAG_PURCHASE or "Purchasable bag slot", 1, 0.3, 0.3)
+                    elseif not (s.inv and GameTooltip:SetInventoryItem("player", s.inv)) then
+                        GameTooltip:SetText(kind == "bank" and (BANK_BAG or "Bank bag slot") or (EQUIP_CONTAINER or "Equip container"))
+                    end
+                    GameTooltip:Show()
+                end
             end)
-            ic:SetScript("OnLeave", function() Bags:Refresh(kind) end)
+            ic:SetScript("OnLeave", function()
+                if GameTooltip then GameTooltip:Hide() end
+                Bags:Refresh(kind)
+            end)
             f.bagIcons[i] = ic
         end
         ic.bag = bag
         ic:SetSize(isz, isz)
         if not ic.edge then ic.edge = Look().Edges(ic, "OVERLAY", 1); ic.edge:Place(ic, 1) end
         ic.edge:Paint(game and { 0, 0, 0, 1 } or nil)
-        local inv = C_Container and C_Container.ContainerIDToInventoryID and C_Container.ContainerIDToInventoryID(bag)
+        local toInv = C_Container and C_Container.ContainerIDToInventoryID or ContainerIDToInventoryID
+        local inv = toInv and toInv(bag)
         local tex = inv and GetInventoryItemTexture and GetInventoryItemTexture("player", inv)
+        ic.inv = inv
+        -- (a bank bag slot not bought yet: red like the game's, takes nothing)
+        ic.locked = kind == "bank" and GetNumBankSlots and i > (GetNumBankSlots() or 0) or false
         ic.t:SetTexture(tex or "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag")
+        if ic.locked then ic.t:SetVertexColor(1, 0.1, 0.1) else ic.t:SetVertexColor(1, 1, 1) end
         ic:ClearAllPoints()
         ic:SetPoint("LEFT", f.ft, "LEFT", x + (game and 1 or 0), 0)
         ic:Show()
