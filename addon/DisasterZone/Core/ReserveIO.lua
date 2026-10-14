@@ -30,7 +30,8 @@ end
 
 local function KeyOf(name)
     name = Clean(name)
-    if name == "" or strfind(name, "[%c|,;]") then return nil end
+    -- (a name starts with a letter: "2" in a stray table is not a player; UTF-8 letters start past 127)
+    if name == "" or strfind(name, "[%c|,;]") or not (strfind(name, "^%a") or strbyte(name, 1) > 127) then return nil end
     name = strgsub(name, "^%l", string.upper)
     return Util.NormalizeName(name)
 end
