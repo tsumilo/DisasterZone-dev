@@ -1394,8 +1394,8 @@ function G:UseItemOutside(item, idx)
         bag[item] = bag[item] - 1
         if bag[item] <= 0 then bag[item] = nil end
         return string.format("%s was rejuvenated!", M.Name(mon))
-    elseif def.use == "cure" then
-        if mon.status ~= def.cures then self:Sfx("error") return "It won't have any effect." end
+    elseif def.use == "cure" or def.use == "freeaction" then
+        if mon.status ~= (def.cures or "par") then self:Sfx("error") return "It won't have any effect." end
         self:Sfx("cure")
         mon.status = nil
         bag[item] = bag[item] - 1
