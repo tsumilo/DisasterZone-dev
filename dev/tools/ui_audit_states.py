@@ -1867,6 +1867,7 @@ STATES = [
     # (Azeromon's poster on the side: a still of its film, no painting behind it)
     ("Games - Azeromon poster side", opened("games", "ns.GamesUI:ShowFront('chess') ns.GamesUI:PauseAnim(true)")),
     # the overworld on maps with a baked ground (gen_azeromon_ground.py): Goldshire's square, Route 1's meadows
+    ("Games - Azeromon world map", azero_at("town", 12, 11, "local g = ns.Azero g.save.visited = {} for id in pairs(ns.AzeroMaps) do g.save.visited[id] = true end ns.AzeroWorld:Open()")),
     ("Games - Azeromon Goldshire", azero_at("town", 12, 11)),
     ("Games - Azeromon Goldshire edge", azero_at("town", 2, 8)),
     ("Games - Azeromon Goldshire north road", azero_at("town", 10, 1)),
