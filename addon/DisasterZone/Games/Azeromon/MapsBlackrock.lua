@@ -12,8 +12,6 @@ local addonName, ns = ...
 local Maps = ns.AzeroMaps
 local D = ns.AzeroData
 
-local function Vanished(id) return function(G) return G:Flag("beat_" .. id) end end
-
 -- A gryphon master: learns this roost's route the first time (flag), then flies to every known roost.
 -- routes: { { name, map, x, y, face, cost, flag (nil = always known), text } ... }
 local function Gryphons(G, who, flag, learned, routes)
@@ -297,7 +295,7 @@ Maps.everstill = {
     },
     npcs = {
         { id = "yowler", x = 31, y = 21, sprite = "bald", tint = { 0.7, 0.55, 0.4 }, face = "left",
-          trainer = "yowler", sight = 0, hidden = Vanished("yowler") },
+          trainer = "yowler", sight = 0 },
     },
 }
 
@@ -357,7 +355,7 @@ Maps.stonewatch = {
     },
     npcs = {
         { id = "gath", x = 15, y = 8, sprite = "bald", tint = { 0.55, 0.8, 0.45 }, face = "down",
-          trainer = "gath", sight = 0, hidden = Vanished("gath") },
+          trainer = "gath", sight = 0 },
         { id = "bwgrunt", x = 12, y = 11, sprite = "bald", tint = { 0.6, 0.82, 0.5 }, face = "right", trainer = "bwgrunt", sight = 3 },
         { id = "bwshadow", x = 17, y = 11, sprite = "bald", tint = { 0.5, 0.6, 0.55 }, face = "left", trainer = "bwshadow", sight = 3 },
         { id = "swguard", name = "Lakeshire Guard", x = 24, y = 11, sprite = "hero", tint = { 0.7, 0.8, 1 }, face = "down",
@@ -450,7 +448,7 @@ Maps.steppes = {
                   { TO_LAKESHIRE, TO_THORIUM })
           end },
         { id = "nef1", x = 18, y = 3, sprite = "hero", tint = { 0.35, 0.3, 0.42 }, face = "down",
-          trainer = "nef1", sight = 0, hidden = Vanished("nef1") },
+          trainer = "nef1", sight = 0 },
     },
 }
 
@@ -531,7 +529,7 @@ Maps.brm = {
               end
           end },
         { id = "nef2", x = 17, y = 16, sprite = "hero", tint = { 0.35, 0.3, 0.42 }, face = "up",
-          trainer = "nef2", sight = 2, hidden = Vanished("nef2") },
+          trainer = "nef2", sight = 2 },
         { id = "darksmith", name = "Dark Iron Smith", x = 23, y = 20, sprite = "bald", tint = { 0.5, 0.45, 0.55 }, face = "right",
           script = function(G)
               G:Say("Dark Iron Smith: The Black Forge. Only fire this hot smelts Dark Iron. Skill 160, eight ores a bar.")
@@ -578,7 +576,7 @@ Maps.brd = {
     },
     npcs = {
         { id = "thaurissan", x = 13, y = 6, sprite = "bald", tint = { 0.5, 0.45, 0.6 }, face = "down",
-          trainer = "thaurissan", sight = 0, hidden = Vanished("thaurissan") },
+          trainer = "thaurissan", sight = 0 },
         { id = "moira", name = "Princess Moira Bronzebeard", x = 15, y = 6, sprite = "girl", tint = { 0.8, 0.75, 0.9 }, face = "down",
           script = function(G)
               if G:Flag("beat_thaurissan") then
