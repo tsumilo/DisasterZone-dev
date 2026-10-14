@@ -28,7 +28,7 @@ MANIFEST_MAGIC = "CDLP1"
 CHUNK = 236            # encoded bytes per chunk message (Core/Patch.lua CHUNK)
 
 # Caps enforced by the addon before it downloads anything (Core/Patch.lua). The builder refuses to exceed them.
-MAX_FILES = 300
+MAX_FILES = 400   # (1.4.3: 300 -> 400, the addon passed 300 patchable files; Core/Patch.lua the same)
 MAX_FILE_LEN = 1024 * 1024
 MAX_TOTAL_LEN = 4 * 1024 * 1024
 MAX_TOTAL_ZLEN = 1536 * 1024

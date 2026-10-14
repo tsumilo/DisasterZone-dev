@@ -8,6 +8,7 @@ from _common import case, run_all, toc_version, solo, no_errors, World, Client, 
 
 EXPECTED_SETTINGS = {
     "mylog": {"enabled": False, "heroics": False, "keepWeeks": 12},
+    "reserves": {"lootReserve": True, "showWhispers": False},
     "meters": {"dmg": False, "thr": False, "show": "group", "ooc": "fade", "keep": 25, "split": "all", "warn": 85,
                "sound": True, "flash": True, "tankView": "auto", "size": "normal", "rate": "fight"},
     "swing": {"enabled": True, "style": "bar", "idle": False, "scale": 1, "latencyMs": 0,
