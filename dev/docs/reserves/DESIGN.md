@@ -36,3 +36,31 @@ Category ids (TBC): Kara 2010, Gruul 2020, Mag 2030, SSC 2040, TK 2050, Hyjal 20
 ItemConditions pack: `-` hidden (used for the guild's hard reserves).
 ReserveResult codes: 0 OK, 3 NotAccepting, 4 NotMember, 5 ItemNotReservable, 6 AlreadyReserved, 7 NoReservesLeft,
 9 Locked. CancelReserveResult: 0 OK, 6 NotReserved, 7 Forced, 8 Locked.
+
+## Built (2026-10-14, branch rf/reserves)
+
+- Wire: RVS (whole list, host -> RAID), RVQ (ask, only after a login / reload inside a raid, 8 s later, retried),
+  RVR (a member's reserve / cancel -> host). The host pushes RVS when the raid grows. A list from a sender not yet
+  placed is kept 30 s and retried. GS `rv = 1` carries the reserve feature (rf keeps "lrk" for older clients).
+- RS `rv` / `rk`: how reserves decide the roll and who reserved it (receivers don't need the list). Solo reserve =
+  a 5 s session that suggests the reserver (suggestedBy "reserve"). Rows: `unres` (didn't reserve), `notGuild`
+  (a guest on a guild item) never suggested, votes for them don't count. `Roll:StartUpForGrabs` re-rolls a guild
+  item for everyone (drop panel ··· > Up for grabs).
+- Settings: reserves.lootReserve (default on), reserves.showWhispers (default off). Slash /dz reserves
+  [open|list|wrap|import|demo]. Demo: Settings > Demo a roll > Loot reserves, or /dz reserves demo.
+- Data/Raids.lua RaidMeta `lr` = LootReserve's category id.
+
+## Tests (dev/tests/reserves)
+
+test_reserves (list, rules, sync, whispers, rolls, reload / handover), test_lootreserve (LootReserve's real Comm.lua
+and Constants.lua in a pug client: host and reader), test_io (softres CSV, Gargul string, LootReserve / Gargul CSV,
+read-backs, wrap-up), test_edges (new leader, 40-player list size, stray chat, pop-ups, reserves off), test_demo (all
+7 steps x 3 views, nothing sent). Audit views "Reserves - ...".
+
+## Not verifiable outside the game
+
+- LootReserve's real window (XML) reacting to our SessionInfo (PendOpen, loot list for the category, hidden items).
+- Gargul's actual softres export strings (format taken from its importer; standard Base64 assumed).
+- ChatFrame_AddMessageEventFilter hiding the host's !sr whispers and [DZ] answers.
+- Raid warning permission (assist) for the announcements; whisper rate with 25 pugs at once.
+- Toast and roll pop-up stacking at the first boss; the demo panel position on small screens.
