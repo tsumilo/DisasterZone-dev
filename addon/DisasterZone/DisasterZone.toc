@@ -323,6 +323,7 @@ Games\Chess\Board3D.lua
 Games\Chess\UI.lua
 Games\Azeromon\Data.lua
 Games\Azeromon\Atlas.lua
+Games\Azeromon\Ground.lua
 Games\Azeromon\Mon.lua
 Games\Azeromon\Battle.lua
 Games\Azeromon\Maps.lua

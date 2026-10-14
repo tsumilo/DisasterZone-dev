@@ -456,4 +456,13 @@ ns.AzeroAtlas = {
     fireplace_1_1 = 450,
     throne_0_0 = 451,
     throne_1_0 = 452,
+    grass1_shade = 453,
+    wgrass1_shade = 454,
+    dgrass1_shade = 455,
+    jgrass1_shade = 456,
+    shadow = 457,
+    grass1_forest = 458,
+    wgrass1_forest = 459,
+    dgrass1_forest = 460,
+    jgrass1_forest = 461,
 }

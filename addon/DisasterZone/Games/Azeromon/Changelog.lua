@@ -6,6 +6,27 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.20", date = "14 October 2026", title = "Elwynn comes alive",
+      lines = {
+          "Ponds glint and lap at the shore; cloud shadows drift by.",
+          "Butterflies, passing birds and chimney smoke in Elwynn.",
+          "Gusts of wind roll through the meadows.",
+          "Tall grass hides your legs, walking or standing still.",
+          "At night lamps, windows and the forge light the dark.",
+          "You carry a lantern at night; pollen drifts by day.",
+      } },
+    { version = "0.19", date = "14 October 2026", title = "A new look for Elwynn",
+      lines = {
+          "Elwynn's grass has light and dark patches, flowers and pebbles.",
+          "Paths are worn dirt with soft edges; ponds have round shores.",
+          "Tall grass grows in meadows with ragged edges.",
+          "Trees, houses, signs and people cast shadows.",
+          "The trees at the map's edge close into a forest wall.",
+          "Signs, boards, forge, anvil, tents, huts and totems redrawn.",
+          "Lamp posts, dead trees, palms and Duskwood pines redrawn.",
+          "Signs and props stand on their own little shadow.",
+          "Roads lead on into the forest past the edge of the map.",
+      } },
     { version = "0.18", date = "10 October 2026", title = "Fixes: the guild and side quests",
       lines = {
           "Guild board shows your real progress when the game is closed.",

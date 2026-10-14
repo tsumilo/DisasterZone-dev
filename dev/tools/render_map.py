@@ -18,6 +18,21 @@ def tile(name):
     return atlas.crop((c * 16, r * 16, c * 16 + 16, r * 16 + 16))
 
 
+def baked_ground(c, map_id):
+    """the map's baked ground (gen_azeromon_ground.py) cropped to the map itself, or None"""
+    g = c.eval_py("return ns.AzeroGround and ns.AzeroGround[%r]" % map_id)
+    if not g:
+        return None
+    W = max(x + w for x, y, w, h, tw, th in g["chunks"])
+    H = max(y + h for x, y, w, h, tw, th in g["chunks"])
+    out = Image.new("RGBA", (W, H))
+    for x, y, w, h, tw, th in g["chunks"]:
+        f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.tga" % (map_id, x // 256, y // 256))
+        out.paste(Image.open(f).convert("RGBA").crop((0, 0, w, h)), (x, y))
+    ox, oy = g["mx"] * 16, g["my"] * 16
+    return out.crop((ox, oy, W - ox, H - oy))
+
+
 def render(map_id, out, scale=2, setup=None):
     w, c = solo("Alice", tick=2, members=[("Bob", "MAGE", 3)])
     c.eval("ns.Azero:NewGame()")
@@ -34,9 +49,12 @@ def render(map_id, out, scale=2, setup=None):
       end end
       return { w = m.w, h = m.h, base = base, over = over, top = top }""")
     img = Image.new("RGBA", (m["w"] * 16, m["h"] * 16), (0, 0, 0, 255))
+    ground = baked_ground(c, map_id)              # the baked picture (gen_azeromon_ground.py) replaces the base tiles
+    if ground:
+        img.alpha_composite(ground)
     for i in range(m["w"] * m["h"]):
         x, y = (i % m["w"]) * 16, (i // m["w"]) * 16
-        for name in (m["base"][i], m["over"][i]):
+        for name in ((None if ground else m["base"][i]), m["over"][i]):
             t = name and tile(name)
             if t:
                 img.alpha_composite(t, (x, y))

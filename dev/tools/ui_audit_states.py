@@ -342,6 +342,23 @@ def opened(key, lua=None):
     return fn
 
 
+def azero_at(map_id, x, y, lua=None):
+    """Azeromon running in the Games tab, the player standing on map_id at x, y (a new game)"""
+    def fn(w, c):
+        g = opened("games", "ns.Azero:NewGame()")(w, c)
+        g.slash("/dz play azeromon")
+        w.tick(0.3)
+        g.eval("ns.AzeroUI._HandleKey('A')")               # CONTINUE
+        w.tick(0.5)
+        g.eval("ns.Azero:EnterMap(%r, %d, %d, 'down', true)" % (map_id, x, y))
+        g.eval("ns.Azero.clockHour = 12")                 # by day, unless the state says otherwise
+        if lua:
+            g.eval(lua)
+        w.tick(0.3)
+        return g
+    return fn
+
+
 def tour_view(key, lua):
     """A tutorial step (UI/Tour.lua) on Gina's window: the mock's frames have no real positions (GetLeft is 0), so
     the audit's own layout is handed to the frames on screen (GetLeft / GetBottom / GetWidth / GetHeight, cleared again
@@ -415,6 +432,7 @@ def map_view(lua=None, share="exact"):
             w.tick(1)
         tab(g, "map")
         w.tick(1)
+        g.eval("ns.Azero.clockHour = 12")                 # by day, unless the state says otherwise
         if lua:
             g.eval(lua)
             w.tick(0.3)
@@ -1261,6 +1279,7 @@ def kit_view(run=False, spec="Retribution", lua=None):
         g.equip(SIM_P1)
         g.set_bags({(0, 1): (22854, 2), (0, 2): (22838, 5), (0, 3): (27655, 6), (0, 4): (22832, 2)})
         g.eval("ns.Kit.ITERATIONS = 12; ns.Kit:ClearResults(); ns.KitView:SetActive(true)")
+        g.eval("ns.Azero.clockHour = 12")                 # by day, unless the state says otherwise
         if lua:
             g.eval(lua)
         w.tick(0.3)
@@ -1781,6 +1800,14 @@ STATES = [
                                    "ns.BingoUI:SetView('codex')")),
     ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
     ("Games - Azeromon", opened("games", "ns.GamesUI:Select('azeromon')")),
+    # the overworld on maps with a baked ground (gen_azeromon_ground.py): Goldshire's square, Route 1's meadows
+    ("Games - Azeromon Goldshire", azero_at("town", 12, 11)),
+    ("Games - Azeromon Goldshire edge", azero_at("town", 2, 8)),
+    ("Games - Azeromon Goldshire north road", azero_at("town", 10, 1)),
+    ("Games - Azeromon Goldshire night", azero_at("town", 13, 10, "ns.Azero.clockHour = 23")),
+    ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),
+    ("Games - Azeromon Route 1", azero_at("route1", 6, 9)),
+    ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),
     # Karazhan Chess (Games/Chess): the lobby with games in every state; a game against Medivh mid-way with his fire
     # on two of your pieces and his line (the flat board: the audit has no 3D rooms); the guild ladder
     ("Games - Chess lobby", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.GamesUI:Select('chess') "
@@ -3114,6 +3141,7 @@ def fb_view(lua=None, demo_on=True, tab="all"):
             w.tick(1)
         g.eval("ns.FeedbackUI:Open(...)", tab)
         w.tick(0.3)
+        g.eval("ns.Azero.clockHour = 12")                 # by day, unless the state says otherwise
         if lua:
             g.eval(lua)
             w.tick(0.3)
@@ -3180,6 +3208,7 @@ def notify_view(lua=None, key="home", window=True):
         if window:
             tab(g, key)
             w.tick(0.3)
+        g.eval("ns.Azero.clockHour = 12")                 # by day, unless the state says otherwise
         if lua:
             g.eval(lua)
             w.tick(0.3)
@@ -3290,6 +3319,7 @@ def bless_view(lead="Gina", lua=None, bar=False, theme="halo"):
             g.eval("ns.BlessingsUI:Open(); ns.BlessingsUI:Refresh()")
         else:
             g.eval("if ns.BlessingsUI:IsShown() then ns.BlessingsUI:Close() end; ns.BlessingsBar:Update()")
+        g.eval("ns.Azero.clockHour = 12")                 # by day, unless the state says otherwise
         if lua:
             g.eval(lua)
         w.tick(0.3)
@@ -3866,6 +3896,7 @@ def wardrobe_view(lua=None, empty=False):
             g.eval(WARDROBE_SEED)
         tab(g, "wardrobe")
         w.tick(0.3)
+        g.eval("ns.Azero.clockHour = 12")                 # by day, unless the state says otherwise
         if lua:
             g.eval(lua)
         w.tick(0.3)

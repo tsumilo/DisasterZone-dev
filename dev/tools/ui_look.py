@@ -2,7 +2,7 @@
 
 On top of the audit's layout (tools/ui_audit.py Layout) it draws every shown texture with its real image (game files
 read from the installed client's CASC storage through generators/casc_local.py, the addon's own media from disk),
-tex coords, vertex colour, gradient, desaturation, alpha (the parents' too), circle masks and ADD blending, in the
+tex coords, vertex colour, gradient, desaturation, alpha (the parents' too), circle masks, ADD and MOD blending, in the
 client's order (strata, frame level, draw layer, sublevel); texts in Friz Quadrata with their colours, inline |T
 icons and the 1px shadow. Highlight layers are left out (nothing is hovered).
 
@@ -536,6 +536,11 @@ def _paste(img, im, x, y, clip_px, blend=None):
         pre = ImageChops.multiply(rgb, Image.merge("RGB", (a, a, a)))
         out = ImageChops.add(base.convert("RGB"), pre)
         img.paste(out, (x0, y0))
+    elif blend == "MOD":
+        # multiply: the texture's colour times what is below (its alpha ignored, as in game)
+        base = img.crop((x0, y0, x1, y1))
+        out = ImageChops.multiply(base.convert("RGB"), Image.merge("RGB", part.split()[:3]))
+        img.paste(out.convert("RGBA"), (x0, y0))
     else:
         img.alpha_composite(part, (x0, y0))
 

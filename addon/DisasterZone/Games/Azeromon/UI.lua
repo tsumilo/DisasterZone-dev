@@ -2863,6 +2863,405 @@ end
 local grid = {}            -- [i][j] = { base, over }
 local sprites = {}         -- pool for NPCs
 local torchFrame = "torch1"
+local groundTex = {}       -- the baked ground's chunks on screen (Ground.lua; at most four are ever in view)
+
+-- A map with a baked ground (gen_azeromon_ground.py) shows that picture instead of its base tiles: soft paths and
+-- shores, grass patches, flowers, the forest wall and the shadows of every static sprite. The picture reaches g.mx,
+-- g.my tiles past the map's edges (a road carries on into the forest); it is cut into chunks of 256 px, each one in
+-- view gets a texture, placed like a tile. Returns the map's ground entry, if it has one.
+-- Screen position (from the world's top-left) of a pixel of the baked picture:
+local function PicToScreen(g, x, y, px, py)
+    return ((x - g.mx * 16) / 16 - px + HX) * TILE, ((y - g.my * 16) / 16 - py + HY) * TILE
+end
+
+local function DrawGround(m, px, py)
+    local g = ns.AzeroGround and ns.AzeroGround[m.id]
+    local n = 0
+    if g then
+        local S = TILE / 16
+        for _, c in ipairs(g.chunks) do
+            local x0, y0, w, h, tw, th = c[1], c[2], c[3], c[4], c[5], c[6]
+            local sx, sy = PicToScreen(g, x0, y0, px, py)
+            if sx < SW and sy < SH and sx + w * S > 0 and sy + h * S > 0 then
+                n = n + 1
+                local t = groundTex[n]
+                if not t then
+                    t = Tex(world, "BACKGROUND", 1)
+                    groundTex[n] = t
+                end
+                local file = MEDIA .. "Ground\\" .. m.id .. "_" .. floor(x0 / 256) .. "_" .. floor(y0 / 256)
+                if t.file ~= file then
+                    t.file = file
+                    SetPixelTexture(t, file)
+                    t:SetTexCoord(0, w / tw, 0, h / th)
+                    t:SetSize(w * S, h * S)
+                end
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
+                t:Show()
+            end
+        end
+    end
+    for i = n + 1, #groundTex do groundTex[i]:Hide() end
+    return g
+end
+
+-- Life on a map with a baked ground: the ponds' moving water (Ground.lua's strips, WATER_FRAMES frames), cloud
+-- shadows drifting over everything by day, butterflies, a passing flock with its shadow on the ground, and smoke
+-- from the chimneys. Positions are in map pixels (16 per tile) and drawn in game pixels (TILE / 16 screen px each).
+local Amb = { WATER_FPS = 4, WATER_FRAMES = 12, waterTex = {}, windTex = {}, lightTex = {}, glowTex = {},
+              pix = {}, pixN = 0 }   -- pix: pooled one-colour squares (critters, smoke, pollen)
+-- each zone's mood: a warm or cold tint over everything (multiplied), the soft dark frame, motes in the air
+Amb.MOODS = {
+    elwynn = { tint = { 1, 0.95, 0.86 }, motes = { 1, 0.96, 0.75 }, duskMotes = { 1, 0.81, 0.47 } },
+}
+Amb.GLOW = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
+Amb.CHIMNEY_KINDS = { house = true, darkhouse = true, farmhouse = true, stonehouse = true }
+Amb.CRITTERS = {                -- butterfly wing colours and the flock's colours, per map theme
+    elwynn = { wings = { { 1, 1, 1 }, { 0.96, 0.89, 0.48 }, { 0.62, 0.83, 1 } }, flies = 4,
+               bird = { 0.17, 0.16, 0.19 }, bird2 = { 0.17, 0.16, 0.19 } },
+    duskwood = { wings = { { 0.79, 0.76, 0.91 } }, flies = 1, bird = { 0.08, 0.07, 0.11 }, bird2 = { 0.08, 0.07, 0.11 },
+                 nightFlock = true },
+    jungle = { wings = { { 0.95, 0.82, 0.29 }, { 0.35, 0.82, 0.91 } }, flies = 4,
+               bird = { 0.85, 0.21, 0.18 }, bird2 = { 0.18, 0.6, 0.28 } },
+}
+
+function Amb.Water(m, g, px, py)
+    local n = 0
+    if g and g.water then
+        local S = TILE / 16
+        local f = floor(now * Amb.WATER_FPS) % Amb.WATER_FRAMES
+        for i, wv in ipairs(g.water) do
+            local x0, y0, w, h, cols, tw, th = wv[1], wv[2], wv[3], wv[4], wv[5], wv[7], wv[8]
+            local sx, sy = PicToScreen(g, x0, y0, px, py)
+            if sx < SW and sy < SH and sx + w * S > 0 and sy + h * S > 0 then
+                n = n + 1
+                local t = Amb.waterTex[n]
+                if not t then
+                    t = Tex(world, "BACKGROUND", 2)
+                    Amb.waterTex[n] = t
+                end
+                local file = MEDIA .. "Ground\\" .. m.id .. "_w" .. i
+                if t.file ~= file then
+                    t.file = file
+                    SetPixelTexture(t, file)
+                    t:SetSize(w * S, h * S)
+                end
+                local c, r = f % cols, floor(f / cols)
+                t:SetTexCoord(c * w / tw, (c + 1) * w / tw, r * h / th, (r + 1) * h / th)
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
+                t:Show()
+            end
+        end
+    end
+    for i = n + 1, #Amb.waterTex do Amb.waterTex[i]:Hide() end
+end
+
+-- a square of w x h game pixels at map pixel (mx, my)
+function Amb.Pix(px, py, mx, my, w, h, r, g, b, a, layer, sub)
+    Amb.pixN = Amb.pixN + 1
+    local t = Amb.pix[Amb.pixN]
+    if not t then
+        t = world:CreateTexture(nil, "ARTWORK", nil, 4)
+        Amb.pix[Amb.pixN] = t
+    end
+    local S = TILE / 16
+    t:SetDrawLayer(layer or "ARTWORK", sub or 4)
+    t:SetColorTexture(r, g, b, a or 1)
+    t:SetSize(w * S, h * S)
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", world, "TOPLEFT", (floor(mx) / 16 - px + HX) * TILE, -(floor(my) / 16 - py + HY) * TILE)
+    t:Show()
+end
+
+function Amb.Critters(m, px, py, period)
+    local c = Amb.CRITTERS[m.def.theme or "elwynn"] or Amb.CRITTERS.elwynn
+    local W, H, t = m.w * 16, m.h * 16, now
+    local sin = math.sin
+    if period ~= "night" then
+        for k = 0, c.flies - 1 do
+            local bx = W * (0.5 + 0.38 * sin(t * (0.09 + k * 0.03) + k * 2))
+            local by = H * (0.5 + 0.38 * sin(t * (0.11 + k * 0.02) + k * 3.1)) + sin(t * 7 + k) * 2
+            local col = c.wings[k % #c.wings + 1]
+            Amb.Pix(px, py, bx, by, 1, 1, 0.23, 0.19, 0.14, 1)
+            if floor(t * 8 + k) % 2 == 0 then
+                for _, d in ipairs({ { -1, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 } }) do
+                    Amb.Pix(px, py, bx + d[1], by + d[2], 1, 1, col[1], col[2], col[3], 1)
+                end
+            else
+                Amb.Pix(px, py, bx, by - 2, 1, 2, col[1], col[2], col[3], 1)
+            end
+        end
+    end
+    -- a flock every 16 s, crossing the map; its shadow far below on the ground (bats at night in Duskwood)
+    local p = (t % 16) / 16
+    if p < 0.6 and (period ~= "night" or c.nightFlock) then
+        local q = p / 0.6
+        local x0, y0 = -20 + q * (W + 40), H * 0.15 + q * H * 0.5
+        for i, d in ipairs({ { 0, 0 }, { -7, -5 }, { -6, 6 }, { -14, -1 } }) do
+            local col = (i % 2 == 0) and c.bird2 or c.bird
+            local x, y = x0 + d[1], y0 + d[2]
+            Amb.Pix(px, py, x, y, 1, 1, col[1], col[2], col[3], 1, "OVERLAY", 3)
+            if floor(t * 6 + d[1]) % 2 == 0 then
+                Amb.Pix(px, py, x - 1, y - 1, 1, 1, col[1], col[2], col[3], 1, "OVERLAY", 3)
+                Amb.Pix(px, py, x + 1, y - 1, 1, 1, col[1], col[2], col[3], 1, "OVERLAY", 3)
+            else
+                Amb.Pix(px, py, x - 1, y, 3, 1, col[1], col[2], col[3], 1, "OVERLAY", 3)
+            end
+            Amb.Pix(px, py, x + 16, y + 38, 3, 1, 0.04, 0.08, 0.08, 0.22, "BORDER", 2)
+        end
+    end
+end
+
+function Amb.Smoke(m, px, py)
+    if not m.chimneys then
+        m.chimneys = {}
+        for _, s in ipairs(m.def.stamps or {}) do
+            if Amb.CHIMNEY_KINDS[s.kind] then m.chimneys[#m.chimneys + 1] = { s.x * 16 + 16, s.y * 16 + 13 } end
+        end
+    end
+    local sin = math.sin
+    for ci, ch in ipairs(m.chimneys) do
+        for k = 0, 6 do
+            local age = (now * 0.32 + k / 7) % 1
+            -- puffs thin out as they rise (a few skipped, changing six times a second)
+            local skip = ((floor(now * 6) * 7 + k * 13 + ci * 31) % 100) / 100 < age * 0.55
+            if not skip then
+                local sz = age < 0.3 and 2 or 3
+                local gr = (220 - age * 60) / 255
+                Amb.Pix(px, py, ch[1] + age * 14 + sin(age * 7 + k) * 2, ch[2] - age * 26, sz, sz, gr, gr, gr + 0.02,
+                    0.85 - age * 0.6, "ARTWORK", 5)
+            end
+        end
+    end
+end
+
+function Amb.Clouds(m, g, px, py)
+    local c = R.clouds
+    local a = 0
+    if g and m.def.outdoor and not m.def.gloom then a = 0.17 * max(0, 1 - (R.skyAlpha or 0) / 0.3) end
+    if a <= 0.005 then c:Hide() return end
+    if not c.ready then
+        c.ready = true
+        if not pcall(c.SetTexture, c, MEDIA .. "Ground\\clouds", "REPEAT", "REPEAT", "NEAREST") then
+            c:SetTexture(MEDIA .. "Ground\\clouds")
+        end
+    end
+    local ox, oy = (px - HX) * 16 - now * 7, (py - HY) * 16 - now * 3
+    c:SetTexCoord(ox / 256, (ox + VW * 16) / 256, oy / 256, (oy + VH * 16) / 256)
+    c:SetAlpha(a)
+    c:Show()
+end
+
+-- Legs in the grass: whoever stands in a meadow (walking or not) has the meadow's own pixels laid over the lower part
+-- of their sprite, cut from the baked meadow (Ground.lua meadows), so only grass covers them, never path or ground.
+-- mx, my: the sprite's top-left in map pixels.
+function Amb.Legs(sp, m, g, mx, my, px, py)
+    local t = sp.legs
+    if g and g.meadows then
+        local ox, oy = g.mx * 16, g.my * 16
+        local x0, y0 = floor(mx + ox + 0.5), floor(my + oy + 0.5) + 9
+        local x1, y1 = x0 + 16, y0 + 7
+        for i, r in ipairs(g.meadows) do
+            local ix0, iy0 = max(x0, r[1]), max(y0, r[2])
+            local ix1, iy1 = min(x1, r[1] + r[3]), min(y1, r[2] + r[4])
+            if ix1 > ix0 and iy1 > iy0 then
+                if not t then
+                    t = Tex(world, "ARTWORK", 3)
+                    sp.legs = t
+                end
+                local file = MEDIA .. "Ground\\" .. m.id .. "_m" .. i
+                if t.file ~= file then
+                    t.file = file
+                    SetPixelTexture(t, file)
+                end
+                local S = TILE / 16
+                t:SetTexCoord((ix0 - r[1]) / r[5], (ix1 - r[1]) / r[5], (iy0 - r[2]) / r[6], (iy1 - r[2]) / r[6])
+                t:SetSize((ix1 - ix0) * S, (iy1 - iy0) * S)
+                local sx, sy = PicToScreen(g, ix0, iy0, px, py)
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
+                t:Show()
+                return true
+            end
+        end
+    end
+    if t then t:Hide() end
+    return false
+end
+
+-- Wind: a gust rolls across the meadows; thin strips under it are drawn again one pixel over (the blades bend) with a
+-- little light added. Only the strips under the gust exist, so this costs a handful of textures.
+function Amb.Wind(m, g, px, py)
+    local n = 0
+    if g and g.meadows then
+        local S, ox, oy = TILE / 16, g.mx * 16, g.my * 16
+        local vx0, vx1 = (px - HX - 1) * 16 + ox, (px - HX + VW + 1) * 16 + ox
+        local vy0, vy1 = (py - HY - 1) * 16 + oy, (py - HY + VH + 1) * 16 + oy
+        for i, r in ipairs(g.meadows) do
+            if r[1] < vx1 and r[1] + r[3] > vx0 and r[2] < vy1 and r[2] + r[4] > vy0 then
+                local file = MEDIA .. "Ground\\" .. m.id .. "_m" .. i
+                for sx = r[1], r[1] + r[3] - 1, 4 do
+                    local phase = ((sx - ox) * 0.8 - now * 42) % 150
+                    if phase < 16 and sx + 4 > vx0 and sx < vx1 then
+                        local w = min(4, r[1] + r[3] - sx)
+                        local u0 = (sx - r[1] - 1) / r[5]
+                        for k = 1, 2 do                   -- the bent strip, then its light (added)
+                            n = n + 1
+                            local tx = Amb.windTex[n]
+                            if not tx then
+                                tx = Tex(world, "BACKGROUND", 3)
+                                Amb.windTex[n] = tx
+                            end
+                            if tx.file ~= file then
+                                tx.file = file
+                                SetPixelTexture(tx, file)
+                            end
+                            tx:SetDrawLayer("BACKGROUND", 2 + k)
+                            if k == 2 then
+                                pcall(tx.SetBlendMode, tx, "ADD")
+                                tx:SetVertexColor(phase < 8 and 0.09 or 0.05, phase < 8 and 0.09 or 0.05, 0.03)
+                            else
+                                pcall(tx.SetBlendMode, tx, "BLEND")
+                                tx:SetVertexColor(1, 1, 1)
+                            end
+                            tx:SetTexCoord(u0, u0 + w / r[5], 0, r[4] / r[6])
+                            tx:SetSize(w * S, r[4] * S)
+                            local x, y = PicToScreen(g, sx, r[2], px, py)
+                            tx:ClearAllPoints()
+                            tx:SetPoint("TOPLEFT", world, "TOPLEFT", x, -y)
+                            tx:Show()
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for i = n + 1, #Amb.windTex do Amb.windTex[i]:Hide() end
+end
+
+-- Dusk and night: the baked darkness (pools of warm light round lamps, the forge and windows) multiplied over the
+-- world instead of the flat sky tint, glows that flicker on top, and a lantern round the player. Returns true when
+-- the darkness is up (the caller then hides the flat tint).
+local function Glow(n, sx, sy, size, r, g, b, a)
+    local t = Amb.glowTex[n]
+    if not t then
+        t = Tex(world, "OVERLAY", 7)
+        t:SetTexture(Amb.GLOW)
+        pcall(t.SetBlendMode, t, "ADD")
+        Amb.glowTex[n] = t
+    end
+    t:SetSize(size, size)
+    t:SetVertexColor(r, g, b, a)
+    t:ClearAllPoints()
+    t:SetPoint("CENTER", world, "TOPLEFT", sx, -sy)
+    t:Show()
+end
+
+function Amb.Night(m, g, px, py)
+    local period = G:Period()
+    local key = (period == "night" and "n") or ((period == "dusk" or period == "dawn") and "d") or nil
+    local n, gn = 0, 0
+    if g and key and g.lightChunks and Amb.modOK ~= false then
+        local S, sc = TILE / 16, g.lightScale or 2
+        for _, c in ipairs(g.lightChunks) do
+            local x0, y0, w, h, tw, th = c[1], c[2], c[3], c[4], c[5], c[6]
+            local sx, sy = PicToScreen(g, x0 * sc, y0 * sc, px, py)
+            if sx < SW and sy < SH and sx + w * sc * S > 0 and sy + h * sc * S > 0 then
+                n = n + 1
+                local t = Amb.lightTex[n]
+                if not t then
+                    t = Tex(world, "OVERLAY", 5)
+                    if not pcall(t.SetBlendMode, t, "MOD") then Amb.modOK = false end
+                    Amb.lightTex[n] = t
+                end
+                local file = MEDIA .. "Ground\\" .. m.id .. "_" .. key .. "_" .. floor(x0 / 256) .. "_" .. floor(y0 / 256)
+                if t.file ~= file then
+                    t.file = file
+                    SetPixelTexture(t, file)
+                    t:SetTexCoord(0, w / tw, 0, h / th)
+                    t:SetSize(w * sc * S, h * sc * S)
+                end
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
+                t:Show()
+            end
+        end
+        if n > 0 then
+            local k = (key == "n") and 1 or 0.6
+            for _, l in ipairs(g.lights or {}) do
+                local sx, sy = PicToScreen(g, l[1], l[2], px, py)
+                if sx > -TILE * 2 and sy > -TILE * 2 and sx < SW + TILE * 2 and sy < SH + TILE * 2 then
+                    local fl = (l[4] == 1) and (0.75 + 0.25 * math.sin(now * 9 + l[1]) * math.sin(now * 5.3 + l[2])) or 1
+                    gn = gn + 1
+                    Glow(gn, sx, sy, l[3] * 1.5 * S, 1, 0.66, 0.31, (l[5] == 1 and 0.3 or 0.45) * fl * k)
+                end
+            end
+            -- the player's lantern
+            gn = gn + 1
+            Glow(gn, HX * TILE + TILE / 2, HY * TILE + TILE * 0.6, 44 * S, 1, 0.7, 0.35,
+                 (0.4 + 0.05 * math.sin(now * 7)) * k)
+        end
+    end
+    for i = n + 1, #Amb.lightTex do Amb.lightTex[i]:Hide() end
+    for i = gn + 1, #Amb.glowTex do Amb.glowTex[i]:Hide() end
+    return n > 0
+end
+
+-- The zone's mood (Amb.MOODS): its tint and the soft frame, multiplied over the world, and motes in the air by day.
+function Amb.Mood(m, g, px, py, period)
+    local mood = g and Amb.MOODS[m.def.theme or "elwynn"]
+    if not mood or Amb.modOK == false then
+        R.mood:Hide()
+        R.vignette:Hide()
+        return
+    end
+    R.mood:SetColorTexture(mood.tint[1], mood.tint[2], mood.tint[3], 1)
+    if not pcall(R.mood.SetBlendMode, R.mood, "MOD") then Amb.modOK = false end
+    R.mood:Show()
+    if not R.vignette.ready then
+        R.vignette.ready = true
+        R.vignette:SetTexture(MEDIA .. "Ground\\vignette")
+        pcall(R.vignette.SetBlendMode, R.vignette, "MOD")
+    end
+    R.vignette:Show()
+    if period == "night" then return end
+    local col = (period == "dusk" or period == "dawn") and mood.duskMotes or mood.motes
+    local W, H = m.w * 16, m.h * 16
+    for k = 0, 33 do
+        local h1, h2, h3, h4 = (k * 0.6180339) % 1, (k * 0.4142135) % 1, (k * 0.7320508) % 1, (k * 0.2360679) % 1
+        if math.sin(now * 1.7 + k * 1.3) > 0.2 then
+            local x = (h1 * W + now * (3 + h2 * 4)) % W
+            local y = (h3 * H + math.sin(now * 0.8 + k) * 6 - now * 1.5 + H * 10) % H
+            Amb.Pix(px, py, x, y, 1, 1, col[1], col[2], col[3], 0.85, "ARTWORK", 6)
+        end
+    end
+end
+
+function Amb.Draw(m, g, px, py)
+    local period = G:Period()
+    Amb.Water(m, g, px, py)
+    Amb.Wind(m, g, px, py)
+    Amb.Clouds(m, g, px, py)
+    Amb.pixN = 0
+    if g then
+        Amb.Critters(m, px, py, period)
+        Amb.Smoke(m, px, py)
+    end
+    Amb.Mood(m, g, px, py, period)
+    for i = Amb.pixN + 1, #Amb.pix do Amb.pix[i]:Hide() end
+    return Amb.Night(m, g, px, py)
+end
+
+-- the soft shadow under a person (the atlas' "shadow" tile), on the ground below every sprite
+local function Shadow()
+    local t = Tex(world, "BORDER", 1)
+    t:SetSize(TILE, TILE)
+    SetPixelTexture(t, ATLAS)
+    SetTile(t, "shadow")
+    return t
+end
 
 local function BuildWorld()
     world = CreateFrame("Frame", nil, screen)
@@ -2883,6 +3282,19 @@ local function BuildWorld()
     R.player:SetSize(TILE, TILE)
     SetPixelTexture(R.player, CHARS)
     R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
+    R.playerShadow = Shadow()
+    R.playerShadow:SetPoint("TOPLEFT", R.player, "TOPLEFT")
+    -- cloud shadows (DrawClouds): one repeating texture over the map and the people, under the sky tint
+    R.clouds = Tex(world, "OVERLAY", 4)
+    R.clouds:SetAllPoints()
+    R.clouds:Hide()
+    -- the zone's mood (Amb.Mood): a tint and a soft dark frame, both multiplied over the world
+    R.mood = Tex(world, "OVERLAY", 4)
+    R.mood:SetAllPoints()
+    R.mood:Hide()
+    R.vignette = Tex(world, "OVERLAY", 5)
+    R.vignette:SetAllPoints()
+    R.vignette:Hide()
     R.grassOver = Tex(world, "ARTWORK", 5)
     R.grassOver:SetSize(TILE, TILE * 0.45)
     SetPixelTexture(R.grassOver, ATLAS)
@@ -2927,6 +3339,8 @@ local function Sprite(i)
         s = Tex(world, "ARTWORK", 1)
         s:SetSize(TILE, TILE)
         SetPixelTexture(s, CHARS)
+        s.shadow = Shadow()
+        s.shadow:SetPoint("TOPLEFT", s, "TOPLEFT")
         s.bang = Font(world, 26)
         s.bang:SetText("!")
         s.bang:SetTextColor(0.9, 0.2, 0.2)
@@ -2951,6 +3365,8 @@ local function PeerSprite(i)
         s = Tex(world, "ARTWORK", 0)
         s:SetSize(TILE, TILE)
         SetPixelTexture(s, CHARS)
+        s.shadow = Shadow()
+        s.shadow:SetPoint("TOPLEFT", s, "TOPLEFT")
         s.label = world:CreateFontString(nil, "OVERLAY")
         if not s.label:SetFont(FONT_BOLD, 14, "OUTLINE") then s.label:SetFont(FONT_FALLBACK, 10, "OUTLINE") end
         s.label:SetPoint("BOTTOM", s, "TOP", 0, -2)
@@ -3004,18 +3420,35 @@ local function DrawWorld()
     local fx, fy = floor(px), floor(py)
     local ox, oy = (px - fx) * TILE, (py - fy) * TILE
     local outdoor = m.def.outdoor
+    local ground = DrawGround(m, px, py)
     for i = 0, VW + 1 do
         for j = 0, VH + 1 do
             local wx, wy = fx - HX - 1 + i, fy - HY - 1 + j
             local cell = grid[i][j]
             local base, over
             if wx < 0 or wy < 0 or wx >= m.w or wy >= m.h then
-                if outdoor then base, over = m.theme.grass1, m.theme.tree else base = "void" end
+                -- outside the map: more forest (the darker floor with trees tucked in, like the baked ground's edge)
+                if outdoor and ground then
+                    -- the baked margin: the edge carried outward (a road goes on, the rest is forest)
+                    local cx, cy = max(0, min(m.w - 1, wx)), max(0, min(m.h - 1, wy))
+                    local ch = m.def.rows[cy + 1]:sub(cx + 1, cx + 1)
+                    base = false
+                    if math.abs(wx - cx) > ground.mx or math.abs(wy - cy) > ground.my then
+                        base = A[m.theme.grass1 .. "_forest"] and (m.theme.grass1 .. "_forest") or m.theme.grass1
+                    end
+                    if ch ~= "=" and ch ~= "w" then over = m.theme.tree end
+                elseif outdoor then
+                    base, over = m.theme.grass1, m.theme.tree
+                else
+                    base = "void"
+                end
             else
                 local k = m.key(wx, wy)
                 base, over = m.base[k], m.over[k]
                 if over == "torch1" then over = torchFrame end
-                if m.water[k] then                     -- the calm frame only (swapping frames flickered)
+                if ground then
+                    base = false                       -- the baked picture is the ground here
+                elseif m.water[k] then                 -- the calm frame only (swapping frames flickered)
                     base = m.theme.water and m.theme.water[2] or "water2"
                 end
                 if m.chest[k] then over = G:Flag("chest_" .. m.chest[k].id) and "chest_open" or "chest" end
@@ -3045,8 +3478,15 @@ local function DrawWorld()
     end
     SetChar(R.player, "hero", s.face, frame)
     DrawHint()
-    local onTall = m.tall[m.key(s.x, s.y)] and not walking
-    R.grassOver:SetShown(onTall and true or false)
+    -- in tall grass: on a baked map the meadow's own pixels cover the legs, walking or not; elsewhere the old strip
+    if ground then
+        R.grassOver:Hide()
+        Amb.Legs(R.player, m, ground, px * 16, py * 16, px, py)
+    else
+        local onTall = m.tall[m.key(s.x, s.y)] and not walking
+        R.grassOver:SetShown(onTall and true or false)
+        if R.player.legs then R.player.legs:Hide() end
+    end
     -- npcs
     local n = 0
     for _, npc in ipairs(G.npcs) do
@@ -3067,6 +3507,8 @@ local function DrawWorld()
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
             sp:Show()
+            sp.shadow:Show()
+            Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
             local title = G.NpcTitle(npc.def)
             sp.title:SetText(title and ("<" .. title .. ">") or "")
             sp.name:SetText(G.NpcName(npc.def) or "")
@@ -3079,7 +3521,7 @@ local function DrawWorld()
             sp.bang:SetShown(npc.exclaim ~= nil)
         end
     end
-    for i = n + 1, #sprites do sprites[i]:Hide() sprites[i].bang:Hide() sprites[i].name:Hide() sprites[i].title:Hide() end
+    for i = n + 1, #sprites do sprites[i]:Hide() sprites[i].shadow:Hide() if sprites[i].legs then sprites[i].legs:Hide() end sprites[i].bang:Hide() sprites[i].name:Hide() sprites[i].title:Hide() end
     -- other players (guildmates), drawn with the hero sprite in their class colour and a name tag
     local pn = 0
     for _, p in ipairs(ns.AzeroNet:PeersOn(m.id)) do
@@ -3104,6 +3546,8 @@ local function DrawWorld()
         end
         sp.label:SetText(p.name)
         sp:Show()
+        sp.shadow:Show()
+        Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
         sp.label:Show()
         local word = PEER_BUSY[p.status]
         if word then
@@ -3118,7 +3562,7 @@ local function DrawWorld()
             sp.bubble:Hide()
         end
     end
-    for i = pn + 1, #peerSprites do peerSprites[i]:Hide() peerSprites[i].label:Hide() peerSprites[i].bubble:Hide() end
+    for i = pn + 1, #peerSprites do peerSprites[i]:Hide() peerSprites[i].shadow:Hide() if peerSprites[i].legs then peerSprites[i].legs:Hide() end peerSprites[i].label:Hide() peerSprites[i].bubble:Hide() end
     -- banner / fade
     if G.banner then
         R.banner:Show()
@@ -3138,6 +3582,7 @@ local function DrawWorld()
         R.fade:Hide()
     end
     R.skyAlpha = ApplySky(R.sky, m.def.outdoor, nil, m.def.gloom)
+    if Amb.Draw(m, ground, px, py) then R.sky:Hide() end      -- the baked darkness replaces the flat tint
 end
 
 ---------------------------------------------------------------------------
@@ -4740,4 +5185,41 @@ UI._ShowFoeShiny = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.fo
 UI._Camera = function() return { dist = CAM_DIST, fov = CAM_FOV } end
 UI._Scene = function(which) return (which == "ally") and R.allyModel or R.foeModel end
 UI._TitleScenes = function() return R.titleModels end
-UI._SkyAlpha = function() return (R.sky and R.sky:IsShown()) and (R.skyAlpha or 0) or 0 end
+UI._SkyAlpha = function()            -- the flat tint, or the baked darkness that replaces it (Amb.Night)
+    local dark = false
+    for _, x in ipairs(Amb.lightTex) do if x:IsShown() then dark = true end end
+    return ((R.sky and R.sky:IsShown()) or dark) and (R.skyAlpha or 0) or 0
+end
+-- tests: the baked ground chunks on screen, and the base tile names drawn in the view (false = hidden)
+UI._Ground = function()
+    local out = {}
+    for _, t in ipairs(groundTex) do if t:IsShown() then out[#out + 1] = t.file end end
+    return out
+end
+UI._BaseTiles = function()
+    local out = {}
+    for i = 0, VW + 1 do for j = 0, VH + 1 do
+        local b = grid[i] and grid[i][j] and grid[i][j].base
+        if b then out[#out + 1] = b:IsShown() and b.tileName or false end
+    end end
+    return out
+end
+UI._Ambient = function()
+    local water = {}
+    for _, t in ipairs(Amb.waterTex) do if t:IsShown() then water[#water + 1] = t.file end end
+    local shown = function(list) local k = 0 for _, x in ipairs(list) do if x:IsShown() then k = k + 1 end end return k end
+    return { water = water, pix = Amb.pixN, frame = floor(now * Amb.WATER_FPS) % Amb.WATER_FRAMES,
+             clouds = (R.clouds and R.clouds:IsShown()) and R.clouds:GetAlpha() or 0,
+             wind = shown(Amb.windTex), dark = shown(Amb.lightTex), glows = shown(Amb.glowTex),
+             mood = R.mood and R.mood:IsShown() or false, sky = R.sky and R.sky:IsShown() or false,
+             legs = R.player.legs and R.player.legs:IsShown() or false }
+end
+UI._OverAt = function(i, j)            -- the over tile drawn in view cell i, j (0 .. VW + 1, 0 .. VH + 1)
+    local o = grid[i] and grid[i][j] and grid[i][j].over
+    return o and o:IsShown() and o.tileName or false
+end
+UI._ShadowsShown = function()
+    local n = 0
+    for _, s in ipairs(sprites) do if s:IsShown() and s.shadow:IsShown() then n = n + 1 end end
+    return n
+end

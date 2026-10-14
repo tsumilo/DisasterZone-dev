@@ -94,8 +94,151 @@ def build_atlas():
             for y in range(h):
                 for x in range(w):
                     add("%s_%d_%d" % (name, x, y), img, x, y)
+    # the world-art pass (appended, so earlier slots never move): forest-floor shade under the map's outer
+    # trees, and the soft shadow drawn under people
+    for g in ("grass1", "wgrass1", "dgrass1", "jgrass1"):
+        add(g + "_shade", shade_tile(atlas, index[g]), 0, 0)
+    add("shadow", shadow_tile(), 0, 0)
+    redraw_props(atlas, index)
+    clean_stamp_margins(atlas, index)
+    soften_tree_rings(atlas, index)
+    # the forest beyond a map's edge: the shaded floor with darker trees tucked in, repeating seamlessly (the same
+    # pattern the ground baker draws between neighbouring trees inside the map)
+    for g, tree in (("grass1", "tree"), ("wgrass1", "wtree"), ("dgrass1", "dtree"), ("jgrass1", "jtree")):
+        add(g + "_forest", forest_tile(atlas, index[g + "_shade"], index[tree]), 0, 0)
     tga(atlas, "atlas")
     return index
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# World art pass (2026-10-14): hand-shaded props replace the old procedural ones in their own slots, and stamps lose
+# the grass they were painted on, so they sit on the baked ground (gen_azeromon_ground.py) without a square of
+# other grass around them.
+# ---------------------------------------------------------------------------------------------------------------
+import azeromon_props  # noqa: E402
+
+SHADE = 0.74            # forest floor under the trees (the ground baker uses the same)
+GRASS_TILES = ("grass1", "grass2", "wgrass1", "wgrass2", "dgrass1", "dgrass2", "jgrass1", "jgrass2")
+CLEAN_STAMPS = ("house", "farmhouse", "stonehouse", "ruinhouse", "darkhouse", "bbhouse", "bigtree", "wbigtree",
+                "dbigtree", "jbigtree", "mailbox", "scarecrow", "windmill")
+
+
+def _cell_box(i):
+    return ((i % 16) * 16, (i // 16) * 16, (i % 16) * 16 + 16, (i // 16) * 16 + 16)
+
+
+def _put_cell(atlas, i, img):
+    box = _cell_box(i)
+    atlas.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), box[:2])
+    atlas.paste(img, box[:2])
+
+
+def shade_tile(atlas, i):
+    src = atlas.crop(_cell_box(i))
+    r, g, b, a = src.split()
+    dark = lambda ch: ch.point(lambda v: int(v * SHADE))
+    return Image.merge("RGBA", (dark(r), dark(g), dark(b), a))
+
+
+def shadow_tile():
+    """a soft oval: a darker middle, lighter ends"""
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for y, x0, x1, core in ((13, 5, 10, (6, 9)), (14, 3, 12, (5, 10)), (15, 5, 10, (6, 9))):
+        for x in range(x0, x1 + 1):
+            img.putpixel((x, y), (8, 18, 24, 92 if core[0] <= x <= core[1] else 48))
+    return img
+
+
+RING = (117, 113, 97)
+RING_TREES = ("tree", "pine", "oak", "twintrees", "wtree")
+
+
+def soften_tree_rings(atlas, index):
+    """Tiny 16's trees stand on an opaque grey dirt ring: make it a see-through shadow on whatever ground is below"""
+    for name in RING_TREES:
+        box = _cell_box(index[name])
+        cell = atlas.crop(box)
+        px = cell.load()
+        for y in range(8, 16):
+            for x in range(16):
+                r, g, b, a = px[x, y]
+                if a and abs(r - RING[0]) + abs(g - RING[1]) + abs(b - RING[2]) < 6:
+                    px[x, y] = (10, 24, 14, 96)
+        atlas.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), box[:2])
+        atlas.paste(cell, box[:2])
+
+
+def forest_tile(atlas, shade_i, tree_i):
+    out = atlas.crop(_cell_box(shade_i)).copy()
+    r, g, b, a = atlas.crop(_cell_box(tree_i)).split()
+    dim = lambda ch, k: ch.point(lambda v: int(v * k))
+    back = Image.merge("RGBA", (dim(r, 0.62), dim(g, 0.7), dim(b, 0.74), a))
+    big = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    for dx, dy in ((8, -3), (0, 8)):                     # right neighbour's gap, the gap below
+        for ox in (-16, 0, 16):                          # every wrapped copy, so the tile repeats seamlessly
+            for oy in (-16, 0, 16):
+                big.alpha_composite(back, (24 + dx + ox, 24 + dy + oy))
+    out.alpha_composite(big.crop((24, 24, 40, 40)))
+    return out
+
+
+def redraw_props(atlas, index):
+    for name, img in azeromon_props.images().items():
+        if name.startswith("ruinwall_"):
+            continue                                   # walls are baked into the ground, by their neighbours
+        w, h = img.size[0] // 16, img.size[1] // 16
+        if w == 1 and h == 1:
+            _put_cell(atlas, index[name], img)
+        else:
+            for y in range(h):
+                for x in range(w):
+                    _put_cell(atlas, index["%s_%d_%d" % (name, x, y)], img.crop((x * 16, y * 16, x * 16 + 16, y * 16 + 16)))
+
+
+def clean_stamp_margins(atlas, index):
+    pal = set()
+    for g in GRASS_TILES:
+        cell = atlas.crop(_cell_box(index[g])).load()
+        for y in range(16):
+            for x in range(16):
+                pal.add(cell[x, y][:3])
+    pal = list(pal)
+
+    def grassy(c):
+        if c[3] < 10:
+            return True
+        for p in pal:
+            if abs(p[0] - c[0]) + abs(p[1] - c[1]) + abs(p[2] - c[2]) < 14:
+                return True
+        return False
+
+    for kind in CLEAN_STAMPS:
+        w = 0
+        while "%s_%d_0" % (kind, w) in index:
+            w += 1
+        h = 0
+        while "%s_0_%d" % (kind, h) in index:
+            h += 1
+        if not w or not h:
+            continue
+        comp = Image.new("RGBA", (w * 16, h * 16))
+        for y in range(h):
+            for x in range(w):
+                comp.paste(atlas.crop(_cell_box(index["%s_%d_%d" % (kind, x, y)])), (x * 16, y * 16))
+        W, H = comp.size
+        px = comp.load()
+        seen = set()
+        stack = [(x, 0) for x in range(W)] + [(x, H - 1) for x in range(W)] + [(0, y) for y in range(H)] + [(W - 1, y) for y in range(H)]
+        while stack:
+            x, y = stack.pop()
+            if (x, y) in seen or not (0 <= x < W and 0 <= y < H) or not grassy(px[x, y]):
+                continue
+            seen.add((x, y))
+            px[x, y] = (0, 0, 0, 0)
+            stack += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+        for y in range(h):
+            for x in range(w):
+                _put_cell(atlas, index["%s_%d_%d" % (kind, x, y)], comp.crop((x * 16, y * 16, x * 16 + 16, y * 16 + 16)))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -1118,6 +1261,7 @@ def build_platform():
 
 def write_lua(index):
     lines = [
+        'if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Atlas.lua", ...) then return end '
         "-- DisasterZone Games/Azeromon/Atlas.lua  (GENERATED by dev/generators/gen_azeromon_art.py - do not edit)",
         "-- Tile name -> slot in Media/Azeromon/atlas.tga (256 x %d, 16 columns of 16px tiles)." % ATLAS_H,
         "local addonName, ns = ...",
