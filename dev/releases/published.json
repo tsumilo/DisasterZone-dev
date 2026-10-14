@@ -22,5 +22,13 @@
   "build": "1b352b4150866e4b",
   "time": "2026-10-13 10:39:53",
   "local": null
+ },
+ {
+  "seq": 4,
+  "channel": "stable",
+  "version": "1.4.2",
+  "build": "e89959e2fae8452f",
+  "time": "2026-10-14 03:02:53",
+  "local": null
  }
 ]
