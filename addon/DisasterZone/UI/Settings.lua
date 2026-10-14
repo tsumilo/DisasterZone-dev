@@ -136,10 +136,10 @@ local CARDS = {
     -- the GM's attendance margins (Guild:SetAttendanceRules): everyone sees them, the GM changes them
     attendance = { label = "Attendance", build = "BuildAttendance", scope = "guild", icon = 61,
                    lead = "How attendance is counted. The Guild Master sets it for everyone." },
-    -- the guild's Discord bot (Core/Bridge.lua, Guild:SetDiscord): who hosts it, where raids are posted
+    -- the guild's Discord bot (Core/Bridge.lua, Guild:SetDiscord): where raids are posted
     discord = { label = "Discord", build = "BuildDiscord", scope = "guild", icon = 47,
-                lead = "The guild's Discord bot: who runs it and where raids are posted.",
-                visible = function() return SettingsUI:IsGM() or (ns.Bridge and ns.Bridge:IsHostPC()) or false end },
+                lead = "The guild's Discord bot: where raids are posted.",
+                visible = function() return SettingsUI:IsGM() or (ns.Bridge and ns.Bridge:HasLauncher()) or false end },
     -- the GM's set-up checklist (UI/WelcomeTour.lua)
     setup = { label = "Guild set-up", build = "BuildSetup", scope = "gm", icon = 64,
               lead = "What is left to set up for your guild. Each open item opens its page.",
@@ -4169,9 +4169,9 @@ local function CanSetAttendance()
     return G and G.IsGM and ns.Util and G:IsGM(ns.Util.PlayerKey()) and true or false
 end
 
--- Discord: the host (the character whose launcher runs the bot; Discord sign-ups for others count only from it), the
--- channel for raids without a team, and one channel per team. The channel names come from the host's launcher
--- (DZBridgeInbox.channels); on another PC the dropdowns show the ids only.
+-- Discord: the channel for raids without a team, the week board, the loot feed and one channel per team. The bot runs
+-- on a server; the channel names come from this PC's launcher once it is linked (DZBridge.channels); without one the
+-- dropdowns show the ids only.
 local function ChannelOptions(current)
     local out = { { value = "", text = "Not posted" } }
     local seen = {}
@@ -4193,15 +4193,6 @@ function SettingsUI:BuildDiscord(sec)
     self.dsc = sec
     sec.notice = self:Notice(sec, "info")
     sec.status = sec.notice.text
-    local hostRow = self:Row(sec, "Bot host", "The character whose launcher runs the bot. Discord sign-ups count only from it.")
-    local btn = ns.UI:CreateSleekButton(hostRow, "This character", 120, 22, function()
-        SetDiscord({ host = ns.Util.PlayerKey() })
-    end)
-    btn:SetPoint("RIGHT", hostRow, "RIGHT", 0, 0)
-    hostRow.control = btn
-    AddValueText(hostRow)
-    PlaceText(hostRow, 120)
-    sec.hostRow = hostRow
     self:Dropdown(sec, "Raids without a team", "Where raids that belong to no team are posted.",
         function() return ChannelOptions(ns.Guild:GetDiscord().guild) end,
         function() return ns.Guild:GetDiscord().guild or "" end,
@@ -4245,23 +4236,20 @@ end
 function SettingsUI:RefreshDiscord()
     local sec = self.dsc
     if not sec then return end
-    local d = ns.Guild:GetDiscord()
     local gm = ns.Guild:CanEditDiscord()
     local hasList = ns.Bridge and #ns.Bridge:GetChannels() > 0
     local text
     if not gm then
         text = Grey("Set by the Guild Master.")
     elseif not hasList then
-        text = "Pick channels on the host's PC:" .. Grey(" its launcher lists the server's channels.")
+        text = "Link your launcher to pick channels:" .. Grey(" launcher > Settings > Discord, then /reload.")
     else
-        text = "Every member's addon gets these." .. Grey(" Raids are posted by the host's launcher.")
+        text = "Every member's addon gets these." .. Grey(" The bot posts raids by itself.")
     end
     sec.status:SetText(text)
     sec.notice:SetNotice(gm and "info" or "readonly", text)
-    sec.hostRow.title:SetText("Bot host: " .. (d.host or Grey("not set")))
-    SetReadOnly(sec.hostRow, not gm, "")
     for _, row in ipairs(sec.rows) do
-        if row ~= sec.hostRow and row ~= sec.teamRow and row.getValue then
+        if row ~= sec.teamRow and row.getValue then
             local v, shown = row.getValue(), Grey("not posted")
             for _, o in ipairs(ChannelOptions(v ~= "" and v or nil)) do
                 if o.value == v and v ~= "" then shown = o.text end

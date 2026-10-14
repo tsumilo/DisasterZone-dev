@@ -1,5 +1,5 @@
-//! Item search for BiS edits (host mode): the names of the addon's raid loot and where they drop, read once from its
-//! own data file (Data/Items.lua lists each raid, its bosses, and their items as "28477, -- Harbinger Bands").
+//! Item search for BiS edits: the names of the addon's raid loot and where they drop, read once from a copy of its
+//! data file (<data>/Items.lua = the addon's Data/Items.lua lists each raid, its bosses, and their items as "28477, -- Harbinger Bands").
 
 use std::sync::Mutex;
 
@@ -53,10 +53,8 @@ pub fn parse(text: &str) -> Vec<Item> {
 fn all() -> Vec<Item> {
     let mut g = ITEMS.lock().unwrap();
     if g.is_none() {
-        let list = crate::core::state::load()
-            .flavor_dir()
-            .map(|d| d.join("Interface/AddOns/DisasterZone/Data/Items.lua"))
-            .and_then(|p| std::fs::read_to_string(p).ok())
+        let list = std::fs::read_to_string(crate::data_dir().join("Items.lua"))
+            .ok()
             .map(|t| parse(&t))
             .unwrap_or_default();
         if list.is_empty() {

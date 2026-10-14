@@ -1,0 +1,23 @@
+# systemd unit for the DisasterZone bot (installed by setup.sh as /etc/systemd/system/dz-server.service).
+[Unit]
+Description=DisasterZone guild Discord bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=dz
+WorkingDirectory=/opt/dz
+ExecStart=/opt/dz/dz-server run
+Environment=DZ_DATA=/opt/dz/data
+# the bot's pictures show raid days and times in this zone: the realm's
+Environment=TZ=Europe/Stockholm
+Restart=always
+RestartSec=5
+# (only its data folder is writable)
+ProtectSystem=strict
+ReadWritePaths=/opt/dz/data
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

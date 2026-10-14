@@ -1,7 +1,7 @@
-//! Signing up from Discord (host mode). A Discord user makes their character once (name, class, spec: a form, then a
+//! Signing up from Discord. A Discord user makes their character once (name, class, spec: a form, then a
 //! spec menu) and the raid posts' buttons sign that character up. No proof is asked; one name belongs to one Discord
 //! user (bridge::owner_of). A sign-up becomes a "signup" record { raid, name, class, sp, st } in the bridge queue; the
-//! host's addon applies it at its next /reload (a guild member as themselves, anyone else as a guest) and shares it
+//! first game that loads it (any member with the launcher, at login or /reload) applies it (a guild member as themselves, anyone else as a guest) and shares it
 //! with the guild. A refusal comes back as a DM (bot.rs).
 //!
 //! Custom ids: su:<raid>:<st> post button · mk:<raid>:<st> character form · ms:<raid>:<st>:<name>:<CLASS> spec menu
@@ -16,7 +16,7 @@ use twilight_model::channel::message::component::{
     ActionRow, Button, ButtonStyle, Component, Label, SelectMenu, SelectMenuOption, SelectMenuType, TextInput, TextInputStyle,
 };
 
-/// The newest snapshot the host's addon wrote (DisasterZoneBridgeDB.snap), kept by the bot's watch.
+/// The guild's picture: members' snapshots merged (merge.rs, kept in merged.json).
 static SNAP: Mutex<Option<Value>> = Mutex::new(None);
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -321,9 +321,6 @@ pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64)
                 list.remove(i);
             }
             let _ = bridge::save_profiles(&profiles);
-            if let Some(dir) = crate::core::state::load().flavor_dir() {
-                let _ = bridge::sync(&dir, now);
-            }
             Answer::Update(format!("Removed **{gone}**."), Vec::new())
         }
         _ => text("Unknown menu."),
@@ -344,10 +341,7 @@ fn made(user: &str, name: &str, raid: &str, st: &str, cname: &str, class: &str, 
     if let Err(e) = bridge::save_profiles(&profiles) {
         return text(format!("Could not save it: {e}"));
     }
-    // (the addon's Discord badges: the host's inbox carries the new name at once)
-    if let Some(dir) = crate::core::state::load().flavor_dir() {
-        let _ = bridge::sync(&dir, now);
-    }
+    // (the addon's Discord badges: every launcher's next sync carries the new name)
     let mut d = format!(
         "{lead}{}**{cname}** · {} {}\nSaved. This is how the guild sees you. Next time, the buttons sign you up straight away.",
         crate::emoji::class_tag(class),
@@ -469,7 +463,6 @@ pub fn characters(user: &str) -> Answer {
 
 #[allow(clippy::too_many_arguments)]
 fn queue(raid: &str, c: &Char, sp: Option<u32>, st: &str, user: &str, name: &str, now: u64, snap: &Value) -> String {
-    let Some(dir) = crate::core::state::load().flavor_dir() else { return "The host has no game folder set.".into() };
     let sp = sp.unwrap_or(c.spec);
     let r = bridge::Record {
         // (two clicks in one second are two records)
@@ -479,8 +472,9 @@ fn queue(raid: &str, c: &Char, sp: Option<u32>, st: &str, user: &str, name: &str
         by: name.to_string(),
         body: json!({ "raid": raid, "name": c.name, "class": c.class, "sp": sp, "st": st }),
         discord: user.to_string(),
+        sig: String::new(),
     };
-    if let Err(e) = bridge::push(&dir, r, now) {
+    if let Err(e) = bridge::push(r) {
         return format!("Could not save it: {e}");
     }
     let t = lua_list(snap.get("raids"))
@@ -705,7 +699,7 @@ pub fn raids_text_from(
         return "No raids planned in the next two weeks.".into();
     }
     let age = snap.get("at").and_then(|x| x.as_u64()).map(|a| crate::bot::fmt_age(now.saturating_sub(a))).unwrap_or_default();
-    format!("{}\n-# As of the host's last reload, {age}.", lines.join("\n\n"))
+    format!("{}\n-# As of the last game save that synced, {age}.", lines.join("\n\n"))
 }
 
 #[cfg(test)]
@@ -733,7 +727,7 @@ mod raids_tests {
 }
 
 // ------------------------------------------------------------------------------------------------------------------
-// /bis [character]: a BiS list, this phase (the lists the host's addon holds)
+// /bis [character]: a BiS list, this phase (the lists members' games hold)
 // ------------------------------------------------------------------------------------------------------------------
 
 pub fn bis_text(user: &str, who: Option<&str>, now: u64) -> String {
@@ -779,7 +773,7 @@ pub fn bis_text_from(snap: &Value, profiles: &bridge::Profiles, user: &str, who:
         lines.push(format!("**{}**: {main}{alt}", s.get("slot").and_then(|x| x.as_str()).unwrap_or("?")));
     }
     let age = snap.get("at").and_then(|x| x.as_u64()).map(|a| crate::bot::fmt_age(now.saturating_sub(a))).unwrap_or_default();
-    lines.push(format!("-# ✓ = has it. As of the host's last reload, {age}."));
+    lines.push(format!("-# ✓ = has it. As of the last game save that synced, {age}."));
     lines.join("\n")
 }
 
@@ -804,7 +798,7 @@ mod bis_tests {
 }
 
 // ------------------------------------------------------------------------------------------------------------------
-// /bis set: change one slot of one of my characters' lists (a "bis" record; the host's addon routes it)
+// /bis set: change one slot of one of my characters' lists (a "bis" record; the first game that loads it routes it)
 // ------------------------------------------------------------------------------------------------------------------
 
 /// The addon's slots, by number (ns.SLOTS).
@@ -841,7 +835,6 @@ pub fn bis_set(user: &str, name: &str, sid: i64, item: &str, who: Option<&str>, 
     };
     let snap = snap();
     let phase = phase.unwrap_or_else(|| snap.get("phase").and_then(|p| p.as_i64()).unwrap_or(1)).clamp(0, 5);
-    let Some(dir) = crate::core::state::load().flavor_dir() else { return "The host has no game folder set.".into() };
     let r = bridge::Record {
         id: format!("bis_{now}_{user}_{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
         kind: "bis".into(),
@@ -849,8 +842,9 @@ pub fn bis_set(user: &str, name: &str, sid: i64, item: &str, who: Option<&str>, 
         by: name.to_string(),
         body: json!({ "name": c.name, "phase": phase, "sid": slot, "item": id, "which": if alt { "alt" } else { "main" } }),
         discord: user.to_string(),
+        sig: String::new(),
     };
-    if let Err(e) = bridge::push(&dir, r, now) {
+    if let Err(e) = bridge::push(r) {
         return format!("Could not save it: {e}");
     }
     let what = if clear {
@@ -861,7 +855,7 @@ pub fn bis_set(user: &str, name: &str, sid: i64, item: &str, who: Option<&str>, 
     };
     let ph = if phase == 0 { "Pre-raid".to_string() } else { format!("phase {phase}") };
     format!(
-        "**{}**'s {} ({ph}): {what}. It reaches the game at the host's next /reload; with the addon, the list changes when {} is next online.",
+        "**{}**'s {} ({ph}): {what}. It reaches the game when someone with the launcher next logs in or reloads; with the addon, the list changes when {} is next online.",
         c.name,
         SLOTS[slot - 1],
         c.name

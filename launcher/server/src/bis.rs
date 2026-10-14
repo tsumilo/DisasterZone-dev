@@ -1,6 +1,6 @@
-//! /bis in Discord (host mode): the gear sheet picture (render::sheet) with phase buttons and the off spec, and
+//! /bis in Discord: the gear sheet picture (render::sheet) with phase buttons and the off spec, and
 //! "Edit a slot" for the list's owner (slot menu → a small form for the item → a menu of matches). An edit becomes a
-//! "bis" record in the bridge queue (the host's addon routes it: addon Core/Bridge.lua) and shows on the sheet at once
+//! "bis" record in the bridge queue (the first game that loads it routes it: addon Core/Bridge.lua) and shows on the sheet at once
 //! as pending.
 //!
 //! Custom ids (Discord allows 100 characters):
@@ -353,7 +353,6 @@ fn apply(user: &str, by: &str, p: &str, l: &str, sid: &str, w: &str, name: &str,
     if !owns(user, name) {
         return private("Only that character's player edits this list.");
     }
-    let Some(dir) = crate::core::state::load().flavor_dir() else { return private("The host has no game folder set.") };
     let (phase, slot, id) = (p.parse::<u8>().unwrap_or(1), sid.parse::<usize>().unwrap_or(0), item.parse::<u64>().unwrap_or(0));
     if !(1..=17).contains(&slot) {
         return private("Pick a slot.");
@@ -367,8 +366,9 @@ fn apply(user: &str, by: &str, p: &str, l: &str, sid: &str, w: &str, name: &str,
         body: json!({ "name": name, "phase": phase, "sid": slot, "item": id, "which": if w == "a" { "alt" } else { "main" },
                       "list": if l == "o" { "os" } else { "ms" } }),
         discord: user.to_string(),
+        sig: String::new(),
     };
-    if let Err(e) = bridge::push(&dir, r, now) {
+    if let Err(e) = bridge::push(r) {
         return private(format!("Could not save it: {e}"));
     }
     let slot_name = SLOTS[slot - 1];

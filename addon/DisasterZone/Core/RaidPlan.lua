@@ -3844,14 +3844,13 @@ end
 -- status: "A" | "T" | "B" | "X"; spec: index into ns.SPECS[the character's class] (nil = keep / last used); note:
 -- optional (false clears it); charKey: another character of my account to answer with (default: this one).
 -- Returns ok, err.
--- The Discord host only (Core/Bridge.lua): an answer a linked member gave in Discord, for their character `key`.
+-- An answer a member gave in Discord, for their character `key` (Core/Bridge.lua, from a record the bot signed:
+-- every game that takes the record runs this, so nothing is broadcast; the guild sync carries it to the rest).
 -- Same checks as their own sign-up (cancelled, over, blacklist, taken off, lock, level). Returns ok, err.
 function RaidPlan:SignUpFor(occId, key, status, spec, note)
     local root = Root(true)
-    local G = Guild()
     key = WireKey(key)
     if not root or not key then return false, "unknown character" end
-    if not (G and G.IsDiscordHost and G:IsDiscordHost(Util.PlayerKey())) then return false, "not the Discord host" end
     local v = ResolveOcc(root, occId)
     if not v then return false, "unknown raid" end
     if v.cancelled then return false, "This raid was cancelled." end
@@ -3882,7 +3881,6 @@ function RaidPlan:SignUpFor(occId, key, status, spec, note)
     elseif Util.Trim(tostring(note)) ~= "" then s.n = CleanText(note, MAX_SIGNUP_NOTE) end
     local clean = CleanSignup(s, Now())
     if not clean or not MergeSignup(root, occId, key, clean) then return false, "could not save the sign-up" end
-    BroadcastSignups({ { o = occId, k = key, s = clean } }, "RPH")
     Changed()
     return true
 end

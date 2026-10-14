@@ -1,15 +1,8 @@
 //! DisasterZone Launcher: the Tauri commands the window (ui/) calls. The work is in core/.
 
 mod background;
-mod bis;
-mod bot;
-mod emoji;
-mod items;
-mod posts;
-mod remind;
-mod render;
-mod signup;
 pub mod core;
+mod sync;
 
 use crate::core::error::msg;
 use crate::core::install::{self, BackupInfo, Layout, Outcome, Progress};
@@ -113,7 +106,7 @@ fn set_settings(
     tray: Option<bool>,
     auto_install: Option<bool>,
     autostart: Option<bool>,
-    host: Option<bool>,
+    sync_server: Option<String>,
 ) -> Result<Settings> {
     let mut s = state::load();
     if let Some(c) = channel {
@@ -146,8 +139,8 @@ fn set_settings(
     if let Some(a) = autostart {
         s.autostart = a;
     }
-    if let Some(h) = host {
-        s.host = h;
+    if let Some(v) = sync_server {
+        s.sync_server = v.trim().to_string();
     }
     state::save(&s)?;
     background::sync_tray(&app).map_err(|e| crate::core::Error::Msg(e.to_string()))?;
@@ -272,45 +265,26 @@ fn open_folder(kind: String) -> Result<()> {
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| crate::core::Error::Msg(e.to_string()))
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BotView {
-    status: bot::BotStatus,
-    token_saved: bool,
-    /// a missing Discord permission (posts::WARN)
-    warn: Option<String>,
+/// Settings > Discord: is this PC linked, when it last synced, what waits for the game.
+#[tauri::command]
+fn sync_status() -> sync::SyncView {
+    sync::view()
+}
+
+/// Link with a code from /launcher in Discord.
+#[tauri::command]
+async fn sync_link(app: AppHandle, code: String) -> Result<sync::SyncView> {
+    sync::link(&app, &code).await
 }
 
 #[tauri::command]
-fn bot_status(app: AppHandle) -> BotView {
-    BotView { status: bot::status(&app), token_saved: bot::token().is_some(), warn: posts::WARN.lock().unwrap().clone() }
+fn sync_unlink(app: AppHandle) -> Result<sync::SyncView> {
+    sync::unlink(&app)
 }
 
-/// Host settings; `token` empty = forget it, absent = keep it. Restarts the bot.
 #[tauri::command]
-fn set_bot(
-    app: AppHandle,
-    on: Option<bool>,
-    app_id: Option<String>,
-    guild_id: Option<String>,
-    token: Option<String>,
-) -> Result<BotView> {
-    let mut s = state::load();
-    if let Some(o) = on {
-        s.bot_on = o;
-    }
-    if let Some(a) = app_id {
-        s.bot_app_id = a.trim().to_string();
-    }
-    if let Some(g) = guild_id {
-        s.bot_guild_id = g.trim().to_string();
-    }
-    if let Some(t) = token {
-        bot::set_token(&t)?;
-    }
-    state::save(&s)?;
-    bot::restart(&app);
-    Ok(bot_status(app))
+async fn sync_run(app: AppHandle) -> Result<sync::SyncView> {
+    sync::sync_now(&app).await
 }
 
 #[tauri::command]
@@ -333,7 +307,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Busy::default())
-        .manage(bot::Bot::default())
         .setup(|app| {
             let handle = app.handle().clone();
             let mut s = state::load();
@@ -348,7 +321,7 @@ pub fn run() {
             if !hidden {
                 background::show_main(&handle);
             }
-            bot::restart(&handle);
+            sync::spawn_loop(handle.clone());
             background::spawn_loop(handle);
             Ok(())
         })
@@ -370,8 +343,10 @@ pub fn run() {
             restore,
             open_folder,
             play,
-            bot_status,
-            set_bot
+            sync_status,
+            sync_link,
+            sync_unlink,
+            sync_run
         ])
         .build(tauri::generate_context!())
         .expect("error while starting the DisasterZone launcher");

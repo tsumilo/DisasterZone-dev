@@ -1,126 +1,22 @@
-//! Discord bridge files (host mode): the queue of changes made in Discord, the inbox the addon reads at /reload, and
-//! the addon's answer read back from SavedVariables (addon Core/Bridge.lua documents the formats).
+//! The Discord bridge's files on a member's PC (the launcher's sync with the guild's bot server: sync.rs).
 //!
-//!   queue  <config>/DisasterZoneLauncher/bridge_queue.json      records the game has not taken yet
-//!   inbox  <flavor>/Interface/AddOns/DisasterZone_Bridge/Inbox.lua   DZBridgeInbox = { v, written, records }
-//!   answer <flavor>/WTF/Account/<acct>/SavedVariables/DisasterZone.lua   DisasterZoneBridgeDB.applied[id]
-//! A record leaves the queue once the newest SavedVariables mark it applied.
+//!   inbox  <flavor>/Interface/AddOns/DisasterZone_Bridge/Inbox.lua   DZBridge = { v, written, user, records, channels, links }
+//!   answer <flavor>/WTF/Account/<acct>/SavedVariables/DisasterZone.lua   DisasterZoneBridgeDB (snap + applied)
+//! The records are signed by the bot's server; the addon checks them (Core/Bridge.lua), so this file can't be used to
+//! fake a change. The folder is made by the launcher, not shipped in releases.
 
 use super::error::Result;
-use serde::{Deserialize, Serialize};
+use dz_proto::SyncDown;
 use serde_json::{Map, Value};
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 pub const FOLDER: &str = "DisasterZone_Bridge";
 const SV_NAME: &str = "DisasterZoneBridgeDB";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Record {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub kind: String,
-    /// unix seconds
-    pub at: u64,
-    /// who made it (a Discord name until accounts are linked)
-    pub by: String,
-    #[serde(default)]
-    pub body: Value,
-    /// the Discord user it came from (told if the game refuses it)
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub discord: String,
-}
-
 // ------------------------------------------------------------------------------------------------------------------
-// Profiles: the characters each Discord user made in Discord (name, class, spec). No proof is asked; one name
-// belongs to one Discord user.
-// ------------------------------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Char {
-    /// as the game writes it: "Lee" or "Lee-Thunderstrike"
-    pub name: String,
-    /// class file: "WARRIOR"
-    pub class: String,
-    /// 1-based index into the class's specs (addon ns.SPECS)
-    pub spec: u32,
-    /// the Discord name of whoever made it (the addon shows a badge after the character's name)
-    #[serde(default)]
-    pub by: String,
-}
-
-/// Discord user id -> their characters (the first is their main)
-pub type Profiles = std::collections::BTreeMap<String, Vec<Char>>;
-
-fn profiles_path() -> PathBuf {
-    queue_path().with_file_name("bridge_profiles.json")
-}
-
-pub fn load_profiles_at(p: &Path) -> Profiles {
-    fs::read(p).ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default()
-}
-
-pub fn load_profiles() -> Profiles {
-    load_profiles_at(&profiles_path())
-}
-
-pub fn save_profiles(p: &Profiles) -> Result<()> {
-    save_json(&profiles_path(), p)
-}
-
-fn short_lower(name: &str) -> String {
-    name.split('-').next().unwrap_or(name).to_lowercase()
-}
-
-/// Who has this character already (another user's claim on "Lee" is refused).
-pub fn owner_of(p: &Profiles, name: &str) -> Option<String> {
-    let want = short_lower(name);
-    p.iter().find(|(_, chars)| chars.iter().any(|c| short_lower(&c.name) == want)).map(|(u, _)| u.clone())
-}
-
-/// A name as WoW writes it: first letter upper, the rest lower ("lEE" -> "Lee"); a realm after '-' is kept as typed.
-pub fn tidy_name(name: &str) -> String {
-    let name = name.trim();
-    let (n, realm) = match name.split_once('-') {
-        Some((n, r)) => (n, Some(r)),
-        None => (name, None),
-    };
-    let mut out: String = n.chars().take(1).flat_map(|c| c.to_uppercase()).collect();
-    out.extend(n.chars().skip(1).flat_map(|c| c.to_lowercase()));
-    if let Some(r) = realm.filter(|r| !r.is_empty()) {
-        out.push('-');
-        out.push_str(r);
-    }
-    out
-}
-
-fn queue_path() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("DisasterZoneLauncher").join("bridge_queue.json")
-}
-
-pub fn load_queue_at(p: &Path) -> Vec<Record> {
-    fs::read(p).ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default()
-}
-
-pub fn save_queue_at(p: &Path, q: &[Record]) -> Result<()> {
-    fs::create_dir_all(p.parent().unwrap())?;
-    let tmp = p.with_extension("tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(q).unwrap())?;
-    fs::rename(&tmp, p)?;
-    Ok(())
-}
-
-pub fn load_queue() -> Vec<Record> {
-    load_queue_at(&queue_path())
-}
-
-pub fn save_queue(q: &[Record]) -> Result<()> {
-    save_queue_at(&queue_path(), q)
-}
-
-// ------------------------------------------------------------------------------------------------------------------
-// Inbox.lua (+ the folder's TOC: the folder exists only on the host's PC, the launcher makes it)
+// Inbox.lua (+ the folder's TOC)
 // ------------------------------------------------------------------------------------------------------------------
 
 fn lua_str(s: &str, out: &mut String) {
@@ -166,51 +62,22 @@ fn lua_value(v: &Value, out: &mut String) {
     }
 }
 
-/// A Discord text channel the GM can post raids to (listed in the addon's Settings > Discord).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Channel {
-    pub id: String,
-    pub name: String,
-}
-
-fn channels_path() -> PathBuf {
-    queue_path().with_file_name("bridge_channels.json")
-}
-
-pub fn load_channels() -> Vec<Channel> {
-    fs::read(channels_path()).ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default()
-}
-
-pub fn save_channels(c: &[Channel]) -> Result<()> {
-    save_json(&channels_path(), c)
-}
-
-pub fn save_json<T: Serialize + ?Sized>(p: &Path, v: &T) -> Result<()> {
-    fs::create_dir_all(p.parent().unwrap())?;
-    let tmp = p.with_extension("tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(v).unwrap())?;
-    fs::rename(&tmp, p)?;
-    Ok(())
-}
-
-pub fn inbox_lua(records: &[Record], written: u64, channels: &[Channel], profiles: &Profiles) -> String {
-    let mut s = String::from("-- Written by the DisasterZone launcher (host mode). Do not edit: it is rewritten.\n");
-    s.push_str(&format!("DZBridgeInbox = {{ v = 1, written = {written}, records = {{\n"));
-    for r in records {
+/// The inbox for what the server sent. (DZBridge, not 1.4's DZBridgeInbox: an addon that can't check signatures
+/// must not take these records and mark them refused.)
+pub fn inbox_lua(down: &SyncDown, written: u64) -> String {
+    let mut s = String::from("-- Written by the DisasterZone launcher (Discord sync). Do not edit: it is rewritten, and the addon checks every\n-- record's signature.\n");
+    s.push_str(&format!("DZBridge = {{ v = 2, written = {written}, user = "));
+    lua_str(&down.user, &mut s);
+    s.push_str(", records = {\n");
+    for r in &down.records {
         s.push_str("  ");
         lua_value(&serde_json::to_value(r).unwrap(), &mut s);
         s.push_str(",\n");
     }
     s.push_str("}, channels = ");
-    lua_value(&serde_json::to_value(channels).unwrap(), &mut s);
-    // the characters made in Discord: { { name, discord }, ... }
-    let links: Vec<Value> = profiles
-        .values()
-        .flatten()
-        .map(|c| serde_json::json!({ "name": c.name, "discord": if c.by.is_empty() { "Discord" } else { &c.by } }))
-        .collect();
+    lua_value(&serde_json::to_value(&down.channels).unwrap(), &mut s);
     s.push_str(", links = ");
-    lua_value(&Value::Array(links), &mut s);
+    lua_value(&serde_json::to_value(&down.links).unwrap(), &mut s);
     s.push_str(" }\n");
     s
 }
@@ -220,7 +87,7 @@ fn interface_of(addons: &Path) -> String {
     fs::read_to_string(addons.join("DisasterZone").join("DisasterZone.toc"))
         .ok()
         .and_then(|t| t.lines().find_map(|l| l.strip_prefix("## Interface:").map(|v| v.trim().to_string())))
-        .unwrap_or_else(|| "20506".into())
+        .unwrap_or_else(|| "20505".into())
 }
 
 fn write_atomic(p: &Path, text: &str) -> Result<()> {
@@ -233,17 +100,40 @@ fn write_atomic(p: &Path, text: &str) -> Result<()> {
     Ok(())
 }
 
-/// Write the bridge folder for these records (the game reads it at its next login or /reload).
-pub fn write_inbox(flavor_dir: &Path, records: &[Record], written: u64) -> Result<()> {
+/// Write the bridge folder (the game reads it at its next login or /reload). Only when the addon is installed.
+pub fn write_inbox(flavor_dir: &Path, down: &SyncDown) -> Result<()> {
     let addons = flavor_dir.join("Interface").join("AddOns");
+    if !addons.join("DisasterZone").is_dir() {
+        return Ok(());
+    }
     let dir = addons.join(FOLDER);
     fs::create_dir_all(&dir)?;
     let toc = format!(
-        "## Interface: {}\n## Title: |cffff8000Disaster|rZone Discord bridge\n## Notes: Made by the DisasterZone launcher on the host's PC: what the guild's Discord bot hands to the game.\n## Author: Casual Disaster\n## Version: 1\n\nInbox.lua\n",
+        "## Interface: {}\n## Title: |cffff8000Disaster|rZone Discord bridge\n## Notes: Made by the DisasterZone launcher: what the guild's Discord bot hands to the game.\n## Author: Casual Disaster\n## Version: 2\n\nInbox.lua\n",
         interface_of(&addons)
     );
     write_atomic(&dir.join(format!("{FOLDER}.toc")), &toc)?;
-    write_atomic(&dir.join("Inbox.lua"), &inbox_lua(records, written, &load_channels(), &load_profiles()))
+    // (the written stamp only changes with the content: an unchanged sync doesn't rewrite the file)
+    let old = fs::read_to_string(dir.join("Inbox.lua")).unwrap_or_default();
+    let same = inbox_lua(down, 0);
+    let written = old
+        .lines()
+        .nth(2)
+        .and_then(|l| l.split("written = ").nth(1))
+        .and_then(|r| r.split(',').next())
+        .and_then(|n| n.trim().parse::<u64>().ok())
+        .filter(|w| old.replace(&format!("written = {w},"), "written = 0,") == same)
+        .unwrap_or(down.now);
+    write_atomic(&dir.join("Inbox.lua"), &inbox_lua(down, written))
+}
+
+/// Unlinked: no records any more (channels and badges go too).
+pub fn clear_inbox(flavor_dir: &Path) -> Result<()> {
+    let p = flavor_dir.join("Interface").join("AddOns").join(FOLDER).join("Inbox.lua");
+    if p.exists() {
+        write_atomic(&p, &inbox_lua(&SyncDown::default(), 0))?;
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -419,88 +309,34 @@ pub fn read_global(text: &str, name: &str) -> Option<Value> {
     p.value()
 }
 
-/// DisasterZoneBridgeDB from the newest SavedVariables under a game folder.
-pub fn read_bridge_db(flavor_dir: &Path) -> Option<Value> {
-    let accounts = fs::read_dir(flavor_dir.join("WTF").join("Account")).ok()?;
-    let (_, path) = accounts
+/// The SavedVariables files under a game folder, newest first (one per account).
+fn saved_variables(flavor_dir: &Path) -> Vec<(SystemTime, PathBuf)> {
+    let Ok(accounts) = fs::read_dir(flavor_dir.join("WTF").join("Account")) else { return Vec::new() };
+    let mut out: Vec<(SystemTime, PathBuf)> = accounts
         .flatten()
         .map(|a| a.path().join("SavedVariables").join("DisasterZone.lua"))
         .filter_map(|p| Some((fs::metadata(&p).ok()?.modified().ok()?, p)))
-        .max()?;
+        .collect();
+    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out
+}
+
+/// When the game last saved (the newest account played).
+pub fn newest_saved_variables(flavor_dir: &Path) -> Option<SystemTime> {
+    saved_variables(flavor_dir).first().map(|(t, _)| *t)
+}
+
+/// DisasterZoneBridgeDB from the newest SavedVariables under a game folder.
+pub fn read_bridge_db(flavor_dir: &Path) -> Option<Value> {
+    let (_, path) = saved_variables(flavor_dir).into_iter().next()?;
     let text = fs::read(&path).map(|d| String::from_utf8_lossy(&d).into_owned()).ok()?;
     read_global(&text, SV_NAME)
-}
-
-/// Ids the addon has taken (DisasterZoneBridgeDB.applied).
-pub fn applied_ids(flavor_dir: &Path) -> BTreeSet<String> {
-    read_bridge_db(flavor_dir)
-        .and_then(|v| v.get("applied").and_then(|a| a.as_object()).map(|a| a.keys().cloned().collect()))
-        .unwrap_or_default()
-}
-
-/// A Lua array as read (an object with keys "1", "2", ...) in order; any other value: empty.
-pub fn lua_list(v: Option<&Value>) -> Vec<&Value> {
-    let Some(Value::Object(m)) = v else { return Vec::new() };
-    let mut out: Vec<(usize, &Value)> = m.iter().filter_map(|(k, x)| Some((k.parse().ok()?, x))).collect();
-    out.sort_by_key(|(i, _)| *i);
-    out.into_iter().map(|(_, x)| x).collect()
-}
-
-/// Drop what the game took, rewrite the inbox. Returns the records still waiting.
-#[derive(Debug, Default)]
-pub struct Synced {
-    /// still waiting for the game
-    pub queue: Vec<Record>,
-    /// taken but refused: (record, why)
-    pub failed: Vec<(Record, String)>,
-}
-
-/// Drop what the game took (refusals are handed back), rewrite the inbox.
-pub fn sync_at(queue: &Path, flavor_dir: &Path, now: u64) -> Result<Synced> {
-    let db = read_bridge_db(flavor_dir).unwrap_or(Value::Null);
-    let applied = db.get("applied").and_then(|a| a.as_object()).cloned().unwrap_or_default();
-    let mut out = Synced::default();
-    let all = load_queue_at(queue);
-    let before = all.len();
-    for r in all {
-        match applied.get(&r.id) {
-            None => out.queue.push(r),
-            Some(m) => {
-                if m.get("ok").and_then(|x| x.as_bool()) != Some(true) {
-                    let why = m.get("why").and_then(|x| x.as_str()).unwrap_or("refused").to_string();
-                    out.failed.push((r, why));
-                }
-            }
-        }
-    }
-    if out.queue.len() != before {
-        save_queue_at(queue, &out.queue)?;
-    }
-    write_inbox(flavor_dir, &out.queue, now)?;
-    Ok(out)
-}
-
-pub fn sync(flavor_dir: &Path, now: u64) -> Result<Synced> {
-    sync_at(&queue_path(), flavor_dir, now)
-}
-
-pub fn push_at(queue: &Path, flavor_dir: &Path, r: Record, now: u64) -> Result<Vec<Record>> {
-    let mut q = load_queue_at(queue);
-    q.push(r);
-    save_queue_at(queue, &q)?;
-    Ok(sync_at(queue, flavor_dir, now)?.queue)
-}
-
-pub fn push(flavor_dir: &Path, r: Record, now: u64) -> Result<Vec<Record>> {
-    let mut q = load_queue();
-    q.push(r);
-    save_queue(&q)?;
-    Ok(sync(flavor_dir, now)?.queue)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dz_proto::{Channel, Link, Record};
     use serde_json::json;
 
     const SV: &str = r#"
@@ -538,80 +374,72 @@ DisasterZoneBridgeDB = {
         assert!(read_global(SV, "Nope").is_none());
     }
 
-    fn rec(id: &str, text: &str) -> Record {
-        Record { id: id.into(), kind: "test".into(), at: 1, by: "Tsumi".into(), body: json!({ "text": text }), discord: "42".into() }
+    fn down(text: &str) -> SyncDown {
+        SyncDown {
+            now: 7,
+            records: vec![Record {
+                id: "dc_1".into(),
+                kind: "test".into(),
+                at: 1,
+                by: "Tsumi".into(),
+                body: json!({ "text": text }),
+                discord: "42".into(),
+                sig: "00ff".into(),
+            }],
+            channels: vec![Channel { id: "1".into(), name: "raids".into() }],
+            links: vec![Link { name: "Lee".into(), discord: "Tsumi".into() }],
+            user: "Tsumi".into(),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn inbox_round_trips_through_the_reader() {
-        let mut p = Profiles::new();
-        p.insert("9".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3, by: "Tsumi".into() }]);
-        let lua = inbox_lua(&[rec("dc_1", "hi \"there\" | \\ \n")], 7, &[Channel { id: "1".into(), name: "raids".into() }], &p);
-        let v = read_global(&lua, "DZBridgeInbox").unwrap();
+        let lua = inbox_lua(&down("hi \"there\" | \\ \n"), 7);
+        let v = read_global(&lua, "DZBridge").unwrap();
         assert_eq!(v["written"], json!(7));
-        assert_eq!(lua_list(v.get("channels"))[0]["name"], json!("raids"));
-        assert_eq!(lua_list(v.get("links"))[0]["discord"], json!("Tsumi"));
+        assert_eq!(v["user"], json!("Tsumi"));
+        assert_eq!(v["channels"]["1"]["name"], json!("raids"));
+        assert_eq!(v["links"]["1"]["discord"], json!("Tsumi"));
         assert_eq!(v["records"]["1"]["id"], json!("dc_1"));
+        assert_eq!(v["records"]["1"]["sig"], json!("00ff"));
         assert_eq!(v["records"]["1"]["body"]["text"], json!("hi \"there\" | \\ \n"));
     }
 
     #[test]
-    fn refused_records_are_reported() {
+    fn inbox_is_written_only_next_to_the_addon_and_keeps_its_stamp() {
         let dir = tempfile::tempdir().unwrap();
         let flavor = dir.path().join("_anniversary_");
-        let queue = dir.path().join("q.json");
-        save_queue_at(&queue, &[rec("dc_2", "x")]).unwrap();
-        let sv = flavor.join("WTF/Account/ACCT/SavedVariables");
-        fs::create_dir_all(&sv).unwrap();
-        fs::write(sv.join("DisasterZone.lua"), SV).unwrap();
-        let out = sync_at(&queue, &flavor, 1).unwrap();
-        assert!(out.queue.is_empty());
-        assert_eq!(out.failed.len(), 1);
-        assert!(out.failed[0].1.starts_with("unknown type"));
-        assert_eq!(out.failed[0].0.discord, "42");
-    }
-
-    #[test]
-    fn one_name_one_owner() {
-        let mut p = Profiles::new();
-        p.insert("1".into(), vec![Char { name: "Lee".into(), class: "WARRIOR".into(), spec: 3, by: String::new() }]);
-        assert_eq!(owner_of(&p, "lee").as_deref(), Some("1"));
-        assert_eq!(owner_of(&p, "LEE-Thunderstrike").as_deref(), Some("1"));
-        assert_eq!(owner_of(&p, "Rita"), None);
-    }
-
-    #[test]
-    fn names_are_tidied_as_the_game_writes_them() {
-        assert_eq!(tidy_name(" lEE "), "Lee");
-        assert_eq!(tidy_name("élise-Thunderstrike"), "Élise-Thunderstrike");
-        assert_eq!(tidy_name("bob-"), "Bob");
-    }
-
-    #[test]
-    fn taken_records_leave_the_queue() {
-        let dir = tempfile::tempdir().unwrap();
-        let flavor = dir.path().join("_anniversary_");
-        let queue = dir.path().join("q.json");
+        write_inbox(&flavor, &down("a")).unwrap();
+        assert!(!flavor.join("Interface/AddOns/DisasterZone_Bridge").exists()); // (no addon: nothing)
         let addon = flavor.join("Interface/AddOns/DisasterZone");
         fs::create_dir_all(&addon).unwrap();
         fs::write(addon.join("DisasterZone.toc"), "## Interface: 20504\n").unwrap();
-        push_at(&queue, &flavor, rec("dc_1", "a"), 10).unwrap();
-        let q = push_at(&queue, &flavor, rec("dc_9", "b"), 11).unwrap();
-        assert_eq!(q.len(), 2);
+        write_inbox(&flavor, &down("a")).unwrap();
         let toc = fs::read_to_string(flavor.join("Interface/AddOns/DisasterZone_Bridge/DisasterZone_Bridge.toc")).unwrap();
         assert!(toc.contains("## Interface: 20504"));
-        let inbox = fs::read_to_string(flavor.join("Interface/AddOns/DisasterZone_Bridge/Inbox.lua")).unwrap();
-        assert!(inbox.contains("dc_9"));
-        // the game took dc_1 (and an old dc_2 no longer queued)
-        let sv = flavor.join("WTF/Account/ACCT/SavedVariables");
-        fs::create_dir_all(&sv).unwrap();
-        fs::write(sv.join("DisasterZone.lua"), SV).unwrap();
-        let out = sync_at(&queue, &flavor, 12).unwrap();
-        let q = out.queue;
-        assert_eq!(q.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec!["dc_9"]);
-        assert!(out.failed.is_empty()); // (dc_1 was ok)
-        assert_eq!(load_queue_at(&queue).len(), 1);
-        let inbox = fs::read_to_string(flavor.join("Interface/AddOns/DisasterZone_Bridge/Inbox.lua")).unwrap();
-        assert!(!inbox.contains("dc_1") && inbox.contains("dc_9"));
+        let inbox = flavor.join("Interface/AddOns/DisasterZone_Bridge/Inbox.lua");
+        // the same records later: the written stamp stays
+        let mut later = down("a");
+        later.now = 99;
+        write_inbox(&flavor, &later).unwrap();
+        assert!(fs::read_to_string(&inbox).unwrap().contains("written = 7,"));
+        write_inbox(&flavor, &{ let mut d = down("b"); d.now = 100; d }).unwrap();
+        assert!(fs::read_to_string(&inbox).unwrap().contains("written = 100,"));
+        clear_inbox(&flavor).unwrap();
+        assert!(!fs::read_to_string(&inbox).unwrap().contains("dc_1"));
+    }
+
+    #[test]
+    fn newest_account_file_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        for acct in ["A", "B"] {
+            let sv = dir.path().join("WTF/Account").join(acct).join("SavedVariables");
+            fs::create_dir_all(&sv).unwrap();
+            fs::write(sv.join("DisasterZone.lua"), SV).unwrap();
+        }
+        assert!(newest_saved_variables(dir.path()).is_some());
+        assert!(read_bridge_db(dir.path()).is_some());
+        assert!(newest_saved_variables(&dir.path().join("nope")).is_none());
     }
 }

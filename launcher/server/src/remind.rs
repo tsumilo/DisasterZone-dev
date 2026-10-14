@@ -1,4 +1,4 @@
-//! Raid reminders (host mode): an hour before a raid, a DM to everyone who is in and made their character in Discord,
+//! Raid reminders: an hour before a raid, a DM to everyone who is in and made their character in Discord,
 //! with "Running late" (how late: the raid leader hears of it, the sign-up note in game says it) and "Can't make it"
 //! (they're marked can't come, and whoever is tentative or benched for that raid gets a ping that a spot opened).
 //! Who was reminded is kept in <config>/DisasterZoneLauncher/bridge_reminders.json; /character turns them off.
@@ -18,7 +18,7 @@ use twilight_util::builder::embed::EmbedBuilder;
 const AHEAD: i64 = 3600;
 
 fn cfg(name: &str) -> PathBuf {
-    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("DisasterZoneLauncher").join(name)
+    crate::data_dir().join(name)
 }
 
 /// raid id -> Discord users reminded
@@ -221,7 +221,6 @@ pub async fn click(http: &Client, user: &str, by: &str, custom: &str, values: &[
 }
 
 fn queue_signup(raid: &str, c: &bridge::Char, st: &str, note: Option<String>, user: &str, by: &str) {
-    let Some(dir) = crate::core::state::load().flavor_dir() else { return };
     let now = crate::bot::unix_now();
     let r = bridge::Record {
         id: format!("rm_{now}_{user}_{st}"),
@@ -230,8 +229,9 @@ fn queue_signup(raid: &str, c: &bridge::Char, st: &str, note: Option<String>, us
         by: by.to_string(),
         body: json!({ "raid": raid, "name": c.name, "class": c.class, "sp": c.spec, "st": st, "note": note }),
         discord: user.to_string(),
+        sig: String::new(),
     };
-    let _ = bridge::push(&dir, r, now);
+    let _ = bridge::push(r);
 }
 
 /// The raid leader hears it: by DM when they made their character in Discord, else in the raid's channel.

@@ -109,6 +109,7 @@ Sim\BuffPresets.lua
 Core\GuildMap.lua
 Core\OfficerNotes.lua
 Core\Feedback.lua
+Core\BridgeKey.lua
 Core\Bridge.lua
 Core\PatchKey.lua
 Core\Patch.lua

@@ -1,6 +1,6 @@
-//! The pictures the Discord bot posts (host mode), drawn in the addon's look: loading-screen art, the game's icons,
-//! Friz Quadrata. The art comes from the host's own game client (dev/tools/bot_art.py exports it to
-//! <config>/DisasterZoneLauncher/bot_art); it is never shipped with the launcher. Missing art just leaves a gap.
+//! The pictures the Discord bot posts, drawn in the addon's look: loading-screen art, the game's icons,
+//! Friz Quadrata. The art comes from a game client (dev/tools/bot_art.py exports it; it is copied to
+//! <data>/bot_art on the server); it is never shipped with the launcher. Missing art just leaves a gap.
 //!
 //! Everything is laid out in "points" (the prototype's CSS pixels) and drawn at SCALE pixels per point.
 
@@ -70,7 +70,7 @@ pub struct Art {
 }
 
 pub fn art_dir() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("DisasterZoneLauncher").join("bot_art")
+    crate::data_dir().join("bot_art")
 }
 
 static ART: OnceLock<Option<Art>> = OnceLock::new();

@@ -418,7 +418,7 @@ function renderSettings() {
     if (document.activeElement !== f) f.value = s[key] || "";
   }
   $("set-source").placeholder = status.source;
-  renderHost();
+  renderSync();
   $("about").textContent = "DisasterZone Launcher " + status.launcherVersion + " · releases from " + status.source;
 }
 
@@ -444,65 +444,63 @@ function wireSettings() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Host (the guild's Discord bot runs in this launcher; Settings > Host, shown with Ctrl+Shift+H)
+// Discord sync (sync.rs): this PC's game syncs with the guild's bot server once linked with a /launcher code
 // ---------------------------------------------------------------------------------------------------------------
 
-let bot = { status: { state: "off" }, tokenSaved: false };
+let sync = { linked: false, user: "", server: "", last: null, waiting: 0, error: null };
 
-const BOT_TEXT = { off: "Off", connecting: "Connecting to Discord…" };
-
-function renderHost() {
-  const s = status.settings;
-  $("host-rows").classList.toggle("hidden", !s.host);
-  if (!s.host) return;
-  const st = bot.status;
-  $("bot-state").textContent = st.state === "online" ? "Online as " + st.name
-    : st.state === "error" ? "Stopped: " + st.message : BOT_TEXT[st.state] || st.state;
-  $("bot-state").style.color = st.state === "online" ? "rgb(77, 181, 99)" : st.state === "error" ? "rgb(230, 110, 100)" : "";
-  // (a permission Discord refused: what to change, in its own colour under the state)
-  if (bot.warn && st.state === "online") {
-    $("bot-state").textContent += " · " + bot.warn;
-    $("bot-state").style.color = "rgb(240, 178, 50)";
-  }
-  $("set-bot").setAttribute("aria-checked", String(!!s.botOn));
-  for (const [id, key] of [["set-appid", "botAppId"], ["set-guild", "botGuildId"]]) {
-    const f = $(id);
-    if (document.activeElement !== f) f.value = s[key] || "";
-  }
-  $("set-token").placeholder = bot.tokenSaved ? "saved" : "paste the token";
+function ago(t) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - t);
+  return s < 60 ? "just now" : s < 3600 ? Math.floor(s / 60) + " min ago" : s < 86400 ? Math.floor(s / 3600) + " h ago" : Math.floor(s / 86400) + " days ago";
 }
 
-async function saveBot(patch) {
+function renderSync() {
+  const st = $("sync-state");
+  $("row-link").classList.toggle("hidden", sync.linked);
+  $("sync-linked-btns").classList.toggle("hidden", !sync.linked);
+  if (!sync.linked) {
+    st.textContent = sync.server ? "Not linked." : "No bot server is set yet.";
+    st.style.color = "";
+  } else if (sync.error) {
+    st.textContent = "Linked as " + sync.user + " · " + sync.error;
+    st.style.color = "rgb(230, 110, 100)";
+  } else {
+    const waiting = sync.waiting ? " · " + sync.waiting + " change" + (sync.waiting === 1 ? "" : "s") + " from Discord waiting for the game" : "";
+    st.textContent = "Linked as " + sync.user + (sync.last ? " · synced " + ago(sync.last) : " · not synced yet") + waiting;
+    st.style.color = "rgb(77, 181, 99)";
+  }
+  const f = $("set-server");
+  if (document.activeElement !== f) f.value = status.settings.syncServer || "";
+  f.placeholder = sync.server || "not set";
+}
+
+async function syncCall(cmd, args) {
   try {
-    bot = await api.invoke("set_bot", patch);
-    await loadStatus();
-    renderSettings();
+    sync = await api.invoke(cmd, args);
   } catch (e) {
     toast(e);
+    try { sync = await api.invoke("sync_status"); } catch (e2) { /* (shown as it was) */ }
   }
+  renderSync();
 }
 
-function wireHost() {
-  $("set-bot").onclick = () => saveBot({ on: !status.settings.botOn });
-  const field = (id, key, arg) => {
-    const f = $(id);
-    f.addEventListener("change", () => { if ((status.settings[key] || "") !== f.value.trim()) saveBot({ [arg]: f.value }); });
-    f.addEventListener("keydown", (e) => { if (e.key === "Enter") f.blur(); });
+function wireSync() {
+  const code = $("set-linkcode");
+  const link = () => {
+    const v = code.value.trim();
+    if (!v) { code.focus(); return; }
+    $("btn-link").disabled = true;
+    syncCall("sync_link", { code: v }).then(() => { $("btn-link").disabled = false; if (sync.linked) code.value = ""; });
   };
-  field("set-appid", "botAppId", "appId");
-  field("set-guild", "botGuildId", "guildId");
-  const tok = $("set-token");
-  tok.addEventListener("change", () => {
-    const v = tok.value.trim();
-    tok.value = "";
-    if (v || bot.tokenSaved) saveBot({ token: v });
+  $("btn-link").onclick = link;
+  code.addEventListener("keydown", (e) => { if (e.key === "Enter") link(); });
+  $("btn-sync").onclick = () => syncCall("sync_run");
+  $("btn-unlink").onclick = () => syncCall("sync_unlink");
+  const f = $("set-server");
+  f.addEventListener("change", () => {
+    if ((status.settings.syncServer || "") !== f.value.trim()) saveSettings({ syncServer: f.value }).then(() => syncCall("sync_status"));
   });
-  tok.addEventListener("keydown", (e) => { if (e.key === "Enter") tok.blur(); });
-  document.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "h" && status) {
-      saveSettings({ host: !status.settings.host }).then(() => { if (status.settings.host) showTab("settings"); });
-    }
-  });
+  f.addEventListener("keydown", (e) => { if (e.key === "Enter") f.blur(); });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -550,18 +548,14 @@ async function start() {
   $("btn-check").onclick = runCheck;
   $("btn-play").onclick = play;
   wireSettings();
-  wireHost();
-  await api.listen("bot-status", (e) => { bot.status = e.payload; if (status) renderHost(); });
-  // (a refused permission shows up without a status change: look again now and then while Settings is open)
-  setInterval(async () => {
-    if (!status || !status.settings.host || DEMO) return;
-    try { bot = await api.invoke("bot_status"); renderHost(); } catch (e) { /* (the next look) */ }
-  }, 15000);
+  wireSync();
+  await api.listen("sync-status", (e) => { sync = { ...sync, ...e.payload }; if (status) renderSync(); });
+  setInterval(() => { if (status) renderSync(); }, 30000);   // ("synced 2 min ago" moves on)
   await api.listen("progress", (e) => { if (working) showProgress(e.payload); });
   // the tray's background check installed something or found a new release
   await api.listen("state-changed", () => { if (!working) refreshAll(); });
   try {
-    bot = await api.invoke("bot_status");
+    sync = await api.invoke("sync_status");
     await loadStatus();
   } catch (e) {
     toast(e);
@@ -584,7 +578,7 @@ start();
 function demoApi() {
   const settings = { wowRoot: "C:\\World of Warcraft", flavor: "_anniversary_", channel: "stable", seenSeq: {}, hold: false,
     keepBackups: 3, checkOnStart: true, source: null, launchCode: "", playCommand: "", tray: false, autoInstall: false, autostart: false,
-    host: new URLSearchParams(location.search).has("host"), botOn: false, botAppId: "", botGuildId: "" };
+    syncServer: "", syncUser: "" };
   let installed = { present: true, version: "1.3.4", build: "f2965f70f965709b", assetPack: 7, dev: false, linked: false, rooms: true };
   const backups = [{ id: "20261009-201544-1.3.3", version: "1.3.3", build: "f60fe8911a371447", time: "", reason: "update", savedVariables: 3 }];
   // the real changelog of the last releases (demo-notes.json, from the published 1.3.5 manifest)
@@ -592,7 +586,7 @@ function demoApi() {
   const notesReady = fetch("demo-notes.json").then((r) => r.json()).then((n) => { notes.changelog = n.changelog; }).catch(() => {});
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   let progressFn = null;
-  const demoBot = { status: { state: "off" }, tokenSaved: false };
+  let demoSync = { linked: false, user: "", server: "https://bot.example", last: null, waiting: 0, error: null };
   return {
     async invoke(cmd, args) {
       await wait(250);
@@ -621,15 +615,13 @@ function demoApi() {
         case "restore": { const b = backups.find((x) => x.id === args.id); installed = { ...installed, version: b.version, build: b.build }; settings.hold = true; return null; }
         case "set_settings": for (const k in args) if (args[k] != null) settings[k] = args[k]; return { ...settings };
         case "set_wow_path": if (args.flavor) settings.flavor = args.flavor; return { ...settings };
-        case "bot_status": return { ...demoBot };
-        case "set_bot": {
-          if (args.on != null) settings.botOn = args.on;
-          if (args.appId != null) settings.botAppId = args.appId;
-          if (args.guildId != null) settings.botGuildId = args.guildId;
-          if (args.token != null) demoBot.tokenSaved = !!args.token;
-          demoBot.status = settings.botOn ? { state: "online", name: "DisasterZone (demo)" } : { state: "off" };
-          return { ...demoBot };
-        }
+        case "sync_status": return { ...demoSync };
+        case "sync_link":
+          if (args.code.toUpperCase() !== "DEMO1234") throw "That code is unknown or older than 15 minutes: type /launcher in Discord for a new one. (Demo: DEMO1234)";
+          demoSync = { ...demoSync, linked: true, user: "Tsumil", last: Math.floor(Date.now() / 1000), waiting: 2 };
+          return { ...demoSync };
+        case "sync_run": demoSync.last = Math.floor(Date.now() / 1000); return { ...demoSync };
+        case "sync_unlink": demoSync = { ...demoSync, linked: false, user: "", last: null, waiting: 0 }; return { ...demoSync };
         case "play": throw "Demo: Play would start Battle.net here.";
         case "open_folder": throw "Demo: this would open the folder.";
       }

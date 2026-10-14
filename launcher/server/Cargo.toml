@@ -1,0 +1,47 @@
+[package]
+name = "dz-server"
+version = "0.1.0"
+description = "DisasterZone's guild Discord bot: runs on a server, members' launchers sync the game with it"
+authors = ["tsumilo"]
+license = "MIT"
+edition = "2021"
+publish = false
+
+[dependencies]
+ab_glyph = "0.2"
+base64 = "0.22"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+chrono = { version = "0.4.41", default-features = false, features = ["clock", "std"] }
+dz-proto = { path = "../proto" }
+flate2 = "1.1.10"
+futures = "0.3.34"
+getrandom = "0.3"
+hex = "0.4.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+imageproc = { version = "0.25", default-features = false }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "charset", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.10"
+thiserror = "2.0.21"
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "time", "sync", "net", "signal", "fs"] }
+twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots", "zlib"] }
+twilight-http = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots", "decompression"] }
+twilight-model = "0.17.1"
+twilight-util = { version = "0.17", features = ["builder"] }
+
+[target."cfg(windows)".dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+
+# (the bot's pictures: image decoding and scaling are many times slower unoptimized)
+[profile.dev.package."*"]
+opt-level = 2

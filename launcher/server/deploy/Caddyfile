@@ -1,0 +1,6 @@
+# Caddy in front of the bot: HTTPS with a free Let's Encrypt certificate, renewed by itself.
+# setup.sh writes the real name in place of BOT_HOST (e.g. disasterzone.duckdns.org).
+BOT_HOST {
+	encode gzip
+	reverse_proxy 127.0.0.1:8787
+}
