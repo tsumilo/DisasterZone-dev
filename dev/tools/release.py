@@ -1032,7 +1032,8 @@ def cmd_publish(args):
         json.dump(log, fh, indent=1)
 
 
-LAUNCHER_SKIP = ("node_modules", "target", "gen")
+# (server: the guild bot, launcher/server, is not part of the launcher; it is deployed on its own)
+LAUNCHER_SKIP = ("node_modules", "target", "gen", "server")
 
 
 def launcher_version():
