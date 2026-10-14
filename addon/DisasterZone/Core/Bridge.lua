@@ -380,10 +380,21 @@ function Bridge:Snapshot()
                                 at = s.at }
             end
             table.sort(su, function(a, b) return (a.at or 0) < (b.at or 0) end)
+            -- the comp the raid aims for: its team lineup's target comp (tanks, healers, damage), if it has one
+            local need
+            local tid = v.tm and v.tm[1]
+            local l = tid and RP.GetRaidLineup and RP:GetRaidLineup(v, tid)
+            if l and l.comp and ns.RaidComp then
+                local rc = ns.RaidComp:RoleCounts(l.comp)
+                if rc.tank + rc.healer + rc.melee + rc.ranged > 0 then
+                    need = { tank = rc.tank, heal = rc.healer, dps = rc.melee + rc.ranged }
+                end
+            end
             out.raids[#out.raids + 1] = {
                 id = v.id, t = v.t, name = RP:GetRaidName(v), title = v.ti, note = v.no, size = v.sz,
                 teams = v.tm or {}, locked = v.lk or nil, cancelled = v.cancelled or nil,
-                leader = RP.GetRaidLeader and RP:GetRaidLeader(v.id) or nil, signups = su,
+                leader = RP.GetRaidLeader and RP:GetRaidLeader(v.id) or nil, signups = su, need = need,
+                inst = v.i,
             }
         end
     end

@@ -24,6 +24,11 @@ pub fn set_snap(v: Value) {
     *SNAP.lock().unwrap() = Some(v);
 }
 
+/// The last snapshot, when the bot has read one.
+pub fn current_snap() -> Option<Value> {
+    SNAP.lock().unwrap().clone()
+}
+
 fn snap() -> Value {
     SNAP.lock().unwrap().clone().unwrap_or(Value::Null)
 }
@@ -41,6 +46,20 @@ pub const CLASSES: [(&str, &str, &[&str]); 9] = [
     ("DRUID", "Druid", &["Balance", "Feral (Cat)", "Feral (Bear)", "Restoration"]),
 ];
 
+/// The role a class's spec plays on a raid card: "tank" | "heal" | "dps" (addon ns.SPECS roles).
+pub fn role_of(class: &str, spec: u32) -> &'static str {
+    match (class, spec) {
+        ("WARRIOR", 3) | ("PALADIN", 2) | ("DRUID", 3) => "tank",
+        ("PALADIN", 1) | ("PRIEST", 1) | ("PRIEST", 2) | ("SHAMAN", 3) | ("DRUID", 4) => "heal",
+        _ => "dps",
+    }
+}
+
+/// A spec's index by its label ("Protection" -> 3 for a warrior), 0 when unknown.
+pub fn spec_index(class: &str, label: &str) -> u32 {
+    class_info(class).and_then(|(_, s)| s.iter().position(|x| *x == label)).map_or(0, |i| i as u32 + 1)
+}
+
 fn class_info(class: &str) -> Option<(&'static str, &'static [&'static str])> {
     CLASSES.iter().find(|(c, _, _)| *c == class).map(|(_, n, s)| (*n, *s))
 }
@@ -50,6 +69,8 @@ fn spec_name(class: &str, spec: u32) -> &'static str {
 }
 
 pub enum Answer {
+    /// a new private message with an embed (the character card)
+    Card(twilight_model::channel::message::Embed, Vec<Component>),
     /// a new private message
     Text(String, Vec<Component>),
     /// replace the private message the menu was on
@@ -105,10 +126,24 @@ fn option(label: String, value: String, description: Option<String>, default: bo
     SelectMenuOption { default, description, emoji: None, label, value }
 }
 
-/// The character form: name and class.
+/// Every spec name once (25: exactly what one Discord menu holds), for the form's spec menu.
+fn all_specs() -> Vec<&'static str> {
+    let mut out: Vec<&str> = Vec::new();
+    for (_, _, specs) in CLASSES {
+        for s in specs.iter() {
+            if !out.contains(s) {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
+/// The character form: name, class and spec.
 #[allow(deprecated)] // (TextInput::label: the Label around it carries the words)
 fn form(raid: &str, st: &str) -> Answer {
     let classes = CLASSES.iter().map(|(c, n, _)| option(n.to_string(), c.to_string(), None, false)).collect();
+    let specs = all_specs().into_iter().map(|s| option(s.to_string(), s.to_string(), None, false)).collect();
     Answer::Modal {
         custom_id: format!("mk:{raid}:{st}"),
         title: "Your character".into(),
@@ -134,6 +169,15 @@ fn form(raid: &str, st: &str) -> Answer {
                 label: "Class".into(),
                 description: Some("Guild members: the guild roster's class counts.".into()),
                 component: Box::new(match menu("class".into(), "Class", classes) {
+                    Component::ActionRow(mut r) => r.components.remove(0),
+                    c => c,
+                }),
+            }),
+            Component::Label(Label {
+                id: None,
+                label: "Spec".into(),
+                description: Some("The one you raid as. Change it any time with Change spec.".into()),
+                component: Box::new(match menu("spec".into(), "Spec", specs) {
                     Component::ActionRow(mut r) => r.components.remove(0),
                     c => c,
                 }),
@@ -164,7 +208,7 @@ fn accept_menu(raid: &str, chars: &[Char], snap: &Value) -> Answer {
         }
     }
     options.push(option("Another character…".into(), "new".into(), Some("Make a new one".into()), false));
-    Answer::Text(format!("Accept **{}**: which character and spec?", raid_name(snap, raid)), vec![menu(format!("sp:{raid}"), "Character and spec", options)])
+    Answer::Text(format!("**{}**: which character and spec?", raid_name(snap, raid)), vec![menu(format!("sp:{raid}"), "Character and spec", options)])
 }
 
 /// A raid post's button: custom id "su:<raid>:<A|T|X>".
@@ -177,10 +221,10 @@ pub fn button(user: &str, name: &str, custom: &str, now: u64) -> Answer {
     let profiles = bridge::load_profiles();
     let chars = profiles.get(user).cloned().unwrap_or_default();
     if chars.is_empty() {
-        return form(raid, st);
+        return form(raid, if st == "S" { "A" } else { st });
     }
     let snap = snap();
-    if st == "A" {
+    if st == "A" || st == "S" {
         return accept_menu(raid, &chars, &snap);
     }
     if chars.len() == 1 {
@@ -201,26 +245,7 @@ pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64)
         // the spec of a character being made: save it, then sign up
         ["ms", raid, st, cname, class] => {
             let Ok(spec) = v.parse::<u32>() else { return text("Pick a spec.") };
-            if let Some(owner) = bridge::owner_of(&profiles, cname).filter(|o| o != user) {
-                let _ = owner;
-                return Answer::Update(format!("**{cname}** is already someone else's. Ask an officer if that's you."), Vec::new());
-            }
-            let c = Char { name: cname.to_string(), class: class.to_string(), spec, by: name.to_string() };
-            let list = profiles.entry(user.to_string()).or_default();
-            list.retain(|x| !x.name.eq_ignore_ascii_case(cname));
-            list.push(c.clone());
-            if let Err(e) = bridge::save_profiles(&profiles) {
-                return Answer::Update(format!("Could not save it: {e}"), Vec::new());
-            }
-            let made = format!("Saved **{cname}** ({}). ", spec_name(class, spec));
-            // (the addon's Discord badges: the host's inbox carries the new name at once)
-            if let Some(dir) = crate::core::state::load().flavor_dir() {
-                let _ = bridge::sync(&dir, now);
-            }
-            if raid == "-" {
-                return Answer::Update(format!("{made}The raid posts' buttons use it now."), Vec::new());
-            }
-            Answer::Update(made + &queue(raid, &c, Some(spec), st, user, name, now, &snap), Vec::new())
+            made(user, name, raid, st, cname, class, spec, "", now, &snap)
         }
         // accept with one of my characters and a spec
         ["sp", raid] => {
@@ -254,22 +279,68 @@ pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64)
     }
 }
 
+/// Save a character made in Discord, then sign it up (raid "-" = only saved): the private character card.
+#[allow(clippy::too_many_arguments)]
+fn made(user: &str, name: &str, raid: &str, st: &str, cname: &str, class: &str, spec: u32, lead: &str, now: u64, snap: &Value) -> Answer {
+    let mut profiles = bridge::load_profiles();
+    if bridge::owner_of(&profiles, cname).is_some_and(|o| o != user) {
+        return text(format!("**{cname}** is already someone else's. Ask an officer if that's you."));
+    }
+    let c = Char { name: cname.to_string(), class: class.to_string(), spec, by: name.to_string() };
+    let list = profiles.entry(user.to_string()).or_default();
+    list.retain(|x| !x.name.eq_ignore_ascii_case(cname));
+    list.push(c.clone());
+    if let Err(e) = bridge::save_profiles(&profiles) {
+        return text(format!("Could not save it: {e}"));
+    }
+    // (the addon's Discord badges: the host's inbox carries the new name at once)
+    if let Some(dir) = crate::core::state::load().flavor_dir() {
+        let _ = bridge::sync(&dir, now);
+    }
+    let mut d = format!(
+        "{lead}{}**{cname}** · {} {}\nSaved. This is how the guild sees you. Next time, the buttons sign you up straight away.",
+        crate::emoji::class_tag(class),
+        spec_name(class, spec),
+        class_info(class).map_or("", |x| x.0)
+    );
+    if raid != "-" {
+        d.push_str("\n\n");
+        d.push_str(&queue(raid, &c, Some(spec), st, user, name, now, snap));
+    }
+    let embed = twilight_util::builder::embed::EmbedBuilder::new().description(d).color(0x23a55a).build();
+    let add = Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![Component::Button(Button {
+            id: None,
+            custom_id: Some("ch:add".into()),
+            disabled: false,
+            emoji: None,
+            label: Some("Add an alt".into()),
+            style: ButtonStyle::Secondary,
+            url: None,
+            sku_id: None,
+        })],
+    });
+    Answer::Card(embed, vec![add])
+}
+
 /// The character form was sent: "mk:<raid>:<st>".
 pub fn form_sent(user: &str, data: &ModalInteractionData) -> Answer {
     let parts: Vec<&str> = data.custom_id.split(':').collect();
     let ["mk", raid, st] = parts[..] else { return text("Unknown form.") };
-    let mut typed = String::new();
-    let mut class = String::new();
-    fn walk(c: &ModalInteractionComponent, typed: &mut String, class: &mut String) {
+    let (mut typed, mut class, mut spec) = (String::new(), String::new(), String::new());
+    fn walk(c: &ModalInteractionComponent, out: &mut (&mut String, &mut String, &mut String)) {
         match c {
-            ModalInteractionComponent::Label(l) => walk(&l.component, typed, class),
-            ModalInteractionComponent::ActionRow(r) => r.components.iter().for_each(|x| walk(x, typed, class)),
-            ModalInteractionComponent::TextInput(t) if t.custom_id == "name" => *typed = t.value.clone(),
-            ModalInteractionComponent::StringSelect(s) if s.custom_id == "class" => *class = s.values.first().cloned().unwrap_or_default(),
+            ModalInteractionComponent::Label(l) => walk(&l.component, out),
+            ModalInteractionComponent::ActionRow(r) => r.components.iter().for_each(|x| walk(x, out)),
+            ModalInteractionComponent::TextInput(t) if t.custom_id == "name" => *out.0 = t.value.clone(),
+            ModalInteractionComponent::StringSelect(s) if s.custom_id == "class" => *out.1 = s.values.first().cloned().unwrap_or_default(),
+            ModalInteractionComponent::StringSelect(s) if s.custom_id == "spec" => *out.2 = s.values.first().cloned().unwrap_or_default(),
             _ => {}
         }
     }
-    data.components.iter().for_each(|c| walk(c, &mut typed, &mut class));
+    let mut out = (&mut typed, &mut class, &mut spec);
+    data.components.iter().for_each(|c| walk(c, &mut out));
     let name = bridge::tidy_name(&typed);
     if name.chars().count() < 2 || name.chars().any(|c| !(c.is_alphabetic() || c == '-' || c == '\'')) {
         return text("That doesn't look like a character name.");
@@ -296,7 +367,16 @@ pub fn form_sent(user: &str, data: &ModalInteractionData) -> Answer {
             (name, class)
         }
     };
-    spec_menu(raid, st, &name, &class, lead)
+    // the spec picked in the form, when that class has it; else the class's own spec menu
+    match spec_index(&class, &spec) {
+        0 => spec_menu(raid, st, &name, &class, lead),
+        i => made(user, &user_name_of(user), raid, st, &name, &class, i, &lead, crate::bot::unix_now(), &snap),
+    }
+}
+
+/// The Discord name kept with a user's characters (their first), else "Discord".
+fn user_name_of(user: &str) -> String {
+    bridge::load_profiles().get(user).and_then(|c| c.first()).map(|c| c.by.clone()).filter(|b| !b.is_empty()).unwrap_or_else(|| "Discord".into())
 }
 
 /// /character: my characters, with remove and add.
@@ -339,13 +419,22 @@ fn queue(raid: &str, c: &Char, sp: Option<u32>, st: &str, user: &str, name: &str
     if let Err(e) = bridge::push(&dir, r, now) {
         return format!("Could not save it: {e}");
     }
-    let what = match st {
-        "A" => "Signed up",
-        "T" => "Marked tentative",
-        _ => "Marked as can't come",
-    };
-    let spec = if st == "A" { format!(" ({})", spec_name(&c.class, sp)) } else { String::new() };
-    format!("{what}: **{}**{spec} for {}. It reaches the game, and the post, at the host's next /reload.", c.name, raid_name(snap, raid))
+    let t = lua_list(snap.get("raids"))
+        .into_iter()
+        .find(|r| r.get("id").and_then(|x| x.as_str()) == Some(raid))
+        .and_then(|r| r.get("t").and_then(|x| x.as_i64()));
+    let when = t.map(|t| format!(", <t:{t}:f>")).unwrap_or_default();
+    let who = format!("{}**{}**", crate::emoji::class_tag(&c.class), c.name);
+    match st {
+        "A" => format!(
+            "{}{who} is in for **{}**{when}, as {}. It shows as *pending* on the post until the raid leader's next sync.",
+            crate::emoji::tag("dz_ready"),
+            raid_name(snap, raid),
+            spec_name(&c.class, sp)
+        ),
+        "T" => format!("{}{who} is tentative for **{}**{when}.", crate::emoji::tag("dz_waiting"), raid_name(snap, raid)),
+        _ => format!("{}{who} can't come to **{}**{when}.", crate::emoji::tag("dz_notready"), raid_name(snap, raid)),
+    }
 }
 
 #[cfg(test)]

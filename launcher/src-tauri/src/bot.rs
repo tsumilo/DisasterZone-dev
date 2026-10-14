@@ -190,6 +190,7 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
             Ok(Event::Ready(r)) => {
                 set_status(app, BotStatus::Online { name: r.user.name.clone() });
                 refresh_channels(&http, guild_id).await;
+                crate::emoji::sync(&http, app_id).await;
                 seen = None; // (post what changed while the bot was offline)
             }
             Ok(Event::InteractionCreate(i)) => {
@@ -303,9 +304,15 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
             } else {
                 crate::signup::select(&user, &name, &c.custom_id, &c.values, now)
             };
-            return respond(http, app_id, i, a).await;
+            let r = respond(http, app_id, i, a).await;
+            crate::posts::refresh(http).await; // (a new answer shows on its post at once, pending)
+            return r;
         }
-        Some(InteractionData::ModalSubmit(m)) => return respond(http, app_id, i, crate::signup::form_sent(&user, m)).await,
+        Some(InteractionData::ModalSubmit(m)) => {
+            let r = respond(http, app_id, i, crate::signup::form_sent(&user, m)).await;
+            crate::posts::refresh(http).await;
+            return r;
+        }
         Some(InteractionData::ApplicationCommand(cmd)) if i.kind == InteractionType::ApplicationCommandAutocomplete => {
             return item_choices(http, app_id, i, cmd).await;
         }
@@ -375,6 +382,15 @@ async fn respond(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, 
     use crate::signup::Answer;
     let (kind, data) = match a {
         Answer::Text(t, c) => return reply_with(http, app_id, i, t, c).await,
+        Answer::Card(e, c) => (
+            InteractionResponseType::ChannelMessageWithSource,
+            InteractionResponseData {
+                embeds: Some(vec![e]),
+                components: Some(c),
+                flags: Some(MessageFlags::EPHEMERAL),
+                ..Default::default()
+            },
+        ),
         Answer::Update(t, c) => (
             InteractionResponseType::UpdateMessage,
             InteractionResponseData { content: Some(t), components: Some(c), ..Default::default() },
@@ -469,7 +485,7 @@ async fn reply_with(
     Ok(())
 }
 
-fn unix_now() -> u64 {
+pub fn unix_now() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
