@@ -821,6 +821,7 @@ function RUI:MoreMenu(root)
     if host then
         root:CreateButton("Import", function() RUI:ShowImport() end)
     end
+    root:CreateButton("Try the demo", function() if ns.ReserveDemo then ns.ReserveDemo:Start() end end)
     local ex = root:CreateButton("Export")
     ex:CreateButton("softres.it CSV", function() RUI:ShowExport("csv") end)
     ex:CreateButton("LootReserve CSV", function() RUI:ShowExport("lootreserve") end)
@@ -929,6 +930,167 @@ function RUI:GetFrame() return win end
 function RUI:GetState() return st end
 
 ---------------------------------------------------------------------------
+-- The demo's panel (Core/ReserveDemo.lua): the step, what it shows, Back / Next, whose eyes, and the chat a pug reads
+---------------------------------------------------------------------------
+local DEMO_W, DEMO_H, CHAT_LINES = 400, 330, 8
+local CHAT_COLOR = { rw = "ff4809", raid = "ff7f00", to = "ff80ff", from = "ff80ff", sys = "ffff00" }
+local demoPanel
+
+local function DemoPanel()
+    if demoPanel then return demoPanel end
+    local u = UI()
+    local f = u:CreateHudFrame("DisasterZoneReserveDemo", { width = DEMO_W, height = DEMO_H, look = "card",
+        strata = "HIGH", toplevel = true, position = false })
+    f:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -40, -170)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    f.kicker = u:Text(f, "caps", "GOLD")
+    f.kicker:SetPoint("TOPLEFT", S.PAD + 2, -S.PAD)
+    f.close = u:CreateCloseButton(f)
+    f.close:SetPoint("TOPRIGHT", -4, -4)
+    f.close:SetScript("OnClick", function() ns.ReserveDemo:Stop() end)
+    f.title = u:Text(f, "title")
+    f.title:SetPoint("TOPLEFT", S.PAD + 2, -S.PAD - 18)
+    f.text = u:Text(f, "body", "SUB")
+    f.text:SetPoint("TOPLEFT", S.PAD + 2, -S.PAD - 42)
+    f.text:SetWidth(DEMO_W - 2 * S.PAD - 4)
+    f.text:SetWordWrap(true)
+    f.text:SetJustifyH("LEFT")
+    f.views = {}
+    local x = S.PAD + 2
+    for i, v in ipairs(ns.ReserveDemo.VIEWS) do
+        local b = u:CreateSleekButton(f, v[2], 0, S.BTN_H - 2, function() ns.ReserveDemo:SetView(v[1]) end)
+        local w = floor((b:GetFontString():GetStringWidth() or 60) + 24)
+        b:SetWidth(w)
+        b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -S.PAD - 116)
+        b.view = v[1]
+        x = x + w + 4
+        f.views[i] = b
+    end
+    f.chat = CreateFrame("Frame", nil, f)
+    f.chat:SetPoint("TOPLEFT", S.PAD, -S.PAD - 146)
+    f.chat:SetPoint("TOPRIGHT", -S.PAD, -S.PAD - 146)
+    f.chat:SetHeight(CHAT_LINES * 15 + 24)
+    u:Fill(f.chat, "INSET", "BACKGROUND")
+    f.chat.head = u:Text(f.chat, "caps", "DIM", { text = "What a pug reads in chat" })
+    f.chat.head:SetPoint("TOPLEFT", 6, -5)
+    f.chat.lines = {}
+    for k = 1, CHAT_LINES do
+        local fs = f.chat:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
+        fs:SetPoint("TOPLEFT", 6, -21 - (k - 1) * 15)
+        fs:SetWidth(DEMO_W - 2 * S.PAD - 12)
+        fs:SetJustifyH("LEFT")
+        fs:SetWordWrap(false)
+        f.chat.lines[k] = fs
+    end
+    f.back = u:CreateSleekButton(f, "Back", 70, S.BTN_H, function() ns.ReserveDemo:Back() end)
+    f.back:SetPoint("BOTTOMLEFT", S.PAD, S.PAD)
+    f.next = u:CreateSleekButton(f, "Next", 90, S.BTN_H, function()
+        local d = ns.ReserveDemo:GetState()
+        if d.step >= #ns.ReserveDemo.STEPS then ns.ReserveDemo:Stop() else ns.ReserveDemo:Next() end
+    end, "primary")
+    f.next:SetPoint("BOTTOMRIGHT", -S.PAD, S.PAD)
+    f.hint = u:Text(f, "small", "DIM")
+    f.hint:SetPoint("LEFT", f.back, "RIGHT", 10, 0)
+    f.hint:SetPoint("RIGHT", f.next, "LEFT", -10, 0)
+    f.hint:SetJustifyH("CENTER")
+    f:Hide()
+    demoPanel = f
+    return f
+end
+
+-- Opens what the step's person has on their screen.
+local function ShowDemoView(d)
+    local key = ns.ReserveDemo.STEPS[d.step].key
+    local view = d.view
+    local DP, SB = ns.DropPanel, ns.SessionBar
+    if win then win:Hide() end
+    if DP and DP.Hide then DP:Hide() end
+    if view == "pug" then return end
+    if key == "setup" then
+        -- the crest before the start, Reserves picked on its line, the drawer open (the leader's)
+        if SB and SB.Demo then
+            SB:Demo("idle")
+            local p = SB.GetPick and SB:GetPick()
+            if not (p and p.reserve) and SB.FlipPick then SB:FlipPick("reserve") end
+            if view == "lead" and SB.ToggleDrawer then SB:ToggleDrawer(true) end
+        end
+    elseif key == "open" then
+        if view == "lead" then
+            RUI:Show("list")
+        else
+            local L = Res():Get()
+            UI():Toast({ key = "dz-reserves-open", kicker = "Reserves open · by " .. ns.Util.ShortName(L and L.by or "?"),
+                title = RaidName(L and L.rk), text = RUI:RulesLine(L), duration = 12,
+                buttons = { { text = "Reserve", kind = "primary", onClick = function() RUI:Show("pick") end },
+                            { text = "Later", kind = "link" } } })
+        end
+    elseif key == "reserve" or key == "pull" then
+        RUI:Show(view == "lead" and "list" or "pick")
+    elseif key == "mine" then
+        st.boss = "Vashj"
+        RUI:Show("pick")
+    elseif key == "drop" then
+        if view == "lead" then
+            if DP and DP.ShowDrop and d.drop then DP:ShowDrop(d.drop) end
+        elseif d.drop and ns.Roll and ns.Roll.StartAll and not d.rolledAll then
+            d.rolledAll = true
+            ns.Roll:StartAll(d.drop)
+        end
+    elseif key == "wrap" then
+        RUI:Show("wrap")
+    end
+end
+
+function RUI:RefreshDemo(n)
+    local RD = ns.ReserveDemo
+    if not (RD and RD:IsRunning()) or n == 0 then
+        if demoPanel and demoPanel:IsShown() then
+            demoPanel:Hide()
+            demoPanel.lastStep = nil
+            local SB = ns.SessionBar
+            if SB and SB.Demo then pcall(SB.Demo, SB, "off") end
+        end
+        return
+    end
+    local f = DemoPanel()
+    local d = RD:GetState()
+    local step = RD.STEPS[d.step]
+    f.kicker:SetText(("Reserves demo · step %d of %d"):format(d.step, #RD.STEPS))
+    f.title:SetText(step.title)
+    f.text:SetText(step.text)
+    for _, b in ipairs(f.views) do
+        if b.SetKind then b:SetKind(b.view == d.view and "chosen" or "secondary") end
+    end
+    local lines = RD:Lines()
+    local first = max(1, #lines - CHAT_LINES + 1)
+    local L = Res():Get()
+    local lead = ns.Util.ShortName((L and L.by) or ns.Util.PlayerKey() or "?")
+    for k = 1, CHAT_LINES do
+        local e = lines[first + k - 1]
+        local fs = f.chat.lines[k]
+        if e then
+            local pre = ({ rw = "[Raid Warning] [" .. lead .. "]: ", raid = "[Raid] ", to = "To [" .. lead .. "]: ",
+                           from = "[" .. lead .. "] whispers: ", sys = "" })[e.kind] or ""
+            fs:SetText("|cff" .. (CHAT_COLOR[e.kind] or "ffffff") .. pre .. e.text .. "|r")
+        else
+            fs:SetText("")
+        end
+    end
+    f.back:SetEnabled(d.step > 1)
+    f.next:SetText(d.step >= #RD.STEPS and "Done" or "Next")
+    f.hint:SetText(d.view == "pug" and "A pug without any addon: chat only"
+        or (d.view == "raider" and "A raider with DisasterZone" or "You, running the raid"))
+    f:Show()
+    if f.lastStep ~= d.step or f.lastView ~= d.view then
+        f.lastStep, f.lastView = d.step, d.view
+        ShowDemoView(d)
+    end
+end
+
+---------------------------------------------------------------------------
 -- The raider's pop-up when reserves open, /dz reserves
 ---------------------------------------------------------------------------
 local toasted = {}
@@ -950,6 +1112,7 @@ end
 
 function RUI:OnInit()
     ns:On("RESERVES_OPENED", function(L) ns.Util.After(1, function() MaybeToast(L) end) end)
+    ns:On("RESERVE_DEMO_STEP", function(n) RUI:RefreshDemo(n) end)
     ns:RegisterSlash("reserves", function(arg)
         arg = (arg or ""):lower()
         if arg == "demo" then

@@ -629,6 +629,9 @@ end
 -- Is that player a guest: someone outside my guild (pugs in a raid, guests on a planned raid)? False while the
 -- guild roster is not known, and for my own character.
 function UI:IsGuest(key)
+    -- (1.4.3: the reserves demo's pugs)
+    local D = ns.Demo
+    if D and D.IsGuest and ns.Util.DemoOn() and D:IsGuest(key) then return true end
     local G = ns.Guild
     if type(key) ~= "string" or not (G and G.IsReady and G:IsReady()) then return false end
     if ns.Util.IsMe(key) or G:IsInGuild(key) then return false end

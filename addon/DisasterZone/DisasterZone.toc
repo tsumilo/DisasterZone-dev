@@ -160,6 +160,7 @@ Core\Reserves.lua
 Core\ReserveChat.lua
 Core\ReserveLR.lua
 Core\ReserveIO.lua
+Core\ReserveDemo.lua
 Core\Loon.lua
 Core\Atlas.lua
 Core\Materials.lua

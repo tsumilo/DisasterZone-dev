@@ -299,6 +299,11 @@ function Demo:GetMembers()
     return out
 end
 
+-- 1.4.3: who of the demo raid plays a pug tonight (the reserves demo sets them; UI:IsGuest and Roll ask).
+local guests = {}
+function Demo:SetGuests(set) guests = type(set) == "table" and set or {} end
+function Demo:IsGuest(key) return enabled and type(key) == "string" and guests[key] == true or false end
+
 -- The player plus ~10 fake members are "in raid" while demo mode is on.
 function Demo:IsInDemoRaid(key)
     if not enabled or not generated or type(key) ~= "string" then return false end

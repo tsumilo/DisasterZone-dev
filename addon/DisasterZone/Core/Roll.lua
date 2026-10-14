@@ -649,6 +649,9 @@ local function OpenLocal(ses)
     ses.state = "open"
     ses.startedAt = GetServerTime()
     ses.duration = (rv == "s" and #ses.rk == 1) and SOLO_DURATION or Duration()
+    -- (the reserves demo plays its night a little faster)
+    local RD = ses.demo and rv and ns.ReserveDemo
+    if RD and RD.RollDuration and RD:RollDuration() then ses.duration = min(ses.duration, RD:RollDuration()) end
     ses.endsAt = GetTime() + ses.duration
     ses.openedAt = GetTime()
     SnapshotTiers(ses)
