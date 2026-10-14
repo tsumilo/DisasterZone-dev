@@ -99,17 +99,23 @@ D.FOES = {
     blossom = { n = "Doom Blossom", i = 136210, hp = 6, r = 13, ai = "blossom", sp = 0.6 },
 }
 
--- the five floors: their art (FileDataIDs: floor, wall, a tint over the floor), enemies and boss
+-- the five floors: their art (FileDataIDs: floor, wall, a tint over the floor), their light (the sconces' colour, how
+-- strong their pools are, one glow in the room's middle: r, g, b, radius, alpha), enemies and boss
 D.FLOORS = {
     { name = "Magtheridon's Lair", floor = 131958, floorK = 0.5, wall = 126953, tint = { 0.86, 0.35, 0.12, 0.10 },
+      light = { 1, 0.5, 0.15 }, lightK = 0.30, glow = { 0.9, 0.12, 0.04, 210, 0.16 },
       art = "mag", foes = { "imp", "felhunter", "void", "bat" }, boss = "magtheridon" },
     { name = "Illidari Training Grounds", floor = 128034, floorK = 0.5, wall = 128045, tint = { 0.47, 0.86, 0.24, 0.08 },
+      light = { 0.45, 1, 0.22 }, lightK = 0.26, glow = { 0.3, 0.7, 0.1, 200, 0.08 },
       art = "bt", foes = { "brute", "felhunter", "imp", "channeler" }, boss = "supremus" },
     { name = "Gorefiend's Vigil", floor = 127251, floorK = 0.8, wall = 126953, tint = { 0.35, 0.2, 0.6, 0.08 },
+      light = { 0.55, 0.5, 1 }, lightK = 0.26, glow = { 0.35, 0.55, 0.9, 220, 0.10 },
       art = "bt", foes = { "dead", "bat", "watcher", "void", "spider" }, boss = "teron" },
     { name = "Den of Mortal Delights", floor = 128037, floorK = 0.55, wall = 127261, tint = { 0.9, 0.3, 0.6, 0.08 },
+      light = { 1, 0.35, 0.7 }, lightK = 0.28, glow = { 0.9, 0.5, 0.25, 200, 0.08 },
       art = "bt", foes = { "priestess", "brute", "felhunter", "bat" }, boss = "shahraz" },
     { name = "Temple Summit", floor = 128040, floorK = 0.6, wall = 128045, tint = { 0.6, 0.35, 1, 0.08 },
+      light = { 0.45, 1, 0.22 }, lightK = 0.24, glow = { 0.55, 0.3, 1, 230, 0.14 },
       art = "bt", foes = { "brute", "felhunter", "void", "channeler", "bat" }, boss = "illidan" },
 }
 D.TRIM, D.DOOR, D.PEDESTAL = 126957, 126730, 126722

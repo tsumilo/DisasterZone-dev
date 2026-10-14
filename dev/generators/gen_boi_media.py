@@ -5,6 +5,8 @@
                              cross bands and spiked feet, clear between the bars
   Media/Illidan/passage.tga  64 x 64: the dark beyond a doorway - black at the top (the far end) fading out to the
                              bottom (the room's side), darker at the sides
+  Media/Illidan/vignette.tga 256 x 256: black, clear in the middle, darkening towards the edges and most in the
+                             corners (a superellipse), laid over a room's floor
 The textures come from dev/art/casc/tex (decoded from the installed client: ui_look / the room tools put them there).
 Pictures read top = the door's outer end (into the wall), bottom = the room's side, as UI.lua turns them per side.
 Run (from dev): luaenv\\Scripts\\python.exe generators\\gen_boi_media.py"""
@@ -93,11 +95,25 @@ def passage():
     out.save(OUT / "passage.tga")
 
 
+def vignette():
+    S = 256
+    img = Image.new("RGBA", (S, S))
+    px = img.load()
+    for y in range(S):
+        for x in range(S):
+            dx, dy = (x + 0.5) / S * 2 - 1, (y + 0.5) / S * 2 - 1
+            d = (abs(dx) ** 3 + abs(dy) ** 3) ** (1 / 3)
+            t = max(0.0, min(1.0, (d - 0.45) / 0.6))
+            px[x, y] = (0, 0, 0, int(255 * t * t * (3 - 2 * t)))
+    img.save(OUT / "vignette.tga")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     door()
     bars()
     passage()
+    vignette()
     print("wrote", ", ".join(p.name for p in sorted(OUT.glob("*.tga"))))
 
 

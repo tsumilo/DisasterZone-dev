@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Illidan/UI.lua", ...) then return end -- DisasterZone Games/Illidan/UI.lua
 -- ns.BoIUI: The Binding of Illidan's panel in the Games hub. The room is drawn from the run (ns.BoI) every frame:
--- the raid's floor and wall textures, gilded doors, round tokens for you and the enemies (icons in a ring; bosses
+-- the raid's floor and wall textures lit by the floor's sconces, gilded doors, round tokens for you and the enemies (icons in a ring; bosses
 -- are their encounter-journal busts), glowing tears and shots, the bosses' telegraphs, then the HUD (healthstones,
 -- soul shards, gold / bombs / keys, items, the minimap, a boss and cast bar, yells and emotes) and the cards (the
 -- floor's title, the boss's versus, the end of a run).
@@ -211,6 +211,10 @@ end
 -- The room
 ---------------------------------------------------------------------------
 
+-- the sconces: x, y on the wall band, which way the room is (their light's pool lies that way)
+local SCONCES = { { 225, Y0 - 20, 1 }, { 495, Y0 - 20, 1 }, { 225, Y1 + 20, -1 }, { 495, Y1 + 20, -1 } }
+local FLAME = { 1, 0.95, 0.8 }
+
 local function DrawStatic()
     local F = run.F
     local k = F.floorK or 0.5
@@ -223,6 +227,20 @@ local function DrawStatic()
     end
     fl:SetVertexColor(k, k, k)
     layers.tint:SetColorTexture(F.tint[1], F.tint[2], F.tint[3], F.tint[4])
+    -- the floor's light: sconces on the top and bottom walls (an iron bracket, a flickering flame, its halo on the
+    -- wall, a pool spilling onto the floor in the floor's colour) and one glow in the room's middle
+    local c, t = F.light or WHITE, (run.frame or 0) / 60
+    for i, s in ipairs(SCONCES) do
+        local f = 0.88 + 0.08 * sin(t * 7 + i * 1.7) + 0.04 * sin(t * 13 + i)
+        Glow("floorGlow", s[1], s[2] + s[3] * 46, 130, c, (F.lightK or 0.25) * f)
+        Glow("floorGlow", s[1], s[2] - 3, 30 * f, c, 0.5 * f)
+        Rect("floorRect", s[1] - 6, s[2] + 3.5, 12, 5, { 0.08, 0.06, 0.05 }, 0.95)
+        Rect("floorRect", s[1] - 2, s[2] + 7, 4, 6, { 0.05, 0.04, 0.03 }, 0.9)
+        Place(Glow("floorGlow", 0, 0, 1, c, 0.95), s[1], s[2] - 4, 13, 24 * f)
+        Place(Glow("floorGlow", 0, 0, 1, FLAME, 0.95), s[1], s[2] - 1, 6, 11 * f)
+    end
+    local g = F.glow
+    if g then Glow("floorGlow", CX, CY, g[4], g, g[5]) end
 end
 
 -- The doors. Each is the gilded door frame of the Black Temple with its recess opened up, and a portcullis of the
@@ -287,6 +305,14 @@ end
 
 local DOOR_TINT = { boss = { 1, 0.62, 0.55 }, treasure = { 1, 0.95, 0.72 }, secret = { 0.8, 0.72, 1 } }
 
+-- a door takes the room's light: the top and bottom walls' stand between two sconces, the side walls' in the dark;
+-- a little of the floor's colour in it
+local function DoorLight(dir, c)
+    local L = run.F.light or WHITE
+    local k = (dir == "up" or dir == "down") and 0.78 or 0.6
+    return k * c[1] * (0.82 + 0.18 * L[1]), k * c[2] * (0.82 + 0.18 * L[2]), k * c[3] * (0.82 + 0.18 * L[3])
+end
+
 local function DrawDoors()
     -- each door, in its own coordinates (u along the wall, v out into it): the next room's floor running in under
     -- the arch and fading into the passage's dark, a light from beyond, the portcullis, the frame over it all
@@ -309,11 +335,12 @@ local function DrawDoors()
         local shut = 1 - st.open
         if shut > 0.01 then
             local bars = DoorQuad("bars", d.dir, -17, 17, 36 - 48 * shut, 36, 0, 1, 1 - shut, 1)
-            if d.kind == "treasure" then bars:SetVertexColor(1, 0.85, 0.5, 1) else bars:SetVertexColor(0.85, 0.85, 0.9, 1) end
+            local r, g, b = DoorLight(d.dir, d.kind == "treasure" and { 1, 0.85, 0.5 } or { 0.85, 0.85, 0.9 })
+            bars:SetVertexColor(r, g, b, 1)
         end
         local fr = DoorQuad("door", d.dir, -30, 30, -12, 48)
-        local tint = DOOR_TINT[d.kind] or WHITE
-        fr:SetVertexColor(tint[1], tint[2], tint[3], 1)
+        local r, g, b = DoorLight(d.dir, DOOR_TINT[d.kind] or WHITE)
+        fr:SetVertexColor(r, g, b, 1)
         if st.dust then
             local kk = st.dust / 0.35
             for _, u in ipairs({ -12, 0, 12 }) do
@@ -1269,7 +1296,7 @@ local function BuildScreen(parent)
     layers = {}
     layers.surround = root:CreateTexture(nil, "BACKGROUND", nil, -7)
     layers.surround:SetAllPoints()
-    layers.surround:SetVertexColor(0.8, 0.8, 0.8)
+    layers.surround:SetVertexColor(0.3, 0.3, 0.3)      -- (the far wall, in the dark)
     layers.surround:Hide()
     screen = CreateFrame("Frame", nil, root)
     screen:SetSize(W, H)
@@ -1299,8 +1326,17 @@ local function BuildScreen(parent)
         t:SetPoint("TOPLEFT", r[1], -r[2])
         t:SetSize(r[3], r[4])
         t:SetTexCoord(0, r[3] / 128, 0, r[4] / 128)
-        t:SetVertexColor(0.8, 0.8, 0.8)
+        t:SetVertexColor(0.62, 0.62, 0.62)
         layers.walls[#layers.walls + 1] = t
+    end
+    -- the walls' faces: darker away from the room (Gradient: VERTICAL runs bottom -> top, HORIZONTAL left -> right)
+    for _, s in ipairs({ { "VERTICAL", 0, 0, W, Y0, 0, 0.7 }, { "VERTICAL", 0, Y1, W, H - Y1, 0.7, 0 },
+                         { "HORIZONTAL", 0, Y0, X0, Y1 - Y0, 0.7, 0 }, { "HORIZONTAL", X1, Y0, W - X1, Y1 - Y0, 0, 0.7 } }) do
+        local t = st:CreateTexture(nil, "BACKGROUND", nil, 3)
+        t:SetPoint("TOPLEFT", s[2], -s[3])
+        t:SetSize(s[4], s[5])
+        t:SetColorTexture(1, 1, 1, 1)
+        ns.UI:GradientRGBA(t, s[1], 0, 0, 0, s[6], 0, 0, 0, s[7])
     end
     for _, y in ipairs({ Y0 - 14, Y1 - 10 }) do
         local t = st:CreateTexture(nil, "BORDER", nil, 0)
@@ -1308,16 +1344,30 @@ local function BuildScreen(parent)
         t:SetPoint("TOPLEFT", 0, -y)
         t:SetSize(W, 24)
         if y < CY then t:SetTexCoord(0, W / 96, 0.5, 1) else t:SetTexCoord(0, W / 96, 0, 0.5) end
-        t:SetAlpha(0.85)
+        -- (the bottom trim faces away from the light)
+        if y < CY then t:SetAlpha(0.85) else t:SetVertexColor(0.24, 0.24, 0.24) t:SetAlpha(0.9) end
     end
-    for _, s in ipairs({ { "TOP", "VERTICAL", X0, Y0, X1 - X0, 22, true }, { "BOTTOM", "VERTICAL", X0, Y1 - 22, X1 - X0, 22, false },
-                         { "LEFT", "HORIZONTAL", X0, Y0, 22, Y1 - Y0, false }, { "RIGHT", "HORIZONTAL", X1 - 22, Y0, 22, Y1 - Y0, true } }) do
+    -- a lit lip along the top wall's foot, catching the room's light
+    local lip = st:CreateTexture(nil, "BORDER", nil, 2)
+    lip:SetPoint("TOPLEFT", X0, -(Y0 - 5))
+    lip:SetSize(X1 - X0, 5)
+    lip:SetColorTexture(1, 1, 1, 1)
+    ns.UI:GradientRGBA(lip, "VERTICAL", 1, 0.85, 0.6, 0, 1, 0.85, 0.6, 0.16)
+    -- the walls' shadows on the floor: deep under the top wall (it stands over the floor), shallow at the foot
+    for _, s in ipairs({ { "VERTICAL", X0, Y0, X1 - X0, 54, true, 0.8 }, { "VERTICAL", X0, Y1 - 18, X1 - X0, 18, false, 0.45 },
+                         { "HORIZONTAL", X0, Y0, 34, Y1 - Y0, false, 0.65 }, { "HORIZONTAL", X1 - 34, Y0, 34, Y1 - Y0, true, 0.65 } }) do
         local t = st:CreateTexture(nil, "BORDER", nil, 1)
-        t:SetPoint("TOPLEFT", s[3], -s[4])
-        t:SetSize(s[5], s[6])
+        t:SetPoint("TOPLEFT", s[2], -s[3])
+        t:SetSize(s[4], s[5])
         t:SetColorTexture(1, 1, 1, 1)
-        if s[7] then ns.UI:GradientRGBA(t, s[2], 0, 0, 0, 0, 0, 0, 0, 0.55) else ns.UI:GradientRGBA(t, s[2], 0, 0, 0, 0.55, 0, 0, 0, 0) end
+        if s[6] then ns.UI:GradientRGBA(t, s[1], 0, 0, 0, 0, 0, 0, 0, s[7]) else ns.UI:GradientRGBA(t, s[1], 0, 0, 0, s[7], 0, 0, 0, 0) end
     end
+    -- the vignette: the floor darkening towards its corners (Media/Illidan/vignette)
+    local vig = st:CreateTexture(nil, "BORDER", nil, 3)
+    vig:SetTexture(KIT .. "vignette")
+    vig:SetPoint("TOPLEFT", X0, -Y0)
+    vig:SetSize(X1 - X0, Y1 - Y0)
+    vig:SetAlpha(0.4)           -- (gentle: enemies and shots by the walls stay easy to see)
     -- pools by layer: the low layer (on the floor), the actors, the air (tears, shots, beams), the HUD, the cards
     pools.floorRect = NewPool(st, "tex", "ARTWORK", 0)
     pools.floorGlow = NewPool(st, "tex", "ARTWORK", 1, "ADD", RADIAL)
