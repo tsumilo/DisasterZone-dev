@@ -572,9 +572,11 @@ function RollFrame:ReserveStand(session)
     if not kind then return nil end
     if kind == "o" then return "grabs" end
     if kind == "g" then
+        -- a guest: in no guild at all, or not in the guild of whoever started the roll
         local G = ns.Guild
-        local guest = G and G.IsInGuild and session.starter and not IsMe(session.starter)
-            and (not G.IsReady or G:IsReady()) and not G:IsInGuild(session.starter)
+        local guildless = _G.IsInGuild and not _G.IsInGuild()
+        local guest = guildless or (G and G.IsInGuild and session.starter and not IsMe(session.starter)
+            and (not G.IsReady or G:IsReady()) and not G:IsInGuild(session.starter))
         return guest and "guild" or "council"
     end
     local me = ns.Util.PlayerKey()
