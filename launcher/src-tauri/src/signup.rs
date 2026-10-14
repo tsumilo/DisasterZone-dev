@@ -69,6 +69,8 @@ fn spec_name(class: &str, spec: u32) -> &'static str {
 }
 
 pub enum Answer {
+    /// replace the private message the menu was on with an embed
+    UpdateCard(twilight_model::channel::message::Embed, Vec<Component>),
     /// a new private message with an embed (the character card)
     Card(twilight_model::channel::message::Embed, Vec<Component>),
     /// a new private message
@@ -217,6 +219,30 @@ pub fn button(user: &str, name: &str, custom: &str, now: u64) -> Answer {
     if custom == "ch:add" {
         return form("-", "-");
     }
+    if custom == "wk:raids" {
+        return my_raids(user, None);
+    }
+    if custom == "wk:chars" {
+        return characters(user);
+    }
+    if custom == "wk:bis" {
+        return text(bis_text(user, None, now));
+    }
+    if let ["mr", raid, st] = parts[..] {
+        // an answer from My raids: my main character, then the list again
+        let chars = bridge::load_profiles().get(user).cloned().unwrap_or_default();
+        let Some(c) = chars.first() else { return form(raid, st) };
+        let snap = snap();
+        let done = queue(raid, c, None, st, user, name, now, &snap);
+        return match my_raids(user, None) {
+            Answer::Card(e, comps) => {
+                let mut e = e;
+                e.description = Some(format!("{}\n\n{done}", e.description.unwrap_or_default()));
+                Answer::UpdateCard(e, comps)
+            }
+            other => other,
+        };
+    }
     let ["su", raid, st] = parts[..] else { return text("Unknown button.") };
     let profiles = bridge::load_profiles();
     let chars = profiles.get(user).cloned().unwrap_or_default();
@@ -262,6 +288,11 @@ pub fn select(user: &str, name: &str, custom: &str, values: &[String], now: u64)
             let Some(c) = v.parse::<usize>().ok().and_then(|i| chars.get(i)) else { return text("Pick one.") };
             Answer::Update(queue(raid, c, None, st, user, name, now, &snap), Vec::new())
         }
+        // My raids: a raid picked, its answers under it
+        ["mr", "pick"] => match my_raids(user, Some(v)) {
+            Answer::Card(e, c) => Answer::UpdateCard(e, c),
+            other => other,
+        },
         // /character: remove one
         ["ch", "rm"] => {
             let Some(i) = v.parse::<usize>().ok().filter(|i| *i < chars.len()) else { return text("Pick one.") };
@@ -458,7 +489,121 @@ mod tests {
 }
 
 // ------------------------------------------------------------------------------------------------------------------
-// /raids: the coming raids, their sign-ups and my answer (from the host's last snapshot)
+// My raids (/raids and the week board's button): this week's raids, my answer to each, answer from here
+// ------------------------------------------------------------------------------------------------------------------
+
+/// My answer to a raid: the newest of the queue (pending) and the snapshot, for any of my characters.
+fn my_answer(raid: &Value, mine: &[String], queue: &[bridge::Record]) -> Option<(String, bool)> {
+    let id = raid.get("id").and_then(|x| x.as_str()).unwrap_or("");
+    let is_mine = |n: &str| mine.contains(&n.split('-').next().unwrap_or(n).to_lowercase());
+    if let Some(r) = queue.iter().rev().find(|r| {
+        r.kind == "signup" && r.body.get("raid").and_then(|x| x.as_str()) == Some(id) && r.body.get("name").and_then(|x| x.as_str()).is_some_and(is_mine)
+    }) {
+        return r.body.get("st").and_then(|x| x.as_str()).map(|s| (s.to_string(), true));
+    }
+    lua_list(raid.get("signups")).into_iter().find_map(|s| {
+        let key = s.get("key")?.as_str()?;
+        is_mine(key).then(|| {
+            let st = match s.get("st").and_then(|x| x.as_str()) {
+                Some("accept") => "A",
+                Some("tentative") | Some("bench") => "T",
+                _ => "X",
+            };
+            (st.to_string(), false)
+        })
+    })
+}
+
+/// The private "Your raids this week" card; `picked` = the raid whose answer buttons show.
+pub fn my_raids(user: &str, picked: Option<&str>) -> Answer {
+    let snap = snap();
+    let queue = bridge::load_queue();
+    let posts = crate::posts::load_posts();
+    let guild = GUILD.lock().unwrap().clone();
+    let mine: Vec<String> =
+        bridge::load_profiles().get(user).map(|cs| cs.iter().map(|c| c.name.to_lowercase()).collect()).unwrap_or_default();
+    let now = crate::bot::unix_now() as i64;
+    let mut lines = Vec::new();
+    let mut options = Vec::new();
+    for raid in lua_list(snap.get("raids")) {
+        let t = raid.get("t").and_then(|x| x.as_i64()).unwrap_or(0);
+        if t + 4 * 3600 < now || t > now + 7 * 86400 || raid.get("cancelled").and_then(|x| x.as_bool()) == Some(true) {
+            continue;
+        }
+        let id = raid.get("id").and_then(|x| x.as_str()).unwrap_or("");
+        let name = raid.get("title").or(raid.get("name")).and_then(|x| x.as_str()).unwrap_or("Raid");
+        let (acc, _, _) = crate::posts::people(raid, &queue);
+        let size = raid.get("size").and_then(|x| x.as_u64()).unwrap_or(25);
+        let need = crate::posts::needs(raid, &acc);
+        let ans = my_answer(raid, &mine, &queue);
+        let chip = match ans.as_ref().map(|a| a.0.as_str()) {
+            Some("A") => format!("{}In", crate::emoji::tag("dz_ready")),
+            Some("T") => format!("{}Tentative", crate::emoji::tag("dz_waiting")),
+            Some(_) => format!("{}Can't come", crate::emoji::tag("dz_notready")),
+            None => "**Not answered**".to_string(),
+        };
+        let pend = if ans.as_ref().is_some_and(|a| a.1) { " *(pending)*" } else { "" };
+        let title = match posts.get(id) {
+            Some(p) if !guild.is_empty() => format!("[{name}](https://discord.com/channels/{guild}/{}/{})", p.channel, p.message),
+            _ => name.to_string(),
+        };
+        lines.push(format!(
+            "{chip}{pend} · {title} · <t:{t}:f> · {}/{size}{}",
+            acc.len(),
+            if need.is_empty() { String::new() } else { format!(" · **{need}**") }
+        ));
+        if options.len() < 25 {
+            use chrono::{Local, TimeZone};
+            let day = Local.timestamp_opt(t, 0).single().map(|d| d.format("%a %H:%M").to_string()).unwrap_or_default();
+            options.push(option(
+                format!("{name} · {day}"),
+                id.to_string(),
+                Some(if ans.is_some() { "answered" } else { "not answered" }.into()),
+                picked == Some(id),
+            ));
+        }
+    }
+    let age = snap.get("at").and_then(|x| x.as_u64()).map(|a| crate::bot::fmt_age((now as u64).saturating_sub(a))).unwrap_or_default();
+    let embed = twilight_util::builder::embed::EmbedBuilder::new()
+        .title("Your raids this week")
+        .description(if lines.is_empty() { "No raids in the next seven days.".to_string() } else { lines.join("\n") })
+        .footer(twilight_util::builder::embed::EmbedFooterBuilder::new(format!("As of the raid leader's last sync, {age}")))
+        .color(0xFF8000)
+        .build();
+    let mut comps = Vec::new();
+    if !options.is_empty() {
+        comps.push(menu("mr:pick".into(), "Answer a raid…", options));
+    }
+    if let Some(raid) = picked {
+        let b = |st: &str, label: &str, style, emoji: &str| {
+            Component::Button(Button {
+                id: None,
+                custom_id: Some(format!("mr:{raid}:{st}")),
+                disabled: false,
+                emoji: crate::emoji::button(emoji),
+                label: Some(label.into()),
+                style,
+                url: None,
+                sku_id: None,
+            })
+        };
+        comps.push(Component::ActionRow(ActionRow {
+            id: None,
+            components: vec![
+                b("A", "Accept", ButtonStyle::Success, "dz_ready"),
+                b("T", "Tentative", ButtonStyle::Secondary, "dz_waiting"),
+                b("X", "Can't come", ButtonStyle::Danger, "dz_notready"),
+            ],
+        }));
+    }
+    Answer::Card(embed, comps)
+}
+
+/// The server's id (for links to posts), set when the bot connects.
+pub static GUILD: Mutex<String> = Mutex::new(String::new());
+
+// ------------------------------------------------------------------------------------------------------------------
+// /raids as text (kept for the tests; the command answers with My raids)
 // ------------------------------------------------------------------------------------------------------------------
 
 /// The text of /raids for a Discord user; `guild` = the server id (for links to the raid posts).

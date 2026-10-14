@@ -5,6 +5,7 @@
 //! Everything is laid out in "points" (the prototype's CSS pixels) and drawn at SCALE pixels per point.
 
 pub mod raid;
+pub mod week;
 
 use ab_glyph::{Font, FontArc, PxScale, ScaleFont};
 use image::{imageops, Rgba, RgbaImage};
@@ -337,7 +338,8 @@ pub fn raid_art(art: &Art, plan_key: &str, w: f32, h: f32) -> Option<(Arc<RgbaIm
         f["top"].as_f64().unwrap_or(0.29) as f32,
     );
     let (iw, ih) = (im.width() as f32, im.height() as f32);
-    let (y0, avail_h) = (ih * top, ih * (1.0 - top) * 0.97);
+    // (the texture's bottom fifth is the loading bar's frame: left out like the logo band at the top)
+    let (y0, avail_h) = (ih * top, ih * (0.8 - top));
     // the largest box of the card's shape that fits under the band, centred on the focus
     let mut sh = avail_h;
     let mut sw = sh * w / h;

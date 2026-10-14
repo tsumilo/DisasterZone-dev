@@ -121,7 +121,8 @@ pub struct Rendered {
     pub hash: String,
 }
 
-pub fn render(raid: &Value, teams: &Value, queue: &[Record]) -> Rendered {
+/// `draw`: make the picture too (the hash alone says whether the post changed; drawing takes a moment).
+pub fn render(raid: &Value, teams: &Value, queue: &[Record], draw: bool) -> Rendered {
     let id = s(raid, "id").unwrap_or("?");
     let t = raid.get("t").and_then(|x| x.as_i64()).unwrap_or(0);
     let cancelled = raid.get("cancelled").and_then(|x| x.as_bool()).unwrap_or(false);
@@ -174,12 +175,13 @@ pub fn render(raid: &Value, teams: &Value, queue: &[Record]) -> Rendered {
         target,
         cancelled,
     };
-    let png = crate::render::art().map(|art| crate::render::raid::draw(art, &card));
+    let has_art = crate::render::art().is_some();
+    let png = if draw { crate::render::art().map(|art| crate::render::raid::draw(art, &card)) } else { None };
     let mut b = EmbedBuilder::new()
         .description(lines.join("\n"))
         .color(if cancelled { GREY } else { ORANGE })
         .footer(EmbedFooterBuilder::new("Sign up below or in game · DisasterZone"));
-    if png.is_some() {
+    if has_art {
         if let Ok(src) = ImageSource::attachment(&filename) {
             b = b.image(src);
         }
@@ -221,7 +223,7 @@ pub fn render(raid: &Value, teams: &Value, queue: &[Record]) -> Rendered {
         })]
     };
     let mut h = Sha256::new();
-    h.update(format!("{lines:?}|{cancelled}|{when}|{pill}|{target:?}|{acc:?}|{tent:?}|{absent:?}|{}", png.is_some()).as_bytes());
+    h.update(format!("{lines:?}|{cancelled}|{when}|{pill}|{target:?}|{acc:?}|{tent:?}|{absent:?}|{has_art}").as_bytes());
     Rendered { embed, components, png, filename, hash: hex::encode(&h.finalize()[..8]) }
 }
 
@@ -229,65 +231,192 @@ fn chan(id: &str) -> Option<Id<ChannelMarker>> {
     id.parse::<u64>().ok().and_then(Id::new_checked)
 }
 
-/// Post new raids and edit changed ones. Returns how many messages were sent or edited.
+/// Post a message under `key` in `target`, or edit the one posted before when what it shows changed (its hash).
+/// `fresh_only`: don't post it new (a cancelled raid never posted). Returns true when Discord was written to.
+async fn publish(http: &Client, posts: &mut BTreeMap<String, Post>, key: &str, target: &str, r: &Rendered, fresh_only: bool) -> bool {
+    let old = posts.get(key).cloned();
+    if old.as_ref().is_some_and(|p| p.channel == target && p.hash == r.hash) {
+        return false;
+    }
+    let Some(ch) = chan(target) else { return false };
+    let files: Vec<Attachment> =
+        r.png.clone().map(|png| vec![Attachment::from_bytes(r.filename.clone(), png, 1)]).unwrap_or_default();
+    let embeds = [r.embed.clone()];
+    match old.filter(|p| p.channel == target) {
+        Some(p) => {
+            let Some(mid) = p.message.parse::<u64>().ok().and_then(Id::<MessageMarker>::new_checked) else { return false };
+            // (the new picture replaces the old one: attachments not kept are dropped)
+            match http.update_message(ch, mid).embeds(Some(&embeds)).components(Some(&r.components)).attachments(&files).await {
+                Ok(_) => {
+                    posts.insert(key.into(), Post { hash: r.hash.clone(), ..p });
+                    true
+                }
+                Err(e) => {
+                    eprintln!("posts: edit {key}: {e}");
+                    if e.to_string().contains("404") {
+                        posts.remove(key); // (deleted by hand: posted again next time)
+                    }
+                    false
+                }
+            }
+        }
+        None if fresh_only => false,
+        None => match http.create_message(ch).embeds(&embeds).components(&r.components).attachments(&files).await {
+            Ok(resp) => match resp.model().await {
+                Ok(m) => {
+                    posts.insert(key.into(), Post { channel: target.to_string(), message: m.id.get().to_string(), hash: r.hash.clone() });
+                    true
+                }
+                Err(_) => false,
+            },
+            Err(e) => {
+                eprintln!("posts: post {key} in {target}: {e}");
+                false
+            }
+        },
+    }
+}
+
+/// Post new raids and edit changed ones, then the week board. Returns how many messages were sent or edited.
 pub async fn update(http: &Client, snap: &Value) -> usize {
+    // (answers and saves both start an update: one at a time, so a post is never written twice at once)
+    static ONE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one = ONE.lock().await;
     let dc = snap.get("dc").cloned().unwrap_or(Value::Null);
     let teams = snap.get("teams").cloned().unwrap_or(Value::Null);
     let queue = bridge::load_queue();
     let mut posts = load_posts();
+    let before = posts.clone();
+    let unchanged = |posts: &BTreeMap<String, Post>, key: &str, target: &str, hash: &str| {
+        posts.get(key).is_some_and(|p| p.channel == target && p.hash == hash)
+    };
     let mut n = 0;
     for raid in lua_list(snap.get("raids")) {
         let Some(id) = s(raid, "id") else { continue };
         let Some(target) = target_channel(raid, &dc) else { continue };
-        let old = posts.get(id).cloned();
-        let r = render(raid, &teams, &queue);
-        if old.as_ref().is_some_and(|p| p.channel == target && p.hash == r.hash) {
+        if unchanged(&posts, id, &target, &render(raid, &teams, &queue, false).hash) {
             continue;
         }
+        let r = render(raid, &teams, &queue, true);
         let cancelled = raid.get("cancelled").and_then(|x| x.as_bool()).unwrap_or(false);
-        let Some(ch) = chan(&target) else { continue };
-        let files: Vec<Attachment> =
-            r.png.clone().map(|png| vec![Attachment::from_bytes(r.filename.clone(), png, 1)]).unwrap_or_default();
-        let embeds = [r.embed.clone()];
-        match old.filter(|p| p.channel == target) {
-            Some(p) => {
-                let Some(mid) = p.message.parse::<u64>().ok().and_then(Id::<MessageMarker>::new_checked) else { continue };
-                // (the new picture replaces the old one: attachments not kept are dropped)
-                match http.update_message(ch, mid).embeds(Some(&embeds)).components(Some(&r.components)).attachments(&files).await {
-                    Ok(_) => {
-                        posts.insert(id.into(), Post { hash: r.hash, ..p });
-                        n += 1;
-                    }
-                    Err(e) => {
-                        eprintln!("posts: edit {id}: {e}");
-                        if e.to_string().contains("404") {
-                            posts.remove(id); // (deleted by hand: posted again next time)
-                        }
-                    }
-                }
-            }
-            None => {
-                if cancelled {
-                    continue; // (never posted: nothing to say)
-                }
-                match http.create_message(ch).embeds(&embeds).components(&r.components).attachments(&files).await {
-                    Ok(resp) => {
-                        if let Ok(m) = resp.model().await {
-                            posts.insert(id.into(), Post { channel: target.clone(), message: m.id.get().to_string(), hash: r.hash });
-                            n += 1;
-                        }
-                    }
-                    Err(e) => eprintln!("posts: post {id} in {target}: {e}"),
-                }
+        if publish(http, &mut posts, id, &target, &r, cancelled).await {
+            n += 1;
+        }
+    }
+    if let Some(target) = s(&dc, "week") {
+        let now = crate::bot::unix_now() as i64;
+        if !unchanged(&posts, "_week", target, &render_week(snap, &queue, now, false).hash) {
+            let r = render_week(snap, &queue, now, true);
+            if publish(http, &mut posts, "_week", target, &r, false).await {
+                n += 1;
             }
         }
     }
-    if n > 0 {
+    if posts != before {
         if let Err(e) = save_json(&posts_path(), &posts) {
             eprintln!("posts: save: {e}");
         }
     }
     n
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// The week board
+// ------------------------------------------------------------------------------------------------------------------
+
+/// What a raid still needs, the role furthest from its target: "needs 2 tanks", "needs a healer", or "".
+pub fn needs(raid: &Value, acc: &[Person]) -> String {
+    let size = raid.get("size").and_then(|x| x.as_i64()).unwrap_or(25);
+    let need = raid.get("need");
+    let want = |k: &str, d10: usize, d25: usize| {
+        need.and_then(|n| n.get(k)).and_then(|x| x.as_u64()).map(|x| x as usize).unwrap_or(if size <= 10 { d10 } else { d25 })
+    };
+    let count = |r: &str| acc.iter().filter(|p| p.role == r).count();
+    let short = [
+        (want("tank", 2, 3).saturating_sub(count("tank")), "a tank", "tanks"),
+        (want("heal", 3, 6).saturating_sub(count("heal")), "a healer", "healers"),
+        (want("dps", 5, 16).saturating_sub(count("dps")), "a damage dealer", "damage dealers"),
+    ];
+    match short.iter().filter(|s| s.0 > 0).max_by_key(|s| s.0) {
+        Some((1, one, _)) => format!("needs {one}"),
+        Some((n, _, many)) => format!("needs {n} {many}"),
+        None => String::new(),
+    }
+}
+
+/// The coming seven days' raids as the board's tiles (soonest first).
+pub fn week_tiles(snap: &Value, queue: &[Record], now: i64) -> Vec<crate::render::week::Tile> {
+    use chrono::{Local, TimeZone};
+    let mut out = Vec::new();
+    for raid in lua_list(snap.get("raids")) {
+        let t = raid.get("t").and_then(|x| x.as_i64()).unwrap_or(0);
+        if t + 4 * 3600 < now || t > now + 7 * 86400 {
+            continue;
+        }
+        let (acc, _, _) = people(raid, queue);
+        let teams = snap.get("teams").cloned().unwrap_or(Value::Null);
+        let team: Vec<&str> =
+            lua_list(raid.get("teams")).iter().filter_map(|x| x.as_str().and_then(|id| teams.get(id)).and_then(|n| n.as_str())).collect();
+        let base = s(raid, "title").or(s(raid, "name")).unwrap_or("Raid");
+        out.push(crate::render::week::Tile {
+            plan_key: s(raid, "inst").unwrap_or("other").into(),
+            day: Local.timestamp_opt(t, 0).single().map(|d| d.format("%A %H:%M").to_string()).unwrap_or_default(),
+            name: if team.is_empty() { base.into() } else { format!("{base} · {}", team.join(", ")) },
+            have: acc.len(),
+            size: raid.get("size").and_then(|x| x.as_u64()).unwrap_or(25) as usize,
+            need: needs(raid, &acc),
+            cancelled: raid.get("cancelled").and_then(|x| x.as_bool()).unwrap_or(false),
+        });
+    }
+    out
+}
+
+pub fn render_week(snap: &Value, queue: &[Record], now: i64, draw: bool) -> Rendered {
+    use chrono::{Local, TimeZone};
+    let tiles = week_tiles(snap, queue, now);
+    let week = Local.timestamp_opt(now, 0).single().map(|d| d.format("Week %V").to_string()).unwrap_or_default();
+    let stamp = Local.timestamp_opt(now, 0).single().map(|d| d.format("%H:%M").to_string()).unwrap_or_default();
+    let has_art = crate::render::art().is_some();
+    let png = if draw {
+        crate::render::art().map(|art| crate::render::week::draw(art, "This week", &format!("{week} · updated {stamp}"), &tiles))
+    } else {
+        None
+    };
+    let filename = "week.png".to_string();
+    let mut b = EmbedBuilder::new().color(ORANGE);
+    if has_art {
+        if let Ok(src) = ImageSource::attachment(&filename) {
+            b = b.image(src);
+        }
+    } else {
+        let lines: Vec<String> = tiles.iter().map(|t| format!("**{}** · {} · {}/{} {}", t.name, t.day, t.have, t.size, t.need)).collect();
+        b = b.description(if lines.is_empty() { "No raids planned in the next seven days.".into() } else { lines.join("\n") });
+    }
+    let btn = |id: &str, label: &str, style| {
+        Component::Button(Button {
+            id: None,
+            custom_id: Some(id.into()),
+            disabled: false,
+            emoji: None,
+            label: Some(label.into()),
+            style,
+            url: None,
+            sku_id: None,
+        })
+    };
+    let components = vec![Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![
+            btn("wk:raids", "My raids", ButtonStyle::Primary),
+            btn("wk:bis", "My BiS", ButtonStyle::Secondary),
+            btn("wk:chars", "My characters", ButtonStyle::Secondary),
+        ],
+    })];
+    let mut h = Sha256::new();
+    // (the time stamp is left out: the board is only edited when a raid on it changes)
+    h.update(format!("{:?}", tiles.iter().map(|t| (&t.day, &t.name, t.have, t.size, &t.need, t.cancelled)).collect::<Vec<_>>()).as_bytes());
+    h.update(week.as_bytes());
+    Rendered { embed: b.build(), components, png, filename, hash: hex::encode(&h.finalize()[..8]) }
 }
 
 /// After an answer in Discord: the posts again from the last snapshot (only the changed one is edited).
@@ -337,9 +466,9 @@ mod tests {
 
     #[test]
     fn hash_follows_the_answers() {
-        let a = render(&raid(), &json!({ "tm1": "Main" }), &[]);
-        assert_eq!(a.hash, render(&raid(), &json!({ "tm1": "Main" }), &[]).hash);
-        assert_ne!(a.hash, render(&raid(), &json!({ "tm1": "Main" }), &[rec("Rita", "A")]).hash);
+        let a = render(&raid(), &json!({ "tm1": "Main" }), &[], false);
+        assert_eq!(a.hash, render(&raid(), &json!({ "tm1": "Main" }), &[], true).hash);
+        assert_ne!(a.hash, render(&raid(), &json!({ "tm1": "Main" }), &[rec("Rita", "A")], false).hash);
         assert!(a.embed.description.unwrap().contains("Led by **Tsumil**"));
     }
 
@@ -347,7 +476,7 @@ mod tests {
     fn cancelled_raid_has_no_buttons() {
         let mut r = raid();
         r["cancelled"] = json!(true);
-        let out = render(&r, &json!({}), &[]);
+        let out = render(&r, &json!({}), &[], false);
         assert!(out.components.is_empty());
     }
 }

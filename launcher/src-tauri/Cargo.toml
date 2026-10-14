@@ -58,3 +58,8 @@ winreg = "0.56.0"
 [dev-dependencies]
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros"] }
+
+# (the bot's pictures: image decoding and scaling are many times slower unoptimized; the launcher's own code stays
+# quick to build)
+[profile.dev.package."*"]
+opt-level = 2

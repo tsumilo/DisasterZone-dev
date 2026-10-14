@@ -331,7 +331,8 @@ function Bridge:Snapshot()
     local now = Util.Now()
     local d = G and G.GetDiscord and G:GetDiscord() or {}
     local out = { at = now, me = Util.PlayerKey(), guild = G and G.GetGuildKey and G:GetGuildKey() or nil,
-                  dc = { host = d.host, guild = d.guild, teams = d.teams or {} }, teams = {}, raids = {} }
+                  dc = { host = d.host, guild = d.guild, week = d.week, loot = d.loot, teams = d.teams or {} },
+                  teams = {}, raids = {} }
     if not RP then return out end
     for _, t in ipairs(RP:GetTeams()) do out.teams[t.id] = t.name end
     -- the guild's members and their classes: the bot fills in a member's class from it

@@ -123,7 +123,9 @@ pub fn restart(app: &AppHandle) {
 
 /// Runs until the connection ends for good; returns why.
 async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guild_id: Id<GuildMarker>) -> String {
-    let http = Client::new(token.clone());
+    // (shared with the tasks below: an answer must never wait for a picture being drawn)
+    let http = std::sync::Arc::new(Client::new(token.clone()));
+    *crate::signup::GUILD.lock().unwrap() = guild_id.get().to_string();
     // guild commands show up at once (global ones can take an hour); setting the whole list drops old ones
     let commands = [
         CommandBuilder::new("ping", "Check that the DisasterZone bot is online", CommandType::ChatInput).build(),
@@ -178,8 +180,9 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
                         }
                         // the host's addon wrote a new snapshot: post new raids, edit changed ones
                         if let Some(snap) = bridge::read_bridge_db(&dir).and_then(|v| v.get("snap").cloned()) {
-                            crate::posts::update(&http, &snap).await;
-                            crate::signup::set_snap(snap);
+                            crate::signup::set_snap(snap.clone());
+                            let h = http.clone();
+                            tauri::async_runtime::spawn(async move { crate::posts::update(&h, &snap).await; });
                         }
                     }
                 }
@@ -194,9 +197,13 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
                 seen = None; // (post what changed while the bot was offline)
             }
             Ok(Event::InteractionCreate(i)) => {
-                if let Err(e) = answer(app, &http, app_id, &i.0).await {
-                    eprintln!("bot: answer failed: {e}");
-                }
+                // (each answer on its own task: Discord waits 3 seconds for it)
+                let (a, h) = (app.clone(), http.clone());
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = answer(&a, &h, app_id, &i.0).await {
+                        eprintln!("bot: answer failed: {e}");
+                    }
+                });
             }
             Ok(Event::GatewayClose(Some(f))) => {
                 if let Some(why) = fatal_close(&f) {
@@ -305,7 +312,7 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
                 crate::signup::select(&user, &name, &c.custom_id, &c.values, now)
             };
             let r = respond(http, app_id, i, a).await;
-            crate::posts::refresh(http).await; // (a new answer shows on its post at once, pending)
+            crate::posts::refresh(http).await; // (after the answer: a new sign-up shows on its post, pending)
             return r;
         }
         Some(InteractionData::ModalSubmit(m)) => {
@@ -315,6 +322,9 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
         }
         Some(InteractionData::ApplicationCommand(cmd)) if i.kind == InteractionType::ApplicationCommandAutocomplete => {
             return item_choices(http, app_id, i, cmd).await;
+        }
+        Some(InteractionData::ApplicationCommand(cmd)) if cmd.name == "raids" => {
+            return respond(http, app_id, i, crate::signup::my_raids(&user, None)).await;
         }
         Some(InteractionData::ApplicationCommand(cmd)) if cmd.name == "character" => {
             return respond(http, app_id, i, crate::signup::characters(&user)).await;
@@ -382,6 +392,10 @@ async fn respond(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, 
     use crate::signup::Answer;
     let (kind, data) = match a {
         Answer::Text(t, c) => return reply_with(http, app_id, i, t, c).await,
+        Answer::UpdateCard(e, c) => (
+            InteractionResponseType::UpdateMessage,
+            InteractionResponseData { content: Some(String::new()), embeds: Some(vec![e]), components: Some(c), ..Default::default() },
+        ),
         Answer::Card(e, c) => (
             InteractionResponseType::ChannelMessageWithSource,
             InteractionResponseData {

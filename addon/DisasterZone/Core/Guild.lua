@@ -1521,7 +1521,8 @@ end
 Guild.CleanLootRules = function(_, lr) return CleanLootRules(lr) end
 
 -- Discord bridge (Core/Bridge.lua): the GM names the character whose launcher runs the guild's Discord bot (h) and
--- the Discord channels raids are posted to: g for raids without a team, t[teamId] for a team's raids. Channel ids are
+-- the Discord channels raids are posted to: g for raids without a team, t[teamId] for a team's raids; w = the
+-- "this week" board, l = the loot feed. Channel ids are
 -- Discord's snowflakes (digits). Rides on the raid leaders record like the loot rules (GM only).
 local function CleanSnowflake(v)
     return type(v) == "string" and v:match("^%d+$") and #v >= 15 and #v <= 21 and v or nil
@@ -1529,7 +1530,8 @@ end
 
 local function CleanDiscord(dc)
     if type(dc) ~= "table" then return nil end
-    local out = { h = dc.h ~= nil and WireKey(dc.h) or nil, g = CleanSnowflake(dc.g) }
+    local out = { h = dc.h ~= nil and WireKey(dc.h) or nil, g = CleanSnowflake(dc.g), w = CleanSnowflake(dc.w),
+                  l = CleanSnowflake(dc.l) }
     if type(dc.t) == "table" then
         local n = 0
         for id, ch in pairs(dc.t) do
@@ -1681,7 +1683,7 @@ function Guild:GetDiscord()
     local dc = rec and CleanDiscord(rec.dc) or {}
     local teams = {}
     for id, ch in pairs(dc.t or {}) do teams[id] = ch end
-    return { host = dc.h, guild = dc.g, teams = teams, by = rec and rec.dcBy or nil }
+    return { host = dc.h, guild = dc.g, week = dc.w, loot = dc.l, teams = teams, by = rec and rec.dcBy or nil }
 end
 
 -- Is `key` (or another character of its player) the Discord host: the one whose sign-ups for others count?
@@ -1709,9 +1711,12 @@ function Guild:SetDiscord(patch)
         dc.h = WireKey(patch.host)
         if not dc.h then return false, "not a character name" end
     end
-    if patch.guild == false then dc.g = nil elseif patch.guild ~= nil then
-        dc.g = CleanSnowflake(patch.guild)
-        if not dc.g then return false, "not a Discord channel id" end
+    for _, f in ipairs({ { "guild", "g" }, { "week", "w" }, { "loot", "l" } }) do
+        local v = patch[f[1]]
+        if v == false then dc[f[2]] = nil elseif v ~= nil then
+            dc[f[2]] = CleanSnowflake(v)
+            if not dc[f[2]] then return false, "not a Discord channel id" end
+        end
     end
     for id, ch in pairs(type(patch.teams) == "table" and patch.teams or {}) do
         dc.t = dc.t or {}

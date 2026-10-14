@@ -2715,11 +2715,9 @@ local PART_OPTS = {
             { value = 39, text = "Big (39)" }, { value = 42, text = "Large (42)" } } },
         { "rail", "Bars 4 and 5 at the right edge", "In the Dock's look and size, two columns.", true },
         { "art", "Bar art", "The plate behind the bars: stone and steel, marble and gold, or the guild vault.",
-          "ironforge", (function()
-              local out = {}
-              for _, s in ipairs(ns.DockArt and ns.DockArt.SETS or {}) do out[#out + 1] = { value = s.key, text = s.name } end
-              return out
-          end)(), classic = true,
+          -- (listed here: UI/DockArt.lua loads after this file, so its SETS are not there yet)
+          "ironforge", { { value = "ironforge", text = "Ironforge" }, { value = "stormwind", text = "Stormwind" },
+                         { value = "vault", text = "Guild Vault" } }, classic = true,
           tip = "Ironforge: the vanilla bar's stone, a riveted steel frame and carved wells. Stormwind: dark marble "
               .. "set in gold with sapphires. Guild Vault: the guild bank's iron, crimson leather and brass slots." },
         { "caps", "End caps", "At the Dock's ends: the art's own, gryphons or lions.", "match",
@@ -4168,6 +4166,14 @@ function SettingsUI:BuildDiscord(sec)
         function() return ChannelOptions(ns.Guild:GetDiscord().guild) end,
         function() return ns.Guild:GetDiscord().guild or "" end,
         function(a, b) local v = Value(a, b); SetDiscord({ guild = v ~= "" and v or false }) end)
+    self:Dropdown(sec, "This week board", "One post the bot keeps up to date: every raid this week and how full it is.",
+        function() return ChannelOptions(ns.Guild:GetDiscord().week) end,
+        function() return ns.Guild:GetDiscord().week or "" end,
+        function(a, b) local v = Value(a, b); SetDiscord({ week = v ~= "" and v or false }) end)
+    self:Dropdown(sec, "Loot feed", "After each boss: what dropped and who got it, one post per raid night.",
+        function() return ChannelOptions(ns.Guild:GetDiscord().loot) end,
+        function() return ns.Guild:GetDiscord().loot or "" end,
+        function(a, b) local v = Value(a, b); SetDiscord({ loot = v ~= "" and v or false }) end)
     local _, teamRow = self:Dropdown(sec, "Team", "Pick a team, then its channel below.",
         function()
             local out = {}
