@@ -17,6 +17,7 @@ ns.AzeroChangelog = {
           "Sunwell's light fills the throne once the plateau falls.",
           "Coloured sun by day; moonlight and fire at night.",
           "Champions stand in stone on lit pedestals.",
+          "Fight menu: the move's PP, type and power show again.",
       } },
     { version = "0.23", date = "14 October 2026", title = "Every zone, alive",
       lines = {

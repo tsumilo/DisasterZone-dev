@@ -2449,6 +2449,11 @@ local function OpenFightMenu()
         end,
         onMove = function(i, menu)
             local mv = menu.items[i].move
+            -- the battle text box stays up (UpdateText shows it every frame) and spans the whole bottom: keep
+            -- the info window over it and the move list, whatever level the screen sits at
+            local lvl = max(R.textbox:GetFrameLevel(), menu.frame:GetFrameLevel()) + 5
+            info:SetFrameLevel(lvl)
+            info.type:SetFrameLevel(lvl + 1)
             info:Show()
             if mv then
                 local md = D.moves[mv.id]
