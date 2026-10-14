@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(DEV, "generators"))
 
-from PIL import Image  # noqa: E402
+import azeromon_blp  # noqa: E402
 
 from _common import case, run_all, solo  # noqa: E402
 from _azero_bot import BOT  # noqa: E402
@@ -53,10 +53,10 @@ def every_chunk_is_a_power_of_two_tga_of_the_listed_size():
     assert e, "Ground.lua lists no maps"
     for mid, (v, chunks) in e.items():
         for x, y, w, h, tw, th in chunks:
-            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.tga" % (mid, x // 256, y // 256))
+            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.blp" % (mid, x // 256, y // 256))
             assert os.path.exists(f), f
-            im = Image.open(f)
-            assert im.size == (tw, th), (f, im.size, tw, th)
+            size = azeromon_blp.size(f)
+            assert size == (tw, th), (f, size, tw, th)
             assert tw & (tw - 1) == 0 and th & (th - 1) == 0 and tw <= 256 and th <= 256, (f, tw, th)
             assert 0 < w <= tw and 0 < h <= th and x % 256 == 0 and y % 256 == 0, (f, x, y, w, h)
 
@@ -67,11 +67,13 @@ def every_pond_has_a_moving_water_strip_of_twelve_frames():
     assert w.get("town"), "Goldshire's pond has no moving water"
     for mid, ponds in w.items():
         for i, (x, y, pw, ph, cols, rows, tw, th) in enumerate(ponds):
-            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_w%d.tga" % (mid, i + 1))
-            im = Image.open(f)
-            assert im.size == (tw, th) and im.mode == "RGBA", (f, im.size, im.mode)
+            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_w%d.blp" % (mid, i + 1))
+            im = azeromon_blp.read(f)
+            assert im.size == (tw, th) and im.getextrema()[3][0] == 0, (f, im.size)     # transparent between glints
             assert cols * rows >= 12 and cols * pw <= tw and rows * ph <= th, (f, cols, rows)
-    assert Image.open(os.path.join(ADDON, "Media", "Azeromon", "Ground", "clouds.tga")).size == (256, 256)
+    assert azeromon_blp.size(os.path.join(ADDON, "Media", "Azeromon", "Ground", "clouds.blp")) == (256, 256)
+    left = [f for f in os.listdir(os.path.join(ADDON, "Media", "Azeromon", "Ground")) if not f.endswith(".blp")]
+    assert not left, left                                     # every baked picture is a palette BLP
 
 
 @case
