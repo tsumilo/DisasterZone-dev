@@ -941,7 +941,7 @@ local function DemoPanel()
     local u = UI()
     local f = u:CreateHudFrame("DisasterZoneReserveDemo", { width = DEMO_W, height = DEMO_H, look = "card",
         strata = "HIGH", toplevel = true, position = false })
-    f:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -40, -170)
+    f:SetPoint("RIGHT", UIParent, "RIGHT", -40, -40)
     f:SetMovable(true)
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -976,13 +976,13 @@ local function DemoPanel()
     u:Fill(f.chat, "INSET", "BACKGROUND")
     f.chat.head = u:Text(f.chat, "caps", "DIM", { text = "What a pug reads in chat" })
     f.chat.head:SetPoint("TOPLEFT", 6, -5)
+    if f.chat.SetClipsChildren then f.chat:SetClipsChildren(true) end
     f.chat.lines = {}
     for k = 1, CHAT_LINES do
-        local fs = f.chat:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
-        fs:SetPoint("TOPLEFT", 6, -21 - (k - 1) * 15)
+        local fs = u:Text(f.chat, "small", "TEXT")
         fs:SetWidth(DEMO_W - 2 * S.PAD - 12)
         fs:SetJustifyH("LEFT")
-        fs:SetWordWrap(false)
+        fs:SetWordWrap(true)
         f.chat.lines[k] = fs
     end
     f.back = u:CreateSleekButton(f, "Back", 70, S.BTN_H, function() ns.ReserveDemo:Back() end)
@@ -1064,19 +1064,32 @@ function RUI:RefreshDemo(n)
     for _, b in ipairs(f.views) do
         if b.SetKind then b:SetKind(b.view == d.view and "chosen" or "secondary") end
     end
+    -- the newest lines at the foot, wrapped like the game's chat; what doesn't fit scrolls off the top
     local lines = RD:Lines()
-    local first = max(1, #lines - CHAT_LINES + 1)
     local L = Res():Get()
     local lead = ns.Util.ShortName((L and L.by) or ns.Util.PlayerKey() or "?")
+    local room = f.chat:GetHeight() - 22
+    local y = 4
     for k = 1, CHAT_LINES do
-        local e = lines[first + k - 1]
+        local e = lines[#lines - k + 1]
         local fs = f.chat.lines[k]
+        fs:ClearAllPoints()
         if e then
             local pre = ({ rw = "[Raid Warning] [" .. lead .. "]: ", raid = "[Raid] ", to = "To [" .. lead .. "]: ",
                            from = "[" .. lead .. "] whispers: ", sys = "" })[e.kind] or ""
             fs:SetText("|cff" .. (CHAT_COLOR[e.kind] or "ffffff") .. pre .. e.text .. "|r")
+            local h = max(13, fs:GetStringHeight() or 13)
+            if y + h > room then
+                fs:SetText("")
+                fs:Hide()
+            else
+                fs:SetPoint("BOTTOMLEFT", f.chat, "BOTTOMLEFT", 6, y)
+                fs:Show()
+                y = y + h + 2
+            end
         else
             fs:SetText("")
+            fs:Hide()
         end
     end
     f.back:SetEnabled(d.step > 1)

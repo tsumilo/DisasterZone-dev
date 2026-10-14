@@ -682,7 +682,8 @@ function Rv.Sub(kind, keys)
             names[#names + 1] = ColoredName(key)
         end
         return Paint(#keys == 1 and "Only reserve: " or "Reserved by ", "main") .. tconcat(names, Paint(", ", "muted"))
-            .. (#keys == 1 and Paint("  ·  no roll needed", "muted") or Paint("  ·  only they roll", "muted"))
+            .. (#keys == 1 and Paint("  ·  no roll needed", "muted") or (#keys == 2 and Paint("  ·  only they roll",
+                "muted") or ""))
     elseif kind == "g" then
         return Paint("Held for the guild", "warn") .. Paint("  ·  the loot council decides, guild members only", "muted")
     elseif kind == "o" then

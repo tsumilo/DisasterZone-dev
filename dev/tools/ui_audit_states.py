@@ -162,7 +162,7 @@ def close_all(cl):
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
                               'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZLookLongNames', 'DZAuditFull', 'DZGroupStage',
-                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves' }) do
+                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves', 'DisasterZoneReserveDemo' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       -- (the shared pop-ups of UI:Toast, which replaced some of the named ones above)
@@ -961,6 +961,51 @@ def st_reserve_crest(idle):
         w.tick(2)
         g.eval("__MOCK.real_geometry = true; ns.SessionBar:Update(); ns.SessionBar:Peek(true); "
                "ns.SessionBar:ToggleDrawer(true)")
+        return g
+    return fn
+
+
+def st_reserve_drop(roll=False, viewer="Gina"):
+    """The drop panel of a Prince kill under reserves: the seeded list (Ruby Drape 3 reservers, Mindblade 2, the Jade
+    Ring 1, the Champion helm held, Malchazeen nobody); roll = the Ruby Drape rolling (reservers and one who didn't)."""
+    def fn(w, c):
+        g = raid_with_session(w, c, {"loot": True, "rolls": True, "lock": False, "reserve": True})
+        g.eval("for _, s in ipairs(ns.Roll:GetQueue() or {}) do if s.id then ns.Roll:End(s.id) end end; "
+               "local a = ns.Roll:GetActive(); if a then ns.Roll:End(a.id) end")
+        g.eval(RESERVES_SEED)
+        w.tick(2)
+        DROPS.append(1)
+        g.open_loot([(28766, 4), (28770, 4), (28763, 4), (29760, 4), (28767, 4)],
+                    source_guid="Creature-0-1-2-3-15690-%06X" % len(DROPS))
+        w.tick(2)
+        # (the start-of-raid pop-ups are long gone by the first boss)
+        c[viewer].eval("if ns.UI and ns.UI.ShownToasts then for _, t in ipairs(ns.UI:ShownToasts()) do t:Hide() end end")
+        if roll:
+            g.eval("ns.DropPanel:StartRoll(28766)")
+            w.tick(1)
+            for n, v in (("Victhar", 64), ("Moonwhisper", 88), ("Shadowmelder", 97)):
+                w.player_roll(c[n], v)
+            w.tick(1)
+            g.eval("ns.DropPanel:Render()")
+        g.eval("local f = ns.DropPanel.frame; if f then f:ClearAllPoints(); f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 40, -80) end")
+        return c[viewer]
+    return fn
+
+
+def st_reserve_demo(step, view="lead"):
+    """The reserves demo (/dz reserves demo) at a step, seen as view."""
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        g.eval("__MOCK.real_geometry = true; ns.ReserveDemo:Start(); ns.ReserveDemo:SetView(...)", view)
+        for n in range(2, step + 1):
+            g.eval("ns.ReserveDemo:Go(...)", n)
+            w.tick(4 if n != 6 else 2)
+        if step == 6 and view == "lead":
+            g.eval("ns.DropPanel:RollAll()")
+            w.tick(6)
+        g.eval("local f = ns.DropPanel.frame; if f then f:ClearAllPoints(); f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 40, -80) end")
         return g
     return fn
 
@@ -2197,6 +2242,13 @@ STATES = [
     ("Reserves - wrap-up", st_reserves("wrap")),
     ("Reserves - crest drawer (before the start)", st_reserve_crest(True)),
     ("Reserves - crest drawer (running)", st_reserve_crest(False)),
+    ("Reserves - drop panel", st_reserve_drop()),
+    ("Reserves - drop panel (rolling)", st_reserve_drop(True)),
+    ("Reserves - roll popup (reserver)", st_reserve_drop(True, "Moonwhisper")),
+    ("Reserves - demo (set up)", st_reserve_demo(1)),
+    ("Reserves - demo (players reserve, pug)", st_reserve_demo(3, "pug")),
+    ("Reserves - demo (Vashj drops)", st_reserve_demo(6)),
+    ("Reserves - demo (wrap-up)", st_reserve_demo(7)),
     ("Raid - drop panel (council)", st_drop({"loot": True, "rolls": True, "lock": False})),
     ("Raid - drop panel (council, rolling)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True)),
     ("Raid - roll popup (raider)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,

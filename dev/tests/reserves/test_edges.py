@@ -99,7 +99,7 @@ def the_roll_popup_for_reservers_others_and_a_pug_on_a_guild_item():
     start_roll(r, RUBY_DRAPE)
     w.tick(1)
     bob = rollframe_state(r["Bob"])
-    assert bob["shown"] and "Your reserve" in strip_codes(bob["bis"]) and "Yuri" in strip_codes(bob["bis"]), bob
+    assert bob["shown"] and "Your reserve" in strip_codes(bob["bis"]) and "you and Yuri roll" in strip_codes(bob["bis"]), bob
     carol = rollframe_state(r["Carol"])
     assert not carol["shown"], carol
     line = r["Carol"].eval_py("local t = ns.UI:GetToast('dz-reserve-line'); return t and t:IsShown() and "

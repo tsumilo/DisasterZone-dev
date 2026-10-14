@@ -827,7 +827,8 @@ function RollFrame:RefreshItem()
             if not IsMe(k) then others[#others + 1] = ns.Util.ShortName(k) end
         end
         local line = ({
-            mine = Paint("Your reserve", "main") .. Paint("  ·  you and " .. table.concat(others, ", ") .. " roll", "muted"),
+            mine = Paint("Your reserve", "main") .. Paint(#others == 1 and "  ·  you and " .. others[1] .. " roll"
+                or format("  ·  %d others roll", #others), "muted"),
             solo = Paint("Only you reserved it", "main") .. Paint("  ·  no roll needed", "muted"),
             grabs = Paint("Nobody reserved it", "main") .. Paint("  ·  up for grabs", "muted"),
             council = Paint("Held for the guild", "warn") .. Paint("  ·  the loot council decides", "muted"),
