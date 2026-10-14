@@ -277,11 +277,13 @@ fn open_folder(kind: String) -> Result<()> {
 struct BotView {
     status: bot::BotStatus,
     token_saved: bool,
+    /// a missing Discord permission (posts::WARN)
+    warn: Option<String>,
 }
 
 #[tauri::command]
 fn bot_status(app: AppHandle) -> BotView {
-    BotView { status: bot::status(&app), token_saved: bot::token().is_some() }
+    BotView { status: bot::status(&app), token_saved: bot::token().is_some(), warn: posts::WARN.lock().unwrap().clone() }
 }
 
 /// Host settings; `token` empty = forget it, absent = keep it. Restarts the bot.

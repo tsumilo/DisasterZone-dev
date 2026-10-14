@@ -459,6 +459,11 @@ function renderHost() {
   $("bot-state").textContent = st.state === "online" ? "Online as " + st.name
     : st.state === "error" ? "Stopped: " + st.message : BOT_TEXT[st.state] || st.state;
   $("bot-state").style.color = st.state === "online" ? "rgb(77, 181, 99)" : st.state === "error" ? "rgb(230, 110, 100)" : "";
+  // (a permission Discord refused: what to change, in its own colour under the state)
+  if (bot.warn && st.state === "online") {
+    $("bot-state").textContent += " · " + bot.warn;
+    $("bot-state").style.color = "rgb(240, 178, 50)";
+  }
   $("set-bot").setAttribute("aria-checked", String(!!s.botOn));
   for (const [id, key] of [["set-appid", "botAppId"], ["set-guild", "botGuildId"]]) {
     const f = $(id);
@@ -547,6 +552,11 @@ async function start() {
   wireSettings();
   wireHost();
   await api.listen("bot-status", (e) => { bot.status = e.payload; if (status) renderHost(); });
+  // (a refused permission shows up without a status change: look again now and then while Settings is open)
+  setInterval(async () => {
+    if (!status || !status.settings.host || DEMO) return;
+    try { bot = await api.invoke("bot_status"); renderHost(); } catch (e) { /* (the next look) */ }
+  }, 15000);
   await api.listen("progress", (e) => { if (working) showProgress(e.payload); });
   // the tray's background check installed something or found a new release
   await api.listen("state-changed", () => { if (!working) refreshAll(); });

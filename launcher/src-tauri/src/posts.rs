@@ -175,7 +175,7 @@ pub fn render(raid: &Value, teams: &Value, queue: &[Record], draw: bool) -> Rend
         target,
         cancelled,
     };
-    let has_art = crate::render::art().is_some();
+    let has_art = crate::render::art().is_some() && pictures();
     let png = if draw { crate::render::art().map(|art| crate::render::raid::draw(art, &card)) } else { None };
     let mut b = EmbedBuilder::new()
         .description(lines.join("\n"))
@@ -233,9 +233,62 @@ fn chan(id: &str) -> Option<Id<ChannelMarker>> {
 
 /// Post a message under `key` in `target`, or edit the one posted before when what it shows changed (its hash).
 /// `fresh_only`: don't post it new (a cancelled raid never posted). Returns true when Discord was written to.
+// ------------------------------------------------------------------------------------------------------------------
+// When Discord says no: a missing permission is reported once (log + the launcher's Host section), not retried
+// every few seconds
+// ------------------------------------------------------------------------------------------------------------------
+
+/// Pictures go with the posts (false once Discord refused one: the bot lacks Attach Files; text until a restart).
+static ATTACH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// channel -> until when it is skipped (the bot can't post there at all)
+static BLOCKED: std::sync::Mutex<BTreeMap<String, i64>> = std::sync::Mutex::new(BTreeMap::new());
+/// What the launcher's Host section says (a missing permission), if anything.
+pub static WARN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn pictures() -> bool {
+    ATTACH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn refused(e: &impl std::fmt::Display) -> bool {
+    let t = e.to_string();
+    t.contains("50013") || t.contains("50001")
+}
+
+fn channel_name(target: &str) -> String {
+    bridge::load_channels().into_iter().find(|c| c.id == target).map(|c| c.name).unwrap_or_else(|| format!("channel {target}"))
+}
+
+/// A refusal: the pictures go first (Attach Files), then the channel (no access).
+fn on_refused(target: &str, with_files: bool) {
+    if with_files && pictures() {
+        ATTACH.store(false, std::sync::atomic::Ordering::Relaxed);
+        let w = format!(
+            "Discord won't take the bot's pictures in {}: give the bot's role Attach Files, then restart the launcher. Posting text meanwhile.",
+            channel_name(target)
+        );
+        eprintln!("posts: {w}");
+        *WARN.lock().unwrap() = Some(w);
+        return;
+    }
+    let now = crate::bot::unix_now() as i64;
+    let mut b = BLOCKED.lock().unwrap();
+    if b.get(target).is_none_or(|t| *t < now) {
+        let w = format!(
+            "The bot can't post in {}: check its permissions there (View Channel, Send Messages, Embed Links). Trying again in 15 minutes.",
+            channel_name(target)
+        );
+        eprintln!("posts: {w}");
+        *WARN.lock().unwrap() = Some(w);
+    }
+    b.insert(target.to_string(), now + 900);
+}
+
 async fn publish(http: &Client, posts: &mut BTreeMap<String, Post>, key: &str, target: &str, r: &Rendered, fresh_only: bool) -> bool {
     let old = posts.get(key).cloned();
     if old.as_ref().is_some_and(|p| p.channel == target && p.hash == r.hash) {
+        return false;
+    }
+    if BLOCKED.lock().unwrap().get(target).is_some_and(|t| *t > crate::bot::unix_now() as i64) {
         return false;
     }
     let Some(ch) = chan(target) else { return false };
@@ -252,7 +305,11 @@ async fn publish(http: &Client, posts: &mut BTreeMap<String, Post>, key: &str, t
                     true
                 }
                 Err(e) => {
-                    eprintln!("posts: edit {key}: {e}");
+                    if refused(&e) {
+                        on_refused(target, !files.is_empty());
+                    } else {
+                        eprintln!("posts: edit {key}: {e}");
+                    }
                     if e.to_string().contains("404") {
                         posts.remove(key); // (deleted by hand: posted again next time)
                     }
@@ -270,7 +327,11 @@ async fn publish(http: &Client, posts: &mut BTreeMap<String, Post>, key: &str, t
                 Err(_) => false,
             },
             Err(e) => {
-                eprintln!("posts: post {key} in {target}: {e}");
+                if refused(&e) {
+                    on_refused(target, !files.is_empty());
+                } else {
+                    eprintln!("posts: post {key} in {target}: {e}");
+                }
                 false
             }
         },
@@ -299,7 +360,9 @@ pub async fn update(http: &Client, snap: &Value) -> usize {
         }
         let r = render(raid, &teams, &queue, true);
         let cancelled = raid.get("cancelled").and_then(|x| x.as_bool()).unwrap_or(false);
-        if publish(http, &mut posts, id, &target, &r, cancelled).await {
+        if publish(http, &mut posts, id, &target, &r, cancelled).await
+            || (r.png.is_some() && !pictures() && publish(http, &mut posts, id, &target, &render(raid, &teams, &queue, true), cancelled).await)
+        {
             n += 1;
         }
     }
@@ -307,7 +370,9 @@ pub async fn update(http: &Client, snap: &Value) -> usize {
         let now = crate::bot::unix_now() as i64;
         if !unchanged(&posts, "_week", target, &render_week(snap, &queue, now, false).hash) {
             let r = render_week(snap, &queue, now, true);
-            if publish(http, &mut posts, "_week", target, &r, false).await {
+            if publish(http, &mut posts, "_week", target, &r, false).await
+                || (r.png.is_some() && !pictures() && publish(http, &mut posts, "_week", target, &render_week(snap, &queue, now, true), false).await)
+            {
                 n += 1;
             }
         }
@@ -376,7 +441,7 @@ pub fn render_week(snap: &Value, queue: &[Record], now: i64, draw: bool) -> Rend
     let tiles = week_tiles(snap, queue, now);
     let week = Local.timestamp_opt(now, 0).single().map(|d| d.format("Week %V").to_string()).unwrap_or_default();
     let stamp = Local.timestamp_opt(now, 0).single().map(|d| d.format("%H:%M").to_string()).unwrap_or_default();
-    let has_art = crate::render::art().is_some();
+    let has_art = crate::render::art().is_some() && pictures();
     let png = if draw {
         crate::render::art().map(|art| crate::render::week::draw(art, "This week", &format!("{week} · updated {stamp}"), &tiles))
     } else {

@@ -84,7 +84,3 @@ pub fn button(name: &str) -> Option<EmojiReactionType> {
 pub fn class_tag(class: &str) -> String {
     tag(&format!("cls_{}", class.to_lowercase()))
 }
-
-pub fn spec_tag(class: &str, spec: u32) -> String {
-    tag(&format!("spec_{}_{spec}", class.to_lowercase()))
-}

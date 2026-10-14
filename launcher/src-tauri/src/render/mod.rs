@@ -35,8 +35,6 @@ pub const GOLD: Color = hex(0xffd100);
 pub const WOW_GOLD: Color = hex(0xf8b700);
 pub const PARCHMENT: Color = hex(0xe8dfc8);
 pub const MUTED: Color = hex(0x8f8778);
-pub const EPIC: Color = hex(0xa335ee);
-pub const EPIC_TEXT: Color = hex(0xc070ff);
 pub const NIGHT: Color = hex(0x0b0a10);
 pub const BRASS: Color = hex(0x6b5420);
 
@@ -112,10 +110,6 @@ impl Art {
     /// Drop a picture from the cache (a file written since: read again next time).
     pub fn forget(&self, name: &str) {
         self.images.lock().unwrap().remove(name);
-    }
-
-    pub fn file(&self, name: &str) -> Option<Vec<u8>> {
-        std::fs::read(self.dir.join(name)).ok()
     }
 }
 
