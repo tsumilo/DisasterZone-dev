@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.4.5", date = "15 October 2026", title = "Discord for everyone",
+    { version = "1.4.5", date = "14 October 2026", title = "Discord for everyone",
       sections = {
           { heading = "Discord without a host", area = "guild", kind = "changed", hi = true,
             lead = "The guild's Discord bot runs on its own server now, always on.", lines = {
@@ -16,6 +16,12 @@ ns.CHANGELOG = {
               "The first game to load them passes them on to everyone online.",
               "Every change from Discord is signed by the bot: the game checks it and ignores fakes.",
               "Guests from Discord wait for a raid leader; lists of non-addon players, for the council.",
+          } },
+          { heading = "The launcher", area = "other", kind = "changed",
+            lead = "Launcher 0.3.0 updates itself; it has a new Settings > Discord.", lines = {
+              "Settings > Discord: link, sync now, unlink, and when it last synced.",
+              "It asks the bot only while WoW runs, so it stays quiet the rest of the time.",
+              "Host mode is gone: nobody's PC has to run the bot any more.",
           } },
       } },
     { version = "1.4.4", date = "14 October 2026", title = "The Binding of Illidan and a living Azeromon",
