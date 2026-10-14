@@ -6,8 +6,20 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.4.3", date = "14 October 2026", title = "Nameplates in our looks",
+    { version = "1.4.3", date = "14 October 2026", title = "Loot reserves and new nameplates",
       sections = {
+          { heading = "Loot reserves", area = "loot", kind = "new", hi = true, open = "settings/session",
+            lead = "Soft reserves for pug nights, in the addon and with the tools pugs already use.", lines = {
+              "The crest has a new switch, Reserves; its drawer sets 1 to 3 each and opens them.",
+              "Who reserved an item rolls on it; one reserve takes it without a roll.",
+              "Nobody reserved it: up for grabs, everyone rolls.",
+              "Items the guild holds go to the loot council, among guild members, as today.",
+              "Pugs reserve by whisper (!sr), in LootReserve's own window, or from softres.it.",
+              "Raiders pick from the raid's loot: their BiS items marked, who else is on each.",
+              "The drop panel says how each item is decided. Reserves close at the first pull.",
+              "Import and export softres.it, Gargul and LootReserve lists; a wrap-up at the end.",
+              "Try it: Settings > Demo a roll > Loot reserves, or /dz reserves demo.",
+          } },
           { heading = "Nameplates in our looks", area = "other", kind = "new", hi = true, open = "settings/looks",
             lead = "The plates over mobs and players in every look, with casts, threat and your debuffs.", lines = {
               "Interface > Looks > Nameplates: they follow your look; Blizzard keeps the game's.",

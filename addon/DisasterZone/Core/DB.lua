@@ -37,6 +37,10 @@ local DEFAULTS = {
             announce = true,     -- post the roll start / winner lines in raid chat
             popup = true,        -- show the Roll / Pass popup when a roll starts
         },
+        reserves = {             -- 1.4.3: loot reserves (Core/Reserves.lua and friends)
+            lootReserve = true,  -- answer LootReserve players as their host / read another LootReserve host
+            showWhispers = false,-- show the !sr whispers to me and my [DZ] answers in my chat frame
+        },
         dungeon = {              -- Addendum B §22: dungeon mode (5-man loot sharing & rolls)
             enabled = false,     -- my switch (the party leader / council also tell the party: DM message)
             quality = 3,         -- minimum drop quality inside 5-man instances (3 = Rare, 4 = Epic)

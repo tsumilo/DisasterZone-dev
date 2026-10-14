@@ -2623,6 +2623,11 @@ function SettingsUI:BuildRolls(sec)
         "roll.announce", true)
     self:SwitchSetting(sec, "Roll / Pass popup", "Pops up when a roll starts, so you can roll or pass.",
         "roll.popup", true)
+    -- 1.4.3: loot reserves
+    self:SwitchSetting(sec, "Talk to LootReserve", "Players with LootReserve reserve in its window when you run "
+        .. "reserves; another LootReserve host's reserves are read.", "reserves.lootReserve", true)
+    self:SwitchSetting(sec, "Show !sr whispers", "The reserve whispers you answer and your answers, in your chat.",
+        "reserves.showWhispers", false)
     self:DropdownSetting(sec, "Announce channel", "Where awards and rolls are announced in a raid.",
         "announceChannel", "RAID", {
             { value = "RAID", text = "Raid" },
@@ -3728,6 +3733,11 @@ end
 function SettingsUI:OpenDemoRollMenu(owner)
     local D = ns.Demo
     ns.UI:ContextMenu(owner, function(root)
+        local rv = root:CreateButton("Loot reserves: a pug night", function()
+            if ns.ReserveDemo then ns.ReserveDemo:Start() end
+        end)
+        rv:SetTitleAndTextTooltip("Loot reserves: a pug night", "Step through a made-up pug night in Serpentshrine "
+            .. "Cavern as the raid leader, a raider or a pug with chat only. Nothing is sent.")
         root:CreateButton("Random prized drop", function() SettingsUI:DemoRoll() end)
         root:CreateDivider()
         root:CreateTitle("Loot rules scenarios")
