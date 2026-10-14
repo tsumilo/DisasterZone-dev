@@ -45,9 +45,9 @@ def tab_opens_on_the_carousel_and_turns_every_way():
     c.world = w
     hub(c)
     assert c.eval("return ns.GamesUI:GetSelected()") is None
-    assert c.eval("return #%s" % POSTERS) == 4
+    assert c.eval("return #%s" % POSTERS) == 5
     order = c.eval_py("local o = {} for i, p in ipairs(%s) do o[i] = p.id end return o" % POSTERS)
-    assert order == ["bingo", "trainer", "azeromon", "chess"], order
+    assert order == ["bingo", "trainer", "azeromon", "chess", "illidan"], order
     n = len(order)
     start = front(c)
     i0 = order.index(start)

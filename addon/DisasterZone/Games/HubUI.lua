@@ -31,7 +31,7 @@ local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 -- the games' colours (the front poster's edge, the room's glow, the rule under the text)
 local ACCENT = {
     bingo = ns.Style.C.GOLD, trainer = { 0.31, 0.83, 0.88 }, azeromon = { 0.53, 0.85, 0.42 },
-    chess = { 0.74, 0.58, 1 },
+    chess = { 0.74, 0.58, 1 }, illidan = { 0.65, 0.94, 0.29 },
 }
 local DEFAULT_ACCENT = ns.Style.C.GOLD
 
@@ -280,6 +280,27 @@ INFO.chess = function()
         out.stat = n > 0 and string.format("Beat Medivh |cffffffff%d|r of %d", w, n) or "|cff8a8a8aNot played yet|r"
     end
     if open > 0 then out.foot = string.format("%d %s open", open, open == 1 and "game" or "games") end
+    return out
+end
+
+-- The Binding of Illidan: your wins and fastest, else the deepest floor; the items you have found.
+INFO.illidan = function()
+    local out = { kicker = "ROGUELIKE", art = "bt" }
+    local data = Saved("illidan")
+    local G = ns.BoIGame
+    if (tonumber(data.wins) or 0) > 0 and G then
+        out.stat = string.format("|cffffffff%d|r %s  \194\183  fastest |cffffffff%s|r", data.wins, data.wins == 1 and "win" or "wins",
+            G.Clock(tonumber(data.fastest) or 0))
+    elseif (tonumber(data.best) or 0) > 0 then
+        local f = ns.BoIData.FLOORS[data.best]
+        out.stat = string.format("Deepest |cffffffff%s|r", f and f.name or ("floor " .. data.best))
+    else
+        out.stat = "|cff8a8a8aNot played yet|r"
+    end
+    if G then
+        local n, all = G:ItemCount()
+        if n > 0 then out.foot = string.format("%d of %d items found", n, all) end
+    end
     return out
 end
 
