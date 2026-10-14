@@ -228,5 +228,24 @@ def reserves_survive_the_hosts_reload_and_a_new_leader_takes_them_over():
     w.assert_no_errors()
 
 
+@R.case
+def a_player_who_joins_later_gets_the_list_without_asking():
+    r = setup(n=1, loot=False)
+    r["Carol"].eval("ns.Reserves:Reserve(...)", RUBY_DRAPE)
+    r.w.tick(2)
+    late = Client(r.w, "Hugo", class_file="MAGE", guild=None)
+    late.load_addon()
+    r.w.tick(3)
+    r.c["Hugo"] = late
+    log0 = len(r.w.addon_log)
+    r.form_raid(list(r.c.values()))
+    r.w.tick(6)
+    assert reserves_of(late, "Carol") == [RUBY_DRAPE], reserves_of(late, "Carol")
+    # the host sends it because the raid grew; raiders who were there all along don't ask
+    assert key("Alice") in [m["_sender"] for m in msgs_of_type(r.w, "RVS", log0)]
+    assert not [m for m in msgs_of_type(r.w, "RVQ", log0) if m["_sender"] != key("Hugo")]
+    r.w.assert_no_errors()
+
+
 if __name__ == "__main__":
     main(R)

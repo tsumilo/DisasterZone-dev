@@ -589,6 +589,7 @@ end
 
 -- RVS: the host's list (or x = true: it was thrown away). Taken from the raid's loot authority, or from whoever holds
 -- the list I have (an authority change mid-raid: the new one sends theirs).
+local pendingList   -- { sender, msg, at }: a list from someone I couldn't place yet (I just joined)
 local function OnList(sender, msg, dist)
     if Util.DemoOn() or dist ~= "RAID" or type(msg) ~= "table" then return end
     if Util.IsMe(sender) then return end
@@ -596,7 +597,12 @@ local function OnList(sender, msg, dist)
     local auth = G and G.GetAuthority and G:GetAuthority()
     -- (right after a /reload I may not know the authority yet, or take myself for it: the raid leader or an
     -- assistant is believed; only the authority's client sends a list)
-    if not (auth == sender or (cur and cur.by == sender) or LeadOrAssist(sender)) then return end
+    if not (auth == sender or (cur and cur.by == sender) or LeadOrAssist(sender)) then
+        -- (a player who just joined may not know the raid's leader yet: kept a moment, taken once they do)
+        pendingList = { sender = sender, msg = msg, at = GetTime() }
+        return
+    end
+    pendingList = nil
     if msg.x then
         if cur and cur.id == msg.id then
             cur = nil
@@ -693,22 +699,44 @@ local function Restore()
 end
 
 local leftAt
+local enteredAt = -1000   -- GetTime() of my last login / reload ...
+local enteredInRaid = false   -- ... and I was in a raid then (a /reload mid-raid: I ask for the list)
+local members = 0         -- the raid's size when I last looked (the host: a new member gets the list)
+-- A list kept because I couldn't place its sender yet: tried again (the roster / the authority is known now).
+local function RetryPending()
+    local p = pendingList
+    if not p then return end
+    pendingList = nil
+    if GetTime() - p.at < 30 and IsInRaid() then OnList(p.sender, p.msg, "RAID") end
+    if pendingList == p then pendingList = nil end   -- (still unknown: dropped)
+end
+
 local function OnGroup()
     if IsInRaid() then
         leftAt = nil
-        if not cur and GetTime() - askPlannedAt > 30 then
+        -- in a raid within 2 s of logging in / reloading: I was in it all along (a /reload mid-raid)
+        if GetTime() - enteredAt < 2 then enteredInRaid = true end
+        if pendingList then Util.Debounce("reserves-pending", 0.5, RetryPending) end
+        -- I logged in / reloaded in a raid: I ask for the list (a new member gets it from the host without asking);
+        -- again a little later, as right after a /reload the answer can come before I know who may send it
+        if not cur and enteredInRaid and GetTime() - enteredAt < 60 and GetTime() - askPlannedAt > 30 then
             askPlannedAt = GetTime()
             Restore()
-            -- asked again a little later: right after a /reload the answer can come before I know who may send it
             for _, d in ipairs({ ASK_DELAY, ASK_DELAY + 6, ASK_DELAY + 20 }) do
                 Util.After(d, function()
                     if IsInRaid() and not cur then Reserves:Ask() end
                 end)
             end
         end
+        local n = GetNumGroupMembers and GetNumGroupMembers() or 0
+        if n > members and cur and not cur.foreign and AmHost() and not Util.DemoOn() then
+            Util.Debounce("reserves-joined", 3, SendNow)
+        end
+        members = n
         Util.Debounce("reserves-adopt", 2, MaybeAdopt)
         return
     end
+    members = 0
     if cur and not leftAt then
         leftAt = GetTime()
         Util.After(10, function()
@@ -740,12 +768,20 @@ function Reserves:OnInit()
         Comm:Register("RVR", OnRequest)
     end
     ns:RegisterEvent("GROUP_ROSTER_UPDATE", OnGroup)
-    ns:RegisterEvent("PLAYER_ENTERING_WORLD", function() Util.After(1, OnGroup) end)
+    ns:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+        enteredAt = GetTime()
+        enteredInRaid = IsInRaid() and true or false
+        Util.After(1, OnGroup)
+    end)
     ns:RegisterEvent("ENCOUNTER_START", OnPull)
     ns:On("GROUP_RULES_CHANGED", function()
         Util.Debounce("reserves-adopt", 2, MaybeAdopt)
-        -- the raid's authority is known now: a list it sent before that was not taken, so ask again
-        if IsInRaid() and not cur then Util.Debounce("reserves-ask", 1, function() Reserves:Ask() end) end
+        if pendingList then Util.Debounce("reserves-pending", 0.5, RetryPending) end
+        -- the raid's authority is known now (right after my login / reload): a list it sent before that was not
+        -- taken, so ask again
+        if IsInRaid() and not cur and enteredInRaid and GetTime() - enteredAt < 60 then
+            Util.Debounce("reserves-ask", 1, function() Reserves:Ask() end)
+        end
         Changed()
     end)
     ns:On("DEMO_TOGGLED", function(on)
