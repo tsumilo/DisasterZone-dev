@@ -1,16 +1,39 @@
-//! Item search for /bis set (host mode): the names of the addon's raid loot, read once from its own data file
-//! (Data/Items.lua lists every item as "28477, -- Harbinger Bands").
+//! Item search for BiS edits (host mode): the names of the addon's raid loot and where they drop, read once from its
+//! own data file (Data/Items.lua lists each raid, its bosses, and their items as "28477, -- Harbinger Bands").
 
 use std::sync::Mutex;
 
-static ITEMS: Mutex<Option<Vec<(u32, String)>>> = Mutex::new(None);
+#[derive(Debug, Clone, PartialEq)]
+pub struct Item {
+    pub id: u32,
+    pub name: String,
+    /// "Prince Malchezaar · Karazhan"
+    pub source: String,
+}
 
-/// (id, name) of every item in an Items.lua text, first mention wins.
-pub fn parse(text: &str) -> Vec<(u32, String)> {
+static ITEMS: Mutex<Option<Vec<Item>>> = Mutex::new(None);
+
+fn quoted_after<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let rest = &line[line.find(key)? + key.len()..];
+    rest.split('"').next()
+}
+
+/// Every item in an Items.lua text with its boss and raid, first mention wins.
+pub fn parse(text: &str) -> Vec<Item> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
+    let (mut raid, mut boss) = (String::new(), String::new());
     for line in text.lines() {
-        let Some((num, rest)) = line.trim().split_once(", --") else { continue };
+        let t = line.trim();
+        if t.contains("bosses = {") {
+            raid = quoted_after(t, "name = \"").unwrap_or("").to_string();
+            continue;
+        }
+        if t.starts_with("{ key = ") {
+            boss = quoted_after(t, "name = \"").unwrap_or("").to_string();
+            continue;
+        }
+        let Some((num, rest)) = t.split_once(", --") else { continue };
         let Ok(id) = num.trim().parse::<u32>() else { continue };
         // (tags like "[supplement: LBIS]" after the name are dropped)
         let name = rest.split(" [").next().unwrap_or(rest).trim();
@@ -20,13 +43,14 @@ pub fn parse(text: &str) -> Vec<(u32, String)> {
             _ => name,
         };
         if !name.is_empty() && seen.insert(id) {
-            out.push((id, name.to_string()));
+            let source = [boss.as_str(), raid.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+            out.push(Item { id, name: name.to_string(), source });
         }
     }
     out
 }
 
-fn all() -> Vec<(u32, String)> {
+fn all() -> Vec<Item> {
     let mut g = ITEMS.lock().unwrap();
     if g.is_none() {
         let list = crate::core::state::load()
@@ -35,24 +59,26 @@ fn all() -> Vec<(u32, String)> {
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|t| parse(&t))
             .unwrap_or_default();
-        if !list.is_empty() {
-            *g = Some(list);
-        } else {
+        if list.is_empty() {
             return Vec::new();
         }
+        *g = Some(list);
     }
     g.clone().unwrap_or_default()
 }
 
 /// Up to 25 items whose name holds the query (names that start with it first).
-pub fn search_in(list: &[(u32, String)], query: &str) -> Vec<(u32, String)> {
+pub fn search_in(list: &[Item], query: &str) -> Vec<(u32, String)> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return Vec::new();
     }
-    let mut starts: Vec<_> = list.iter().filter(|(_, n)| n.to_lowercase().starts_with(&q)).cloned().collect();
-    let more: Vec<_> = list.iter().filter(|(_, n)| { let l = n.to_lowercase(); !l.starts_with(&q) && l.contains(&q) }).cloned().collect();
-    starts.extend(more);
+    let mut starts: Vec<_> = list.iter().filter(|i| i.name.to_lowercase().starts_with(&q)).map(|i| (i.id, i.name.clone())).collect();
+    let more = list.iter().filter(|i| {
+        let l = i.name.to_lowercase();
+        !l.starts_with(&q) && l.contains(&q)
+    });
+    starts.extend(more.map(|i| (i.id, i.name.clone())));
     starts.truncate(25);
     starts
 }
@@ -62,7 +88,12 @@ pub fn search(query: &str) -> Vec<(u32, String)> {
 }
 
 pub fn name_of(id: u32) -> Option<String> {
-    all().into_iter().find(|(i, _)| *i == id).map(|(_, n)| n)
+    all().into_iter().find(|i| i.id == id).map(|i| i.name)
+}
+
+/// Where an item drops ("Prince Malchezaar · Karazhan"), for menus.
+pub fn source_hint(id: u32) -> Option<String> {
+    all().into_iter().find(|i| i.id == id).map(|i| i.source).filter(|s| !s.is_empty())
 }
 
 /// What the user typed or picked: an id (a picked choice) or an exact name.
@@ -71,7 +102,7 @@ pub fn resolve(value: &str) -> Option<u32> {
         return Some(id);
     }
     let v = value.trim().to_lowercase();
-    all().into_iter().find(|(_, n)| n.to_lowercase() == v).map(|(i, _)| i)
+    all().into_iter().find(|i| i.name.to_lowercase() == v).map(|i| i.id)
 }
 
 #[cfg(test)]
@@ -80,13 +111,12 @@ mod tests {
 
     #[test]
     fn reads_the_addon_item_list() {
-        let t = "    { key = \"x\", items = {\n        28477, -- Harbinger Bands\n        28507, -- Handwraps of Flowing Thought [supplement: LBIS]\n        28477, -- Harbinger Bands\n";
+        let t = "  { key = \"Karazhan\", name = \"Karazhan\", phase = 1, size = 10, instanceID = 532, bosses = {\n    { key = \"Attumen\", name = \"Attumen the Huntsman\", npcIDs = { 16152 }, items = {\n        28477, -- Harbinger Bands\n        28507, -- Handwraps of Flowing Thought [supplement: LBIS]\n        28477, -- Harbinger Bands\n        30123, -- PALADIN: Crystalforge Shoulderguards\n";
         let l = parse(t);
-        assert_eq!(l, vec![(28477, "Harbinger Bands".into()), (28507, "Handwraps of Flowing Thought".into())]);
+        assert_eq!(l.len(), 3);
+        assert_eq!(l[0], Item { id: 28477, name: "Harbinger Bands".into(), source: "Attumen the Huntsman · Karazhan".into() });
+        assert_eq!(l[2].name, "Crystalforge Shoulderguards");
         assert_eq!(search_in(&l, "flow")[0].0, 28507);
-        assert_eq!(search_in(&l, "h").len(), 2);
-        assert_eq!(search_in(&l, "harb")[0].1, "Harbinger Bands");
-        assert_eq!(parse("  30123, -- PALADIN: Crystalforge Shoulderguards
-")[0].1, "Crystalforge Shoulderguards");
+        assert_eq!(search_in(&l, "harb").len(), 1);
     }
 }

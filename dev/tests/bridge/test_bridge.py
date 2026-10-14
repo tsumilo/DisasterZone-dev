@@ -229,6 +229,8 @@ def snapshot_carries_my_bis_list():
     mine = snap["bis"][rp.K("Gina")]
     assert mine["slots"][0]["id"] == 29068 and mine["slots"][0]["slot"] == "Head", mine
     assert mine["slots"][0]["alt"] == 29011, mine
+    assert mine["class"] == "PALADIN" and gina.eval("return DisasterZoneBridgeDB.snap.bis[...].ph['1'][1].id", rp.K("Gina")) == 29068
+    assert gina.eval("return DisasterZoneBridgeDB.snap.items[29068] ~= nil")
     no_errors(w)
 
 
@@ -293,6 +295,20 @@ def discord_bis_edit_of_my_own_list():
     bis_record(gina, "b2", "Gina", 28244)   # a necklace in the Head slot: refused with why
     m = gina.eval_py("return DisasterZoneBridgeDB.applied.b2")
     assert m["ok"] is False and "doesn't fit" in m["why"], m
+    no_errors(w)
+
+
+@case
+def discord_bis_edit_of_my_off_spec_list():
+    w, c = discord_world()
+    gina = c["Gina"]
+    gina.eval("DZBridgeInbox = { records = { { id = 'o1', type = 'bis', body = "
+              "{ name = 'Gina', phase = 1, sid = 1, item = 29068, which = 'alt', list = 'os' } } } }")
+    login(gina)
+    assert gina.eval_py("return DisasterZoneBridgeDB.applied.o1")["ok"] is True
+    assert gina.eval("return ns.BiS:HasOffSpec()") is True
+    assert gina.eval("return select(2, ns.BiS:GetSlot(1, 1, 'os'))") == HEAD
+    assert gina.eval("return (ns.BiS:GetSlot(1, 1))") is None
     no_errors(w)
 
 

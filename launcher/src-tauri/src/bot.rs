@@ -304,7 +304,31 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
     let user = i.author_id().map(|u| u.get().to_string()).unwrap_or_default();
     let name = i.author().map(|u| u.global_name.clone().unwrap_or_else(|| u.name.clone())).unwrap_or_default();
     let now = unix_now();
+    let ch = i.channel.as_ref().map(|c| c.id.get().to_string()).unwrap_or_default();
+    let msg = i.message.as_ref().map(|m| m.id.get().to_string()).unwrap_or_default();
     match &i.data {
+        Some(InteractionData::MessageComponent(c)) if c.custom_id.starts_with('b') && c.custom_id.as_bytes().get(2) == Some(&b':') => {
+            let r = if c.values.is_empty() {
+                crate::bis::button(&user, &c.custom_id, &ch, &msg)
+            } else {
+                crate::bis::select(http, &user, &name, &c.custom_id, &c.values).await
+            };
+            return respond_bis(http, app_id, i, r).await;
+        }
+        Some(InteractionData::ModalSubmit(m)) if m.custom_id.starts_with("bm:") => {
+            let r = crate::bis::form_sent(http, &user, &name, m).await;
+            return respond_bis(http, app_id, i, r).await;
+        }
+        Some(InteractionData::ApplicationCommand(cmd)) if cmd.name == "bis" && matches!(cmd.options.first().map(|o| o.name.as_str()), Some("show") | None) => {
+            let who = cmd.options.first().and_then(|o| match &o.value {
+                CommandOptionValue::SubCommand(v) => v.iter().find_map(|x| match &x.value {
+                    CommandOptionValue::String(t) if x.name == "character" => Some(t.clone()),
+                    _ => None,
+                }),
+                _ => None,
+            });
+            return respond_bis(http, app_id, i, crate::bis::show(&user, who.as_deref())).await;
+        }
         Some(InteractionData::MessageComponent(c)) => {
             let a = if c.values.is_empty() {
                 crate::signup::button(&user, &name, &c.custom_id, now)
@@ -392,6 +416,16 @@ async fn respond(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, 
     use crate::signup::Answer;
     let (kind, data) = match a {
         Answer::Text(t, c) => return reply_with(http, app_id, i, t, c).await,
+        Answer::Sheet(e, c, f, b) => (
+            InteractionResponseType::ChannelMessageWithSource,
+            InteractionResponseData {
+                embeds: Some(vec![e]),
+                components: Some(c),
+                attachments: Some(vec![twilight_model::http::attachment::Attachment::from_bytes(f, b, 1)]),
+                flags: Some(MessageFlags::EPHEMERAL),
+                ..Default::default()
+            },
+        ),
         Answer::UpdateCard(e, c) => (
             InteractionResponseType::UpdateMessage,
             InteractionResponseData { content: Some(String::new()), embeds: Some(vec![e]), components: Some(c), ..Default::default() },
@@ -452,6 +486,32 @@ async fn item_choices(
     let resp = InteractionResponse {
         kind: InteractionResponseType::ApplicationCommandAutocompleteResult,
         data: Some(InteractionResponseData { choices: Some(choices), ..Default::default() }),
+    };
+    http.interaction(app_id)
+        .create_response(i.id, &i.token, &resp)
+        .await
+        .map_err(|e| crate::core::Error::Net(e.to_string()))?;
+    Ok(())
+}
+
+async fn respond_bis(http: &Client, app_id: Id<ApplicationMarker>, i: &Interaction, r: crate::bis::Reply) -> Result<()> {
+    use crate::bis::Reply;
+    let resp = match r {
+        Reply::Modal { custom_id, title, components } => InteractionResponse {
+            kind: InteractionResponseType::Modal,
+            data: Some(InteractionResponseData { custom_id: Some(custom_id), title: Some(title), components: Some(components), ..Default::default() }),
+        },
+        Reply::Pic { update, private, text, embed, comps, file } => InteractionResponse {
+            kind: if update { InteractionResponseType::UpdateMessage } else { InteractionResponseType::ChannelMessageWithSource },
+            data: Some(InteractionResponseData {
+                content: text.or(if update { Some(String::new()) } else { None }),
+                embeds: Some(embed.into_iter().collect()),
+                components: Some(comps),
+                attachments: file.map(|(f, b)| vec![twilight_model::http::attachment::Attachment::from_bytes(f, b, 1)]),
+                flags: if private && !update { Some(MessageFlags::EPHEMERAL) } else { None },
+                ..Default::default()
+            }),
+        },
     };
     http.interaction(app_id)
         .create_response(i.id, &i.token, &resp)

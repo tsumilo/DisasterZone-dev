@@ -5,6 +5,7 @@
 //! Everything is laid out in "points" (the prototype's CSS pixels) and drawn at SCALE pixels per point.
 
 pub mod raid;
+pub mod sheet;
 pub mod week;
 
 use ab_glyph::{Font, FontArc, PxScale, ScaleFont};

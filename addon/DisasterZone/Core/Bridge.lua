@@ -208,20 +208,23 @@ function Bridge:DeliverBis()
 end
 
 -- A list the host keeps for a member without the addon: one slot changed (the council's copy, a higher rev).
-local function EditHostList(key, phase, sid, item, which)
+local function EditHostList(key, phase, sid, item, which, list)
     local S, Util = ns.Store, ns.Util
     if not (S and S.Put) then return false, "BiS lists not loaded" end
     local cur = S:Get(key)
     local d = type(cur) == "table" and type(cur.data) == "table" and Util.CopyTable(cur.data)
         or { v = ns.LIST_VERSION or 1, cl = ns.Guild:GetClass(key) or "", sp = "", ph = {}, ob = {}, eq = {} }
+    -- (the off spec's lists sit flat next to the main spec's: op / opr, like ph / pr; Core/BiS.lua)
+    local PH, PR = list == "os" and "op" or "ph", list == "os" and "opr" or "pr"
+    if list == "os" and type(d.os) ~= "string" then d.os = "" end
     local slots
     if phase == 0 then
-        d.pr = type(d.pr) == "table" and d.pr or {}
-        slots = d.pr
+        d[PR] = type(d[PR]) == "table" and d[PR] or {}
+        slots = d[PR]
     else
-        d.ph = type(d.ph) == "table" and d.ph or {}
-        d.ph[phase] = type(d.ph[phase]) == "table" and d.ph[phase] or {}
-        slots = d.ph[phase]
+        d[PH] = type(d[PH]) == "table" and d[PH] or {}
+        d[PH][phase] = type(d[PH][phase]) == "table" and d[PH][phase] or {}
+        slots = d[PH][phase]
     end
     local pair = type(slots[sid]) == "table" and slots[sid] or {}
     local main, alt = tonumber(pair[1]) or 0, tonumber(pair[2]) or 0
@@ -234,7 +237,7 @@ local function EditHostList(key, phase, sid, item, which)
     end
     if main ~= 0 and main == alt then alt = 0 end
     slots[sid] = (main ~= 0 or alt ~= 0) and { main, alt } or nil
-    if phase ~= 0 and next(slots) == nil then d.ph[phase] = nil end
+    if phase ~= 0 and next(slots) == nil then d[PH][phase] = nil end
     local rev = (type(cur) == "table" and tonumber(cur.rev) or 0) + 1
     if not S:Put(key, { r = rev, ts = Util.Now(), h = Util.Hash(d), d = d }, "discord") then
         return false, "the list could not be saved"
@@ -247,6 +250,7 @@ Bridge:RegisterType("bis", function(r)
     local key = Bridge:FindMember(b.name)
     if not key then return false, tostring(b.name) .. " is not in the guild." end
     local phase, sid, which = tonumber(b.phase), tonumber(b.sid), b.which == "alt" and "alt" or "main"
+    local list = b.list == "os" and "os" or nil
     if not phase or phase < 0 or phase > 5 then return false, "unknown phase" end
     local item = tonumber(b.item) or 0
     if item ~= 0 then
@@ -255,18 +259,19 @@ Bridge:RegisterType("bis", function(r)
         if not item then return false, why end
     end
     if ns.Util.IsMe(key) then
-        if not ns.BiS:SetSlot(phase, sid, which, item) then return false, "the list is locked for the raid" end
+        if list and not ns.BiS:HasOffSpec() then ns.BiS:AddOffSpec("") end
+        if not ns.BiS:SetSlot(phase, sid, which, item, list) then return false, "the list is locked for the raid" end
         ns.BiS:Commit()
         return true
     end
     if ns.Sync and ns.Sync.GetPeer and ns.Sync:GetPeer(key) then
         local list = Pending()[key] or {}
-        list[#list + 1] = { id = r.id, p = phase, s = sid, i = item, w = which }
+        list[#list + 1] = { id = r.id, p = phase, s = sid, i = item, w = which, l = b.list == "os" and "os" or nil }
         Pending()[key] = list
         Bridge:DeliverBis()
         return true
     end
-    return EditHostList(key, phase, sid, item, which)
+    return EditHostList(key, phase, sid, item, which, list)
 end)
 
 -- BDE { e = { { id, p, s, i, w }, ... } }: my list changed in Discord (from the Discord host only).
@@ -278,7 +283,9 @@ local function OnBisEdits(sender, msg, dist)
         if type(e) ~= "table" then break end
         local p, s, item = tonumber(e.p), tonumber(e.s), tonumber(e.i) or 0
         if type(e.id) == "string" and p and s then
-            if ns.BiS:SetSlot(p, s, e.w == "alt" and "alt" or "main", item) then changed = changed + 1 end
+            local l = e.l == "os" and "os" or nil
+            if l and not ns.BiS:HasOffSpec() then ns.BiS:AddOffSpec("") end
+            if ns.BiS:SetSlot(p, s, e.w == "alt" and "alt" or "main", item, l) then changed = changed + 1 end
             done[#done + 1] = e.id
         end
     end
@@ -344,30 +351,51 @@ function Bridge:Snapshot()
     -- the BiS lists I hold (mine; everyone's on the guild council), the guild's phase, main spec
     local phase = G and G.GetGuildPhase and G:GetGuildPhase() or 1
     out.phase, out.bis = phase, {}
+    -- every phase (0 = Pre-raid), main and off spec; item names, sources and quality once, in out.items
     local S, I = ns.Store, ns.ItemDB
+    out.items = {}
+    local function item(id)
+        if id > 0 and not out.items[id] then
+            out.items[id] = { n = I and I.GetName and I:GetName(id) or nil, s = I and I.GetSourceText and I:GetSourceText(id) or nil,
+                              q = I and I.GetQuality and I:GetQuality(id) or nil }
+        end
+    end
+    local function slotsOf(key, slots)
+        local list = {}
+        for sid = 1, ns.NUM_SLOTS do
+            local pair = type(slots) == "table" and type(slots[sid]) == "table" and slots[sid] or {}
+            local id, alt = tonumber(pair[1]) or 0, tonumber(pair[2]) or 0
+            if id > 0 or alt > 0 then
+                local e = { sid = sid, slot = ns.SLOTS[sid].label }
+                if id > 0 then e.id, e.got = id, S.IsObtainedBy and S:IsObtainedBy(key, id) or nil end
+                if alt > 0 then e.alt, e.altGot = alt, S.IsObtainedBy and S:IsObtainedBy(key, alt) or nil end
+                item(id); item(alt)
+                list[#list + 1] = e
+            end
+        end
+        return list
+    end
+    local function phasesOf(key, ph, pr)
+        local out2, any = {}, false
+        for p = 0, 5 do
+            local slots = p == 0 and pr or (type(ph) == "table" and ph[p])
+            local l = slotsOf(key, slots)
+            if #l > 0 then out2[tostring(p)] = l; any = true end
+        end
+        return any and out2 or nil
+    end
     for _, key in ipairs(S and S.GetAllKeys and S:GetAllKeys() or {}) do
         local rec = S:Get(key)
         local data = type(rec) == "table" and type(rec.data) == "table" and rec.data
-        local slots = data and type(data.ph) == "table" and data.ph[phase]
-        if type(slots) == "table" then
-            local list = {}
-            for sid = 1, ns.NUM_SLOTS do
-                local pair = type(slots[sid]) == "table" and slots[sid] or {}
-                local id, alt = tonumber(pair[1]) or 0, tonumber(pair[2]) or 0
-                if id > 0 or alt > 0 then
-                    local e = { sid = sid, slot = ns.SLOTS[sid].label }
-                    if id > 0 then
-                        e.id, e.name = id, I and I.GetName and I:GetName(id) or nil
-                        e.got = S.IsObtainedBy and S:IsObtainedBy(key, id) or nil
-                    end
-                    if alt > 0 then
-                        e.alt, e.altName = alt, I and I.GetName and I:GetName(alt) or nil
-                        e.altGot = S.IsObtainedBy and S:IsObtainedBy(key, alt) or nil
-                    end
-                    list[#list + 1] = e
-                end
+        if data then
+            local ms = phasesOf(key, data.ph, data.pr)
+            local os = data.os and phasesOf(key, data.op, data.opr) or nil
+            if ms or os then
+                out.bis[key] = { class = data.cl ~= "" and data.cl or (G and G.GetClass and G:GetClass(key)) or nil,
+                                 spec = data.sp ~= "" and data.sp or nil, ph = ms or {},
+                                 os = data.os and data.os ~= "" and data.os or (os and "Off spec") or nil, oph = os,
+                                 slots = ms and ms[tostring(phase)] or {} }
             end
-            out.bis[key] = { spec = data.sp ~= "" and data.sp or nil, slots = list }
         end
     end
     for _, v in ipairs(RP:GetRaids(now - SNAP_BACK, now + SNAP_AHEAD, true)) do

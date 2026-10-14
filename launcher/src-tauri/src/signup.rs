@@ -69,6 +69,8 @@ fn spec_name(class: &str, spec: u32) -> &'static str {
 }
 
 pub enum Answer {
+    /// a private message with a picture (the gear sheet from the week board)
+    Sheet(twilight_model::channel::message::Embed, Vec<Component>, String, Vec<u8>),
     /// replace the private message the menu was on with an embed
     UpdateCard(twilight_model::channel::message::Embed, Vec<Component>),
     /// a new private message with an embed (the character card)
@@ -226,7 +228,11 @@ pub fn button(user: &str, name: &str, custom: &str, now: u64) -> Answer {
         return characters(user);
     }
     if custom == "wk:bis" {
-        return text(bis_text(user, None, now));
+        // (the board's button: the sheet privately; /bis show posts it in the channel)
+        return match crate::bis::show(user, None) {
+            crate::bis::Reply::Pic { embed: Some(e), comps, file: Some((f, b)), .. } => Answer::Sheet(e, comps, f, b),
+            _ => text(bis_text(user, None, now)),
+        };
     }
     if let ["mr", raid, st] = parts[..] {
         // an answer from My raids: my main character, then the list again

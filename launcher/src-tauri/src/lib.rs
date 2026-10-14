@@ -1,6 +1,7 @@
 //! DisasterZone Launcher: the Tauri commands the window (ui/) calls. The work is in core/.
 
 mod background;
+mod bis;
 mod bot;
 mod emoji;
 mod items;
