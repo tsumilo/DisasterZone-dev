@@ -37,7 +37,7 @@ local MAX_KEY_LEN = 48
 local MAX_ID_LEN = 64
 local KEEP_SAVED = 12 * 3600        -- the host's saved list survives a /reload or relog this long
 local SEND_DELAY = 0.5              -- RVS is sent this long after the last change
-local ASK_DELAY = 3                 -- RVQ this long after joining a raid / logging in
+local ASK_DELAY = 8                 -- RVQ this long after a login / reload in a raid (after the busiest seconds)
 local SOURCES = { d = true, l = true, w = true, s = true, h = true }
 
 Reserves.SOURCE_TEXT = { d = "DisasterZone", l = "LootReserve", w = "Whisper", s = "Imported", h = "Set by the leader" }
@@ -768,20 +768,18 @@ function Reserves:OnInit()
         Comm:Register("RVR", OnRequest)
     end
     ns:RegisterEvent("GROUP_ROSTER_UPDATE", OnGroup)
-    ns:RegisterEvent("PLAYER_ENTERING_WORLD", function()
-        enteredAt = GetTime()
-        enteredInRaid = IsInRaid() and true or false
+    ns:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, isLogin, isReload)
+        -- (only a login or a /reload: a zone change, entering the raid's instance too, asks nothing)
+        if isLogin or isReload then
+            enteredAt = GetTime()
+            enteredInRaid = IsInRaid() and true or false
+        end
         Util.After(1, OnGroup)
     end)
     ns:RegisterEvent("ENCOUNTER_START", OnPull)
     ns:On("GROUP_RULES_CHANGED", function()
         Util.Debounce("reserves-adopt", 2, MaybeAdopt)
         if pendingList then Util.Debounce("reserves-pending", 0.5, RetryPending) end
-        -- the raid's authority is known now (right after my login / reload): a list it sent before that was not
-        -- taken, so ask again
-        if IsInRaid() and not cur and enteredInRaid and GetTime() - enteredAt < 60 then
-            Util.Debounce("reserves-ask", 1, function() Reserves:Ask() end)
-        end
         Changed()
     end)
     ns:On("DEMO_TOGGLED", function(on)
