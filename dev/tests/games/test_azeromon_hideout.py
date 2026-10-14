@@ -4,7 +4,9 @@ Covers: the stairs under the Lion's Pride Inn; a plinth for every raid boss with
 from the raid log (a kill counts when more than half the roster were guildmates; kills, first date, fight time,
 fastest, who was there); the plinth's look follows the log (the map compiles afresh); Space at a plinth opens the
 trophy screen with the boss and its plaque, X closes it; the champions' statues name the record holders; the
-guild Bestiary board; the raid log records how long a kill took.
+guild Bestiary board; the raid log records how long a kill took. The grand hall (azeromon_hall.py, baked by
+gen_azeromon_hall.py): its rows match the painter's, HallArt.lua is up to date, a raid's wing is roped off until the
+guild's first kill there, and the game draws the seals, trophies, props in depth, flames and glows.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_hideout.py [-k name]
 """
@@ -50,6 +52,15 @@ def seed_kills(c):
       ns.AzeroHideout.Invalidate()""" % (DAY, DAY, PRINCE, DAY, DAY, DAY, PRINCE, DAY, DAY, DAY, PRINCE, DAY))
 
 
+# stand next to a plinth facing it, from the walk lane below or above
+FACE = """T_AZ.face_plinth = function(px, py)
+  local G = ns.Azero
+  local m = G.Compile('hideout')
+  if not m.solid[m.key(px, py + 1)] then G:EnterMap('hideout', px, py + 1, 'up', true)
+  else G:EnterMap('hideout', px, py - 1, 'down', true) end
+end"""
+
+
 def log(c):
     return "\n".join(c.eval_py("return T_AZ.log") or [])
 
@@ -60,7 +71,7 @@ def the_stairs_under_the_inn_lead_to_the_hall_and_back():
     c.eval("ns.Azero:EnterMap('post', 5, 3, 'up', true)")
     c.eval("T_AZ.step('up')")
     where = c.eval_py("local s = ns.Azero.save return { s.map, s.x, s.y }")
-    assert where == ["hideout", 14, 22], where
+    assert where == ["hideout", 17, 31], where
     c.eval("T_AZ.step('down')")
     where = c.eval_py("local s = ns.Azero.save return { s.map, s.x, s.y }")
     assert where == ["post", 5, 3], where
@@ -72,7 +83,7 @@ def the_stairs_under_the_inn_lead_to_the_hall_and_back():
 def every_raid_boss_has_a_plinth():
     w, c = game()
     r = c.eval_py("""local H, G = ns.AzeroHideout, ns.Azero
-      G:EnterMap('hideout', 14, 22, 'up', true)
+      G:EnterMap('hideout', 17, 31, 'up', true)
       local m = G.map
       local plinths, empty, raids = 0, 0, {}
       for k, o in pairs(m.object) do
@@ -115,7 +126,7 @@ def trophies_come_from_the_guilds_kills_in_the_raid_log():
     assert r["attumen"][0] == "An empty plinth.", r
     # the plinth's look follows the log
     tile = c.eval_py("""local G = ns.Azero
-      G:EnterMap('hideout', 14, 22, 'up', true)
+      G:EnterMap('hideout', 17, 31, 'up', true)
       for k, o in pairs(G.map.object) do if o.boss and o.boss.enc == 661 then return G.map.over[k] end end""")
     assert tile == "plinth", tile
     no_errors(w)
@@ -125,11 +136,12 @@ def trophies_come_from_the_guilds_kills_in_the_raid_log():
 def space_at_a_plinth_shows_the_boss_and_its_plaque():
     w, c = game(ui=True)
     seed_kills(c)
+    c.eval(FACE)
     c.eval("""local G = ns.Azero
       local px, py
-      G:EnterMap('hideout', 14, 22, 'up', true)
+      G:EnterMap('hideout', 17, 31, 'up', true)
       for k, o in pairs(G.map.object) do if o.boss and o.boss.enc == 661 then px, py = o.x, o.y end end
-      G:EnterMap('hideout', px, py + 1, 'up', true)
+      T_AZ.face_plinth(px, py)
       G:PressA()""")
     w.tick(0.5)
     assert c.eval_py("local p = ns.Azero.pending return p and p.kind") == "trophy"
@@ -143,7 +155,7 @@ def space_at_a_plinth_shows_the_boss_and_its_plaque():
     c.eval("""local G = ns.Azero
       local px, py
       for k, o in pairs(G.map.object) do if o.boss and o.boss.enc == 652 then px, py = o.x, o.y end end
-      G:EnterMap('hideout', px, py + 1, 'up', true)
+      T_AZ.face_plinth(px, py)
       G:PressA()""")
     w.tick(0.5)
     panel = c.eval_py("return ns.AzeroUI._Trophy()")
@@ -158,7 +170,7 @@ def the_statues_name_the_champions_and_the_board_counts_the_bestiary():
     w, c = game()
     c.eval("T_AZ.choice = 1")
     names = c.eval_py("""local G = ns.Azero
-      G:EnterMap('hideout', 4, 18, 'down', true)
+      G:EnterMap('hideout', 3, 30, 'up', true)
       local out = {}
       for _, n in ipairs(G.npcs) do if n.def.statue then out[#out + 1] = G.NpcName(n.def) .. ' <' .. G.NpcTitle(n.def) .. '>' end end
       return out""")
@@ -168,21 +180,21 @@ def the_statues_name_the_champions_and_the_board_counts_the_bestiary():
       G.save.party = { M.New('wolfpup', 5, G.rng) }
       ns.AzeroGuild:MarkDirty()""")
     names = c.eval_py("""local G = ns.Azero
-      G:EnterMap('hideout', 4, 18, 'down', true)
+      G:EnterMap('hideout', 3, 30, 'up', true)
       local out = {}
       for _, n in ipairs(G.npcs) do if n.def.statue then out[#out + 1] = G.NpcName(n.def) end end
       return out""")
     assert names[0] == "Alice", names
-    c.eval("ns.Azero:EnterMap('hideout', 4, 18, 'down', true) ns.Azero:PressA()")
+    c.eval("ns.Azero:EnterMap('hideout', 3, 30, 'up', true) ns.Azero:PressA()")
     c.eval("T_AZ.settle()")
     assert "The plaque reads: Alice, Champion Tamer." in log(c), log(c)
-    c.eval("T_AZ.log = {} ns.Azero:EnterMap('hideout', 25, 18, 'down', true) ns.Azero:PressA()")
+    c.eval("T_AZ.log = {} ns.Azero:EnterMap('hideout', 32, 30, 'up', true) ns.Azero:PressA()")
     c.eval("T_AZ.settle()")
     text = log(c)
     assert "GUILD BESTIARY" in text and "tamed 3 of" in text and "Still wild: " in text, text
-    c.eval("T_AZ.log = {} ns.Azero:EnterMap('hideout', 18, 21, 'left', true) ns.Azero:PressA()")
+    c.eval("T_AZ.log = {} ns.Azero:EnterMap('hideout', 21, 30, 'left', true) ns.Azero:PressA()")
     c.eval("T_AZ.settle()")
-    assert "Steward Marlon: Welcome to the guild hall." in log(c), log(c)
+    assert "Steward Marlon: Welcome to the Guild Hall." in log(c), log(c)
     no_errors(w)
 
 
@@ -199,6 +211,69 @@ def the_raid_log_times_a_kill_from_pull_to_death():
     r = c.eval_py("local b = ns.db.raids.live.bosses[1] return b and { enc = b.enc, dur = b.dur }")
     assert r and r["enc"] == PRINCE and 195 <= r["dur"] <= 205, r
     assert c.eval_py("return ns.AzeroHideout.Trophy(661).first.dur") == r["dur"]
+    no_errors(w)
+
+
+@case
+def the_halls_rows_are_the_painters_and_its_art_is_up_to_date():
+    sys.path.insert(0, os.path.join(os.path.dirname(TESTS), "generators"))
+    import azeromon_hall as ah
+    import gen_azeromon_hall as gh
+    _, plan = ah.paint()
+    w, c = game()
+    rows = c.eval_py("return ns.AzeroHideout.ROWS")
+    assert rows == ah.rows(plan), "Hideout.lua's ROWS differ from the painter's: paste `python azeromon_hall.py rows`"
+    v = c.eval_py("return ns.AzeroHallArt.v")
+    assert v == gh.digest(), "the hall changed since it was baked: run generators/gen_azeromon_ground.py"
+    assert c.eval_py("return ns.AzeroGround.hideout.v") == v
+    n = c.eval_py("return #ns.AzeroHallArt.plinths")
+    assert n == 50 == c.eval_py("local n = 0 for _, r in ipairs(ns.AzeroHideout.RAIDS) do n = n + #r.bosses end return n"), n
+    no_errors(w)
+
+
+@case
+def a_raids_wing_is_roped_off_until_the_guilds_first_kill_there():
+    w, c = game()
+    r = c.eval_py("""local H, G = ns.AzeroHideout, ns.Azero
+      G:EnterMap('hideout', 17, 31, 'up', true)
+      local m = G.map
+      return { open = H.WingOpen('Karazhan'), rope = m.solid[m.key(12, 10)] or false, line = H.WingLine('Karazhan') }""")
+    assert r == {"open": False, "rope": True, "line": "Karazhan: sealed until the guild's first kill there"}, r
+    c.eval("T_AZ.log = {} ns.Azero:EnterMap('hideout', 13, 10, 'left', true) ns.Azero:PressA()")
+    c.eval("T_AZ.settle()")
+    assert "The Karazhan wing opens when the guild kills one of its bosses." in log(c), log(c)
+    seed_kills(c)
+    r = c.eval_py("""local H, G = ns.AzeroHideout, ns.Azero
+      G:EnterMap('hideout', 13, 10, 'left', true)
+      local m = G.map
+      return { open = H.WingOpen('Karazhan'), rope = m.solid[m.key(12, 10)] or false, line = H.WingLine('Karazhan'),
+               gruul = m.solid[m.key(12, 15)] or false }""")
+    assert r == {"open": True, "rope": False, "line": "Karazhan: 1 of 11 trophies", "gruul": True}, r
+    c.eval("T_AZ.step('left')")
+    assert c.eval_py("return ns.Azero.save.x") == 12                   # into the wing
+    no_errors(w)
+
+
+@case
+def the_hall_draws_its_seals_trophies_props_and_lights():
+    w, c = game(ui=True)
+    c.eval("ns.Azero.clockHour = 12 ns.Azero:EnterMap('hideout', 17, 8, 'up', true)")
+    w.tick(0.3)
+    h = c.eval_py("return ns.AzeroUI._Hall()")
+    assert len(h["seals"]) >= 4 and all("hideout_seal" in f and not f.endswith("e") for f in h["seals"]), h
+    assert h["trophies"] == 0 and h["props"] >= 6 and h["fires"] >= 2 and h["top"], h
+    assert h["glows"] <= 1 and not h["dims"], h                       # (by day: no darkness, no glows)
+    seed_kills(c)
+    c.eval("ns.Azero.clockHour = 23 ns.Azero:EnterMap('hideout', 13, 10, 'left', true)")
+    w.tick(0.3)
+    h = c.eval_py("return ns.AzeroUI._Hall()")
+    assert h["trophies"] == 1 and h["glows"] > 3 and h["dims"], h       # Prince on his plinth; night lights
+    assert all(f.endswith("e") for f in h["seals"]) and not any(f.endswith("seal2e") for f in h["seals"]), h
+    assert h["wing"] == "Karazhan", h
+    # a pillar south of the player stands in front of them
+    c.eval("ns.Azero:EnterMap('hideout', 13, 26, 'up', true)")
+    w.tick(0.2)
+    assert c.eval_py("return ns.AzeroUI._Hall()")["front"] >= 1
     no_errors(w)
 
 

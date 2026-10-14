@@ -6,6 +6,18 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.24", date = "14 October 2026", title = "The Grand Guild Hall",
+      lines = {
+          "The Guild Hall is rebuilt: a cathedral under the inn.",
+          "Stained glass, a rose window and a throne on a dais.",
+          "Marble nave, colossal pillars, a mosaic and chandelier.",
+          "Every raid has its own wing, dressed for its raid.",
+          "A wing opens with the guild's first kill there.",
+          "Each kill puts that raid's trophy on its plinth.",
+          "Sunwell's light fills the throne once the plateau falls.",
+          "Coloured sun by day; moonlight and fire at night.",
+          "Champions stand in stone on lit pedestals.",
+      } },
     { version = "0.23", date = "14 October 2026", title = "Every zone, alive",
       lines = {
           "Westfall, Duskwood, Stranglethorn and the mines redrawn.",

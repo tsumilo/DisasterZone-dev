@@ -1877,6 +1877,11 @@ STATES = [
     ("Games - Azeromon inn evening", azero_at("post", 4, 5, "ns.Azero.clockHour = 21")),
     ("Games - Azeromon Route 1", azero_at("route1", 6, 9)),
     ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),
+    # the Guild Hall: by day from the dais steps (wings shut, nothing killed); at night in Karazhan's wing with
+    # Karazhan, Gruul and Magtheridon cleared; down the nave by the rotunda
+    ("Games - Azeromon Guild Hall", azero_at("hideout", 17, 8)),
+    ("Games - Azeromon Guild Hall night", azero_at("hideout", 10, 10, "local now = GetServerTime() local b = {} for _, e in ipairs({ 649, 650, 651, 652, 653, 654, 655, 656, 657, 658, 659, 660, 661, 662 }) do b[#b + 1] = { enc = e, ts = now - 86400 * 3, dur = 300 } end ns.db.raids.aud = { id = 'aud', start = now - 86400 * 3, stop = now - 86400 * 3 + 9000, zone = 'Karazhan', att = {}, bosses = b } ns.AzeroHideout.Invalidate() ns.Azero:EnterMap('hideout', 10, 10, 'down', true) ns.Azero.clockHour = 23")),
+    ("Games - Azeromon Guild Hall rotunda", azero_at("hideout", 17, 22, "local now = GetServerTime() local b = {} for _, e in ipairs({ 649, 650, 651, 652, 653, 654, 655, 656, 657, 658, 659, 660, 661, 662 }) do b[#b + 1] = { enc = e, ts = now - 86400 * 3, dur = 300 } end ns.db.raids.aud = { id = 'aud', start = now - 86400 * 3, stop = now - 86400 * 3 + 9000, zone = 'Karazhan', att = {}, bosses = b } ns.AzeroHideout.Invalidate()  ns.Azero.clockHour = 12")),
     # Karazhan Chess (Games/Chess): the lobby with games in every state; a game against Medivh mid-way with his fire
     # on two of your pieces and his line (the flat board: the audit has no 3D rooms); the guild ladder
     ("Games - Chess lobby", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.GamesUI:Select('chess') "

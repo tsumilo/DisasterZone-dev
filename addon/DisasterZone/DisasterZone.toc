@@ -331,6 +331,7 @@ Games\Illidan\UI.lua
 Games\Azeromon\Data.lua
 Games\Azeromon\Atlas.lua
 Games\Azeromon\Ground.lua
+Games\Azeromon\HallArt.lua
 Games\Azeromon\Mon.lua
 Games\Azeromon\Battle.lua
 Games\Azeromon\Maps.lua

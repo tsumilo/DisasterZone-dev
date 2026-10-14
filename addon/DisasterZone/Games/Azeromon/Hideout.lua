@@ -218,75 +218,119 @@ function H.BestiaryText()
 end
 
 ---------------------------------------------------------------------------
--- The hall itself (Maps.lua format). Plinths in raid order, a row per raid, the raid's name on a sign at the
--- row's start; the champions' statues along the south wall, the Bestiary board and the steward by the stairs.
+-- The hall itself (Maps.lua format), painted by dev/generators/azeromon_hall.py and baked like an interior
+-- (Ground.lua: hideout; HallArt.lua: its wings, props, fires and lights). A cathedral nave runs from the stairs to
+-- the throne dais; eight raid wings open off it, four a side, and Sunwell's plinths flank the throne. A wing is
+-- shut (dust sheets, scaffolding, a rope across its mouth) until the guild has killed one of its raid's bosses.
 ---------------------------------------------------------------------------
 
--- 30 x 24. Three rows of wall with the crest, banners and windows; the throne under the crest; the carpet down
--- the nave between two wings of plinths (raids 1-5 left, 6-9 right), pillars and chandeliers along it; the lower
--- hall with two hearths, feast tables, the champions' statues, the Bestiary board and the stairs up.
-local rows = {
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "Tp..........................pT",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T............*==*............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T............*==*............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T..ttt..ttt...==...ttt..ttt..T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "T.............==.............T",
-    "Tp............==............pT",
-    "TTTTTTTTTTTTTTrTTTTTTTTTTTTTTT",
+-- 36 x 34, X solid. The painter's collision grid (the hideout test checks this copy against it).
+local ROWS = {
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "X..XX..X.X.......XX.......X.X..XX..X",
+    "X...........XXXX.XX.XXXX...........X",
+    "XXXXXXXXXXXXX..........XXXXXXXXXXXXX",
+    "XXXXXXXXXXXXX..........XXXXXXXXXXXXX",
+    "XX.X.X.X.X.X......................XX",
+    "X.......................X..X..X..X.X",
+    "X.X.X.X.X.X..X........X...........XX",
+    "XXXXXXXXXXXXX..........XXXXXXXXXXXXX",
+    "XXXXXXXXXXXXX..........XXXXXXXXXXXXX",
+    "XXX.......................X..X..X..X",
+    "XXX.X...X.....X......X.............X",
+    "X..........................X...X...X",
+    "XXXXXXXXXXXXX..........XXXXXXXXXXXXX",
+    "XXXXXXXXXXXXX..........XXXXXXXXXXXXX",
+    "X.......................X.X..X..X.XX",
+    "X.....X............................X",
+    "X.......................XX.X..X..XXX",
+    "XXXXXXXXXXXXX..........XXXXXXXXXXXXX",
+    "XXXXXXXXXXXXX..........XXXXXXXXXXXXX",
+    "X..X..X..X....X......X....X..X..X.XX",
+    "X..................................X",
+    "X..X..X..X................X..X..X.XX",
+    "XXXXXXXXXXXXXX........XXXXXXXXXXXXXX",
+    "X..................................X",
+    "X...............................X..X",
+    "X..................................X",
+    "X.XXXXXXXX...............XXXXXXXX..X",
+    "XXXXXXXXXXXXXXXXX..XXXXXXXXXXXXXXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
 }
 
-local stamps = {
-    { kind = "crest", x = 14, y = 1 },
-    { kind = "throne", x = 14, y = 3 },
-    { kind = "banner", x = 3, y = 1 }, { kind = "window", x = 6, y = 1 }, { kind = "bannerblue", x = 9, y = 1 },
-    { kind = "window", x = 12, y = 1 }, { kind = "window", x = 17, y = 1 }, { kind = "bannerblue", x = 20, y = 1 },
-    { kind = "window", x = 23, y = 1 }, { kind = "banner", x = 26, y = 1 },
-    { kind = "pillar", x = 13, y = 5 }, { kind = "pillar", x = 16, y = 5 },
-    { kind = "pillar", x = 13, y = 9 }, { kind = "pillar", x = 16, y = 9 },
-    { kind = "pillar", x = 13, y = 13 }, { kind = "pillar", x = 16, y = 13 },
-    { kind = "fireplace", x = 1, y = 14 }, { kind = "fireplace", x = 27, y = 14 },
-}
+local ART = ns.AzeroHallArt or { plinths = {}, wings = {} }
+H.ART = ART
 
-local objects, signs = {}, {}
 Build()
-for i, raid in ipairs(H.RAIDS) do
-    local left = i <= 5
-    local y = left and (2 + 2 * i) or (2 + 2 * (i - 5))
-    local signX = left and 1 or 28
-    signs[#signs + 1] = { x = signX, y = y, text = raid.name:upper() .. "\n" .. #raid.bosses .. " plinths. Press Space at one." }
-    for j, boss in ipairs(raid.bosses) do
+local raidByKey = {}
+for _, r in ipairs(H.RAIDS) do raidByKey[r.key] = r end
+
+-- A wing is open once the guild has killed one of its raid's bosses.
+function H.WingOpen(key)
+    local r = raidByKey[key]
+    if not r then return true end
+    for _, b in ipairs(r.bosses) do if H.Trophy(b.enc) then return true end end
+    return false
+end
+
+-- trophies standing in a raid's wing / its plinth count
+function H.WingCount(key)
+    local r = raidByKey[key]
+    if not r then return 0, 0 end
+    local n = 0
+    for _, b in ipairs(r.bosses) do if H.Trophy(b.enc) then n = n + 1 end end
+    return n, #r.bosses
+end
+
+-- what the wing's banner (and the banner over the screen on walking in) says
+function H.WingLine(key)
+    local r = raidByKey[key]
+    if not r then return "" end
+    local n, total = H.WingCount(key)
+    if n == 0 then return r.name .. ": sealed until the guild's first kill there" end
+    if n == total then return string.format("%s: all %d trophies", r.name, total) end
+    return string.format("%s: %d of %d trophies", r.name, n, total)
+end
+
+local objects = {}
+for _, p in ipairs(ART.plinths) do
+    local raid = raidByKey[p[1]]
+    local boss = raid and raid.bosses[p[2]]
+    if boss then
         local enc = boss.enc
-        objects[#objects + 1] = { x = left and (1 + j) or (16 + j), y = y, boss = boss,
+        objects[#objects + 1] = { x = p[3], y = p[4], boss = boss, theme = p[5],
             tile = function() return H.Trophy(enc) and "plinth" or "plinthempty" end,
             hint = "Look at the " .. boss.name .. " plinth",
-            script = function(g) g:Wait({ kind = "trophy", enc = enc }) end }
+            script = function(g)
+                if not H.WingOpen(raid.key) then
+                    g:Say(string.format("A plinth under a dust sheet. %s opens when the guild kills one of its bosses.", raid.name))
+                else
+                    g:Wait({ kind = "trophy", enc = enc })
+                end
+            end }
     end
 end
-objects[#objects + 1] = { x = 25, y = 19, tile = "trophyboard", hint = "Read the Guild Bestiary",
+-- each wing's banner at its mouth reads the wing's count
+for _, w in ipairs(ART.wings) do
+    if w.mouth then
+        for dy = 0, 1 do
+            objects[#objects + 1] = { x = w.mouth, y = w.y0 + dy, hint = "Read the banner",
+                script = function(g) g:Say(H.WingLine(w.key) .. ".") end }
+        end
+    end
+end
+objects[#objects + 1] = { x = 32, y = 29, hint = "Read the Guild Bestiary",
     script = function(g) g:Say(H.BestiaryText()) end }
 
 local npcs = {}
-local STATUE_X = { 4, 7, 10, 19, 22 }
+local STATUE_X = { 3, 6, 9, 26, 29 }
 for i, ch in ipairs(H.CHAMPIONS) do
-    npcs[#npcs + 1] = { id = "statue" .. i, x = STATUE_X[i], y = 19, sprite = "hero", tint = { 0.62, 0.64, 0.72 },
-        face = "down", statue = true,
+    npcs[#npcs + 1] = { id = "statue" .. i, x = STATUE_X[i], y = 29, sprite = "hero", tint = { 0.86, 0.88, 0.94 },
+        face = "down", statue = true, stone = true, lift = 7,
         name = function() local c = H.Champion(ch.cat) return c and c.name or "Unclaimed" end,
         title = ch.title,
         script = function(g)
@@ -298,25 +342,49 @@ for i, ch in ipairs(H.CHAMPIONS) do
             end
         end }
 end
-npcs[#npcs + 1] = { id = "steward", name = "Steward Marlon", title = "Guild Hall Keeper", x = 17, y = 21, sprite = "bald",
+npcs[#npcs + 1] = { id = "steward", name = "Steward Marlon", title = "Guild Hall Keeper", x = 20, y = 30, sprite = "bald",
     tint = { 0.9, 0.85, 0.7 }, face = "left",
     script = function(g)
         local n = 0
         for _ in pairs(H.Trophies()) do n = n + 1 end
-        g:Say("Steward Marlon: Welcome to the guild hall. Every raid boss has a plinth here; the guild's kills put a trophy on it.")
+        g:Say("Steward Marlon: Welcome to the Guild Hall. Every raid boss has a plinth here; the guild's kills put a trophy on it.")
+        g:Say("Steward Marlon: Each raid has its own wing. A wing stays sealed until the guild draws first blood there, and Sunwell's light waits for the plateau.")
         g:Say(string.format("Steward Marlon: The trophies come from the guild's raid log. %s", n == 0 and "None yet. Go kill something." or (n .. " stand here now. Press Space at one to read its plaque.")))
-        g:Say("Steward Marlon: The statues are our champions, and the board by the east hearth is what the guild has tamed together.")
+        g:Say("Steward Marlon: The statues are our champions, and the lectern by the east table is what the guild has tamed together.")
     end }
+
+-- Every visit: a shut wing's mouth is roped off (solid), and the rope says why.
+local function Prepare(def)
+    local rows = {}
+    for i, r in ipairs(ROWS) do rows[i] = r end
+    local objs = {}
+    for i, o in ipairs(objects) do objs[i] = o end
+    for _, w in ipairs(ART.wings) do
+        if w.mouth and not H.WingOpen(w.key) then
+            local name = raidByKey[w.key] and raidByKey[w.key].name or w.name
+            for y = w.y0 + 2, w.y0 + 4 do
+                local r = rows[y + 1]
+                rows[y + 1] = r:sub(1, w.mouth) .. "X" .. r:sub(w.mouth + 2)
+                objs[#objs + 1] = { x = w.mouth, y = y, rope = w.key, hint = "Look at the rope",
+                    script = function(g) g:Say(string.format("Dust sheets and scaffolding. The %s wing opens when the guild kills one of its bosses.", name)) end }
+            end
+        end
+    end
+    def.rows, def.objects = rows, objs
+end
+H.Prepare = Prepare
+H.ROWS = ROWS
 
 Maps.hideout = {
     name = "The Guild Hall",
     music = "title",
     theme = "hall",
-    dynamic = true,                      -- compiled afresh on every visit: the plinths follow the raid log
-    rows = rows,
-    stamps = stamps,
-    warps = { { x = 14, y = 23, map = "post", tx = 5, ty = 3, face = "down" } },
-    signs = signs,
+    hall = true,                         -- drawn from its bake (UI: Amb.Hall); the plinth tiles stay hidden
+    dynamic = true,                      -- compiled afresh on every visit: the trophies and wings follow the raid log
+    prepare = Prepare,
+    rows = ROWS,
+    warps = { { x = 17, y = 32, map = "post", tx = 5, ty = 3, face = "down" },
+              { x = 18, y = 32, map = "post", tx = 5, ty = 3, face = "down" } },
     objects = objects,
     npcs = npcs,
 }

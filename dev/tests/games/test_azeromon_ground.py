@@ -83,6 +83,7 @@ def the_pictures_are_up_to_date_with_the_maps():
     maps = gg.load_maps()
     src = gg._src_digest()
     e = entries()
+    e.pop("hideout", None)                      # the Guild Hall: gen_azeromon_hall.py (test_azeromon_hideout checks it)
     want = gg.selected(maps)
     assert sorted(e) == sorted(want), ("baked maps differ - run generators\\gen_azeromon_ground.py", sorted(e), want)
     for mid in want:
@@ -138,10 +139,12 @@ def walking_moves_the_ground_with_the_camera():
 
 @case
 def a_map_without_a_baked_ground_keeps_its_tiles():
-    w, c = play("hideout", 14, 22)                            # the Guild Hall: compiled afresh each visit, not baked
+    w, c = play("town", 10, 9)
+    c.eval("ns.AzeroGround.town = nil ns.Azero:EnterMap('town', 10, 9, 'down', true)")
+    w.tick(0.2)
     assert c.eval_py("return ns.AzeroUI._Ground()") in ({}, [], None)
     bases = [b for b in c.eval_py("return ns.AzeroUI._BaseTiles()") if b]
-    assert any(b.startswith("hallfloor") for b in bases), set(bases)
+    assert any(b.startswith("grass") for b in bases), set(bases)
 
 
 @case
@@ -170,7 +173,9 @@ def the_pond_moves_and_life_goes_on_around_it():
 
 @case
 def a_map_without_a_baked_ground_has_no_ambient():
-    w, c = play("hideout", 14, 22)
+    w, c = play("town", 10, 9)
+    c.eval("ns.AzeroGround.town = nil ns.Azero:EnterMap('town', 10, 9, 'down', true)")
+    w.tick(0.2)
     a = c.eval_py("return ns.AzeroUI._Ambient()")
     assert not a["water"] and a["pix"] == 0 and a["clouds"] == 0, a
 

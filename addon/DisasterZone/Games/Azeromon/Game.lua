@@ -141,6 +141,7 @@ function G.Compile(id)
     local def = Maps[id]
     if compiled[id] and not (type(def) == "table" and def.dynamic) then return compiled[id] end
     if type(def) ~= "table" or not def.rows then return nil end
+    if def.dynamic and def.prepare then def.prepare(def) end      -- (the Guild Hall: ropes across its shut wings)
     local rows = def.rows
     local h, w = #rows, #rows[1]
     local m = { id = id, def = def, w = w, h = h, base = {}, over = {}, solid = {}, tall = {}, water = {},

@@ -218,7 +218,7 @@ def the_trainer_forgets_the_old_trade_only_once_the_new_one_is_paid():
 def the_chess_event_has_a_plinth_and_the_hall_still_fits():
     w, c = game()
     r = c.eval_py("""local H, G = ns.AzeroHideout, ns.Azero
-      G:EnterMap('hideout', 14, 22, 'up', true)
+      G:EnterMap('hideout', 17, 31, 'up', true)
       local m = G.map
       local seen, bad = {}, {}
       local chess
@@ -227,9 +227,14 @@ def the_chess_event_has_a_plinth_and_the_hall_still_fits():
           if seen[k] then bad[#bad + 1] = 'twice ' .. o.x .. ',' .. o.y end
           seen[k] = true
           if o.boss.enc == 660 then chess = o end
-          if o.x < 1 or o.x > 28 or m.sign[k] then bad[#bad + 1] = 'off ' .. o.x .. ',' .. o.y end
-          local below = m.key(o.x, o.y + 1)
-          if m.solid[below] or m.object[below] then bad[#bad + 1] = 'blocked ' .. o.x .. ',' .. o.y end
+          if o.x < 1 or o.x > m.w - 2 or m.sign[k] then bad[#bad + 1] = 'off ' .. o.x .. ',' .. o.y end
+          -- reachable: an open tile beside it, above or below (the walk lane between two rows of plinths)
+          local reach = false
+          for _, d in ipairs({ { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }) do
+            local n = m.key(o.x + d[1], o.y + d[2])
+            if not m.solid[n] and not m.object[n] then reach = true end
+          end
+          if not reach then bad[#bad + 1] = 'blocked ' .. o.x .. ',' .. o.y end
         end
       end
       return { name = H.Boss(660) and H.Boss(660).name, x = chess and chess.x, y = chess and chess.y, bad = bad }""")

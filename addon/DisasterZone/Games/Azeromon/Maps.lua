@@ -230,7 +230,7 @@ Maps.post = {
         "WWWWrWWWWW",
     },
     warps = { { x = 4, y = 7, map = "town", tx = 5, ty = 17, face = "down" },
-              { x = 5, y = 2, map = "hideout", tx = 14, ty = 22, face = "up" } },           -- the Guild Hall below
+              { x = 5, y = 2, map = "hideout", tx = 17, ty = 31, face = "up" } },           -- the Guild Hall below
     signs = { { x = 6, y = 2, text = "THE GUILD HALL\nDown the stairs: the guild's raid trophies and its champions." } },
     npcs = {
         { id = "healer", name = "Innkeeper Farley", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.8, 0.85 }, face = "down",

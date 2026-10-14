@@ -32,6 +32,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(DEV, "tests", "boot-ui"))
 import azeromon_props  # noqa: E402
 import azeromon_interiors as interiors  # noqa: E402
+import gen_azeromon_hall as hall  # noqa: E402
 import azeromon_battle as battle  # noqa: E402
 import azeromon_blp  # noqa: E402
 
@@ -900,7 +901,9 @@ def write_lua(entries):
         "--   lightChunks  like chunks, at 1/%d size: <map>_d_<cx>_<cy>.tga (dusk), <map>_n_<cx>_<cy>.tga (night)"
         % LIGHT_SCALE,
         "--   shafts       { x, y, w }: sun through a window (interiors, by day: dust drifts in it)",
-        "--   sunlight     { w, h, tw, th }  <map>_s.tga: that sun as light added over everything by day (interiors)",
+        "--   sunlight     { w, h, tw, th[, x, y] }  <map>_s.tga: that sun as light added over everything by day (interiors),",
+        "--                placed at x, y of the picture when given",
+        "--   hall         the Guild Hall (gen_azeromon_hall.py): its wings, props and lights are in HallArt.lua",
         "--   anims        { x, y, w, h, cols, rows, tw, th, frames, fps }  <map>_f.tga: a hearth's flames",
         "--   indoor       an interior: <map>_e_<cx>_<cy>.tga is the room by evening (night windows); its light map is _n_",
         "--   v            a hash of what the picture was made from (the ground test checks it against the maps)",
@@ -911,8 +914,9 @@ def write_lua(entries):
         e_ = entries[mid]
         lines.append('    %s = {' % mid)
         lines.append('        v = "%s", mx = %d, my = %d, lightScale = %d,%s' % (
-            e_["v"], e_.get("mx", MX), e_.get("my", MY), LIGHT_SCALE,
-            (" indoor = true," if e_.get("indoor") else "") + (" cave = true," if e_.get("cave") else "")))
+            e_["v"], e_.get("mx", MX), e_.get("my", MY), e_.get("lightScale", LIGHT_SCALE),
+            (" indoor = true," if e_.get("indoor") else "") + (" cave = true," if e_.get("cave") else "")
+            + (" hall = true," if e_.get("hall") else "")))
         for key in ("chunks", "water", "meadows", "lights", "lightChunks", "shafts", "sunlight", "anims", "glints"):
             lines.append("        %s = { %s }," % (key, ", ".join(row(c) for c in e_.get(key, []))))
         lines.append("    },")
@@ -1045,6 +1049,9 @@ def main():
              if e.get("indoor") for c in e["chunks"]}
     keep |= {"%s_s.tga" % mid for mid, e in entries.items() if e.get("sunlight")}
     keep |= {"%s_f.tga" % mid for mid, e in entries.items() if e.get("anims")}
+    entries[hall.MAP], hall_files = hall.bake()
+    print("baked", hall.MAP, "(the Guild Hall)")
+    keep |= hall_files
     keep |= {"clouds.tga", "vignette.tga", "battle_clouds.tga", "mist.tga", "shafts.tga"} | {"battle_%s.tga" % s for s in battle.THEMES}
     for f in os.listdir(OUT_DIR):
         if (f.endswith(".tga") or f.endswith(".blp")) and (f.endswith(".blp") or f not in keep):

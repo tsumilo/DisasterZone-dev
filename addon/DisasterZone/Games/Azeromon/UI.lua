@@ -3051,7 +3051,7 @@ function Amb.Sun(m, g, px, py, period)
         t:SetTexCoord(0, s[1] / s[3], 0, s[2] / s[4])
         t:SetSize(s[1] * TILE / 16, s[2] * TILE / 16)
     end
-    local sx, sy = PicToScreen(g, 0, 0, px, py)
+    local sx, sy = PicToScreen(g, s[5] or 0, s[6] or 0, px, py)
     t:ClearAllPoints()
     t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
     t:Show()
@@ -3517,6 +3517,215 @@ function Amb.Dust(g, px, py)
     end
 end
 
+-- The Guild Hall (Hideout.lua, baked by gen_azeromon_hall.py; HallArt.lua says where everything goes): a shut wing's
+-- seal picture over the ground and its dimmed night light, things that stand up drawn behind or in front of the
+-- player by their foot, a trophy on every plinth the guild has earned, the chandelier over everything, flames,
+-- Serpentshrine's water, coloured glows at night, motes in each open wing, and the wing's name on walking in.
+Amb.hall = { props = {}, troph = {}, seals = {}, dims = {}, fires = {}, water = {}, glows = {}, wing = nil }
+Amb.HALL_MOTES = { arcane = { 0.78, 0.63, 1 }, fel = { 0.55, 1, 0.35 }, bubbles = { 0.67, 0.92, 1 },
+                   stars = { 1, 0.94, 1 }, wisps = { 0.78, 1, 0.86 }, embers = { 1, 0.67, 0.31 },
+                   sun = { 1, 0.9, 0.59 }, dust = { 1, 0.94, 0.82 } }
+
+function Amb.HallTex(pool, i, layer, sub, blend)
+    local t = pool[i]
+    if not t then
+        t = Tex(world, layer, sub)
+        if blend then pcall(t.SetBlendMode, t, blend) end
+        pool[i] = t
+    end
+    return t
+end
+
+-- place pool texture t over map pixels (x, y, w, h), cut from a texture of tw x th at (tx0, ty0); false off screen
+function Amb.HallPlace(t, g, x, y, w, h, px, py, file, tx0, ty0, tw, th, dw, dh)
+    local S = TILE / 16
+    dw, dh = dw or w, dh or h
+    local sx, sy = PicToScreen(g, x, y, px, py)
+    if sx > SW or sy > SH or sx + dw * S < 0 or sy + dh * S < 0 then t:Hide() return false end
+    if t.file ~= file then t.file = file t.loaded = SetPixelTexture(t, file) end
+    t:SetTexCoord(tx0 / tw, (tx0 + w) / tw, ty0 / th, (ty0 + h) / th)
+    t:SetSize(dw * S, dh * S)
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
+    t:SetShown(t.loaded ~= false)
+    return true
+end
+
+function Amb.HallGlow(g, px, py, x, y, size, r, gg, b, a)
+    local P = Amb.hall
+    local sx, sy = PicToScreen(g, x, y, px, py)
+    if sx < -size or sy < -size or sx > SW + size or sy > SH + size then return end
+    P.ng = P.ng + 1
+    local t = Amb.HallTex(P.glows, P.ng, "OVERLAY", 7, "ADD")
+    if not t.file then t.file = Amb.GLOW t:SetTexture(Amb.GLOW) end
+    t:SetSize(size, size)
+    t:SetVertexColor(r, gg, b, a)
+    t:ClearAllPoints()
+    t:SetPoint("CENTER", world, "TOPLEFT", sx, -sy)
+    t:Show()
+end
+
+function Amb.HallMotes(A_, px, py, shown, night)
+    for mi, e in ipairs(A_.motes) do
+        local kind, x0, y0, w, h = e[1], e[2], e[3], e[4], e[5]
+        local c = Amb.HALL_MOTES[kind]
+        if c and shown(e[6]) and not (kind == "dust" and night) then
+            for k = 0, 9 do
+                local h1, h2, h3 = (k * 0.618 + mi * 0.17) % 1, (k * 0.414 + mi * 0.31) % 1, (k * 0.732) % 1
+                local life = (now * (0.12 + h2 * 0.1) + h3) % 1
+                local x, y
+                if kind == "stars" then
+                    x, y = x0 + h1 * w, y0 + h2 * h
+                elseif kind == "wisps" then
+                    x = x0 + (h1 * w + math.sin(now * 0.7 + k) * 14) % w
+                    y = y0 + (h2 * h + math.cos(now * 0.5 + k * 1.7) * 8) % h
+                elseif kind == "dust" then
+                    x, y = x0 + (h1 * w + now * 2.5) % w, y0 + h2 * h + math.sin(now + k) * 2
+                else
+                    x = x0 + h1 * w + math.sin(now * 1.3 + k) * 3
+                    y = y0 + h - life * h
+                end
+                local a = math.sin(life * math.pi) * (kind == "stars" and (0.5 + 0.5 * math.sin(now * 6 + k)) or 1)
+                if a > 0.08 then
+                    Amb.Pix(px, py, x, y, 1, 1, c[1], c[2], c[3], a * (kind == "dust" and 0.45 or 0.9), "OVERLAY", 6)
+                    if kind == "wisps" then Amb.Pix(px, py, x - 1, y - 1, 3, 3, c[1], c[2], c[3], a * 0.25, "OVERLAY", 6) end
+                end
+            end
+        end
+    end
+end
+
+function Amb.Hall(m, g, px, py, period, dark)
+    local A_, H_ = ns.AzeroHallArt, ns.AzeroHideout
+    local P = Amb.hall
+    local on = A_ and H_ and g and g.hall and m.def.hall
+    local np, nt, ns_, nd, nf, nw = 0, 0, 0, 0, 0, 0
+    P.ng = 0
+    if on then
+        local GF = MEDIA .. "Ground\\hideout_"
+        local open, wingOf = {}, {}
+        for i, w in ipairs(A_.wings) do open[i] = H_.WingOpen(w.key) wingOf[w.key] = i end
+        local function shown(wi) return wi == 0 or open[wi] end
+        local night = period ~= "day"
+        local calm = G:Data().calm
+        local S = TILE / 16
+        -- shut wings: the seal picture, and at night their dimmer light
+        for i, w in ipairs(A_.wings) do
+            if not open[i] then
+                local r = w.rect
+                ns_ = ns_ + 1
+                Amb.HallPlace(Amb.HallTex(P.seals, ns_, "BACKGROUND", 2), g, r[1], r[2], r[3], r[4], px, py,
+                              GF .. "seal" .. i .. (night and "e" or ""), 0, 0, w.tex[1], w.tex[2])
+                if dark then
+                    nd = nd + 1
+                    Amb.HallPlace(Amb.HallTex(P.dims, nd, "OVERLAY", 5, "MOD"), g, r[1], r[2], w.dim[1], w.dim[2], px, py,
+                                  GF .. "dim" .. i, 0, 0, w.dim[3], w.dim[4], r[3], r[4])
+                end
+            end
+        end
+        -- standing things, then the trophies: in front of the player when their foot is lower on the screen
+        local foot = py * 16 + 15
+        local sheet, SWd, SHt = GF .. "props", A_.sheet[1], A_.sheet[2]
+        for _, p in ipairs(A_.props) do
+            if shown(p[8]) then
+                np = np + 1
+                local t = Amb.HallTex(P.props, np, "ARTWORK", 0)
+                t:SetDrawLayer("ARTWORK", p[7] > foot and 3 or 0)
+                Amb.HallPlace(t, g, p[5], p[6], p[3], p[4], px, py, sheet, p[1], p[2], SWd, SHt)
+            end
+        end
+        for _, o in ipairs(m.def.objects or {}) do
+            if o.boss and o.theme and H_.Trophy(o.boss.enc) and shown(wingOf[o.boss.raid] or 0) then
+                if not A_.trophyOf then
+                    A_.trophyOf = {}
+                    for _, t in ipairs(A_.trophies) do A_.trophyOf[t[1]] = { t[2], t[3], t[4], t[5] } end
+                end
+                local tr = A_.trophyOf[o.theme]
+                nt = nt + 1
+                local t = Amb.HallTex(P.troph, nt, "ARTWORK", 0)
+                t:SetDrawLayer("ARTWORK", o.y * 16 + 15 > foot and 3 or 0)
+                local bob = (o.theme == "sw" or o.theme == "tk") and not calm and floor(math.sin(now * 1.6 + o.x) + 0.5) or 0
+                Amb.HallPlace(t, g, o.x * 16, o.y * 16 - 19 + bob, tr[3], tr[4], px, py, sheet, tr[1], tr[2], SWd, SHt)
+            end
+        end
+        local top = A_.top
+        if top then
+            Amb.HallPlace(Amb.HallTex(P, "topTex", "ARTWORK", 4), g, top[5], top[6], top[3], top[4], px, py, sheet,
+                          top[1], top[2], SWd, SHt)
+        end
+        -- flames (over the darkness: they are the light)
+        for i, f in ipairs(A_.fires) do
+            local st = A_.strips[f[3]]
+            if st and shown(f[4]) then
+                nf = nf + 1
+                local fr = calm and 0 or floor(now * 10 + i * 3) % st[5]
+                Amb.HallPlace(Amb.HallTex(P.fires, nf, "OVERLAY", 6), g, f[1], f[2], st[1], st[2], px, py,
+                              GF .. "f_" .. f[3], fr * st[1], 0, st[3], st[4])
+            end
+        end
+        -- Serpentshrine's water wall and basin
+        for i, wv in ipairs(A_.water) do
+            if shown(wv[10]) then
+                nw = nw + 1
+                local fr = calm and 0 or floor(now * 6) % wv[9]
+                local c, r = fr % wv[5], floor(fr / wv[5])
+                Amb.HallPlace(Amb.HallTex(P.water, nw, "BACKGROUND", 3), g, wv[1], wv[2], wv[3], wv[4], px, py,
+                              GF .. "w" .. i, c * wv[3], r * wv[4], wv[7], wv[8])
+            end
+        end
+        -- coloured glows at night, and Sunwell's light over the throne once the plateau has fallen
+        if dark then
+            for i, l in ipairs(A_.glows) do
+                if shown(l[8]) then
+                    local fl = (l[7] == 1 and not calm) and (0.8 + 0.2 * math.sin(now * 9 + i) * math.sin(now * 5.3 + l[1])) or 1
+                    Amb.HallGlow(g, px, py, l[1], l[2], l[3] * 1.1 * S, l[4], l[5], l[6], 0.32 * fl)
+                end
+            end
+        end
+        local sw = wingOf.SunwellPlateau
+        if sw and open[sw] then
+            local n, total = H_.WingCount("SunwellPlateau")
+            local k = total > 0 and n / total or 1
+            Amb.HallGlow(g, px, py, 288, 92, 190 * S, 1, 0.92, 0.66,
+                         (dark and 0.5 or 0.3) * k * (calm and 1 or (0.9 + 0.1 * math.sin(now * 0.8))))
+        end
+        -- motes in the open wings, Karazhan's floating candles
+        if not calm then Amb.HallMotes(A_, px, py, shown, night) end
+        for ci, cd in ipairs(A_.candles) do
+            if shown(cd[3]) then
+                local y = cd[2] + (calm and 0 or floor(math.sin(now * 1.4 + ci) * 2.5 + 0.5))
+                Amb.Pix(px, py, cd[1], y, 2, 4, 0.96, 0.94, 0.86, 1, "ARTWORK", 3)
+                Amb.Pix(px, py, cd[1] + 1, y + 1, 1, 3, 0.78, 0.75, 0.67, 1, "ARTWORK", 3)
+                Amb.Pix(px, py, cd[1], y - 1, 1, 1, 1, 0.82, 0.41, 1, "OVERLAY", 6)
+                if dark then Amb.HallGlow(g, px, py, cd[1] + 1, y, 18 * S, 0.82, 0.67, 1, 0.35) end
+            end
+        end
+        -- walking into a wing (or up to its mouth): its name and count over the screen
+        local s_ = G.save
+        local here
+        for _, w in ipairs(A_.wings) do
+            local r = w.rect
+            local inside = s_.x * 16 >= r[1] and s_.x * 16 < r[1] + r[3] and s_.y * 16 >= r[2] and s_.y * 16 < r[2] + r[4]
+            local mouth = w.mouth and math.abs(s_.x - w.mouth) <= 1 and s_.y >= w.y0 + 2 and s_.y <= w.y0 + 4
+            if inside or mouth then here = w.key end
+        end
+        if here ~= P.wing then
+            P.wing = here
+            if here and not G.banner then G.banner = { text = H_.WingLine(here), t = 2.4, total = 2.4 } end
+        end
+    else
+        P.wing = nil
+    end
+    for i = np + 1, #P.props do P.props[i]:Hide() end
+    for i = nt + 1, #P.troph do P.troph[i]:Hide() end
+    for i = ns_ + 1, #P.seals do P.seals[i]:Hide() end
+    for i = nd + 1, #P.dims do P.dims[i]:Hide() end
+    for i = nf + 1, #P.fires do P.fires[i]:Hide() end
+    for i = nw + 1, #P.water do P.water[i]:Hide() end
+    for i = P.ng + 1, #P.glows do P.glows[i]:Hide() end
+    if P.topTex and not on then P.topTex:Hide() end
+end
+
 function Amb.Draw(m, g, px, py)
     local period = G:Period()
     Amb.Water(m, g, px, py)
@@ -3532,8 +3741,10 @@ function Amb.Draw(m, g, px, py)
     Amb.Glints(m, g, px, py)
     Amb.Steps(m, px, py)
     Amb.Mood(m, g, px, py, period)
+    local dark = Amb.Night(m, g, px, py)
+    Amb.Hall(m, g, px, py, period, dark)
     for i = Amb.pixN + 1, #Amb.pix do Amb.pix[i]:Hide() end
-    return Amb.Night(m, g, px, py)
+    return dark
 end
 
 -- the soft shadow under a person (the atlas' "shadow" tile), on the ground below every sprite
@@ -3738,6 +3949,7 @@ local function DrawWorld()
                 local k = m.key(wx, wy)
                 base, over = m.base[k], m.over[k]
                 if over == "torch1" then over = torchFrame end
+                if m.def.hall and ground then over = nil end   -- (the hall's pedestals are baked, its trophies props)
                 if ground then
                     base = false                       -- the baked picture is the ground here
                 elseif m.water[k] then                 -- the calm frame only (swapping frames flickered)
@@ -3792,7 +4004,7 @@ local function DrawWorld()
                 nx, ny = Lerp(npc.fromX, npc.x, f), Lerp(npc.fromY, npc.y, f)
                 if f > 0.2 and f < 0.8 then nframe = (npc.fromX + npc.fromY) % 2 == 0 and 0 or 2 end
             end
-            local sx, sy = (nx - px + HX) * TILE, -(ny - py + HY) * TILE
+            local sx, sy = (nx - px + HX) * TILE, -(ny - py + HY) * TILE + (npc.def.lift or 0) * TILE / 16
             sp:ClearAllPoints()
             sp:SetPoint("TOPLEFT", world, "TOPLEFT", sx, sy)
             -- now and then a standing NPC glances to the side for a moment (drawn only: the game's facing is unchanged)
@@ -3805,8 +4017,12 @@ local function DrawWorld()
             SetChar(sp, npc.def.sprite or "bald", face, nframe)
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
+            if sp.SetDesaturated and (sp.stone or false) ~= (npc.def.stone or false) then
+                sp.stone = npc.def.stone or false            -- a statue: stone grey, up on its pedestal
+                pcall(sp.SetDesaturated, sp, sp.stone)
+            end
             sp:Show()
-            sp.shadow:Show()
+            sp.shadow:SetShown(not npc.def.stone)
             Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
             local title = G.NpcTitle(npc.def)
             sp.title:SetText(title and ("<" .. title .. ">") or "")
@@ -5594,6 +5810,21 @@ UI._BaseTiles = function()
     end end
     return out
 end
+-- the Guild Hall's layers on screen (Amb.Hall): shut wings' seals, props, trophies, flames, water, glows, the files
+UI._Hall = function()
+    local P = Amb.hall
+    local function list(pool)
+        local out = {}
+        for _, t in ipairs(pool) do if t:IsShown() then out[#out + 1] = t.file end end
+        return out
+    end
+    return { seals = list(P.seals), dims = list(P.dims), props = #list(P.props), trophies = #list(P.troph),
+             fires = #list(P.fires), water = #list(P.water), glows = #list(P.glows),
+             top = P.topTex and P.topTex:IsShown() or false, wing = P.wing,
+             front = (function() local n = 0 for _, t in ipairs(P.props) do
+                 if t:IsShown() and select(2, t:GetDrawLayer()) == 3 then n = n + 1 end end return n end)() }
+end
+
 UI._Ambient = function()
     local water = {}
     for _, t in ipairs(Amb.waterTex) do if t:IsShown() then water[#water + 1] = t.file end end
