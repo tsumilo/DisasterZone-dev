@@ -163,7 +163,7 @@ local OLD = { alerts = "reach", notify = "reach", ui = "looks" }
 local PARTS = {
     { key = "units", glyph = 61 }, { key = "group", glyph = 46 }, { key = "cast", glyph = 47 },
     { key = "bars", glyph = 38 }, { key = "bags", glyph = 40 }, { key = "minimap", glyph = 7 },
-    { key = "sct", glyph = 8 }, { key = "bossmods", glyph = 37 },
+    { key = "sct", glyph = 8 }, { key = "plates", glyph = 61 }, { key = "bossmods", glyph = 37 },
     { key = "meters", label = "Meters", tip = "The damage and threat panels.", glyph = 58, kind = "meters" },
     { key = "classbars", label = "Class bars", tip = "The blessing and totem bars: every class tool bar shares it.",
       glyph = 60, kind = "classbar", kits = { "bless", "totems" } },
@@ -2771,6 +2771,23 @@ local PART_OPTS = {
           { { value = 0, text = "Show all" }, { value = 100, text = "100" }, { value = 250, text = "250" },
             { value = 500, text = "500" }, { value = 1000, text = "1,000" } } },
     },
+    plates = {
+        { "threat", "Threat", "Tanks see it in the bar's colour, everyone else as a glow.", "role",
+          { { value = "role", text = "Bar for tanks, glow for others" }, { value = "bar", text = "Bar colour for everyone" },
+            { value = "off", text = "Off" } },
+          tip = "Tanks: green you hold it, orange it's slipping, red a non-tank has it, blue another main tank holds "
+              .. "it. Everyone else in a group: an orange glow when you're close to pulling it, red when it's on you." },
+        { "friendly", "Friendly players", "Outside dungeons and raids; inside, the game keeps them to itself.", "name",
+          { { value = "name", text = "Name until hurt" }, { value = "full", text = "Full plates" } } },
+        { "dim", "Others at 60% while you have a target", "", true },
+        { "stack", "Stack plates", "Plates move up off each other instead of overlapping.", true },
+        { "size", "Size", "", 1,
+          { { value = 0.85, text = "Small" }, { value = 1, text = "Normal" }, { value = 1.15, text = "Large" } } },
+        { "casts", "Cast bars", "Gold you can kick, grey with a lock you can't.", "all",
+          { { value = "all", text = "Every caster" }, { value = "target", text = "Your target only" } } },
+        { "raidDebuffs", "The raid's debuffs too", "Sunder, Faerie Fire, Curse of the Elements and the like, beside yours.", false },
+        { "execute", "Execute range", "A tick at 20% and your finisher's icon once a mob is past it (paladins, warriors).", true },
+    },
     -- (the meter panels' look, moved from Combat > Meters: { setting path, name, line, default, options })
     meters = {
         { "meters.barColor", "Bar colour", "What colours the bars.", "class",
@@ -2937,6 +2954,12 @@ local function BuildSample(host, part, key, prefix)
         BF._FillPreview(holder, t)
         holder:SetScale(1)
         w, h = tonumber(holder:GetWidth()) or 120, tonumber(holder:GetHeight()) or 40
+    elseif part == "plates" then
+        local PL = ns.Plates
+        if not (PL and look) or key == "blizzard" then return nil end
+        local host, pw, ph = PL:Sample(f, key)
+        if not host then return nil end
+        w, h = pw, ph
     elseif part == "timers" then
         local RF = ns.RingFace
         if not (RF and RF.Sample) then return nil end
@@ -3189,6 +3212,10 @@ function SettingsUI:BuildPart(sec, p)
                 -- (the part's Try it stays out of the fold)
                 if key == "sct" and ns.CombatTextUI then
                     TryRow("A made-up pull plays on your screen. Nothing is cast or sent.", function() ns.CombatTextUI:TryIt() end)
+                end
+                if key == "plates" and ns.Plates then
+                    TryRow("The Maulgar council's plates show on your screen for a few seconds. Nothing is read or sent.",
+                        function() ns.Plates:TryIt(PartLook("plates")) end)
                 end
                 self:MoreOptions(sec)
             end

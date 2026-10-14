@@ -624,7 +624,8 @@ def every_look_is_picked_in_interface_looks():
     w.tick(0.2)
     tiles = c.eval_py("local o = {} for _, t in ipairs(ns.SettingsUI.looksSec.partTiles) do "
                       "if t:IsShown() then o[#o + 1] = t.part end end return o")
-    assert tiles == ["units", "group", "cast", "bars", "bags", "minimap", "sct", "bossmods", "meters", "classbars",
+    assert tiles == ["units", "group", "cast", "bars", "bags", "minimap", "sct", "plates", "bossmods", "meters",
+                     "classbars",
                      "timers"], tiles
     # a part's page: its sample stage, its look tiles, its options; its own look shows on its tile
     c.eval("ns.SettingsUI:OpenPart('units')")

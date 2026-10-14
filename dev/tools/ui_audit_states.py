@@ -3803,3 +3803,24 @@ STATES += [("Combat text - %s" % _l, sct_view(_l)) for _l in ("flat", "halo", "s
 STATES += [("Combat text - %s ticks" % _l, sct_view(_l, 4.9)) for _l in ("flat", "halo", "sigil", "slate", "gilded")]
 STATES += [("Combat text - %s end" % _l, sct_view(_l, 10.9)) for _l in ("flat", "halo", "sigil", "slate", "gilded", "classic")]
 STATES += [("Combat text - %s alert" % _l, sct_view(_l, 7.95)) for _l in ("flat", "halo", "sigil", "slate", "gilded", "classic")]
+
+# Nameplates (UI/Plates.lua): the demo's Maulgar council stopped at a moment (t: 1.3 casts, 6.3 threat, 11.3 execute
+# range) over a named box with Gruul's Lair's loading screen behind (ui_look crops to named windows).
+def plates_view(look, t=1.3, role="dps"):
+    lua = ("ns.MainFrame:Close(); __MOCK.real_geometry = true; ns.DB:SetSetting('bossmods.role', '%s'); "
+           "ns.DB:SetSetting('ui.plates.look', '%s'); if ns.Popup then ns.Popup:HideAll() end; local P = ns.Plates; "
+           "local bx = _G.AuditPlatesBox or CreateFrame('Frame', 'AuditPlatesBox', UIParent); bx:SetFrameStrata('BACKGROUND'); "
+           "local k = (UIParent:GetHeight() or 768) / 768; "
+           "bx:ClearAllPoints(); bx:SetPoint('CENTER', UIParent, 'CENTER', 50 * k, 10 * k); bx:SetSize(900 * k, 360 * k); "
+           "if not bx.bg then bx.bg = bx:CreateTexture(nil, 'BACKGROUND'); bx.bg:SetAllPoints(bx); "
+           "bx.bg:SetTexture('Interface\\\\Glues\\\\LoadingScreens\\\\LoadScreenGruulsLair'); bx.bg:SetTexCoord(190 / 512, 1, 160 / 512, 300 / 512); "
+           "bx.dim = bx:CreateTexture(nil, 'BORDER'); bx.dim:SetAllPoints(bx); bx.dim:SetColorTexture(0.03, 0.025, 0.02, 0.62) end; "
+           "bx:Show(); P:TryIt('%s'); P:DrawDemo(%s); _G.DisasterZonePlatesDemo:SetScript('OnUpdate', nil)"
+           % (role, look, look, t))
+    return opened("home", lua)
+
+
+for _l in ("flat", "halo", "sigil", "slate", "gilded", "classic"):
+    STATES += [("Nameplates - %s" % _l, plates_view(_l)), ("Nameplates - %s threat tank" % _l, plates_view(_l, 6.3, "tank")),
+               ("Nameplates - %s threat" % _l, plates_view(_l, 6.3)), ("Nameplates - %s execute" % _l, plates_view(_l, 11.3))]
+

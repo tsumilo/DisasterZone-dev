@@ -427,7 +427,7 @@ M.cvars = { nameplateShowEnemies = "1", autoLootDefault = "0", lootUnderMouse = 
   scriptErrors = "1", taintLog = "0", chatStyle = "classic", portal = "EU", textLocale = "enUS", audioLocale = "enUS",
   useUiScale = "0", uiScale = "1", showToastWindow = "1", autoSelfCast = "1", nameplateShowEnemies = "1",
   UberTooltips = "1", alwaysCompareItems = "0", colorblindMode = "0", profanityFilter = "0", nameplateShowFriends = "0",
-  nameplateShowAll = "0", SpellQueueWindow = "400", floatingCombatTextCombatDamage_v2 = "1",
+  nameplateShowAll = "0", nameplateMotion = "0", SpellQueueWindow = "400", floatingCombatTextCombatDamage_v2 = "1",
   floatingCombatTextCombatHealing_v2 = "1", floatingCombatTextCombatLogPeriodicSpells_v2 = "1",
   floatingCombatTextPetMeleeDamage_v2 = "1", floatingCombatTextPetSpellDamage_v2 = "1", enableFloatingCombatText = "1" }
 local CVAR_DEFAULTS = { nameplateShowFriends = "0", nameplateShowEnemies = "1", nameplateShowAll = "0" }
@@ -759,7 +759,12 @@ function UnitIsEnemy() return false end
 function UnitIsFriend(a, b) return true end
 function UnitCanAttack(a, b) local m = unit_rec(b); return m ~= nil and m.npc == true end
 function UnitCanCooperate(a, b) return unit_rec(b) ~= nil end
-function UnitReaction() return 5 end
+-- (an enemy NPC is hostile to everyone, 2; players and the rest friendly, 5)
+function UnitReaction(a, b)
+  local x, y = unit_rec(a), unit_rec(b)
+  if (x and x.npc) or (y and y.npc) then return 2 end
+  return 5
+end
 function UnitIsPVP() return false end
 function UnitIsTapDenied() return false end
 function UnitOnTaxi() return false end
@@ -775,7 +780,11 @@ function UnitPowerMax(unit)
 end
 function UnitPowerType() return 0, "MANA" end
 function UnitCreatureType() return nil end
-function UnitClassification() return "normal" end
+-- (an NPC's: __MOCK.npc_class[guid] = "worldboss" | "elite" | ...)
+function UnitClassification(unit)
+  local m = unit_rec(unit)
+  return (m and m.npc and M.npc_class and M.npc_class[m.guid]) or "normal"
+end
 -- Player auras / casts / power for My Log scenarios: __MOCK.player_auras = { { name, spellId }, ... },
 -- __MOCK.casting / __MOCK.channel = { name, startMS, endMS, spellId }, __MOCK.player_power = { cur, max }
 -- Anyone's buffs: __MOCK.unit_auras[name] = { { name, spellId, duration, expirationTime }, ... } (GetTime() clock;
@@ -788,18 +797,34 @@ function UnitAura(unit, i, filter)
   end
   local a = list and list[i]
   if not a then return nil end
-  return a[1], 136243, 0, nil, a[3] or 0, a[4] or 0, "player", false, false, a[2]
+  -- (a[5] the caster's unit, a[6] stacks, a[7] icon: an NPC's debuffs from __MOCK.unit_auras[npc name])
+  return a[1], a[7] or 136243, a[6] or 0, nil, a[3] or 0, a[4] or 0, a[5] or "player", false, false, a[2]
 end
 function UnitBuff() return nil end
 function UnitDebuff() return nil end
+-- An NPC's cast / channel: __MOCK.npc_casts[guid] = { name, startMS, endMS, spellId, notInterruptible, icon,
+-- channel = true }.
+local function npc_cast(unit, channel)
+  local m = unit_rec(unit)
+  local c = m and m.npc and M.npc_casts and M.npc_casts[m.guid]
+  if c and (c.channel and true or false) == channel then return c end
+end
 function UnitCastingInfo(unit)
   local c = unit == "player" and M.casting
-  if not c then return nil end
+  if not c then
+    c = npc_cast(unit, false)
+    if c then return c[1], "", c[6] or 136243, c[2], c[3], false, 1, c[5] and true or false, c[4] end
+    return nil
+  end
   return c[1], "", 136243, c[2], c[3], false, 1, false, c[4]
 end
 function UnitChannelInfo(unit)
   local c = unit == "player" and M.channel
-  if not c then return nil end
+  if not c then
+    c = npc_cast(unit, true)
+    if c then return c[1], "", c[6] or 136243, c[2], c[3], false, c[5] and true or false, c[4] end
+    return nil
+  end
   return c[1], "", 136243, c[2], c[3], false, false, c[4]
 end
 -- (start, duration, enabled): the global cooldown unless __MOCK.spell_cd[id] = { start, duration }
@@ -1066,16 +1091,34 @@ function M.set_mouseover_npc(guid)
   M.mouseover_npc = guid
   if guid then M.fire("UPDATE_MOUSEOVER_UNIT") end
 end
+-- A plate per token: a real frame (the game's base frame, 110 x 45 under WorldFrame) with the game's UnitFrame in it
+-- (alpha 1; addons that draw their own make it see-through). Kept per token like the client's pool.
+M.plate_frames = {}
+local function plate_frame(token)
+  local f = M.plate_frames[token]
+  if not f then
+    f = CreateFrame("Frame", nil, WorldFrame)
+    f:SetSize(110, 45)
+    f:SetPoint("CENTER", WorldFrame, "CENTER", 0, 0)
+    f.UnitFrame = CreateFrame("Frame", nil, f)
+    f.UnitFrame:SetAllPoints(f)
+    M.plate_frames[token] = f
+  end
+  f.namePlateUnitToken = token
+  f.UnitFrame.unit = token
+  return f
+end
+M.plate_frame = plate_frame
 C_NamePlate = {
   GetNamePlates = function()
     local out = {}
-    for token in pairs(M.nameplates) do out[#out + 1] = { namePlateUnitToken = token, UnitFrame = { unit = token } } end
+    for token in pairs(M.nameplates) do out[#out + 1] = plate_frame(token) end
     return out
   end,
   GetNamePlateForUnit = function(unit)
     local guid = UnitGUID(unit)
     for token, g in pairs(M.nameplates) do
-      if g == guid then return { namePlateUnitToken = token, UnitFrame = { unit = token } } end
+      if g == guid then return plate_frame(token) end
     end
     return nil
   end,

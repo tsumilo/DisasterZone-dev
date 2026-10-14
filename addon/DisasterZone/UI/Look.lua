@@ -160,6 +160,8 @@ Look.PARTS = {
     { key = "minimap", name = "Minimap", tip = "The map, the zone and the clock, and the buttons around it." },
     -- (drawn by the addon over the world: UI/CombatText.lua; Blizzard = the game's own numbers)
     { key = "sct", name = "Combat text", tip = "Your hits, the hits you take, heals, procs and alerts as numbers on screen." },
+    -- (drawn by the addon over the game's plates: UI/Plates.lua; Blizzard = the game's own plates)
+    { key = "plates", name = "Nameplates", tip = "The plates over mobs and players: health, casts, threat and your debuffs." },
     -- (drawn by the addon: UI/BossModUI.lua; Blizzard has none, so it wears Classic)
     { key = "bossmods", name = "Boss mods", tip = "Timer bars, warnings, the pull countdown and the range frame in boss fights." },
 }
