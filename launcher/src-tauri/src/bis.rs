@@ -4,24 +4,21 @@
 //! as pending.
 //!
 //! Custom ids (Discord allows 100 characters):
-//!   bs:<p>:<l>:<name>                       switch phase / list (anyone)        l = "m" main spec, "o" off spec
-//!   be:<p>:<l>:<name>                       Edit a slot (the owner)
-//!   bq:<ch>:<msg>:<p>:<l>:<name>            the slot menu  (ch / msg: the sheet's message, edited after a change)
-//!   bm:<ch>:<msg>:<p>:<l>:<sid>:<name>      the item form
-//!   bi:<ch>:<msg>:<p>:<l>:<sid>:<w>:<name>  the matches menu  (w = "m" main pick, "a" alternative)
+//!   bs:<p>:<l>:<name>              switch phase / list (also Back)     l = "m" main spec, "o" off spec
+//!   be:<p>:<l>:<name>              Edit a slot (the owner): the slot menu under the sheet
+//!   bq:<p>:<l>:<name>              the slot menu
+//!   bm:<p>:<l>:<sid>:<name>        the item form
+//!   bi:<p>:<l>:<sid>:<w>:<name>    the matches menu  (w = "m" main pick, "a" alternative)
+//! The sheet is private; every step edits that same message.
 
 use crate::core::bridge::{self, lua_list, Record};
 use crate::render::sheet::{Sheet, Slot};
 use serde_json::{json, Value};
-use twilight_http::Client;
 use twilight_model::application::interaction::modal::{ModalInteractionComponent, ModalInteractionData};
 use twilight_model::channel::message::component::{
     ActionRow, Button, ButtonStyle, Component, Label, SelectMenu, SelectMenuOption, SelectMenuType, TextInput, TextInputStyle,
 };
 use twilight_model::channel::message::Embed;
-use twilight_model::http::attachment::Attachment;
-use twilight_model::id::marker::{ChannelMarker, MessageMarker};
-use twilight_model::id::Id;
 use twilight_util::builder::embed::{EmbedBuilder, ImageSource};
 
 /// What the bot answers with.
@@ -172,7 +169,34 @@ fn sheet(snap: &Value, name: &str, phase: Option<u8>, off: bool) -> Option<(Embe
     Some((e.build(), comps, file))
 }
 
-/// /bis show [character]: the sheet, in the channel.
+/// The sheet as a reply. `edit`: the controls under it are replaced (a menu + Back), `note`: a line above it.
+fn sheet_reply(snap: &Value, name: &str, phase: u8, off: bool, update: bool, edit: Option<Component>, note: Option<String>) -> Reply {
+    match sheet(snap, name, Some(phase), off) {
+        Some((e, comps, file)) => {
+            let comps = match edit {
+                Some(c) => {
+                    let l = if off { "o" } else { "m" };
+                    let back = Component::Button(Button {
+                        id: None,
+                        custom_id: Some(format!("bs:{phase}:{l}:{}", short(name))),
+                        disabled: false,
+                        emoji: None,
+                        label: Some("Back".into()),
+                        style: ButtonStyle::Secondary,
+                        url: None,
+                        sku_id: None,
+                    });
+                    vec![row(c), Component::ActionRow(ActionRow { id: None, components: vec![back] })]
+                }
+                None => comps,
+            };
+            Reply::Pic { update, private: true, text: Some(note.unwrap_or_default()), embed: Some(e), comps, file }
+        }
+        None => private("That list is gone."),
+    }
+}
+
+/// /bis show [character]: the sheet, privately (everything after happens in that one message).
 pub fn show(user: &str, who: Option<&str>) -> Reply {
     let snap = crate::signup::current_snap().unwrap_or(Value::Null);
     let name = match who.map(str::trim).filter(|w| !w.is_empty()) {
@@ -182,10 +206,11 @@ pub fn show(user: &str, who: Option<&str>) -> Reply {
             None => return private("Whose list? `/bis show character:Name`, or make your character with /character."),
         },
     };
-    match sheet(&snap, &name, None, false) {
-        Some((e, comps, file)) => Reply::Pic { update: false, private: false, text: None, embed: Some(e), comps, file },
-        None => private(format!("No BiS list for **{}** yet. Lists come from the addon's My BiS, or Edit a slot here once it has one.", bridge::tidy_name(&name))),
+    if find(&snap, &name).is_none() {
+        return private(format!("No BiS list for **{}** yet. Lists come from the addon's My BiS.", bridge::tidy_name(&name)));
     }
+    let phase = snap.get("phase").and_then(|p| p.as_u64()).unwrap_or(1) as u8;
+    sheet_reply(&snap, &name, phase, false, false, None, None)
 }
 
 fn owns(user: &str, name: &str) -> bool {
@@ -217,44 +242,35 @@ fn row(c: Component) -> Component {
     Component::ActionRow(ActionRow { id: None, components: vec![c] })
 }
 
-/// A click on a sheet button. `ch` / `msg`: the message clicked.
-pub fn button(user: &str, custom: &str, ch: &str, msg: &str) -> Reply {
+/// A click on a sheet button.
+pub fn button(user: &str, custom: &str) -> Reply {
     let parts: Vec<&str> = custom.splitn(4, ':').collect();
     let snap = crate::signup::current_snap().unwrap_or(Value::Null);
     match parts[..] {
-        ["bs", p, l, name] => match sheet(&snap, name, p.parse().ok(), l == "o") {
-            Some((e, comps, file)) => Reply::Pic { update: true, private: false, text: None, embed: Some(e), comps, file },
-            None => private("That list is gone."),
-        },
+        ["bs", p, l, name] => sheet_reply(&snap, name, p.parse().unwrap_or(1), l == "o", true, None, None),
         ["be", p, l, name] => {
             if !owns(user, name) {
                 return private(format!("Only {name}'s player edits this list. Your own: `/bis show`."));
             }
             let opts = SLOTS.iter().enumerate().map(|(i, s)| option(s.to_string(), (i + 1).to_string(), None)).collect();
-            Reply::Pic {
-                update: false,
-                private: true,
-                text: Some(format!("Which slot of **{name}**'s {} list?", phase_name(p.parse().unwrap_or(1)))),
-                embed: None,
-                comps: vec![row(Component::SelectMenu(menu(format!("bq:{ch}:{msg}:{p}:{l}:{name}"), "Which slot?", opts)))],
-                file: None,
-            }
+            let m = Component::SelectMenu(menu(format!("bq:{p}:{l}:{name}"), "Which slot?", opts));
+            sheet_reply(&snap, name, p.parse().unwrap_or(1), l == "o", true, Some(m), None)
         }
         _ => private("Unknown button."),
     }
 }
 
-/// A choice in the slot menu or the matches menu (async: an edit also redraws the sheet message).
-pub async fn select(http: &Client, user: &str, by: &str, custom: &str, values: &[String]) -> Reply {
+/// A choice in the slot menu or the matches menu.
+pub fn select(user: &str, by: &str, custom: &str, values: &[String]) -> Reply {
     let v = values.first().map(String::as_str).unwrap_or("");
     let parts: Vec<&str> = custom.split(':').collect();
     match parts[..] {
-        ["bq", ch, msg, p, l, name] => Reply::Modal {
-            custom_id: format!("bm:{ch}:{msg}:{p}:{l}:{v}:{name}"),
+        ["bq", p, l, name] => Reply::Modal {
+            custom_id: format!("bm:{p}:{l}:{v}:{name}"),
             title: format!("{} · {}", SLOTS.get(v.parse::<usize>().unwrap_or(1).saturating_sub(1)).unwrap_or(&"Slot"), name),
             components: item_form(),
         },
-        ["bi", ch, msg, p, l, sid, w, name] => apply(http, user, by, ch, msg, p, l, sid, w, name, v).await,
+        ["bi", p, l, sid, w, name] => apply(user, by, p, l, sid, w, name, v),
         _ => private("Unknown menu."),
     }
 }
@@ -293,10 +309,10 @@ fn item_form() -> Vec<Component> {
     ]
 }
 
-/// The item form was sent: one exact match is set at once, else a menu of matches.
-pub async fn form_sent(http: &Client, user: &str, by: &str, data: &ModalInteractionData) -> Reply {
+/// The item form was sent (from the sheet's message): one clear match is set at once, else the matches menu.
+pub fn form_sent(user: &str, by: &str, data: &ModalInteractionData) -> Reply {
     let parts: Vec<&str> = data.custom_id.split(':').collect();
-    let ["bm", ch, msg, p, l, sid, name] = parts[..] else { return private("Unknown form.") };
+    let ["bm", p, l, sid, name] = parts[..] else { return private("Unknown form.") };
     let (mut typed, mut which) = (String::new(), "m".to_string());
     fn walk(c: &ModalInteractionComponent, t: &mut String, w: &mut String) {
         match c {
@@ -314,29 +330,26 @@ pub async fn form_sent(http: &Client, user: &str, by: &str, data: &ModalInteract
     data.components.iter().for_each(|c| walk(c, &mut typed, &mut which));
     let typed = typed.trim();
     if typed.is_empty() {
-        return apply(http, user, by, ch, msg, p, l, sid, &which, name, "0").await;
+        return apply(user, by, p, l, sid, &which, name, "0");
     }
     let found = crate::items::search(typed);
     if let Some((id, _)) = found.iter().find(|(_, n)| n.eq_ignore_ascii_case(typed)).or(if found.len() == 1 { found.first() } else { None }) {
-        return apply(http, user, by, ch, msg, p, l, sid, &which, name, &id.to_string()).await;
+        return apply(user, by, p, l, sid, &which, name, &id.to_string());
     }
+    let snap = crate::signup::current_snap().unwrap_or(Value::Null);
+    let (phase, off) = (p.parse().unwrap_or(1), l == "o");
     if found.is_empty() {
-        return private(format!("No raid item called \"{typed}\". Try fewer letters."));
+        return sheet_reply(&snap, name, phase, off, true, None, Some(format!("No raid item called \"{typed}\". Try fewer letters.")));
     }
     let opts = found.into_iter().map(|(id, n)| option(n, id.to_string(), crate::items::source_hint(id))).collect();
-    Reply::Pic {
-        update: false,
-        private: true,
-        text: Some(format!("Which one for **{}**?", SLOTS.get(sid.parse::<usize>().unwrap_or(1).saturating_sub(1)).unwrap_or(&"the slot"))),
-        embed: None,
-        comps: vec![row(Component::SelectMenu(menu(format!("bi:{ch}:{msg}:{p}:{l}:{sid}:{which}:{name}"), "Matching items", opts)))],
-        file: None,
-    }
+    let slot = SLOTS.get(sid.parse::<usize>().unwrap_or(1).saturating_sub(1)).unwrap_or(&"the slot");
+    let m = Component::SelectMenu(menu(format!("bi:{p}:{l}:{sid}:{which}:{name}"), &format!("Which one for {slot}?"), opts));
+    sheet_reply(&snap, name, phase, off, true, Some(m), None)
 }
 
-/// Queue the edit, redraw the sheet message, say what happened.
+/// Queue the edit and show the sheet with it (pending).
 #[allow(clippy::too_many_arguments)]
-async fn apply(http: &Client, user: &str, by: &str, ch: &str, msg: &str, p: &str, l: &str, sid: &str, w: &str, name: &str, item: &str) -> Reply {
+fn apply(user: &str, by: &str, p: &str, l: &str, sid: &str, w: &str, name: &str, item: &str) -> Reply {
     if !owns(user, name) {
         return private("Only that character's player edits this list.");
     }
@@ -358,19 +371,6 @@ async fn apply(http: &Client, user: &str, by: &str, ch: &str, msg: &str, p: &str
     if let Err(e) = bridge::push(&dir, r, now) {
         return private(format!("Could not save it: {e}"));
     }
-    // the sheet message, redrawn with the change (pending)
-    let snap = crate::signup::current_snap().unwrap_or(Value::Null);
-    if let (Some(chan), Some(mid), Some((e, comps, file))) = (
-        ch.parse::<u64>().ok().and_then(Id::<ChannelMarker>::new_checked),
-        msg.parse::<u64>().ok().and_then(Id::<MessageMarker>::new_checked),
-        sheet(&snap, name, Some(phase), l == "o"),
-    ) {
-        let files: Vec<Attachment> = file.map(|(f, b)| vec![Attachment::from_bytes(f, b, 1)]).unwrap_or_default();
-        let embeds = [e];
-        if let Err(err) = http.update_message(chan, mid).embeds(Some(&embeds)).components(Some(&comps)).attachments(&files).await {
-            eprintln!("bis: redraw: {err}");
-        }
-    }
     let slot_name = SLOTS[slot - 1];
     let what = if id == 0 {
         format!("**{slot_name}** emptied")
@@ -378,12 +378,6 @@ async fn apply(http: &Client, user: &str, by: &str, ch: &str, msg: &str, p: &str
         let n = crate::items::name_of(id as u32).unwrap_or_else(|| format!("item {id}"));
         format!("**{slot_name}** {} set to **{n}**", if w == "a" { "alternative" } else { "main pick" })
     };
-    Reply::Pic {
-        update: true,
-        private: true,
-        text: Some(format!("{what}. Your addon takes it when you're both online; the sheet shows it as pending until then.")),
-        embed: None,
-        comps: Vec::new(),
-        file: None,
-    }
+    let snap = crate::signup::current_snap().unwrap_or(Value::Null);
+    sheet_reply(&snap, name, phase, l == "o", true, None, Some(format!("{what}. Your addon takes it when you're both online; until then it shows as pending.")))
 }

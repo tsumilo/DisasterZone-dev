@@ -4,6 +4,7 @@
 //!
 //! Everything is laid out in "points" (the prototype's CSS pixels) and drawn at SCALE pixels per point.
 
+pub mod fetch;
 pub mod raid;
 pub mod sheet;
 pub mod week;
@@ -102,6 +103,15 @@ impl Art {
         m.entry(name.to_string())
             .or_insert_with(|| image::open(self.dir.join(name)).ok().map(|i| Arc::new(i.to_rgba8())))
             .clone()
+    }
+
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
+    /// Drop a picture from the cache (a file written since: read again next time).
+    pub fn forget(&self, name: &str) {
+        self.images.lock().unwrap().remove(name);
     }
 
     pub fn file(&self, name: &str) -> Option<Vec<u8>> {

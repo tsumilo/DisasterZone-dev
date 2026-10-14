@@ -182,7 +182,11 @@ async fn run(app: &AppHandle, token: String, app_id: Id<ApplicationMarker>, guil
                         if let Some(snap) = bridge::read_bridge_db(&dir).and_then(|v| v.get("snap").cloned()) {
                             crate::signup::set_snap(snap.clone());
                             let h = http.clone();
-                            tauri::async_runtime::spawn(async move { crate::posts::update(&h, &snap).await; });
+                            tauri::async_runtime::spawn(async move {
+                                // (icons the exported art lacks: fetched once, before the pictures are drawn)
+                                crate::render::fetch::ensure_items(crate::render::fetch::snapshot_items(&snap)).await;
+                                crate::posts::update(&h, &snap).await;
+                            });
                         }
                     }
                 }
@@ -304,19 +308,17 @@ async fn answer(app: &AppHandle, http: &Client, app_id: Id<ApplicationMarker>, i
     let user = i.author_id().map(|u| u.get().to_string()).unwrap_or_default();
     let name = i.author().map(|u| u.global_name.clone().unwrap_or_else(|| u.name.clone())).unwrap_or_default();
     let now = unix_now();
-    let ch = i.channel.as_ref().map(|c| c.id.get().to_string()).unwrap_or_default();
-    let msg = i.message.as_ref().map(|m| m.id.get().to_string()).unwrap_or_default();
     match &i.data {
         Some(InteractionData::MessageComponent(c)) if c.custom_id.starts_with('b') && c.custom_id.as_bytes().get(2) == Some(&b':') => {
             let r = if c.values.is_empty() {
-                crate::bis::button(&user, &c.custom_id, &ch, &msg)
+                crate::bis::button(&user, &c.custom_id)
             } else {
-                crate::bis::select(http, &user, &name, &c.custom_id, &c.values).await
+                crate::bis::select(&user, &name, &c.custom_id, &c.values)
             };
             return respond_bis(http, app_id, i, r).await;
         }
         Some(InteractionData::ModalSubmit(m)) if m.custom_id.starts_with("bm:") => {
-            let r = crate::bis::form_sent(http, &user, &name, m).await;
+            let r = crate::bis::form_sent(&user, &name, m);
             return respond_bis(http, app_id, i, r).await;
         }
         Some(InteractionData::ApplicationCommand(cmd)) if cmd.name == "bis" && matches!(cmd.options.first().map(|o| o.name.as_str()), Some("show") | None) => {
