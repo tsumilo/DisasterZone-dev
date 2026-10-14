@@ -241,7 +241,10 @@ def threat_bar_colours_for_tanks_glow_for_the_others():
 @case
 def execute_range_only_for_classes_with_a_finisher():
     t = Plates("gilded")
-    t.c.eval("__MOCK.npcs[...].hp = 25; __MOCK.npc_combat = { [...] = true }", t.mob, t.mob)
+    t.c.eval("__MOCK.npcs[...].hp = 25", t.mob)
+    t.step(2)
+    assert t.p("exec") is None                              # (out of a fight: no tick)
+    t.c.eval("__MOCK.npc_combat = { [...] = true }; ns.Plates:MarkAll()", t.mob)
     t.step(2)
     assert t.p("exec") == 0.2 and t.p("execReady") is False
     t.c.eval("__MOCK.npcs[...].hp = 19; ns.Plates:MarkAll()", t.mob)

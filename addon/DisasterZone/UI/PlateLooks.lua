@@ -154,7 +154,7 @@ function FLAT.Draw(c, p)
     c:Scale(s)
     local w, h = BW, 10
     local x0, y0 = -w / 2, -h / 2
-    if p.glow then c:Glow(0, 0, w + 40, h + 30, p.glow, 0.9 * p.pulse) end
+    if p.glow then c:Glow(0, 0, w + 24, h + 16, p.glow, 0.75 * p.pulse) end
     c:Rect(x0, y0, w, h, DARK, 0.66)
     c:Rect(x0, y0, w, h, WHITE, 0.04)
     if p.hp > 0 then c:Rect(x0, y0, w * p.hp, h, p.col, 0.8) end
@@ -219,7 +219,7 @@ end
 local HALO = { key = "halo" }
 function HALO.Geom(p)
     if p.nameOnly then local g = NameOnlyGeom(p); g.l, g.r, g.top, g.bot = g.l - 9, g.r + 9, -9, 7 return g end
-    return { l = -72, r = 58 + (p.execReady and 23 or 0), top = -6 - 14 - (#p.auras > 0 and 22 or 0),
+    return { l = -72, r = 58 + (p.execReady and 23 or 0), top = -6 - 14 - (p.target and 3 or 0) - (#p.auras > 0 and 22 or 0),
              bot = 6 + (p.cast and (4 + 6 + 14) or 0) }
 end
 function HALO.Draw(c, p)
@@ -231,18 +231,15 @@ function HALO.Draw(c, p)
     end
     local w, h = 116, 12
     local x0, y0 = -w / 2, -h / 2
-    if p.glow then c:Glow(0, 0, w + 44, h + 34, p.glow, p.pulse) end
-    if p.target then
-        c:Glow(0, 0, w + 34, h + 28, WHITE, 0.3)
-        c:Pill(x0 - 3.5, 0, w + 7, h + 7, WHITE, 0.95, true)
-    end
+    if p.glow then c:Glow(0, 0, w + 26, h + 18, p.glow, 0.75 * p.pulse) end
+    if p.target then c:Pill(x0 - 3.5, 0, w + 7, h + 7, WHITE, 0.95, true) end
     c:Pill(x0 - 1, 0, w + 2, h + 2, BLACK, 0.9)
     c:Pill(x0, 0, w, h, DARK, 0.94)
     if p.hp > 0 then FadePill(c, x0, 0, w * p.hp, h, p.col, 0.9 * 0.45, 0.92) end
     c:Rect(x0 + h / 2, y0 + 1, w - h, h / 2 - 1, WHITE, 0.06)
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0 + 2, 1, h - 4, WHITE, 0.55) end
     c:Text(Pct(p), x0 + w - 6, 0.5, "ArialN", 9.5, p.execReady and GOLD or WHITE, 1, "RIGHT")
-    local ny = y0 - 9
+    local ny = y0 - (p.target and 12 or 9)
     local nsize = Fit(c, "Friz", 10.5, p.name, w - 14)
     c:Text(p.name, 0, ny, "Friz", nsize, RINGC, 1)
     if p.lvl == "??" then c:Img(SKULL, c:W("Friz", nsize, p.name, 1) / 2 + 9.5, ny, 11, 11) end
@@ -320,7 +317,7 @@ function SIGIL.Draw(c, p)
     if p.nameOnly then c:Text(p.name:upper(), 0, 0, "Friz", 9.5, p.nameCol, 1) return end
     local w, h = BW, 11
     local x0, y0 = -w / 2, -h / 2
-    if p.glow then c:Glow(0, 0, w + 40, h + 30, p.glow, p.pulse) end
+    if p.glow then c:Glow(0, 0, w + 24, h + 16, p.glow, 0.75 * p.pulse) end
     LitBar(c, x0, y0, w, h, p.hp, p.col)
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0, 1, h, GOLD, 0.8) end
     c:Text(Pct(p), x0 + w - 3, 0.5, "ArialN", 9.5, p.execReady and GOLD or WHITE, 1, "RIGHT")
@@ -510,8 +507,7 @@ function GILDED.Draw(c, p)
     if p.nameOnly then c:Text(p.name, 0, 0, "Friz", 11, p.nameCol, 1) return end
     local w, h, t = 112, 10, 3
     local x0, y0 = -w / 2, -h / 2
-    if p.target then c:Glow(0, 0, 180, 64, C(255, 190, 80), 0.32) end
-    if p.glow then c:Glow(0, 0, w + 44, h + 34, p.glow, p.pulse) end
+    if p.glow then c:Glow(0, 0, w + 26, h + 18, p.glow, 0.75 * p.pulse) end
     c:Rect(x0, y0, w, h, BLACK, 0.62)
     Grain(c, x0, y0, w, h, p.hp, p.col)
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0, 1, h, GNAME, 0.85) end
@@ -588,7 +584,7 @@ function CLASSIC.Draw(c, p)
     if p.nameOnly then c:Text(p.name, 0, 0, "Friz", 11, p.nameCol, 1) return end
     local bx, by = -64, -23
     local fx, fy, fw, fh = bx + 5, by + 19, 99, 8
-    if p.glow then c:Glow(bx + 64, 0, 170, 44, p.glow, p.pulse) end
+    if p.glow then c:Glow(bx + 64, 0, 150, 26, p.glow, 0.75 * p.pulse) end
     c:Rect(fx, fy, fw, fh, BLACK, 0.7)
     Grain(c, fx, fy, fw, fh, p.hp, p.col)
     if p.exec then c:Rect(fx + fw * p.exec - 0.5, fy, 1, fh, GOLD, 0.9) end

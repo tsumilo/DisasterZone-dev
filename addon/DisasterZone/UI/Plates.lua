@@ -208,7 +208,7 @@ function P:Read(u, p, lookKey)
     end
     -- the finisher's line
     local ex = Opt("execute", true) and not friend and EXEC[MyClass() or ""]
-    p.exec = ex and ex[1] or nil
+    p.exec = (ex and p.combat) and ex[1] or nil        -- (the tick only in a fight)
     p.execIcon = ex and ex[2] or nil
     return p
 end
