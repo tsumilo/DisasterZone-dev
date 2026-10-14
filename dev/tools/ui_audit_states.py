@@ -365,7 +365,7 @@ def opened(key, lua=None):
     return fn
 
 
-def azero_battle(map_id, x, y, foe):
+def azero_battle(map_id, x, y, foe, then=None):
     """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN)"""
     def fn(w, c):
         g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New('murkling', 12, ns.Azero.rng) }")(w, c)
@@ -384,6 +384,8 @@ def azero_battle(map_id, x, y, foe):
             if st.get("battle") and st.get("actionOpen"):
                 break
             g.eval("ns.AzeroUI._HandleKey('A')")
+        if then:
+            g.eval(then)
         w.tick(0.6)
         g.eval("ns.AzeroUI._Focus(true)")                 # no "paused" veil over the picture
         return g
@@ -1867,7 +1869,7 @@ STATES = [
     # (Azeromon's poster on the side: a still of its film, no painting behind it)
     ("Games - Azeromon poster side", opened("games", "ns.GamesUI:ShowFront('chess') ns.GamesUI:PauseAnim(true)")),
     # the overworld on maps with a baked ground (gen_azeromon_ground.py): Goldshire's square, Route 1's meadows
-    ("Games - Azeromon world map", azero_at("town", 12, 11, "local g = ns.Azero g.save.visited = {} for id in pairs(ns.AzeroMaps) do g.save.visited[id] = true end ns.AzeroWorld:Open()")),
+    ("Games - Azeromon world map", azero_at("town", 12, 11, "local g = ns.Azero g.save.visited = {} for id in pairs(ns.AzeroMaps) do g.save.visited[id] = true end ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
     ("Games - Azeromon Goldshire", azero_at("town", 12, 11)),
     ("Games - Azeromon Goldshire edge", azero_at("town", 2, 8)),
     ("Games - Azeromon Goldshire north road", azero_at("town", 10, 1)),
@@ -1875,6 +1877,7 @@ STATES = [
     ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),
     ("Games - Azeromon home", azero_at("home", 4, 5)),
     ("Games - Azeromon battle", azero_battle("route1", 11, 20, "kobling")),
+    ("Games - Azeromon fight menu", azero_battle("route1", 11, 20, "kobling", "ns.AzeroUI._HandleKey('A')")),
     ("Games - Azeromon inn evening", azero_at("post", 4, 5, "ns.Azero.clockHour = 21")),
     ("Games - Azeromon Route 1", azero_at("route1", 6, 9)),
     ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),

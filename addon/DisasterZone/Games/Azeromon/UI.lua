@@ -2675,6 +2675,7 @@ end
 local function EndBattleView()
     BT.battle, BT.actionOpen = nil, nil
     R.battle:Hide()
+    R.moveInfo:Hide()                        -- (on the screen, not the battle layer)
     world:Show()
     CloseAllMenus()
     ClearText()
@@ -5117,7 +5118,8 @@ local function BuildBattle()
     R.net:SetTexture("Interface\\Icons\\Ability_Hunter_BeastTaming")
     R.net:Hide()
 
-    R.moveInfo = Box(b, 170, BOX_H, 75)
+    -- on the screen like the menus and text box, not the battle layer (that one is scaled past the stage and clips)
+    R.moveInfo = Box(screen, 170, BOX_H, 75)
     R.moveInfo:SetPoint("BOTTOMRIGHT", screen, "BOTTOMRIGHT", 0, 0)
     R.moveInfo.pp = Font(R.moveInfo, 15, nil, true)
     R.moveInfo.pp:SetPoint("TOPLEFT", 18, -14)
