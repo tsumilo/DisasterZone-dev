@@ -186,6 +186,14 @@ def cast_bars_show_a_cast_with_latency_and_a_lock():
     assert c.eval("return ns.LookCast:Bar('player').name:GetText()") == "Interrupted"
     w.tick(1.5)
     assert c.eval("return ns.LookCast:Bar('player'):IsShown()") is False
+    # the game's placeholder icon (learning a recipe): the recipe just used, else a book; never the laughing face
+    c.eval("local f = ns.LookCast:Bar('player'); ns.LookCast:Start(f, { name = 'Learning', icon = 136235, dur = 1, done = 0.1 })")
+    assert c.eval("return ns.LookCast:Bar('player').icon.path") == "Interface\\Icons\\INV_Misc_Book_09"
+    c.eval("__MOCK.set_bags({ { 0, 1, 21877, 1 } }); C_Container.UseContainerItem(0, 1)")
+    c.eval("local f = ns.LookCast:Bar('player'); ns.LookCast:Start(f, { name = 'Learning', icon = 136235, dur = 1, done = 0.1 })")
+    assert c.eval("return ns.LookCast:Bar('player').icon.path") == c.eval(
+        "return C_Container.GetContainerItemInfo(0, 1).iconFileID")
+    assert c.eval("return ns.LookCast.CastIcon(132340, 'player')") == 132340
     w.assert_no_errors()
 
 
