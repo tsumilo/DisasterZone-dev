@@ -433,6 +433,31 @@ def demo_mode_moves_and_saves_nothing():
 
 
 @r.case
+def tooltips_show_the_saved_enchant_and_gems():
+    """Feedback #14: a tile's tooltip is the saved copy (its enchant and gems), not the bare item."""
+    w, c = solo()
+    c.eval("local real = GetInventoryItemLink; GetInventoryItemLink = function(u, s) "
+           "if s == 1 then return '|cffa335ee|Hitem:29073:3003:32409:24027:0:0:0:0:70|h[Justicar Crown]|h|r' end "
+           "return real(u, s) end; __o = ns.Wardrobe:SaveWorn('Ret'); __real = real")
+    c.slash("/dz wardrobe")
+    settle(w, 0.5)
+    c.eval("ns.WardrobeUI:Select(__o.id); ns.WardrobeUI:SetTab('outfit')")
+    settle(w, 0.3)
+    hover = ("local t = ns.WardrobeUI.view.body.tiles[1]; local real = GameTooltip.SetHyperlink; __tip = nil "
+             "GameTooltip.SetHyperlink = function(self, l) __tip = l; return real(self, l) end "
+             "t:GetScript('OnEnter')(t); GameTooltip.SetHyperlink = real; GameTooltip:Hide(); return __tip")
+    got = c.eval(hover)
+    assert got == "item:29073:3003:32409:24027:0:0:0", got
+    # Keep current: the worn copy's
+    c.eval("ns.Wardrobe:Get(__o.id).slots[1] = nil; ns.WardrobeUI:Select(__o.id)")
+    settle(w, 0.3)
+    got = c.eval(hover)
+    assert got == "item:29073:3003:32409:24027:0:0:0", got
+    c.eval("GetInventoryItemLink = __real")
+    assert_no_lua_errors(w)
+
+
+@r.case
 def page_builds_and_renders():
     w, c = solo(bags={(0, 1): JUSTICAR_FACE})
     c.slash("/dz wardrobe")

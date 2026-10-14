@@ -122,7 +122,7 @@ local LOOK = {
 local function TileEnter(t)
     GameTooltip:SetOwner(t, "ANCHOR_RIGHT")
     if t.itemID then
-        GameTooltip:SetHyperlink("item:" .. t.itemID)
+        GameTooltip:SetHyperlink("item:" .. (t.itemKey or t.itemID))   -- the saved copy: its enchant and gems
     else
         GameTooltip:AddLine(W().SLOT_NAME[t.inv] or "", 1, 1, 1)
     end
@@ -162,6 +162,7 @@ local function fillTile(t, inv, s)
     t.inv = inv
     local id = s.id
     t.itemID = id
+    t.itemKey = id and (s.key or (s.want and s.want.key)) or nil
     if id then
         t.icon:Set(iconOf(id))
         t.name:SetText(nameOf(id))

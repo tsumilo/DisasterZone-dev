@@ -6,6 +6,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.6", date = "15 October 2026", title = "Fixes",
+      sections = {
+          { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
+              { "Wardrobe: an outfit's items show their enchant and gems in the tooltip.", fb = { 14 }, by = { "Victhar" }, k = "change" },
+          } },
+      } },
     { version = "1.4.5", date = "14 October 2026", title = "Discord for everyone",
       sections = {
           { heading = "Discord without a host", area = "guild", kind = "changed", hi = true,

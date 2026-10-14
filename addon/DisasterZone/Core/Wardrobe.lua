@@ -238,7 +238,7 @@ function W:Resolve(o, scan)
     for _, inv in ipairs(W.SLOTS) do
         local want, worn = wantOf(inv), scan.worn[inv]
         if want == nil then
-            out[inv] = { st = "keep", id = worn and worn.id }
+            out[inv] = { st = "keep", id = worn and worn.id, key = worn and worn.key }
             counts.keep = counts.keep + 1
         elseif want == false then
             if not worn then out[inv] = { st = "worn" } end
