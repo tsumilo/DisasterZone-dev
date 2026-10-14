@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.4.2", date = "13 October 2026", title = "Edit layout and the UI in our looks",
+    { version = "1.4.2", date = "14 October 2026", title = "Edit layout and the UI in our looks",
       sections = {
           { heading = "The raid session crest", area = "raids", kind = "changed", hi = true, open = "settings/session",
             lead = "The session bar is now a small crest showing what waits on the leader and the council.", lines = {
@@ -51,6 +51,15 @@ ns.CHANGELOG = {
               "Your pulls and the guild's fill each other's gaps: shared after the pull, checked first.",
               "Settings > Boss mods > Bosses: each boss's page shows what every timer learned.",
               "Turn off 'Learn from our pulls' to keep DBM's and BigWigs' numbers.",
+          } },
+          { heading = "Raids on Discord", area = "raids", kind = "new", hi = true,
+            lead = "Our raids posted on the guild's Discord, with sign-ups right there.", lines = {
+              "The GM picks the Discord channels under Settings > Guild > Discord.",
+              "Each raid gets a post in the addon's look; it updates as people sign up.",
+              "Sign up from Discord: make your character there once (name, class, spec).",
+              "/raids lists the coming raids, /bis shows your list as a gear sheet to edit.",
+              "A reminder by DM an hour before; Running late or Can't make it tell the leader.",
+              "A small Discord mark after the names of characters made in Discord.",
           } },
           { heading = "Settings, sorted", area = "other", kind = "changed", hi = true, open = "settings/looks",
             lead = "Six groups, a search, and every look in one place.", lines = {
