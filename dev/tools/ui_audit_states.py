@@ -1870,6 +1870,10 @@ STATES = [
     ("Games - Azeromon poster side", opened("games", "ns.GamesUI:ShowFront('chess') ns.GamesUI:PauseAnim(true)")),
     # the overworld on maps with a baked ground (gen_azeromon_ground.py): Goldshire's square, Route 1's meadows
     ("Games - Azeromon world map", azero_at("town", 12, 11, "local g = ns.Azero g.save.visited = {} for id in pairs(ns.AzeroMaps) do g.save.visited[id] = true end ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
+    # the painted world map (gen_azeromon_worldmap.py): a new game under mist, by night, a place being revealed
+    ("Games - Azeromon world map new game", azero_at("route1", 11, 20, "ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
+    ("Games - Azeromon world map night", azero_at("sentinel", 5, 9, "ns.Azero.clockHour = 23 ns.Azero:EnterMap('westfall', 5, 5, 'down', true) ns.Azero:EnterMap('sentinel', 5, 9, 'down', true) ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
+    ("Games - Azeromon world map reveal", azero_at("route1", 11, 20, "ns.AzeroWorld:Open() ns.AzeroUI._HandleKey('B') ns.Azero:EnterMap('forestedge', 5, 5, 'down', true) ns.AzeroUI._HandleKey('START') ns.AzeroWorld:Open() ns.AzeroWorld.frame.clock = ns.AzeroWorld.frame.clock + 1.1 ns.AzeroWorld:Animate(0) ns.AzeroUI._Focus(true)")),
     ("Games - Azeromon Goldshire", azero_at("town", 12, 11)),
     ("Games - Azeromon Goldshire edge", azero_at("town", 2, 8)),
     ("Games - Azeromon Goldshire north road", azero_at("town", 10, 1)),
