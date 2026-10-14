@@ -363,7 +363,24 @@ function P:New(parent)
     function c:Seek(i, t)
         self.shot, self.t = ((i - 1) % #P.SHOTS) + 1, t or 0
     end
+    -- a side poster (the hub's poster.off ~= 0) holds a still of the shot it was on, drawn again only when its size
+    -- or the shot changes; the film plays in front only
+    local poster = parent:GetParent()
     function c:Tick(elapsed)
+        if poster and poster.off and poster.off ~= 0 then
+            local w, h = self:GetSize()
+            if not (w and h and w > 1 and h > 1) then w, h = self.boxW, self.boxH end
+            if not (w and h and w > 1 and h > 1) then return end
+            local key = self.shot .. ":" .. floor(w) .. "x" .. floor(h)
+            if self.still == key then return end
+            self.still = key
+            self.reels[1].view:Show()
+            self.reels[1].view:SetAlpha(1)
+            self.reels[1].Draw(P.SHOTS[self.shot], 3, w, h, self.clock, self:GetEffectiveAlpha() > 0.99)
+            self.reels[2].view:Hide()
+            return
+        end
+        self.still = nil
         elapsed = min(elapsed or 0, 0.1)
         self.clock, self.t = self.clock + elapsed, self.t + elapsed
         if self.t >= SHOT_T then

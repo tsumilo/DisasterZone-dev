@@ -660,19 +660,20 @@ def the_next_creature_never_inherits_a_death_pose():
 
 
 @case
-def the_title_screen_does_not_reload_its_creatures():
+def the_title_screen_plays_the_zones_behind_its_logo():
     w, c = game()
     c.slash("/dz play azeromon")
     w.tick(3)
-    counts = lambda: c.eval_py("local t = {} for i, sc in ipairs(ns.AzeroUI._TitleScenes()) do "
-                               "t[i] = sc.actor and sc.actor.modelRequests or 0 end return t")
-    before = counts()
-    assert before and all(n == 1 for n in before), before
-    c.slash("/dz")          # close and reopen the window: the title is shown again
+    assert c.eval("return ns.AzeroUI._TitleFilm() ~= nil and ns.AzeroUI._TitleFilm():IsShown()")
+    t0 = c.eval("return ns.AzeroUI._TitleFilm().clock")
+    w.tick(1)
+    assert c.eval("return ns.AzeroUI._TitleFilm().clock") > t0          # the film runs while the title shows
+    c.slash("/dz")          # close and reopen the window: the same film, not a second one
     w.tick(0.2)
+    film = c.eval("return tostring(ns.AzeroUI._TitleFilm())")
     c.slash("/dz play azeromon")
     w.tick(1)
-    assert counts() == before, (before, counts())
+    assert c.eval("return tostring(ns.AzeroUI._TitleFilm())") == film
     no_errors(w)
 
 

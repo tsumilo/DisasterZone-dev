@@ -342,6 +342,31 @@ def opened(key, lua=None):
     return fn
 
 
+def azero_battle(map_id, x, y, foe):
+    """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN)"""
+    def fn(w, c):
+        g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New('murkling', 12, ns.Azero.rng) }")(w, c)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_azero_bot", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                      "..", "tests", "games", "_azero_bot.py"))
+        bot = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bot)
+        g.eval(bot.BOT)
+        g.eval("T_AZ.settle()")                              # past the opening tips
+        g.eval("ns.AzeroUI._Focus(true)")
+        g.eval("ns.Azero:Run(function(gm) gm:WildBattle(%r, 8) end)" % foe)
+        for _ in range(80):
+            w.tick(0.2)
+            st = g.eval_py("return ns.AzeroUI._State()")
+            if st.get("battle") and st.get("actionOpen"):
+                break
+            g.eval("ns.AzeroUI._HandleKey('A')")
+        w.tick(0.6)
+        g.eval("ns.AzeroUI._Focus(true)")                 # no "paused" veil over the picture
+        return g
+    return fn
+
+
 def azero_at(map_id, x, y, lua=None):
     """Azeromon running in the Games tab, the player standing on map_id at x, y (a new game)"""
     def fn(w, c):
@@ -357,6 +382,14 @@ def azero_at(map_id, x, y, lua=None):
         w.tick(0.3)
         return g
     return fn
+
+
+def azero_poster(shot, t=3):
+    """The Games hub with Azeromon's poster in front, its film (Games/Azeromon/Poster.lua) t s into shot `shot`"""
+    seek = ("ns.GamesUI:ShowFront('azeromon') ns.GamesUI:PauseAnim(true) "
+            "for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'azeromon' and p.cover.Seek then "
+            "p.cover:Seek(%d, %s) p.cover:Tick(0.01) end end" % (shot, t))
+    return opened("games", seek)
 
 
 def tour_view(key, lua):
@@ -1800,12 +1833,25 @@ STATES = [
                                    "ns.BingoUI:SetView('codex')")),
     ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
     ("Games - Azeromon", opened("games", "ns.GamesUI:Select('azeromon')")),
+    ("Games - Azeromon title", opened("games", "ns.GamesUI:Select('azeromon') ns.AzeroUI._Focus(true)")),
+    ("Games - Azeromon poster Goldshire", azero_poster(1)),
+    ("Games - Azeromon poster Elwynn", azero_poster(2)),
+    ("Games - Azeromon poster Westfall dusk", azero_poster(3)),
+    ("Games - Azeromon poster Darkshire night", azero_poster(4)),
+    ("Games - Azeromon poster Stranglethorn", azero_poster(5)),
+    ("Games - Azeromon poster Wildshore", azero_poster(6)),
+    ("Games - Azeromon poster crossfade", azero_poster(3, 7.2)),
+    # (Azeromon's poster on the side: a still of its film, no painting behind it)
+    ("Games - Azeromon poster side", opened("games", "ns.GamesUI:ShowFront('chess') ns.GamesUI:PauseAnim(true)")),
     # the overworld on maps with a baked ground (gen_azeromon_ground.py): Goldshire's square, Route 1's meadows
     ("Games - Azeromon Goldshire", azero_at("town", 12, 11)),
     ("Games - Azeromon Goldshire edge", azero_at("town", 2, 8)),
     ("Games - Azeromon Goldshire north road", azero_at("town", 10, 1)),
     ("Games - Azeromon Goldshire night", azero_at("town", 13, 10, "ns.Azero.clockHour = 23")),
     ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),
+    ("Games - Azeromon home", azero_at("home", 4, 5)),
+    ("Games - Azeromon battle", azero_battle("route1", 11, 20, "kobling")),
+    ("Games - Azeromon inn evening", azero_at("post", 4, 5, "ns.Azero.clockHour = 21")),
     ("Games - Azeromon Route 1", azero_at("route1", 6, 9)),
     ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),
     # Karazhan Chess (Games/Chess): the lobby with games in every state; a game against Medivh mid-way with his fire

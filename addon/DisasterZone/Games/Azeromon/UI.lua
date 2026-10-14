@@ -3976,14 +3976,19 @@ end
 -- Title screen
 ---------------------------------------------------------------------------
 
+-- The logo's art (gen_azeromon_title.py prints these): its used size in game pixels, the texture's size, the ribbon
+-- box { x, y, w, h } the tagline sits on. Drawn at `scale` like the world, `top` pixels under the screen's top.
+KH.TITLE_ART = { w = 141, h = 51, texW = 256, texH = 64, ribbon = { 14, 31, 112, 16 }, scale = 3, top = 30 }
+
 local function ShowTitle()
     R.title:Show()
     world:Hide()
     CloseAllMenus()
     ClearText()
-    for i, sp in ipairs(D.starters) do
-        R.titleModels[i]:Show()
-        ShowCreature(R.titleModels[i], sp, 0)
+    if not R.titleFilm and ns.AzeroPoster then
+        R.titleFilm = ns.AzeroPoster:New(R.title)
+        R.titleFilm:SetFrameLevel(R.title:GetFrameLevel() + 1)
+        R.titleFilm:Seek(math.random(#ns.AzeroPoster.SHOTS), 0)
     end
     local items = {}
     if G:HasSave() then
@@ -4027,8 +4032,17 @@ local function ShowTitle()
             UI:RefreshMenu(menu)
         end }
     items[#items + 1] = { text = "CONTROLS", onSelect = function() KH.OpenControls() end }
-    PushMenu(items, { w = 210, anchor = { "TOP", screen, "CENTER", 0, -32 }, rowH = 32, level = 60,
-        onCancel = function() end })
+    PushMenu(items, { w = min(SW - 24, #items * 182), cols = #items, anchor = { "BOTTOM", screen, "BOTTOM", 0, 26 }, rowH = 32,
+        level = 60, onCancel = function() end })
+end
+
+-- Each frame on the title: the film plays on (held still with MOTION off), the logo breathes.
+function KH.TickTitle(elapsed)
+    local calm = G:Data().calm
+    if R.titleFilm then R.titleFilm:Tick(calm and 0 or elapsed) end
+    local t = calm and 0 or now
+    R.titleLogo:SetPoint("TOP", 0, -KH.TITLE_ART.top + floor(math.sin(t * 1.6) * 2 + 0.5))
+    R.titleGlow:SetAlpha(0.8 + 0.2 * math.sin(t * 1.1))
 end
 
 ---------------------------------------------------------------------------
@@ -4694,6 +4708,7 @@ local function OnUpdate(self, elapsed)
     FitScenes(elapsed)
     KH.UpdateKeyStrip()
     Scr.UpdateMusic()
+    if R.title:IsShown() then KH.TickTitle(elapsed) end
     if R.title:IsShown() or not G.started then
         ns.AzeroNet:SetActive(false)
         return
@@ -5182,7 +5197,9 @@ function UI:CreatePanel(parent)
     R.log.body:SetPoint("BOTTOMRIGHT", -16, 12)
     R.log:Hide()
 
-    -- title
+    -- title: the game's own zones playing behind (the Games poster's film, Poster.lua; made on first show), dark
+    -- bands top and bottom, the baked logo (gen_azeromon_title.py) with its ribbon, and the menu as one row along
+    -- the bottom
     R.title = CreateFrame("Frame", nil, screen)
     R.title:SetSize(SW, SH)
     R.title:SetPoint("CENTER")
@@ -5190,28 +5207,53 @@ function UI:CreatePanel(parent)
     R.title:SetFrameLevel(screen:GetFrameLevel() + 30)
     local tbg = Tex(R.title, "BACKGROUND")
     tbg:SetAllPoints()
-    tbg:SetColorTexture(0.12, 0.2, 0.35, 1)
-    local logo = R.title:CreateFontString(nil, "OVERLAY")
-    logo:SetFont(FONT, 46, "THICKOUTLINE")
-    logo:SetText("AZEROMON")
-    logo:SetTextColor(1, 0.82, 0.2)
-    logo:SetPoint("TOP", 0, -34)
-    local sub = R.title:CreateFontString(nil, "OVERLAY")
-    sub:SetFont(FONT, 15, "OUTLINE")
-    sub:SetText("Tame the beasts of Azeroth")
-    sub:SetTextColor(0.9, 0.95, 1)
-    sub:SetPoint("TOP", logo, "BOTTOM", 0, -6)
-    R.titleModels = {}
-    for i = 1, 3 do
-        local m = NewModel(R.title, 150, 150)
-        m:SetPoint("CENTER", R.title, "CENTER", (i - 2) * 160, 50)
-        R.titleModels[i] = m
+    tbg:SetColorTexture(0.12, 0.2, 0.35, 1)                          -- (under the film: shows if it can't play)
+    local front = CreateFrame("Frame", nil, R.title)
+    front:SetAllPoints()
+    front:SetFrameLevel(R.title:GetFrameLevel() + 10)
+    R.titleFront = front
+    local function Band(point, h, a)
+        local t = Tex(front, "BACKGROUND")
+        t:SetTexture(MEDIA .. "title_shade")
+        t:SetVertexColor(0.02, 0.03, 0.07, a)
+        t:SetPoint(point .. "LEFT")
+        t:SetPoint(point .. "RIGHT")
+        t:SetHeight(h)
+        if point == "BOTTOM" then t:SetTexCoord(0, 1, 1, 0) end       -- (the ramp fades upward)
+        return t
     end
-    local credit = R.title:CreateFontString(nil, "OVERLAY")
+    Band("TOP", 190, 0.7)
+    Band("BOTTOM", 150, 0.8)
+    local TA = KH.TITLE_ART
+    local glow = Tex(front, "BORDER")
+    glow:SetTexture(Amb.GLOW)
+    pcall(glow.SetBlendMode, glow, "ADD")
+    glow:SetVertexColor(1, 0.72, 0.28, 0.28)
+    glow:SetSize(TA.w * TA.scale * 1.25, TA.h * TA.scale * 1.1)
+    local logo = Tex(front, "ARTWORK")
+    SetPixelTexture(logo, MEDIA .. "title_logo")
+    logo:SetTexCoord(0, TA.w / TA.texW, 0, TA.h / TA.texH)
+    logo:SetSize(TA.w * TA.scale, TA.h * TA.scale)
+    logo:SetPoint("TOP", 0, -TA.top)
+    glow:SetPoint("CENTER", logo, "CENTER", 0, 8)
+    local rb = TA.ribbon
+    local sub = front:CreateFontString(nil, "OVERLAY")
+    if not sub:SetFont(FONT_BOLD, 16, "") then sub:SetFont(FONT_FALLBACK, 13, "") end
+    sub:SetText("TAME THE BEASTS OF AZEROTH")
+    sub:SetTextColor(1, 0.93, 0.78)
+    sub:SetPoint("CENTER", logo, "TOPLEFT", (rb[1] + rb[3] / 2) * TA.scale, -(rb[2] + (rb[4] - 3) / 2) * TA.scale + 1)
+    R.titleLogo, R.titleGlow = logo, glow
+    local credit = front:CreateFontString(nil, "OVERLAY")
     credit:SetFont(FONT, 10, "")
-    credit:SetTextColor(0.7, 0.75, 0.85)
-    credit:SetPoint("BOTTOM", 0, 8)
+    credit:SetTextColor(0.62, 0.66, 0.76, 0.85)
+    credit:SetPoint("BOTTOM", 0, 6)
     credit:SetText("Pixel art: Tiny 16 by Lanea Zimmerman (Sharm), CC-BY  |  Tiles: Red_Voxel, CC-BY-SA  |  Font: Pixel Operator (CC0)")
+    local ver = front:CreateFontString(nil, "OVERLAY")
+    ver:SetFont(FONT, 12, "")
+    ver:SetTextColor(0.78, 0.82, 0.92, 0.8)
+    ver:SetPoint("TOPRIGHT", -10, -8)
+    local latest = ns.AzeroChangelog and ns.AzeroChangelog[1]
+    ver:SetText(latest and ("v" .. latest.version) or "")
     -- (the keys: the key strip and CONTROLS explain them)
 
     -- focus overlay
@@ -5532,7 +5574,7 @@ UI._ShowFoe = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeMode
 UI._ShowFoeShiny = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7, true) end
 UI._Camera = function() return { dist = CAM_DIST, fov = CAM_FOV } end
 UI._Scene = function(which) return (which == "ally") and R.allyModel or R.foeModel end
-UI._TitleScenes = function() return R.titleModels end
+UI._TitleFilm = function() return R.titleFilm end
 UI._SkyAlpha = function()            -- the flat tint, or the baked darkness that replaces it (Amb.Night)
     local dark = false
     for _, x in ipairs(Amb.lightTex) do if x:IsShown() then dark = true end end

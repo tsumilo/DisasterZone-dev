@@ -18,6 +18,7 @@ ns.AzeroChangelog = {
           "Start menu: MOTION turns the world's motion off.",
           "The world meets the window's edges: no dark bars.",
           "The Games poster now plays a film of the zones.",
+          "New title screen: a new logo over the living zones.",
       } },
     { version = "0.22", date = "14 October 2026", title = "Wide screen, painted battles",
       lines = {

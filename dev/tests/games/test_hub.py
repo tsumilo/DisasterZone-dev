@@ -127,6 +127,11 @@ def azeromon_poster_is_a_film_of_the_game_crossfading_shot_to_shot():
     assert up[0] and 0.3 < up[1] < 0.7, up
     shot = c.eval(FILM + "for _ = 1, 9 do f:Tick(0.1) end return f.shot")
     assert shot == 2, shot
+    # on the side (Azeromon has no painting): a still of the shot it was on, which holds while the front one plays
+    c.eval("ns.GamesUI:ShowFront('chess')")
+    side = c.eval_py(FILM + "f:Tick(0.05) local t = f.t f:Tick(0.05) local r = f.reels[1] "
+                     "return { f:IsShown(), r.view:IsShown(), r.hero:IsShown(), f.t == t }")
+    assert side == [True, True, True, True], side
     no_errors(w)
 
 

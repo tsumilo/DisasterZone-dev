@@ -343,6 +343,7 @@ Games\Azeromon\Sound.lua
 Games\Azeromon\Arena.lua
 Games\Azeromon\WorldMap.lua
 Games\Azeromon\UI.lua
+Games\Azeromon\Poster.lua
 
 # In-game updates: the publisher's outbox and the end marker. Must stay the last two files.
 Core\Outbox.lua

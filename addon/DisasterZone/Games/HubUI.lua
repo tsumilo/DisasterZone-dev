@@ -799,7 +799,7 @@ COVERS.azeromon = function(parent, poster)
         c = CreateFrame("Frame", nil, poster.artFrame)
         c:SetAllPoints(poster.artFrame)
     end
-    c.frontOnly = true                       -- (only the front poster plays; the sides keep their painting)
+    -- (shown on the side posters too, as a still: Azeromon has no painting of its own to fall back on)
     return c
 end
 
