@@ -66,7 +66,12 @@ local function Shade(col, k, add)
     return { min(1, col[1] * k + add), min(1, col[2] * k + add), min(1, col[3] * k + add) }
 end
 
-local function Pct(p) return floor((p.hp or 0) * 100 + 0.5) .. "%" end
+-- The piece of health just taken off (p.trail > p.hp): pale, behind the bar, until it drains.
+local function Chunk(col) return { min(1, col[1] * 0.45 + 0.55), min(1, col[2] * 0.45 + 0.55), min(1, col[3] * 0.45 + 0.5) } end
+L.Chunk = Chunk
+
+-- (the number is the health now; only the bar slides)
+local function Pct(p) return floor((p.hpTarget or p.hp or 0) * 100 + 0.5) .. "%" end
 L.Pct = Pct
 
 local function CastTime(p)
@@ -157,6 +162,7 @@ function FLAT.Draw(c, p)
     if p.glow then c:Glow(0, 0, w + 24, h + 16, p.glow, 0.75 * p.pulse) end
     c:Rect(x0, y0, w, h, DARK, 0.66)
     c:Rect(x0, y0, w, h, WHITE, 0.04)
+    if p.trail then c:Rect(x0 + w * p.hp, y0, w * (p.trail - p.hp), h, Chunk(p.col), 0.75) end
     if p.hp > 0 then c:Rect(x0, y0, w * p.hp, h, p.col, 0.8) end
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0, 1, h, WHITE, 0.6) end
     if p.target then Edge(c, x0 - 2, y0 - 2, w + 4, h + 4, BLACK, 1) end
@@ -236,6 +242,10 @@ function HALO.Draw(c, p)
     -- (the fill nearly solid: a faint start let the dark track show at the ends, read as a dark box edge in game)
     c:Pill(x0 - 1, 0, w + 2, h + 2, BLACK, 0.6)
     c:Pill(x0, 0, w, h, DARK, 0.85)
+    if p.trail then        -- (from under the bar's round end: the fill's right end is solid and covers it)
+        local L0 = max(x0, x0 + w * p.hp - h)
+        c:Pill(L0, 0, max(h, x0 + w * p.trail - L0), h, Chunk(p.col), 0.7)
+    end
     if p.hp > 0 then FadePill(c, x0, 0, w * p.hp, h, p.col, 0.75, 1) end
     c:Rect(x0 + h / 2, y0 + 1, w - h, h / 2 - 1, WHITE, 0.06)
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0 + 2, 1, h - 4, WHITE, 0.55) end
@@ -298,9 +308,10 @@ local function Tile(c, x, y, w, h, rim, a)
     c:Rect(x + 1, y + 1, w - 2, h - 2, TILE_IN, 1)
     Edge(c, x + 1, y + 1, w - 2, h - 2, rim, a)
 end
-local function LitBar(c, x, y, w, h, frac, col)
+local function LitBar(c, x, y, w, h, frac, col, trail)
     c:Rect(x - 1, y - 1, w + 2, h + 2, BLACK, 1)
     c:Rect(x, y, w, h, TILE_IN, 1)
+    if trail and trail > frac then c:Rect(x + w * frac, y, w * (trail - frac), h, Chunk(col), 0.75) end
     if frac > 0 then
         c:Grad(x, y, w * frac, h, "V", Shade(col, 1.12, 0.08), 1, Shade(col, 0.62), 1)
         c:Rect(x, y, w * frac, 1, WHITE, 0.35)
@@ -319,7 +330,7 @@ function SIGIL.Draw(c, p)
     local w, h = BW, 11
     local x0, y0 = -w / 2, -h / 2
     if p.glow then c:Glow(0, 0, w + 24, h + 16, p.glow, 0.75 * p.pulse) end
-    LitBar(c, x0, y0, w, h, p.hp, p.col)
+    LitBar(c, x0, y0, w, h, p.hp, p.col, p.trail)
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0, 1, h, GOLD, 0.8) end
     c:Text(Pct(p), x0 + w - 3, 0.5, "ArialN", 9.5, p.execReady and GOLD or WHITE, 1, "RIGHT")
     Tile(c, x0 + w + 2, y0 - 1, 13, 13, GOLD, 0.75)
@@ -427,6 +438,7 @@ function SLATE.Draw(c, p)
         local w, hh = 100, p.target and 3 or 2
         local x0 = -w / 2
         c:Rect(x0, -hh / 2, w, hh, WHITE, 0.1)
+        if p.trail then c:Rect(x0 + w * p.hp, -hh / 2, w * (p.trail - p.hp), hh, Chunk(p.col), 0.8) end
         if p.hp > 0 then c:Rect(x0, -hh / 2, w * p.hp, hh, p.col, 1) end
         if p.exec then c:Rect(x0 + w * p.exec - 0.5, -2.5, 1, 5, WHITE, 0.55) end
         if #p.auras > 0 then
@@ -510,6 +522,7 @@ function GILDED.Draw(c, p)
     local x0, y0 = -w / 2, -h / 2
     if p.glow then c:Glow(0, 0, w + 26, h + 18, p.glow, 0.75 * p.pulse) end
     c:Rect(x0, y0, w, h, BLACK, 0.62)
+    if p.trail then c:Rect(x0 + w * p.hp, y0, w * (p.trail - p.hp), h, Chunk(p.col), 0.7) end
     Grain(c, x0, y0, w, h, p.hp, p.col)
     if p.exec then c:Rect(x0 + w * p.exec - 0.5, y0, 1, h, GNAME, 0.85) end
     Trim(c, x0, y0, w, h, t)
@@ -587,6 +600,7 @@ function CLASSIC.Draw(c, p)
     local fx, fy, fw, fh = bx + 5, by + 19, 99, 8
     if p.glow then c:Glow(bx + 64, 0, 150, 26, p.glow, 0.75 * p.pulse) end
     c:Rect(fx, fy, fw, fh, BLACK, 0.7)
+    if p.trail then c:Rect(fx + fw * p.hp, fy, fw * (p.trail - p.hp), fh, Chunk(p.col), 0.7) end
     Grain(c, fx, fy, fw, fh, p.hp, p.col)
     if p.exec then c:Rect(fx + fw * p.exec - 0.5, fy, 1, fh, GOLD, 0.9) end
     c:Text(Pct(p), fx + fw - 3, fy + fh / 2 + 0.5, "ArialN", 8.5, p.execReady and GOLD or WHITE, 1, "RIGHT")

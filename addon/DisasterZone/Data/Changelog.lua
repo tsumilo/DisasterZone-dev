@@ -6,6 +6,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.3", date = "14 October 2026", title = "Nameplates in our looks",
+      sections = {
+          { heading = "Nameplates in our looks", area = "other", kind = "new", hi = true, open = "settings/looks",
+            lead = "The plates over mobs and players in every look, with casts, threat and your debuffs.", lines = {
+              "Interface > Looks > Nameplates: they follow your look; Blizzard keeps the game's.",
+              "Every caster's cast bar: gold you can kick, grey with a lock you can't.",
+              "Tanks see threat in the bar's colour; everyone else gets a glow when close to pulling.",
+              "Your own debuffs with their time; the raid's Sunder and curses as an option.",
+              "Your target stands out, the others sit back; plates stack instead of overlapping.",
+              "Friendly players show their name until they're hurt. Try it shows the Maulgar council.",
+              "Health bars slide, and what was just taken off lingers a moment before it drains.",
+          } },
+      } },
     { version = "1.4.2", date = "14 October 2026", title = "Edit layout and the UI in our looks",
       sections = {
           { heading = "The raid session crest", area = "raids", kind = "changed", hi = true, open = "settings/session",
@@ -51,15 +64,6 @@ ns.CHANGELOG = {
               "Your pulls and the guild's fill each other's gaps: shared after the pull, checked first.",
               "Settings > Boss mods > Bosses: each boss's page shows what every timer learned.",
               "Turn off 'Learn from our pulls' to keep DBM's and BigWigs' numbers.",
-          } },
-          { heading = "Nameplates in our looks", area = "other", kind = "new", hi = true, open = "settings/looks",
-            lead = "The plates over mobs and players in every look, with casts, threat and your debuffs.", lines = {
-              "Interface > Looks > Nameplates: they follow your look; Blizzard keeps the game's.",
-              "Every caster's cast bar: gold you can kick, grey with a lock you can't.",
-              "Tanks see threat in the bar's colour; everyone else gets a glow when close to pulling.",
-              "Your own debuffs with their time; the raid's Sunder and curses as an option.",
-              "Your target stands out, the others sit back; plates stack instead of overlapping.",
-              "Friendly players show their name until they're hurt. Try it shows the Maulgar council.",
           } },
           { heading = "Raids on Discord", area = "raids", kind = "new", hi = true,
             lead = "Our raids posted on the guild's Discord, with sign-ups right there.", lines = {

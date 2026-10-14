@@ -2779,6 +2779,7 @@ local PART_OPTS = {
               .. "it. Everyone else in a group: an orange glow when you're close to pulling it, red when it's on you." },
         { "friendly", "Friendly players", "Outside dungeons and raids; inside, the game keeps them to itself.", "name",
           { { value = "name", text = "Name until hurt" }, { value = "full", text = "Full plates" } } },
+        { "animate", "Animated health", "The bar slides, and what was just taken off lingers a moment.", true },
         { "dim", "Others at 60% while you have a target", "", true },
         { "stack", "Stack plates", "Plates move up off each other instead of overlapping.", true },
         { "size", "Size", "", 1,

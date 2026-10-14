@@ -134,7 +134,8 @@ function P:Read(u, p, lookKey)
     p.boss = cls == "worldboss" or cls == "elite" or cls == "rareelite" or p.lvl == "??"
     p.mark = GetRaidTargetIndex and GetRaidTargetIndex(u) or nil
     local hm = UnitHealthMax and UnitHealthMax(u) or 0
-    p.hp = hm > 0 and max(0, min(1, (UnitHealth(u) or 0) / hm)) or 0
+    p.hpTarget = hm > 0 and max(0, min(1, (UnitHealth(u) or 0) / hm)) or 0
+    if p.hp == nil then p.hp = p.hpTarget end
     local isPlayer = UnitIsPlayer and UnitIsPlayer(u)
     local class
     if isPlayer and UnitClass then class = select(2, UnitClass(u)) end
@@ -214,6 +215,30 @@ function P:Read(u, p, lookKey)
 end
 
 -- The parts that move with the clock: cast progress, debuff times, the pulse.
+-- The health bar's motion (Animated health, on by default): the bar slides to its new value, and the piece just
+-- taken off stays behind as a pale chunk for a moment (HOLD s), then drains to the bar. a = the plate's state (shown,
+-- trail, hold, at); target = its health now. Returns the bar's and the chunk's ends.
+local HOLD, SLIDE, DRAIN = 0.4, 12, 5
+function P.Animate(a, target, now)
+    if not a.at or not Opt("animate", true) then
+        a.shown, a.trail, a.hold, a.at, a.last = target, target, 0, now, target
+        return target, target
+    end
+    -- (a plate isn't drawn while nothing changes: a long gap counts as one frame)
+    local dt = max(0, min(1 / 30, now - a.at))
+    a.at = now
+    if target < (a.last or target) - 0.0005 then a.hold = now + HOLD end
+    a.last = target
+    a.shown = a.shown + (target - a.shown) * min(1, dt * SLIDE)
+    if math.abs(a.shown - target) < 0.001 then a.shown = target end
+    if a.trail < a.shown then a.trail = a.shown
+    elseif now >= (a.hold or 0) then
+        a.trail = a.trail + (a.shown - a.trail) * min(1, dt * DRAIN)
+        if a.trail - a.shown < 0.002 then a.trail = a.shown end
+    end
+    return a.shown, a.trail
+end
+
 function P:Tick(p, now)
     local cast = p.castInfo
     if cast then
@@ -235,14 +260,21 @@ function P:Tick(p, now)
         a.left = (a.exp and a.exp > 0) and max(0, a.exp - now) or 0
         a.start = (a.exp and a.exp > 0 and a.dur and a.dur > 0) and (a.exp - a.dur) or nil
     end
-    p.execReady = p.exec and p.combat and p.hp > 0 and p.hp <= p.exec or false
+    p.anim = p.anim or {}
+    p.hp, p.trail = P.Animate(p.anim, p.hpTarget or p.hp or 0, now)
+    if p.trail <= p.hp then p.trail = nil end
+    local real = p.hpTarget or p.hp
+    p.execReady = p.exec and p.combat and real > 0 and real <= p.exec or false
     p.pulse = 0.55 + 0.45 * abs(sin(now * 3.6))
     p.auras = p.auras or {}
     return p
 end
 
 -- Does p change with the clock this frame (a cast, a pulse)?
-local function Live(p) return p.castInfo ~= nil or p.glow ~= nil or p.execReady or (p.target and p.cast ~= nil) end
+local function Live(p)
+    return p.castInfo ~= nil or p.glow ~= nil or p.execReady or (p.target and p.cast ~= nil) or p.trail ~= nil
+        or (p.hpTarget ~= nil and p.hp ~= p.hpTarget)
+end
 
 ---------------------------------------------------------------------------
 -- The plates
@@ -480,6 +512,8 @@ function P:DemoPlate(m, mom, t, role, lookKey)
     local p = { name = m.name, lvl = "??", boss = true, mark = m.mark, hp = d[1], combat = true, auras = {},
                 target = m.key == "blindeye", friend = false }
     p.dim = not p.target
+    -- (your target takes a hit every 1.25 s: the bar's motion shows)
+    if p.target then p.hp = max(0.05, p.hp - 0.04 * floor((t % 5) / 1.25)) end
     local th = role == "tank" and d[4] or d[5]
     p.col = lookKey == "classic" and GAME.hostile or (ns.Look and ns.Look.HOSTILE) or GAME.hostile
     p.nameCol = NAMES.hostile
@@ -528,7 +562,11 @@ function P:DrawDemo(t)
     local now = Now()
     local plates = {}
     for i, m in ipairs(DEMO_MOBS) do
-        local p = self:Tick(self:DemoPlate(m, mom, t, role, key), now)
+        local p = self:DemoPlate(m, mom, t, role, key)
+        demo.anim = demo.anim or {}
+        demo.anim[i] = demo.anim[i] or {}
+        p.anim, p.hpTarget = demo.anim[i], p.hp
+        p = self:Tick(p, now)
         p.g = face.Geom(p)
         p.x, p.y, p.order = m.x, m.y, i
         plates[i] = p
@@ -574,7 +612,7 @@ end
 function P:StopDemo()
     for i, h in pairs(demo.hosts) do Pen:Free(h); demo.hosts[i] = nil end
     if demo.f then demo.f:SetScript("OnUpdate", nil); demo.f:Hide() end
-    demo.t, demo.loop = nil, nil
+    demo.t, demo.loop, demo.anim = nil, nil, nil
 end
 function P:DemoRunning() return demo.t ~= nil end
 

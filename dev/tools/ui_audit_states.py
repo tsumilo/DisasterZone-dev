@@ -3815,7 +3815,7 @@ def plates_view(look, t=1.3, role="dps"):
            "if not bx.bg then bx.bg = bx:CreateTexture(nil, 'BACKGROUND'); bx.bg:SetAllPoints(bx); "
            "bx.bg:SetTexture('Interface\\\\Glues\\\\LoadingScreens\\\\LoadScreenGruulsLair'); bx.bg:SetTexCoord(190 / 512, 1, 160 / 512, 300 / 512); "
            "bx.dim = bx:CreateTexture(nil, 'BORDER'); bx.dim:SetAllPoints(bx); bx.dim:SetColorTexture(0.03, 0.025, 0.02, 0.62) end; "
-           "bx:Show(); P:TryIt('%s'); P:DrawDemo(%s); _G.DisasterZonePlatesDemo:SetScript('OnUpdate', nil)"
+           "bx:Show(); P:TryIt('%s'); P.demo.anim = nil; P:DrawDemo(%s); _G.DisasterZonePlatesDemo:SetScript('OnUpdate', nil)"
            % (role, look, look, t))
     return opened("home", lua)
 

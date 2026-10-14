@@ -146,7 +146,7 @@ def a_plate_reads_the_unit():
     assert t.p("name") == "Blindeye the Seer"
     assert t.p("lvl") == "??"
     assert t.p("boss") is True
-    assert abs(t.p("hp") - 0.62) < 0.001
+    assert abs(t.p("hpTarget") - 0.62) < 0.001
     assert t.p("mark") == 8
     assert t.p("target") is False and t.p("dim") is False       # (no target: every plate full)
     other = t.w.spawn_npc(18835, "Kiggler the Crazed")
@@ -158,6 +158,29 @@ def a_plate_reads_the_unit():
     t.w.tick(0.1)
     t.step(2)
     assert t.p("dim") is False
+    t.w.assert_no_errors()
+
+
+@case
+def the_health_bar_slides_and_the_hit_lingers():
+    t = Plates("flat")
+    t.w.tick(0.2)
+    assert t.p("hp") == 1 and t.p("trail") is None
+    t.c.eval("__MOCK.npcs[...].hp = 60; ns.Plates:MarkAll()", t.mob)
+    t.w.tick(0.04)
+    hp, trail = t.p("hp"), t.p("trail")
+    assert 0.6 < hp < 1 and trail is not None and trail > hp          # (sliding, the chunk behind it)
+    [t.w.tick(0.03) for _ in range(10)]
+    assert abs(t.p("hp") - 0.6) < 0.01                                # (the bar there within a third of a second)
+    assert t.p("trail") is not None and t.p("trail") > 0.9            # (the chunk still held)
+    [t.w.tick(0.03) for _ in range(50)]
+    assert t.p("trail") is None                                       # (then drained)
+    # off: the bar jumps
+    t.c.eval("ns.DB:SetSetting('ui.plates.animate', false)")
+    t.w.tick(0.1)
+    t.c.eval("__MOCK.npcs[...].hp = 30; ns.Plates:MarkAll()", t.mob)
+    t.w.tick(0.04)
+    assert abs(t.p("hp") - 0.3) < 0.001 and t.p("trail") is None
     t.w.assert_no_errors()
 
 
@@ -327,7 +350,7 @@ def settings_has_the_nameplates_page():
     c.eval("ns.SettingsUI:SelectSection('look.plates')")
     w.tick(0.5)
     texts = c.eval_py(VISIBLE)
-    for t in ("Nameplates", "Threat", "Friendly players", "Stack plates", "Try it"):
+    for t in ("Nameplates", "Threat", "Friendly players", "Animated health", "Try it", "More options"):
         assert t in texts, t
     for look in LOOKS:
         c.eval("ns.DB:SetSetting('ui.plates.look', ...); ns.SettingsUI:Refresh()", look)
