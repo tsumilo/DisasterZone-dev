@@ -807,7 +807,7 @@ def selected(maps):
     return sorted(n for n, m in maps.items() if m.get("indoor") or m["theme"] in GROUND_THEMES)
 
 
-INDOOR_DARK = (112, 96, 120)        # an interior's evening, multiplied (the light map), warm pools round its lights
+INDOOR_DARK = (146, 124, 140)        # an interior's evening, multiplied (the light map), warm pools round its lights
 
 
 def bake_interior(mid, m, atlas, src):
@@ -824,7 +824,7 @@ def bake_interior(mid, m, atlas, src):
         for cx, cy, uw, uh, tw_, th_, tex in chunks(img):
             Image.fromarray(tex, "RGB").save(os.path.join(OUT_DIR, "%s_%s%d_%d.tga" % (mid, prefix, cx // CHUNK, cy // CHUNK)))
             cs.append((cx, cy, uw, uh, tw_, th_))
-    ls = [(int(x), int(y), int(r * 1.6), f, 0) for x, y, r, f in lights]
+    ls = [(int(x), int(y), int(r * 2.2), f, 0) for x, y, r, f in lights]
     lm = light_map(day.shape[1], day.shape[0], ls, INDOOR_DARK)
     lc = []
     for cx, cy, uw, uh, tw_, th_, tex in chunks(lm):
