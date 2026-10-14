@@ -153,7 +153,7 @@ The Westfall tiles are recoloured versions of these two sets (same licenses). Th
 
 Both licenses require this credit (it is also shown on the Azeromon title screen). CC-BY-SA is share-alike: if DisasterZone is shared publicly, the tiles taken from Red_Voxel's set, as modified here, must stay under CC-BY-SA 3.0.
 
-The Azeromon text font is **Pixel Operator** by Jayvee Enaguas (HarvettFox96), released under CC0 1.0 (public domain; no credit required, credited anyway): `Media\Azeromon\fonts\PixelOperator.ttf` and `PixelOperator-Bold.ttf`, from https://www.dafont.com/pixel-operator.font (source: https://notabug.org/HarvettFox96/ttf-pixeloperator).
+The Azeromon text font is **Pixelify Sans**, Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans), licensed under the SIL Open Font License 1.1: `Media\Azeromon\fonts\PixelifySans-Medium.ttf` and `PixelifySans-SemiBold.ttf`, static cuts of the variable font from https://github.com/google/fonts/tree/main/ofl/pixelifysans. The licence text ships as `Media\Azeromon\fonts\PixelifySans-OFL.txt`. The baked title logo (`Media\Azeromon\title_logo.tga`) was drawn from **Pixel Operator** by Jayvee Enaguas (CC0 1.0).
 
 ---
 

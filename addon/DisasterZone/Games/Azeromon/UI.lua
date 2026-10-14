@@ -17,13 +17,15 @@ local HX, HY = 6.5, 4                     -- player's screen tile (half a tile i
 local SW, SH = TILE * VW, TILE * VH
 local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\Azeromon\\"
 local ATLAS, CHARS, PLATFORM = MEDIA .. "atlas", MEDIA .. "chars", MEDIA .. "platform"
--- Pixel Operator by Jayvee Enaguas (CC0). Falls back to the game font if the file is missing (needs a restart).
-local FONT = MEDIA .. "fonts\\PixelOperator.ttf"
-local FONT_BOLD = MEDIA .. "fonts\\PixelOperator-Bold.ttf"
+-- Pixelify Sans (SIL OFL 1.1, static Medium / SemiBold cuts of the variable font). Falls back to the game font if
+-- the file is missing (new files need a client restart). It runs ~25% larger than the old Pixel Operator at the same
+-- size, so its sizes run about 0.9 of the old ones (Font: size x 1.25 instead of x 1.4).
+local FONT = MEDIA .. "fonts\\PixelifySans-Medium.ttf"
+local FONT_BOLD = MEDIA .. "fonts\\PixelifySans-SemiBold.ttf"
 local FONT_FALLBACK = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 local TEXT_SPEED = 55                     -- characters per second
 local BOX_H = 112
-local INK = { 0.25, 0.25, 0.29 }          -- GBA text colour
+local INK = { 0.165, 0.18, 0.21 }         -- text colour (dark slate, no drop shadow)
 local INK_SHADOW = { 0.84, 0.84, 0.86 }
 
 local floor, max, min = math.floor, math.max, math.min
@@ -87,17 +89,17 @@ local function Rot(t, r)
     if t.SetRotation then pcall(t.SetRotation, t, r) end
 end
 
--- size is the old design size; the pixel font runs small, so it is scaled up ~1.4x.
+-- size is the old design size; drawn at 1.25x in the pixel font.
 local measureFs                  -- a hidden font string, to measure text (TextWidth)
 local function Font(parent, size, layer, bold)
     local fs = parent:CreateFontString(nil, layer or "OVERLAY")
-    local px = floor((size or 16) * 1.4 + 0.5)
+    local px = floor((size or 16) * 1.25 + 0.5)
     if not fs:SetFont(bold and FONT_BOLD or FONT, px, "") then fs:SetFont(FONT_FALLBACK, size or 16, "") end
     fs:SetJustifyH("LEFT")
     fs:SetJustifyV("TOP")
     fs:SetTextColor(INK[1], INK[2], INK[3])
-    fs:SetShadowColor(INK_SHADOW[1], INK_SHADOW[2], INK_SHADOW[3], 1)
-    fs:SetShadowOffset(2, -2)
+    fs:SetShadowColor(INK_SHADOW[1], INK_SHADOW[2], INK_SHADOW[3], 0)
+    fs:SetShadowOffset(0, 0)
     return fs
 end
 
@@ -108,7 +110,7 @@ local function TextWidth(str, size)
         measureFs:Hide()
     end
     if measureFs then
-        local px = floor((size or 16) * 1.4 + 0.5)
+        local px = floor((size or 16) * 1.25 + 0.5)
         if not measureFs:SetFont(FONT, px, "") then measureFs:SetFont(FONT_FALLBACK, size or 16, "") end
         measureFs:SetText(str)
         local ok, w = pcall(measureFs.GetStringWidth, measureFs)
@@ -130,15 +132,15 @@ local function Rounded(f, inset, cut, r, g, b, sub, layer)
     return h, v
 end
 
--- The FireRed / Emerald window: dark outline, a pale blue ring, a white inside.
+-- The window: a near-black edge, a slate-blue frame, a pale blue inner ring, a warm cream inside.
 local function Box(parent, w, h, level)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(w, h)
     if level then f:SetFrameLevel(level) end
-    Rounded(f, 0, 4, 0.27, 0.29, 0.37, 0)
-    Rounded(f, 2, 3, 0.56, 0.74, 0.86, 1)
-    Rounded(f, 5, 2, 0.35, 0.50, 0.62, 2)
-    Rounded(f, 6, 2, 0.99, 0.99, 0.97, 3)
+    Rounded(f, 0, 4, 0.04, 0.05, 0.07, 0)
+    Rounded(f, 2, 3, 0.24, 0.35, 0.53, 1)
+    Rounded(f, 5, 2, 0.66, 0.77, 0.90, 2)
+    Rounded(f, 7, 1, 0.97, 0.96, 0.93, 3)
     f:EnableMouse(true)
     f:SetScript("OnMouseDown", function(_, button)          -- a right-click anywhere on a window: back
         if button == "RightButton" and UI.Press then UI.Press("B") end
@@ -174,7 +176,7 @@ local function Pill(parent, w, h, size)
     f:SetSize(w or 56, h or 16)
     f.bg1, f.bg2 = Rounded(f, 0, 2, 0.5, 0.5, 0.5, 0, "ARTWORK")
     f.fs = f:CreateFontString(nil, "OVERLAY")
-    if not f.fs:SetFont(FONT_BOLD, size or 15, "") then f.fs:SetFont(FONT_FALLBACK, 10, "") end
+    if not f.fs:SetFont(FONT_BOLD, floor((size or 15) * 0.82 + 0.5), "") then f.fs:SetFont(FONT_FALLBACK, 10, "") end
     f.fs:SetPoint("CENTER", 0, 1)
     f.fs:SetTextColor(1, 1, 1)
     f.fs:SetShadowColor(0, 0, 0, 0.45)
@@ -3849,11 +3851,11 @@ local function Sprite(i)
         s.bang:SetTextColor(0.9, 0.2, 0.2)
         -- the name plate: the name over a WoW-style <title>, both over the head
         s.title = world:CreateFontString(nil, "OVERLAY")
-        if not s.title:SetFont(FONT_BOLD, 11, "OUTLINE") then s.title:SetFont(FONT_FALLBACK, 8, "OUTLINE") end
+        if not s.title:SetFont(FONT_BOLD, 9, "OUTLINE") then s.title:SetFont(FONT_FALLBACK, 8, "OUTLINE") end
         s.title:SetTextColor(0.88, 0.86, 0.66)
         s.title:SetPoint("BOTTOM", s, "TOP", 0, 1)
         s.name = world:CreateFontString(nil, "OVERLAY")
-        if not s.name:SetFont(FONT_BOLD, 13, "OUTLINE") then s.name:SetFont(FONT_FALLBACK, 9, "OUTLINE") end
+        if not s.name:SetFont(FONT_BOLD, 11, "OUTLINE") then s.name:SetFont(FONT_FALLBACK, 9, "OUTLINE") end
         s.name:SetTextColor(1, 0.98, 0.9)
         sprites[i] = s
     end
@@ -3871,7 +3873,7 @@ local function PeerSprite(i)
         s.shadow = Shadow()
         s.shadow:SetPoint("TOPLEFT", s, "TOPLEFT")
         s.label = world:CreateFontString(nil, "OVERLAY")
-        if not s.label:SetFont(FONT_BOLD, 14, "OUTLINE") then s.label:SetFont(FONT_FALLBACK, 10, "OUTLINE") end
+        if not s.label:SetFont(FONT_BOLD, 11, "OUTLINE") then s.label:SetFont(FONT_FALLBACK, 10, "OUTLINE") end
         s.label:SetPoint("BOTTOM", s, "TOP", 0, -2)
         -- "battling..." over a guildmate who is busy (Net: the peer's status)
         s.bubble = Box(world, 100, 26, world:GetFrameLevel() + 15)
@@ -4241,14 +4243,14 @@ local function ShowTitle()
             start()
         end
     end }
-    items[#items + 1] = { text = "WHAT'S NEW", right = KH.ChangelogUnseen() and "new" or nil,
+    items[#items + 1] = { text = "WHAT'S NEW", right = KH.ChangelogUnseen() and "•" or nil,      -- (a dot: unread)
         rightColor = { 0.85, 0.55, 0.05 }, onSelect = function(idx, menu)
             KH.OpenChangelog()
             menu.items[idx].right = nil
             UI:RefreshMenu(menu)
         end }
     items[#items + 1] = { text = "CONTROLS", onSelect = function() KH.OpenControls() end }
-    PushMenu(items, { w = min(SW - 24, #items * 182), cols = #items, anchor = { "BOTTOM", screen, "BOTTOM", 0, 26 }, rowH = 32,
+    PushMenu(items, { w = min(SW - 24, #items * 200), cols = #items, anchor = { "BOTTOM", screen, "BOTTOM", 0, 26 }, rowH = 32,
         level = 60, onCancel = function() end })
 end
 
@@ -5084,7 +5086,7 @@ local function BuildBattle()
         tag:SetPoint("TOPLEFT", 16, -57)
         Rounded(tag, 0, 2, 0.30, 0.30, 0.34, 0, "ARTWORK")
         local hpl = tag:CreateFontString(nil, "OVERLAY")
-        if not hpl:SetFont(FONT_BOLD, 14, "") then hpl:SetFont(FONT_FALLBACK, 9, "") end
+        if not hpl:SetFont(FONT_BOLD, 11, "") then hpl:SetFont(FONT_FALLBACK, 9, "") end
         hpl:SetPoint("CENTER", 0, 1)
         hpl:SetText("HP")
         hpl:SetTextColor(0.98, 0.72, 0.18)
@@ -5454,18 +5456,18 @@ function UI:CreatePanel(parent)
     glow:SetPoint("CENTER", logo, "CENTER", 0, 8)
     local rb = TA.ribbon
     local sub = front:CreateFontString(nil, "OVERLAY")
-    if not sub:SetFont(FONT_BOLD, 16, "") then sub:SetFont(FONT_FALLBACK, 13, "") end
+    if not sub:SetFont(FONT_BOLD, 13, "") then sub:SetFont(FONT_FALLBACK, 13, "") end
     sub:SetText("TAME THE BEASTS OF AZEROTH")
     sub:SetTextColor(1, 0.93, 0.78)
     sub:SetPoint("CENTER", logo, "TOPLEFT", (rb[1] + rb[3] / 2) * TA.scale, -(rb[2] + (rb[4] - 3) / 2) * TA.scale + 1)
     R.titleLogo, R.titleGlow = logo, glow
     local credit = front:CreateFontString(nil, "OVERLAY")
-    credit:SetFont(FONT, 10, "")
+    credit:SetFont(FONT, 8, "")
     credit:SetTextColor(0.62, 0.66, 0.76, 0.85)
     credit:SetPoint("BOTTOM", 0, 6)
-    credit:SetText("Pixel art: Tiny 16 by Lanea Zimmerman (Sharm), CC-BY  |  Tiles: Red_Voxel, CC-BY-SA  |  Font: Pixel Operator (CC0)")
+    credit:SetText("Pixel art: Tiny 16 by Lanea Zimmerman (Sharm), CC-BY  |  Tiles: Red_Voxel, CC-BY-SA  |  Font: Pixelify Sans (OFL)")
     local ver = front:CreateFontString(nil, "OVERLAY")
-    ver:SetFont(FONT, 12, "")
+    ver:SetFont(FONT, 10, "")
     ver:SetTextColor(0.78, 0.82, 0.92, 0.8)
     ver:SetPoint("TOPRIGHT", -10, -8)
     local latest = ns.AzeroChangelog and ns.AzeroChangelog[1]
@@ -5480,17 +5482,17 @@ function UI:CreatePanel(parent)
     dim:SetAllPoints()
     dim:SetColorTexture(0, 0, 0, 0.55)
     local fl = focusOverlay:CreateFontString(nil, "OVERLAY")
-    fl:SetFont(FONT, 20, "OUTLINE")
+    fl:SetFont(FONT, 16, "OUTLINE")
     fl:SetText("PAUSED")
     fl:SetTextColor(1, 0.9, 0.5)
     fl:SetPoint("CENTER")
     local fl2 = focusOverlay:CreateFontString(nil, "OVERLAY")
-    fl2:SetFont(FONT, 12, "OUTLINE")
+    fl2:SetFont(FONT, 10, "OUTLINE")
     fl2:SetText("Click to play. The game takes the keyboard while it is active; Esc pauses it, Esc again closes DisasterZone.")
     fl2:SetPoint("TOP", fl, "BOTTOM", 0, -8)
     -- what keeps running while paused (a PvP turn timer, a trade): KH.PauseNote, set every frame while paused
     R.pauseNote = focusOverlay:CreateFontString(nil, "OVERLAY")
-    R.pauseNote:SetFont(FONT, 12, "OUTLINE")
+    R.pauseNote:SetFont(FONT, 10, "OUTLINE")
     R.pauseNote:SetTextColor(1, 0.72, 0.45)
     R.pauseNote:SetPoint("TOP", fl2, "BOTTOM", 0, -6)
     R.pauseNote:SetText("")
