@@ -555,7 +555,7 @@ def the_title_shows_todays_board_and_enter_or_n_start_a_run():
     c.eval("ns.BoIUI._Focus(true) ns.BoIUI._Draw()")
     texts = c.eval_py("local t = {} for _, fs in pairs(ns.BoIUI._Hud()) do if type(fs) == 'table' and fs.IsShown and fs:IsShown() then t[#t + 1] = fs:GetText() end end return t")
     assert "Xiavor" in texts and "Won 11:42" in texts, texts
-    assert any("today's dungeon (your try counts)" in x for x in texts), texts
+    assert "Your first try today goes on the guild's board." in texts, texts
     c.eval("ns.BoIUI._Key('N')")
     assert c.eval("return ns.BoIUI._Run().daily") is None
     c.eval("ns.BoIUI._SetRun(nil) ns.BoIUI._Key('ENTER')")

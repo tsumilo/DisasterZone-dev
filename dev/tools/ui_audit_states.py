@@ -1835,6 +1835,19 @@ STATES = [
                                     "r.items = { 'eye', 'pws', 'chain' } r.hp, r.soul, r.p.inv = 1, 0, 0 ns.BoI.Hurt(r, r.room.foes[1].d) "
                                     "for _ = 1, ns.BoI.DYING + 99 do ns.BoI.Step(r, {}) end r.newBest = true "
                                     "ns.BoIUI._Focus(false) ns.BoIUI._Draw()")),
+    # the vault's padlocked portcullis, seen from the room next to it
+    ("Games - Illidan vault door", opened("games", BOI_AUD + "local r = BOI_AUD.start(1) local v "
+                                          "for _, x in ipairs(r.map.list) do if x.type == 'treasure' then v = x end end "
+                                          "local nb = ns.BoI.Neighbours(r.map, v, true)[1] r.room = nb.room r.room.cleared, r.room.foes = true, {} "
+                                          "r.p.x, r.p.y = ns.BoI.CX, ns.BoI.CY BOI_AUD.run(r, 10)")),
+    # an enemy bursting (a few frames after its death) with tears splashing round it
+    ("Games - Illidan burst", opened("games", BOI_AUD + "BOI_AUD.room(1, 90) local r = ns.BoIUI._Run() "
+                                     "for i = 1, 2 do if r.room.foes[i] then r.room.foes[i].hp = 0 end end "
+                                     "r.room.cleared = true for _ = 1, 7 do ns.BoI.Step(r, { shoot = 'up' }) end ns.BoIUI._Focus(false) r.mode = 'dying' r.dyingT = 999 "
+                                     "r.mode = 'play' ns.BoIUI._Focus(true) ns.BoIUI._Draw()")),
+    ("Games - Illidan won", opened("games", BOI_AUD + "local r = BOI_AUD.start(5) r.items = { 'eye', 'pws', 'chain', 'glaive', 'mongoose' } "
+                                   "r.mode, r.wonT, r.time, r.kills, r.gold = 'won', 99, 1385 * 60, 212, 14 "
+                                   "ns.BoIUI._Focus(false) ns.BoIUI._Draw()")),
     ("Games - Chess ladder", opened("games", CHESS_GAMES + CHESS_LADDER + "ns.GamesUI:Select('chess') "
                                     "ns.ChessUI:OpenLobby() ns.ChessUI._Tab('ladder')")),
     ("Games - Chess in front", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = nil ns.GamesUI:ShowHub() "

@@ -90,10 +90,10 @@ D.FOES = {
     priestess = { n = "Priestess of Delight", i = icon("Spell_Shadow_Charm"), hp = 10, r = 16, ai = "turret", sp = 0, col = { 1, 0.45, 0.8 } },
     sheep = { n = "Sheep", i = icon("Spell_Nature_Polymorph"), hp = 1, r = 13, ai = "wander", sp = 0.8 },
     -- the bosses' adds
-    mchan = { n = "Hellfire Channeler", i = icon("Spell_Shadow_CurseOfMannoroth"), hp = 16, r = 15, ai = "mchan", sp = 0 },
+    mchan = { n = "Hellfire Channeler", i = icon("Spell_Shadow_CurseOfMannoroth"), hp = 12, r = 15, ai = "mchan", sp = 0 },
     abyssal = { n = "Burning Abyssal", i = 135808, hp = 10, r = 15, ai = "chase", sp = 1.0, trail = { 1, 0.42, 0.1 } },
     parasite = { n = "Parasitic Shadowfiend", i = 136214, hp = 3, r = 11, ai = "chase", sp = 1.9 },
-    azflame = { n = "Flame of Azzinoth", i = icon("Spell_Fire_FelImmolation"), hp = 45, r = 20, ai = "chase", sp = 0.95, trail = { 0.49, 1, 0.23 } },
+    azflame = { n = "Flame of Azzinoth", i = icon("Spell_Fire_FelImmolation"), hp = 60, r = 20, ai = "chase", sp = 0.95, trail = { 0.49, 1, 0.23 } },
     sdemon = { n = "Shadow Demon", i = icon("Spell_Shadow_DemonBreath"), hp = 8, r = 16, ai = "chase", sp = 0.5, hard = 3 },
     construct = { n = "Shadowy Construct", i = icon("Spell_Shadow_CallofBone"), hp = 8, r = 15, ai = "chase", sp = 1.0, spiritOnly = true },
     blossom = { n = "Doom Blossom", i = 136210, hp = 6, r = 13, ai = "blossom", sp = 0.6 },
@@ -116,11 +116,11 @@ D.TRIM, D.DOOR, D.PEDESTAL = 126957, 126730, 126722
 
 -- the bosses: EJ bust (FileDataID), health, size, glow
 D.BOSSES = {
-    magtheridon = { n = "Magtheridon", ej = 1378996, hp = 260, r = 42, glow = { 1, 0.35, 0.08 } },
-    supremus = { n = "Supremus", ej = 1379016, hp = 340, r = 44, glow = { 0.47, 0.78, 1 } },
-    teron = { n = "Teron Gorefiend", ej = 1379018, hp = 380, r = 38, glow = { 0.55, 0.35, 1 } },
-    shahraz = { n = "Mother Shahraz", ej = 1379000, hp = 420, r = 38, glow = { 1, 0.35, 0.7 } },
-    illidan = { n = "Illidan Stormrage", ej = 1378987, hp = 520, r = 38, glow = { 0.55, 1, 0.31 } },
+    magtheridon = { n = "Magtheridon", ej = 1378996, hp = 220, r = 42, glow = { 1, 0.35, 0.08 } },
+    supremus = { n = "Supremus", ej = 1379016, hp = 560, r = 40, glow = { 0.47, 0.78, 1 } },
+    teron = { n = "Teron Gorefiend", ej = 1379018, hp = 640, r = 38, glow = { 0.55, 0.35, 1 } },
+    shahraz = { n = "Mother Shahraz", ej = 1379000, hp = 1300, r = 38, glow = { 1, 0.35, 0.7 } },
+    illidan = { n = "Illidan Stormrage", ej = 1378987, hp = 1450, r = 38, glow = { 0.55, 1, 0.31 } },
 }
 
 -- spell icons (SpellIconFileDataID) the bosses' cast bars and the hazards use

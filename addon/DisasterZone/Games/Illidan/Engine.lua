@@ -184,7 +184,7 @@ function E.New(opts)
         hp = c.hp * 2, maxHp = c.hp, soul = c.soul or 0, gold = 3, bombs = 1, keys = 1,
         p = { x = CX, y = CY + 70, vx = 0, vy = 0, r = 15, inv = 0, cd = 0, face = "down" },
         stats = { dmg = c.dmg, delay = c.delay, speed = c.speed, range = c.range, shot = c.shot },
-        items = {}, has = {}, offered = {}, tears = {}, shots = {}, bombsLive = {}, fires = {}, zaps = {}, fams = {},
+        items = {}, has = {}, offered = {}, tears = {}, shots = {}, bombsLive = {}, fires = {}, zaps = {}, fams = {}, fx = {},
         kills = 0, extraLife = 0, floorN = 0, deaths = {}, rng = E.NewRng(seed + 1), tookBargain = false,
     }
     E.ResetBossFx(run)
@@ -218,7 +218,7 @@ function E.EnterFloor(run, n)
     end
     run.room = run.map.start
     run.p.x, run.p.y = CX, CY
-    run.tears, run.shots, run.bombsLive, run.fires, run.zaps = {}, {}, {}, {}, {}
+    run.tears, run.shots, run.bombsLive, run.fires, run.zaps, run.fx = {}, {}, {}, {}, {}, {}
     E.ResetBossFx(run)
     run.mode, run.cardT = "floorcard", 150
     run.shield = run.has.pws
@@ -239,7 +239,7 @@ function E.GiveItem(run, k, quiet)
     if k == "mongoose" then st.delay = max(6, st.delay - 5) end
     if k == "soulstone" then run.extraLife = run.extraLife + 1 end
     if k == "glaive" then st.range = st.range + 10 end
-    if k == "blade" then st.dmg = st.dmg + 1.2 end
+    if k == "blade" then st.dmg = st.dmg + 0.8 end
     if k == "imp" or k == "fiend" then run.fams[#run.fams + 1] = { k = k, x = run.p.x, y = run.p.y, cd = 0 } end
     if k == "pws" then run.shield = true end
     if not quiet then run.banner = { n = it.n, t = it.t, q = it.q, life = 170 } end
@@ -283,7 +283,7 @@ function E.ChangeRoom(run, dir)
     local nr = run.map.rooms[Key(run.room.x + d[1], run.room.y + d[2])]
     if not nr then return end
     run.room = nr
-    run.tears, run.shots, run.bombsLive, run.fires, run.zaps = {}, {}, {}, {}, {}
+    run.tears, run.shots, run.bombsLive, run.fires, run.zaps, run.fx = {}, {}, {}, {}, {}, {}
     E.ResetBossFx(run)
     local p = run.p
     if dir == "left" then p.x, p.y = X1 - 30, CY end
@@ -335,7 +335,15 @@ end
 function E.Hurt(run, by, n)
     n = n or 1
     local p = run.p
-    if run.god or p.inv > 0 or run.mode ~= "play" or run.spirit or run.meta then return end
+    if p.inv > 0 or run.mode ~= "play" or run.spirit or run.meta then return end
+    run.takenBy = run.takenBy or {}
+    local src = by and by.n or "?"
+    run.takenBy[src] = (run.takenBy[src] or 0) + n
+    if run.god then   -- (tests and the balance bot: the hit is counted, as if taken, but nothing is lost)
+        run.taken, p.inv = (run.taken or 0) + n, 70
+        return
+    end
+    run.taken = (run.taken or 0) + n
     if run.shield then run.shield = false p.inv = 50 return end
     if run.soul > 0 then
         local s = min(run.soul, n)
@@ -369,6 +377,30 @@ end
 E.DYING = 170   -- frames from the killing blow to the card
 local Hurt = E.Hurt
 
+-- a short effect where something ended: "splash" (a tear), "pop" (a shot), "die" (an enemy: o = the enemy)
+function E.Fx(run, kind, x, y, r, col, frames, o)
+    local fx = run.fx
+    if not fx then return end
+    if #fx > 120 then table.remove(fx, 1) end
+    fx[#fx + 1] = { k = kind, x = x, y = y, r = r, col = col, t = 0, max = frames, o = o }
+end
+
+-- the stain an enemy leaves: fel green for demons, bone grey for the dead, shadow for shades, blood for the rest
+local ICHOR = { demon = { 0.35, 0.75, 0.12 }, undead = { 0.45, 0.45, 0.42 }, shadow = { 0.35, 0.18, 0.55 }, fire = { 0.45, 0.2, 0.05 },
+                blood = { 0.45, 0.04, 0.03 } }
+local KIND_ICHOR = { imp = "demon", felhunter = "demon", void = "shadow", sdemon = "shadow", parasite = "shadow", construct = "shadow",
+                     blossom = "shadow", dead = "undead", abyssal = "fire", azflame = "demon", mchan = "blood", channeler = "blood",
+                     watcher = "shadow", priestess = "blood", brute = "blood", bat = "blood", spider = "blood", sheep = "blood" }
+function E.Die(run, room, f)
+    local col = ICHOR[KIND_ICHOR[f.kind] or (f.kind == "boss" and "demon") or "blood"]
+    E.Fx(run, "die", f.x, f.y, f.r, col, f.kind == "boss" and 70 or 26,
+         { i = f.d.i, ej = f.d.ej, boss = f.kind == "boss", ring = f.kind == "boss" and { 1, 0.23, 0.18 } or { 0.48, 0.1, 0.07 } })
+    room.decals = room.decals or {}
+    if #room.decals > 24 then table.remove(room.decals, 1) end
+    room.decals[#room.decals + 1] = { x = f.x, y = f.y, r = f.r * (f.kind == "boss" and 1.8 or 1.15), col = col, t = 0,
+                                      seed = floor(f.x * 7 + f.y * 13) % 97 }
+end
+
 local function Shoot(run, f, ang, sp, r, col, by)
     run.shots[#run.shots + 1] = { x = f.x, y = f.y, vx = cos(ang) * (sp or 3.2), vy = sin(ang) * (sp or 3.2), life = 240,
                                   r = r or 7, col = col or { 0.49, 1, 0.29 }, by = by or f.d }
@@ -395,6 +427,12 @@ end
 ---------------------------------------------------------------------------
 
 local function FoeAI(run, f, p)
+    if f.stun and f.stun > 0 and f.kind ~= "boss" then   -- the pause after a body hit (a boss's mechanics go on: it only stands)
+        f.stun = f.stun - 1
+        f.vx, f.vy = f.vx * 0.8, f.vy * 0.8
+        f.x, f.y = f.x + f.vx, f.y + f.vy
+        return
+    end
     f.t = f.t + 1
     local dx, dy = p.x - f.x, p.y - f.y
     local d = Hyp(dx, dy)
@@ -432,25 +470,31 @@ local function FoeAI(run, f, p)
         if f.t % 120 == 60 then Shoot(run, f, atan2(dy, dx), 2.8, 7, { 0.6, 0.4, 1 }) end
     elseif ai == "mchan" then     -- Hellfire Channeler: Shadow Bolt Volley; in phase 1 a Burning Abyssal dropped on you
         f.vx, f.vy = 0, 0
-        f.rate = f.rate or 170
-        if f.t % floor(f.rate + 0.5) == 0 then
-            local a = atan2(dy, dx)
-            for _, o in ipairs({ -0.22, 0, 0.22 }) do Shoot(run, f, a + o, 2.8, 7, { 0.69, 0.42, 1 }) end
-        end
-        if run.bossF and run.bossF.phase == 1 and f.t % 520 == f.off then
-            local x, y = p.x, p.y
-            E.Hz(run, x, y, 30, 70, { col = { 1, 0.42, 0.1 }, boom = true, by = D.FOES.abyssal,
-                                      ["then"] = function() local r = run.room r.foes[#r.foes + 1] = MkFoe(run, "abyssal", x, y) end })
-        end
+        f.rate = f.rate or 220
+        if f.t % floor(f.rate + 0.5) == 0 then Shoot(run, f, atan2(dy, dx), 2.4, 7, { 0.69, 0.42, 1 }, { n = "Shadow Bolt Volley" }) end
     elseif ai == "boss" then
         ns.BoIBosses.AI[f.key](run, f, p, dx, dy, d)
     end
     if f.d.trail and f.t % 40 == 0 then E.Patch(run, f.x, f.y, 13, 260, f.d.trail) end
+    if f.kind == "boss" and f.stun and f.stun > 0 then f.stun, f.vx, f.vy = f.stun - 1, 0, 0 end
     f.x, f.y = f.x + f.vx, f.y + f.vy
     f.x = max(X0 + f.r, min(X1 - f.r, f.x))
     f.y = max(Y0 + f.r, min(Y1 - f.r, f.y))
     if ai ~= "wander" and not f.noTouch and Hyp(f.x - p.x, f.y - p.y) < f.r + p.r - 4 then
-        if not run.spirit then Hurt(run, f.d, f.d.hard or (f.kind == "boss" and 2 or 1)) end
+        if not run.spirit then
+            local inv0 = p.inv
+            Hurt(run, f.d, f.touch or f.d.hard or (f.kind == "boss" and 2 or 1))
+            if p.inv > inv0 then   -- a hit: you are thrown off it and it pauses (or a big body pins you and hits again and again)
+                f.stun = 40
+                -- away from it and a little towards the room's middle: a corner never pins you against a big body
+                local kd = max(1, Hyp(p.x - f.x, p.y - f.y))
+                local cd = max(1, Hyp(CX - p.x, CY - p.y))
+                local kx, ky = (p.x - f.x) / kd + (CX - p.x) / cd * 0.7, (p.y - f.y) / kd + (CY - p.y) / cd * 0.7
+                local kl = max(0.01, Hyp(kx, ky))
+                p.vx, p.vy = kx / kl * 8, ky / kl * 8
+                p.x, p.y = p.x + kx / kl * 16, p.y + ky / kl * 16
+            end
+        end
         if run.has.thorns and run.frame % 8 == 0 and not f.immune then f.hp, f.flash = f.hp - 3, 5 end
     end
 end
@@ -730,6 +774,7 @@ function E.Step(run, input)
         return
     end
     if run.mode == "dead" then run.deadT = (run.deadT or 0) + 1 return end
+    if run.mode == "won" then run.wonT = (run.wonT or 0) + 1 return end
     local dying = run.mode == "dying"
     if dying then
         run.dyingT = run.dyingT + 1
@@ -838,7 +883,7 @@ function E.Step(run, input)
                 if dd < 16 then t.life = 0 end
             end
         end
-        if t.grow then t.r, t.dmg = min(14, t.r + 0.08), t.dmg + 0.03 end
+        if t.grow then t.r, t.dmg = min(14, t.r + 0.08), t.dmg + 0.015 end
         t.x, t.y, t.life = t.x + t.vx, t.y + t.vy, t.life - 1
         if t.x < X0 or t.x > X1 or t.y < Y0 or t.y > Y1 then
             if t.pierce then t.vx, t.vy = -t.vx, -t.vy else t.life = 0 end
@@ -864,7 +909,7 @@ function E.Step(run, input)
                             if f2 ~= f and not f2.immune and dd < od then o, od = f2, dd end
                         end
                         if o then
-                            o.hp, o.flash = o.hp - t.dmg * 0.6, 6
+                            o.hp, o.flash = o.hp - t.dmg * 0.4, 6
                             run.zaps[#run.zaps + 1] = { x1 = f.x, y1 = f.y, x2 = o.x, y2 = o.y, life = 9 }
                         end
                     end
@@ -873,7 +918,7 @@ function E.Step(run, input)
             end
         end
         if t.life <= 0 and run.has.sulfuras then run.fires[#run.fires + 1] = { x = t.x, y = t.y, life = 110 } end
-        if t.life > 0 then keep[#keep + 1] = t end
+        if t.life > 0 then keep[#keep + 1] = t else E.Fx(run, "splash", t.x, t.y, t.r, t.col, 16) end
     end
     run.tears = keep
     keep = {}
@@ -905,14 +950,18 @@ function E.Step(run, input)
         local bossDied, chanDied = false, false
         for _, f in ipairs(dead) do
             if f.kind == "boss" then bossDied = true run.bossName = f.d.n end
+            E.Die(run, room, f)
             if f.kind == "mchan" then chanDied = true end
         end
-        if bossDied then alive = {} end
+        if bossDied then   -- (its adds fall with it)
+            for _, a in ipairs(alive) do E.Die(run, room, a) end
+            alive = {}
+        end
         room.foes = alive
         if chanDied then   -- Soul Transfer
             local any = false
             for _, c in ipairs(alive) do
-                if c.kind == "mchan" then any = true c.rate = max(60, (c.rate or 170) * 0.72) c.r = c.r + 1.5 end
+                if c.kind == "mchan" then any = true c.rate = max(80, (c.rate or 220) * 0.75) c.r = c.r + 1.5 end
             end
             if any then E.Toast(run, "Soul Transfer: the other channelers grow stronger", 120) end
         end
@@ -926,9 +975,14 @@ function E.Step(run, input)
         if s.x < X0 or s.x > X1 or s.y < Y0 or s.y > Y1 then s.life = 0 end
         if run.orbital and Hyp(s.x - run.orbital.x, s.y - run.orbital.y) < s.r + 12 then s.life = 0 end
         if s.life > 0 and Hyp(s.x - p.x, s.y - p.y) < p.r + s.r - 3 then s.life = 0 Hurt(run, s.by) end
-        if s.life > 0 then keep[#keep + 1] = s end
+        if s.life > 0 then keep[#keep + 1] = s else E.Fx(run, "pop", s.x, s.y, s.r, s.col, 12) end
     end
     run.shots = keep
+    keep = {}
+    keep = {}
+    for _, x in ipairs(run.fx) do x.t = x.t + 1 if x.t < x.max then keep[#keep + 1] = x end end
+    run.fx = keep
+    for _, dc in ipairs(room.decals or {}) do dc.t = dc.t + 1 end
     keep = {}
     for _, z in ipairs(run.zaps) do z.life = z.life - 1 if z.life > 0 then keep[#keep + 1] = z end end
     run.zaps = keep

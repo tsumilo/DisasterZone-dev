@@ -27,7 +27,7 @@ local PINK = { 1, 0.4, 0.75 }
 ---------------------------------------------------------------------------
 
 B.Init.magtheridon = function(run, f, room)
-    f.immune, f.noTouch, f.y, f.free = true, true, CY - 10, 2400
+    f.immune, f.noTouch, f.y, f.free = true, true, CY - 10, 1800
     for i = 0, 4 do
         local a = -pi / 2 + i * pi * 2 / 5
         local c = E.MkFoe(run, "mchan", CX + cos(a) * 160, CY - 10 + sin(a) * 118)
@@ -46,6 +46,14 @@ B.AI.magtheridon = function(run, f, p, dx, dy, d)
         local left = 0
         for _, x in ipairs(run.room.foes) do if x.kind == "mchan" then left = left + 1 end end
         f.free = f.free - 1
+        -- a Burning Abyssal: one channeler drops it where you stand (one every 10 s for the room)
+        f.abyss = (f.abyss or 300) - 1
+        if f.abyss <= 0 and left > 0 then
+            f.abyss = 600
+            local x, y = p.x, p.y
+            E.Hz(run, x, y, 30, 70, { col = { 1, 0.42, 0.1 }, boom = true, by = D.FOES.abyssal,
+                                      ["then"] = function() local r = run.room r.foes[#r.foes + 1] = E.MkFoe(run, "abyssal", x, y) end })
+        end
         f.phaseName = string.format("Banished \194\183 free in %d s", math.ceil(f.free / 60))
         if f.free <= 0 or left == 0 then
             f.phase, f.immune, f.noTouch, f.phaseName, f.nova, f.quake = 2, nil, nil, "Free", 240, 700
@@ -77,15 +85,15 @@ B.AI.magtheridon = function(run, f, p, dx, dy, d)
         end
         return
     end
-    E.Chase(run, f, 0.55)
-    E.Cleave(run, f, 120)
+    E.Chase(run, f, 0.5)
+    E.Cleave(run, f, 160)
     f.nova = f.nova - 1
     if f.nova <= 0 then
         f.nova, f.casting = 960, true
         for _, c in ipairs(run.cubes) do c.ex = max(0, c.ex - 1) end
         E.Say(run, "", "Magtheridon begins to cast Blast Nova!", "emote")
         E.Cast(run, "Blast Nova", SP.blastNova, 210, function()
-            f.casting, f.rings = nil, { 1, 22, 44 }
+            f.casting, f.rings = nil, { 1, 30 }
             for _, c in ipairs(run.cubes) do c.hold = 0 end
         end)
     end
@@ -95,7 +103,7 @@ B.AI.magtheridon = function(run, f, p, dx, dy, d)
             n = n - 1
             if n == 0 then
                 local o = Rnd(run.rng, 0, 1)
-                for k = 0, 29 do E.Shoot(run, f, o + k * pi / 15, 2.5, 8, { 1, 0.48, 0.18 }, { n = "Blast Nova" }) end
+                for k = 0, 23 do E.Shoot(run, f, o + k * pi / 12, 2.3, 8, { 1, 0.48, 0.18 }, { n = "Blast Nova" }) end
             else
                 keep[#keep + 1] = n
             end
@@ -105,7 +113,7 @@ B.AI.magtheridon = function(run, f, p, dx, dy, d)
     f.quake = f.quake - 1
     if f.quake <= 0 then
         f.quake, run.shake = 1100, 36
-        for i = 1, 6 do
+        for i = 1, 4 do
             local x, y = E.Near(run, p.x, p.y, 160)
             E.Hz(run, x, y, 26, 55 + i * 6, { col = DEBRIS, boom = true, by = { n = "Quake" } })
         end
@@ -132,11 +140,11 @@ B.AI.supremus = function(run, f, p, dx, dy, d)
     if f.sw <= 0 then
         f.sw = 1100
         if f.mode == "tank" then
-            f.mode, f.phaseName, f.vol = "kite", "Kite phase", 60
+            f.mode, f.phaseName, f.vol, f.touch = "kite", "Kite phase", 60, 1   -- (a brush while he chases: half a stone)
             E.Say(run, "", "The ground begins to crack open!", "emote")
             E.Toast(run, "Supremus acquires a new target!", 140)
         else
-            f.mode, f.phaseName, run.shake = "tank", "Tank phase", 24
+            f.mode, f.phaseName, run.shake, f.touch = "tank", "Tank phase", 24, nil
             E.Say(run, "", "Supremus punches the ground in anger!", "emote")
             for k = 0, 15 do E.Shoot(run, f, k * pi / 8, 2.4, 8, { 0.82, 0.54, 0.29 }) end
         end
@@ -154,7 +162,7 @@ B.AI.supremus = function(run, f, p, dx, dy, d)
             run.mflames[#run.mflames + 1] = { x = f.x, y = f.y + f.r * 0.6, vx = 0, vy = 0, life = 300 }
         end
     else
-        E.Chase(run, f, 1.1 + (1 - f.sw / 1100) * 1.7, 0.1)
+        E.Chase(run, f, 1.0 + (1 - f.sw / 1100) * 1.0, 0.1)   -- (up to 2: two thirds of your speed, so a kite holds)
         f.vol = f.vol - 1
         if f.vol <= 0 then
             f.vol = 75
@@ -276,6 +284,7 @@ local BEAMS = {
 
 B.Init.shahraz = function(run, f)
     f.phaseName, f.beamT, f.beamI, f.fatal, f.shriek = "", 120, 0, 700, 500
+    f.touch = 1   -- (her blade is Saber Lash, in front; a brush against her costs half a stone)
 end
 
 B.AI.shahraz = function(run, f, p, dx, dy, d)
@@ -287,13 +296,13 @@ B.AI.shahraz = function(run, f, p, dx, dy, d)
     E.Cleave(run, f, 140)
     f.beamT = f.beamT - 1
     if f.beamT <= 0 then
-        f.beamT = f.frenzy and 45 or 120
+        f.beamT = f.frenzy and 60 or 165
         f.beamI = f.beamI % #BEAMS + 1
         local b = BEAMS[f.beamI]
         -- the beam runs from her through where you stand to the wall
         local a = atan2(dy, dx)
         local ex, ey = E.Clamp(f.x + cos(a) * 900, f.y + sin(a) * 900, 0)
-        run.beams[#run.beams + 1] = { kind = b.kind, n = b.n, col = b.col, ax = f.x, ay = f.y, bx = ex, by = ey, t = 0, warn = 40 }
+        run.beams[#run.beams + 1] = { kind = b.kind, n = b.n, col = b.col, ax = f.x, ay = f.y, bx = ex, by = ey, t = 0, warn = 52 }
     end
     f.fatal = f.fatal - 1
     if f.fatal <= 0 then
@@ -431,7 +440,7 @@ B.AI.illidan = function(run, f, p, dx, dy, d)
             return
         end
     end
-    E.Chase(run, f, f.phase == 4 and 1.15 or 0.95)
+    E.Chase(run, f, f.phase == 4 and 1.25 or 1.05)
     E.Cleave(run, f, 140)
     f.crash = f.crash - 1
     if f.crash <= 0 then

@@ -58,15 +58,40 @@ function T_BOI.Input(run)
   for _, h in ipairs(run.hz or {}) do Away(h.x, h.y, h.r + 30, 3) end
   for _, q in ipairs(run.patches or {}) do Away(q.x, q.y, q.r + 22, 2) end
   for _, s in ipairs(run.shots) do
-    -- a shot coming at you: step across its path
+    -- a shot coming at you: step across its path (the closer it would pass, the harder)
     local dx, dy = p.x - s.x, p.y - s.y
     local d = Hyp(dx, dy)
-    if d < 90 and (dx * s.vx + dy * s.vy) > 0 then
-      local px, py = -s.vy, s.vx
-      if px * dx + py * dy < 0 then px, py = -px, -py end
-      local l = max(0.01, Hyp(px, py))
-      mx, my = mx + px / l * 1.6, my + py / l * 1.6
+    local sp = max(0.01, Hyp(s.vx, s.vy))
+    if d < 150 and (dx * s.vx + dy * s.vy) > 0 then
+      local miss = abs(dx * s.vy - dy * s.vx) / sp     -- how far from you its line passes
+      if miss < p.r + s.r + 10 then
+        local px, py = -s.vy, s.vx
+        if px * dx + py * dy < 0 then px, py = -px, -py end
+        local l = max(0.01, Hyp(px, py))
+        local w = 2.2 * (1 - d / 150) + 0.6
+        mx, my = mx + px / l * w, my + py / l * w
+      end
     end
+  end
+  -- anything fast or big coming close: run (kiting), and keep off the walls
+  for _, f in ipairs(room.foes) do
+    local dx, dy = p.x - f.x, p.y - f.y
+    local d = max(1, Hyp(dx, dy))
+    local reach = f.r + p.r + ((f.kind == 'boss' or (f.spd or f.d.sp or 0) > 1.5 or f.d.ai == 'dash') and 70 or 30)
+    if d < reach and not f.noTouch and not run.spirit then
+      mx, my = mx + dx / d * 2.4, my + dy / d * 2.4
+      -- along the wall rather than into it: turn the escape round the room's middle
+      local cx, cy = E.CX - p.x, E.CY - p.y
+      local cl = max(1, Hyp(cx, cy))
+      mx, my = mx + cx / cl * 0.8, my + cy / cl * 0.8
+    end
+  end
+  if #room.foes > 0 then   -- (in a fight; a clear room's doors are on the walls)
+    local wall = 46
+    if p.x < E.X0 + wall then mx = mx + 1 end
+    if p.x > E.X1 - wall then mx = mx - 1 end
+    if p.y < E.Y0 + wall then my = my + 1 end
+    if p.y > E.Y1 - wall then my = my - 1 end
   end
   if run.beam then Away((run.beam.ax + run.beam.bx) / 2, (run.beam.ay + run.beam.by) / 2, 60, 1) end
   local target, td
@@ -129,6 +154,18 @@ function T_BOI.Input(run)
       local dx, dy = goal.x - p.x, goal.y - p.y
       local d = max(1, Hyp(dx, dy))
       mx, my = dx / d, dy / d
+    end
+  end
+  -- against a wall in a fight: slide along it towards the room's middle rather than push into it
+  if #room.foes > 0 then
+    local edge = 30
+    if (p.x < E.X0 + edge and mx < 0) or (p.x > E.X1 - edge and mx > 0) then
+      mx = 0
+      my = my + (p.y < E.CY and 1.2 or -1.2)
+    end
+    if (p.y < E.Y0 + edge and my < 0) or (p.y > E.Y1 - edge and my > 0) then
+      my = 0
+      mx = mx + (p.x < E.CX and 1.2 or -1.2)
     end
   end
   local l = Hyp(mx, my)
