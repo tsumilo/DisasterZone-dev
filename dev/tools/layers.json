@@ -60,6 +60,7 @@
   "Core/DungeonRuns.lua": 3,
   "Core/GroupQuests.lua": 3,
   "Core/GroupPvP.lua": 3,
+  "Core/GroupsLFG.lua": 3,
   "Core/GroupFinder.lua": 3,
 
   "Core/Dungeon.lua": 3,
@@ -126,7 +127,7 @@
   ["^Core/(Loot|Roll|Loon|Ledger|Prized|Dungeon|SessionInfo|Reserves|ReserveChat|ReserveLR|ReserveIO|ReserveDemo)\\.lua$", "Loot"],
   ["^UI/(Council|LootLog|DropPanel|RollFrame|SessionBar|SessionDrawer|PrizedUI|LootRulesUI|CouncilRules|Reserves)\\.lua$", "Loot"],
 
-  ["^Core/(RaidNights|RaidPlan|Attendance|RaidComp|RaidInvite|RaidLink|GuestBook|DungeonRuns|GroupQuests|GroupPvP|GroupFinder|RaidLog)\\.lua$", "Raids"],
+  ["^Core/(RaidNights|RaidPlan|Attendance|RaidComp|RaidInvite|RaidLink|GuestBook|DungeonRuns|GroupQuests|GroupPvP|GroupsLFG|GroupFinder|RaidLog)\\.lua$", "Raids"],
   ["^UI/(RaidGroups|RaidPlanUI|RaidSheet|GuestBook|RaidLeadersUI|AttendanceUI|RaidsTab|DungeonsTab)\\.lua$", "Raids"],
 
   ["^Data/Tours/", "Tours"],

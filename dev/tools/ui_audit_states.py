@@ -2058,6 +2058,13 @@ STATES = [
     ("Groups - leader view", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); ns.DungeonRuns:List({ k = 'raid', "
                                   "a = { 'GruulsLair', 'MagtheridonsLair' }, role = 'healer', lo = 'sr', lr = 1, "
                                   "no = 'Pug fill, no BoE drama' }); ns.GroupsLead:Open()", "dungeons")),
+    ("Groups - LFG message", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); ns.DungeonRuns:List({ k = 'raid', "
+                                  "a = { 'GruulsLair', 'MagtheridonsLair' }, role = 'healer', lo = 'sr', lr = 1 }); "
+                                  "for i = 1, 7 do ns.GroupsLFG:StepSplit('melee', 1) end; "
+                                  "for i = 1, 6 do ns.GroupsLFG:StepSplit('ranged', 1) end; "
+                                  "ns.GroupsLFG:SetSpec('SHAMAN', 3, 2); ns.GroupsLFG:SetSpec('DRUID', 3, 1); "
+                                  "ns.GroupsLFG:SetBlockOn('lacks', true); "
+                                  "ns.GroupsLFG:SetRepeat(true); ns.GroupsLead:Open(nil, 'message')", "dungeons")),
     ("Groups - my raid group", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); "
                                     "ns.DungeonRuns:List({ k = 'raid', a = { 'Karazhan' }, role = 'healer', lo = 'lc' })",
                                     "dungeons")),

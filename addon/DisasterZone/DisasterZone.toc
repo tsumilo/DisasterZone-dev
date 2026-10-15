@@ -151,6 +151,7 @@ Core\StrategyCollab.lua
 Core\DungeonRuns.lua
 Core\GroupQuests.lua
 Core\GroupPvP.lua
+Core\GroupsLFG.lua
 Core\GroupFinder.lua
 Core\EventBlocks.lua
 Core\EventEngine.lua
@@ -246,6 +247,7 @@ UI\RaidsTab.lua
 UI\GroupsCard.lua
 UI\GroupsSheet.lua
 UI\GroupsLead.lua
+UI\GroupsMessage.lua
 UI\DungeonsTab.lua
 UI\EventWidgets.lua
 UI\EventPieces.lua

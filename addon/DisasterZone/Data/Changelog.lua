@@ -17,12 +17,21 @@ ns.CHANGELOG = {
               "Bigger groups as raid frames, all 25 names in their class colours.",
               "I'm up for: pick the kinds you want a ping for, dungeons and raids at first.",
               "Raid lockouts count: a raid you're saved to says so and can't be joined.",
+              { "Raids on the board with dungeons, and the tab renamed Groups.", fb = { 8 }, by = { "Victhar" }, k = "idea" },
+          } },
+          { heading = "LFG message", area = "raids", kind = "new", open = "dungeons",
+            lead = "Your group's LookingForGroup message, built from blocks and posted again every 30 s.", lines = {
+              { "What you need from your open places: damage split into melee and ranged, plus specs.", fb = { 8 }, by = { "Victhar" }, k = "idea" },
+              { "Blocks you click on or off and drag into order: name, 18/25, needs, when, loot, /w me.", fb = { 8 }, by = { "Victhar" }, k = "idea" },
+              "The exact text shows as you build it, counted against the channel's 255.",
+              { "Post again every 30 s to 2 min: a small poster lights up, one click or a key sends it.", fb = { 8 }, by = { "Victhar" }, k = "idea" },
+              "It stops by itself once the group is full.",
           } },
           { heading = "List a group", area = "raids", kind = "new", open = "dungeons",
-            lead = "One sheet for every kind: Dungeon, Raid, Quest, PvP and Other, with the preview the guild sees.", lines = {
-              "Raids as art tiles: pick a few of one size for one night; saved, locked and not attuned are marked.",
-              "Places per role with steppers, full clear or picked bosses, rolls / soft reserve / loot council.",
-              "Other: attunement runs, world bosses, farming, reputation, or anything you put in the note.",
+            lead = "One sheet for every kind, with the preview the guild sees.", lines = {
+              "Raids as art tiles: a few of one size make one night; saved and locked ones are marked.",
+              "Places per role, full clear or picked bosses, rolls / soft reserve / loot council.",
+              "Other: attunements, world bosses, farming, reputation, or anything in the note.",
           } },
           { heading = "Raid groups", area = "raids", kind = "new", open = "dungeons",
             lead = "Fill 25 places without a spreadsheet: your group gets its own page.", lines = {
@@ -31,7 +40,7 @@ ns.CHANGELOG = {
               "Guildies up for raids who fit an open place sit beside them with Invite.",
               "Your BiS in a raid shows on its card; a missing attunement is a hint, never a block.",
               "Arrive in the raid and a pop-up starts the raid session with your group's loot.",
-              "Planned raids short of players: Fill open places puts them on the board, marked with the team.",
+              "Planned raids short of players: Fill open places puts them on the board, with the team.",
               "Joining a group that clashes with a raid you signed up for asks you first.",
           } },
           { heading = "Quest groups", area = "raids", kind = "new", open = "dungeons",
@@ -43,7 +52,7 @@ ns.CHANGELOG = {
           } },
           { heading = "PvP groups", area = "raids", kind = "new", open = "dungeons",
             lead = "Arenas, battlegrounds and world PvP, each with its own rules.", lines = {
-              "Arena: the bracket, skirmish or rated. Rated is your team's, with the lowest rating for pings.",
+              "Arena: the bracket, skirmish or rated (your team's, with a lowest rating for pings).",
               "Someone who joins a rated group gets a team invite from you first.",
               "Battleground premades sized to the battleground, with a flag carrier wanted.",
               "PvP has no tanks: healers and damage only.",
