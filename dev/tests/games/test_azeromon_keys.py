@@ -65,7 +65,7 @@ def title(c):
 def the_key_strip_shows_what_matters_then_fades_and_learns():
     w, c = game()
     s = strip(c)
-    assert s and s["keys"] == ["Arrows Walk", "Space Talk", "Enter Menu", "X Run (hold)"], s
+    assert s and s["keys"] == ["Arrows Walk", "Space Talk", "Tab Menu", "X Run (hold)", "Enter Chat"], s
     key(w, c, "START")
     assert strip(c)["keys"] == ["Space Select", "X Back"]
     w.tick(7.5)                                               # 6 s shown, 1 s fading
@@ -102,7 +102,7 @@ def one_time_tips_at_the_right_moments():
     c.eval("ns.Azero:SetFlag('starter', 'murkling')")         # after the starter: the menu
     w.tick(0.2)
     st = c.eval_py("return ns.AzeroUI._State()")
-    assert st["msg"] and st["text"].startswith("press Enter"), st
+    assert st["msg"] and st["text"].startswith("press Tab"), st
     dismiss(w, c)
     w.tick(0.2)
     key(w, c, "START")                                        # the first menu: how to go back, then the menu

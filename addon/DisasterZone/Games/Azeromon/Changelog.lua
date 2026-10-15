@@ -6,6 +6,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.29", date = "15 October 2026", title = "Guild chat",
+      lines = {
+          "Press Enter to chat with guildmates who are playing.",
+          "What you say shows in a bubble over your head.",
+          "Guildmates elsewhere see it in the chat log with the place.",
+          "Emotes: /wave, /dance, /cheer and /sit.",
+          "Tab or M opens the menu now (Enter is for chat).",
+          "CONTROLS: turn guild chat or chat bubbles off.",
+      } },
     { version = "0.28", date = "15 October 2026", title = "Gone fishing",
       lines = {
           "New: Fishing, a trade on top of your two. Lee Brown teaches it.",

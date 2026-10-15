@@ -4043,7 +4043,15 @@ local function BuildWorld()
     SetPixelTexture(R.player, CHARS)
     R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
     R.playerShadow = Shadow()
-    R.playerShadow:SetPoint("TOPLEFT", R.player, "TOPLEFT")
+    R.playerShadow:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
+    -- what I say (Chat.lua), over my head
+    R.player.say = Box(world, 100, 26, world:GetFrameLevel() + 15)
+    R.player.say:EnableMouse(false)
+    R.player.say:SetPoint("BOTTOM", R.player, "TOP", 0, 2)
+    R.player.say.fs = Font(R.player.say, 11)
+    R.player.say.fs:SetPoint("LEFT", 9, 0)
+    R.player.say.fs:SetJustifyV("MIDDLE")
+    R.player.say:Hide()
     -- cloud shadows (DrawClouds): one repeating texture over the map and the people, under the sky tint
     R.clouds = Tex(world, "OVERLAY", 4)
     R.clouds:SetAllPoints()
@@ -4252,7 +4260,13 @@ local function DrawWorld()
         local f = G.moving and (G.moving.t / G.moving.dur) or (G.bump and (0.2 - G.bump) / 0.2 or 0)
         if f > 0.2 and f < 0.8 then frame = G.stepParity and 0 or 2 end
     end
-    SetChar(R.player, "hero", s.face, frame)
+    local Chat = ns.AzeroChat
+    local pface, plift = s.face, 0
+    if walking then Chat:Stand("me") else pface, frame, plift = KH.EmoteLook("me", s.face, frame) end
+    SetChar(R.player, "hero", pface, frame)
+    R.player:ClearAllPoints()
+    R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE + plift * TILE / 16)
+    KH.FitBubble(R.player.say, Chat:Bubble("me"))
     DrawHint()
     -- in tall grass: on a baked map the meadow's own pixels cover the legs, walking or not; elsewhere the old strip
     if ground then
@@ -4334,9 +4348,13 @@ local function DrawWorld()
             nx, ny = Lerp(p.moving.fromX, p.x, f), Lerp(p.moving.fromY, p.y, f)
             if f > 0.2 and f < 0.8 then pframe = (p.moving.fromX + p.moving.fromY) % 2 == 0 and 0 or 2 end
         end
+        local pface, lift = p.face or "down", 0
+        if p.moving then ns.AzeroChat:Stand(p.key) else pface, pframe, lift = KH.EmoteLook(p.key, pface, pframe) end
         sp:ClearAllPoints()
-        sp:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE)
-        SetChar(sp, "hero", p.face or "down", pframe)
+        sp:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE + lift * TILE / 16)
+        sp.shadow:ClearAllPoints()
+        sp.shadow:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE)
+        SetChar(sp, "hero", pface, pframe)
         local cc = RAID_CLASS_COLORS and p.class and RAID_CLASS_COLORS[p.class]
         if cc then
             sp:SetVertexColor(0.55 + cc.r * 0.45, 0.55 + cc.g * 0.45, 0.55 + cc.b * 0.45)
@@ -4351,14 +4369,12 @@ local function DrawWorld()
         Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
         sp.label:Show()
         local word = PEER_BUSY[p.status]
-        if word then
+        local said = ns.AzeroChat:Bubble(p.key)
+        if said then
+            KH.FitBubble(sp.bubble, said)
+        elseif word then
             -- the dots fill up one by one; the width is set for the longest so the box doesn't jump
-            if sp.bubble.word ~= word then
-                sp.bubble.word = word
-                sp.bubble:SetWidth(floor(TextWidth(word .. "...", 11) + 22))
-            end
-            sp.bubble.fs:SetText(word .. string.rep(".", floor(now * 2.5) % 4))
-            sp.bubble:Show()
+            KH.FitBubble(sp.bubble, word .. string.rep(".", floor(now * 2.5) % 4), word .. "...")
         else
             sp.bubble:Hide()
         end
@@ -4554,10 +4570,11 @@ end
 -- One-time tips (G:Data().tips) teach the rest at the moment they matter.
 ---------------------------------------------------------------------------
 
-KH.KEY_NAME = { A = "Space", B = "X", START = "Enter", move = "Arrows" }
+KH.KEY_NAME = { A = "Space", B = "X", START = "Tab", CHAT = "Enter", move = "Arrows" }
 KH.KEY_LEARNED = 5
 KH.KEY_HINTS = {
-    world = { { "move", "Walk", "walk" }, { "A", "Talk", "talk" }, { "START", "Menu", "menu" }, { "B", "Run (hold)", "run" } },
+    world = { { "move", "Walk", "walk" }, { "A", "Talk", "talk" }, { "START", "Menu", "menu" }, { "B", "Run (hold)", "run" },
+              { "CHAT", "Chat", "chat" } },
     menu = { { "A", "Select", "select" }, { "B", "Back", "back" } },
     text = { { "A", "Next", "next" } },
     netwait = { { "B", "Cancel", "cancel" } },
@@ -4681,7 +4698,7 @@ end
 
 KH.TIPS = {
     walk = "Tip: walk with the arrow keys or WASD. Space talks to people and picks things up.",
-    menu = "Tip: press Enter to open your menu: your beasts, your bag, your professions and more.",
+    menu = "Tip: press Tab to open your menu: your beasts, your bag, your professions and more.",
     run = "Tip: hold X while you walk to run.",
     back = "Tip: X (or Q, or a right-click) goes back out of any menu.",
 }
@@ -5023,7 +5040,8 @@ function KH.OpenControls()
         { "Run", "Hold X while walking" },
         { "Talk, pick up, select", "Space, Z or E" },
         { "Back, cancel", "X, Q, Backspace, right-click" },
-        { "Open the menu", "Enter, Tab or M" },
+        { "Open the menu", "Tab or M" },
+        { "Chat with guildmates", "Enter (/wave /dance /cheer /sit)" },
         { "Summary pages", "Left and Right" },
         { "Scroll a long list", "Mouse wheel" },
         { "Give the keyboard back", "Esc" },
@@ -5040,6 +5058,16 @@ function KH.OpenControls()
     items[#items + 1] = { text = "Sounds", right = onOff("sfx"), onSelect = function(idx, menu)
         G:Data().sfx = G:Data().sfx == false
         menu.items[idx].right = onOff("sfx")
+        UI:RefreshMenu(menu)
+    end }
+    items[#items + 1] = { text = "Guild chat", right = onOff("chat"), onSelect = function(idx, menu)
+        G:Data().chat = G:Data().chat == false
+        menu.items[idx].right = onOff("chat")
+        UI:RefreshMenu(menu)
+    end }
+    items[#items + 1] = { text = "Chat bubbles", right = onOff("chatBubbles"), onSelect = function(idx, menu)
+        G:Data().chatBubbles = G:Data().chatBubbles == false
+        menu.items[idx].right = onOff("chatBubbles")
         UI:RefreshMenu(menu)
     end }
     items[#items + 1] = { text = "Ambience", right = onOff("ambience"), onSelect = function(idx, menu)
@@ -5066,7 +5094,7 @@ local KEYMAP = {
     UP = "up", W = "up", DOWN = "down", S = "down", LEFT = "left", A = "left", RIGHT = "right", D = "right",
     SPACE = "A", Z = "A", E = "A",
     X = "B", Q = "B", BACKSPACE = "B",
-    ENTER = "START", TAB = "START", M = "START",
+    ENTER = "CHAT", TAB = "START", M = "START",
 }
 local heldDirs = {}
 
@@ -5081,6 +5109,7 @@ end
 -- pause: true when focus goes because the player paused (Esc), combat started or the window closed - the game stops
 -- until the next click. (The panel starts unfocused on the title screen, where nothing runs: not a pause.)
 local function SetFocus(on, pause)
+    if not on and KH.CloseChat then KH.CloseChat() end
     focused = on and true or false
     paused = not focused and (pause and true or paused)
     if R.pauseNote then R.pauseNote:SetText(paused and KH.PauseNote() or "") end
@@ -5091,6 +5120,152 @@ local function SetFocus(on, pause)
     wipe(heldDirs)
     G:SetDir(nil)
     G.input.run = false
+end
+
+---------------------------------------------------------------------------
+-- Guild chat (Chat.lua): the chat line, the log, bubbles and emotes
+---------------------------------------------------------------------------
+
+KH.CHAT_W = 300            -- the log's width (stage px)
+
+-- Shows `text` in a bubble box (a peer's, mine): one line up to ~190 px, wrapped past that. nil hides it.
+-- `measure`: the text whose width sets the box (so "battling..." doesn't jump as its dots fill).
+function KH.FitBubble(box, text, measure)
+    if not text then box:Hide() return end
+    if box.text ~= text then
+        box.text = text
+        local w = TextWidth(measure or text, 11)
+        box.fs:SetWordWrap(w > 190)
+        box.fs:SetWidth(w > 190 and 190 or 0)
+        box.fs:SetText(text)
+        local h = w > 190 and ((box.fs:GetStringHeight() or 14) + 14) or 26
+        box:SetSize(floor(min(w, 190) + 22), max(26, floor(h)))
+    end
+    box:Show()
+end
+
+-- How an emote moves a character this frame: face, frame, lift (game pixels up; negative = down).
+function KH.EmoteLook(key, face, frame)
+    local e, age = ns.AzeroChat:Emote(key)
+    if e == "wave" then return face, floor(age * 5) % 2 == 0 and 0 or 2, 0 end
+    if e == "dance" then
+        local turn = { "down", "left", "up", "right" }
+        return turn[floor(age * 4) % 4 + 1], 1, math.abs(math.sin(age * 8)) * 2
+    end
+    if e == "cheer" then return face, 0, max(0, math.sin(age * 6)) * 4 end
+    if e == "sit" then return "down", 1, -3 end
+    return face, frame, 0
+end
+
+-- Can Enter open the chat line now (walking about in the world, nothing on screen)?
+function KH.CanChat()
+    return ns.AzeroChat:On() and not R.title:IsShown() and G:IsFree() and #stack == 0 and not uiMessage
+        and not BT.battle and R.chatBox ~= nil
+end
+
+function KH.OpenChat()
+    wipe(heldDirs)
+    G:SetDir(nil)
+    G.input.run = false
+    pcall(root.EnableKeyboard, root, false)       -- the line has the keys until Enter or Esc
+    R.chatBox:Show()
+    R.chatBox.eb:SetText("")
+    R.chatBox.eb:SetFocus()
+end
+
+function KH.CloseChat()
+    local box = R.chatBox
+    if not (box and box:IsShown()) then return end
+    box.eb:ClearFocus()
+    box:Hide()
+    if focused then pcall(root.EnableKeyboard, root, true) end
+end
+
+function KH.BuildChat()
+    -- the chat line along the bottom of the stage
+    local box = Box(screen, SW - 16, 36, screen:GetFrameLevel() + 120)
+    box:SetPoint("BOTTOMLEFT", screen, "BOTTOMLEFT", 8, 12)
+    box.label = Font(box, 12, nil, true)
+    box.label:SetPoint("LEFT", 12, 0)
+    box.label:SetJustifyV("MIDDLE")
+    box.label:SetText("Say:")
+    local eb = CreateFrame("EditBox", nil, box)
+    eb:SetPoint("TOPLEFT", 52, -8)
+    eb:SetPoint("BOTTOMRIGHT", -12, 8)
+    eb:SetAutoFocus(false)
+    if eb.SetMaxLetters then eb:SetMaxLetters(ns.AzeroChat.MAX_LEN) end
+    if not eb:SetFont(FONT, 15, "") then eb:SetFont(FONT_FALLBACK, 13, "") end
+    eb:SetTextColor(INK[1], INK[2], INK[3])
+    eb:SetScript("OnEnterPressed", function(self)
+        local text = self:GetText()
+        KH.CloseChat()
+        if text and text ~= "" then ns.AzeroChat:Say(text) end
+    end)
+    eb:SetScript("OnEscapePressed", function() KH.CloseChat() end)
+    box.eb = eb
+    box:Hide()
+    R.chatBox = box
+    -- the log: the last lines, bottom left over the world, fading out a while after they arrive
+    local lg = CreateFrame("Frame", nil, screen)
+    lg:SetSize(KH.CHAT_W + 12, 10)
+    lg:SetFrameLevel(screen:GetFrameLevel() + 110)
+    lg:EnableMouse(false)
+    lg.bg = Tex(lg, "BACKGROUND")
+    lg.bg:SetAllPoints()
+    lg.bg:SetColorTexture(0.04, 0.05, 0.07, 0.55)
+    lg.fs = {}
+    for i = 1, ns.AzeroChat.LOG_SHOWN do
+        local fs = lg:CreateFontString(nil, "OVERLAY")
+        if not fs:SetFont(FONT, 13, "OUTLINE") then fs:SetFont(FONT_FALLBACK, 11, "OUTLINE") end
+        fs:SetJustifyH("LEFT")
+        fs:SetWidth(KH.CHAT_W)
+        fs:SetWordWrap(true)
+        lg.fs[i] = fs
+    end
+    lg:Hide()
+    R.chatLog = lg
+end
+
+-- One log line as shown: [Place] Name: text (mine gold, others white-blue, the game's notes grey).
+function KH.ChatLine(l)
+    if l.system then return "|cffa8a8b0" .. l.text .. "|r" end
+    local name = l.me and ("|cffffd34d" .. l.who .. "|r") or ("|cff9fd0ff" .. l.who .. "|r")
+    local place = l.place and ("|cffc8b27a[" .. l.place .. "]|r ") or ""
+    if l.emote then return place .. name .. " " .. l.text end
+    return place .. name .. ": " .. l.text
+end
+
+function KH.DrawChat()
+    local lg = R.chatLog
+    if not lg then return end
+    local Chat = ns.AzeroChat
+    local typing = R.chatBox:IsShown()
+    if not (G.started and not R.title:IsShown() and not BT.battle and Chat:On()) then lg:Hide() return end
+    local lines = Chat:Lines(Chat.LOG_SHOWN, typing)
+    if #lines == 0 then lg:Hide() return end
+    -- above the chat line while typing, above a text box while one is open, else at the bottom
+    local y = typing and 54 or ((G.pending or uiMessage) and (BOX_H + 26) or 12)        -- (clear of a text box's title tab)
+    lg:ClearAllPoints()
+    lg:SetPoint("BOTTOMLEFT", screen, "BOTTOMLEFT", 8, y)
+    local n, total, top = #lg.fs, 0, 0
+    for i = n, 1, -1 do
+        local fs = lg.fs[i]
+        local l = lines[#lines - (n - i)]
+        fs:ClearAllPoints()
+        if l then
+            fs:SetText(KH.ChatLine(l.line))
+            fs:SetAlpha(l.alpha)
+            fs:SetPoint("BOTTOMLEFT", lg, "BOTTOMLEFT", 6, 4 + total)
+            total = total + (fs:GetStringHeight() or 14) + 2
+            top = max(top, l.alpha)
+            fs:Show()
+        else
+            fs:Hide()
+        end
+    end
+    lg:SetHeight(total + 4)
+    lg.bg:SetAlpha(typing and 1 or top)
+    lg:Show()
 end
 
 -- The pause overlay's second line: what keeps running for the guildmate on the other side ("" when nothing does).
@@ -5113,6 +5288,10 @@ end
 
 local function HandleKey(key)
     KH.NoteKey((key == "up" or key == "down" or key == "left" or key == "right") and "move" or key)
+    if key == "CHAT" then
+        if KH.CanChat() then KH.OpenChat() return end
+        key = "START"
+    end
     if R.title:IsShown() then
         local top = stack[#stack]
         if top and top.isPanel then KH.PanelKey(top, key) elseif top then MenuKey(top, key) end
@@ -5303,6 +5482,7 @@ local function OnUpdate(self, elapsed)
     now = now + elapsed
     FitScenes(elapsed)
     KH.UpdateKeyStrip()
+    KH.DrawChat()
     Scr.UpdateMusic()
     ns.AzeroSound:UpdateAmbience(elapsed, G.started and not R.title:IsShown() and not BT.battle)
     if R.title:IsShown() then KH.TickTitle(elapsed) end
@@ -5897,7 +6077,7 @@ function UI:CreatePanel(parent)
     ks.bg:SetAllPoints()
     ks.bg:SetColorTexture(0.05, 0.05, 0.07, 0.75)
     ks.parts = {}
-    for i = 1, 4 do
+    for i = 1, 5 do
         local fs = Font(ks, 11)
         fs:SetTextColor(0.88, 0.88, 0.92)
         fs:SetShadowColor(0, 0, 0, 1)
@@ -5908,6 +6088,7 @@ function UI:CreatePanel(parent)
     ks:EnableMouse(false)
     ks:Hide()
     R.keyStrip = ks
+    KH.BuildChat()
 
     -- The text boxes and menus fit inside the stage (the smaller scale); the world, the battle and the title screen
     -- scale on up to the larger one so they meet all four edges (a few game pixels cut off, no dark bars). Past
@@ -6017,6 +6198,24 @@ function UI:RegisterScreen(kind, fn) UI.screens[kind] = fn end
 
 -- For tests
 UI._HandleKey = function(k) HandleKey(k) end
+UI._ChatBox = function() return R.chatBox end
+UI._DrawChat = function() KH.DrawChat() end
+UI._PeerKey = function(name)
+    for _, p in ipairs(ns.AzeroNet:PeersOn(G.save.map)) do if p.name == name then return p.key end end
+end
+UI._ChatLog = function()
+    local out = {}
+    if not R.chatLog:IsShown() then return out end
+    for _, fs in ipairs(R.chatLog.fs) do if fs:IsShown() then out[#out + 1] = fs:GetText() end end
+    return out
+end
+UI._Bubble = function(which)
+    local box = which == "me" and R.player.say or nil
+    if not box then
+        for _, sp in ipairs(peerSprites) do if sp:IsShown() and sp.label:GetText() == which then box = sp.bubble end end
+    end
+    return box and box:IsShown() and box.fs:GetText() or nil
+end
 UI._State = function()
     return { stack = #stack, battle = BT.battle ~= nil, msg = uiMessage ~= nil, text = text.full, paused = paused,
              waitText = (BT.anim and BT.anim.waitText) and true or false, actionOpen = BT.actionOpen and true or false }
