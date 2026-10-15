@@ -209,7 +209,7 @@ def the_guild_goal_adds_up_and_pays_each_tier_once_to_helpers():
 @case
 def the_boards_in_every_town_and_the_start_menu_show_the_bounties():
     w, c = game(ui=True)
-    c.eval("ns.Azero:EnterMap('town', 10, 15, 'left', true)")
+    c.eval("ns.Azero:EnterMap('town', 25, 9, 'left', true)")
     w.tick(0.2)
     c.eval("ns.AzeroUI._HandleKey('A')")
     w.tick(0.2)

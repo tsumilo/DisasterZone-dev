@@ -110,6 +110,10 @@ def build_atlas():
     # roofs (the rrhouse stamp) and the zone's gather nodes (appended, so earlier slots never move)
     for name, arr in blackrock_art.tiles(lambda n: np.array(atlas.crop(_cell_box(index[n])), dtype=np.float64)):
         add(name, Image.fromarray(arr, "RGBA"), 0, 0)
+    # the bigger Goldshire (0.27): the Lion's Pride, smithy, cottage, stable and well, cut from the finished house
+    # stamps above (appended, so earlier slots never move)
+    for name, img in azeromon_buildings.tiles(lambda n: np.array(atlas.crop(_cell_box(index[n])))):
+        add(name, img, 0, 0)
     tga(atlas, "atlas")
     return index
 
@@ -122,6 +126,7 @@ def build_atlas():
 import azeromon_props  # noqa: E402
 import azeromon_interiors  # noqa: E402
 import azeromon_blackrock_art as blackrock_art  # noqa: E402
+import azeromon_buildings  # noqa: E402
 import numpy as np  # noqa: E402
 
 SHADE = 0.74            # forest floor under the trees (the ground baker uses the same)

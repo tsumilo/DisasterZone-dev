@@ -313,12 +313,12 @@ def guard_turns_you_back_without_a_starter():
     r = c.eval_py(r"""
       local G = ns.Azero
       G:NewGame()
-      G:EnterMap("town", 10, 3, "up", true)
-      T_AZ.walkTo(10, 1)
+      G:EnterMap("town", 17, 3, "up", true)
+      T_AZ.walkTo(17, 1)
       T_AZ.settle()
       return { x = G.save.x, y = G.save.y, map = G.save.map }
     """)
-    assert r == {"x": 10, "y": 2, "map": "town"}, r
+    assert r == {"x": 17, "y": 2, "map": "town"}, r
     assert "Hold it!" in logtext(c)
     no_errors(w)
 
@@ -336,7 +336,7 @@ def bot_plays_the_whole_preview():
       end
       G:NewGame()
       go(4, 7, "leave home")                 -- the exit mat warps to town (5, 7)
-      go(17, 6, "lab door")
+      go(28, 8, "lab door")
       go(4, 5, "starter basket")
       T_AZ.face("up")
       T_AZ.choice = 1
@@ -348,7 +348,7 @@ def bot_plays_the_whole_preview():
       local mon = s.party[1]
       mon.lvl = 30 mon.exp = M.ExpForLevel(30) mon.moves = M.DefaultMoves(mon.sp, 30) M.Heal(mon)
       go(4, 7, "leave lab")
-      go(10, 0, "town exit")
+      go(17, 0, "town exit")
       T_AZ.step("up")                        -- north edge -> Brightbrook Trail
       local routeY = G.save.y
       go(19, 12, "potion chest")             -- stands below the chest at (19, 11)

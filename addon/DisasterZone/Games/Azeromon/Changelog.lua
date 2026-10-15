@@ -6,6 +6,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.27", date = "15 October 2026", title = "A bigger Goldshire",
+      lines = {
+          "Goldshire grows: a market square with a well.",
+          "The Lion's Pride has two storeys, guest beds and a stable.",
+          "Smith Argus works in an open smithy by the south lane.",
+          "The Maclures live in a thatched cottage you can visit.",
+          "The forest edge winds round the town; a pumpkin patch.",
+          "Guildmates on an older version are hidden in Goldshire.",
+      } },
     { version = "0.26", date = "15 October 2026", title = "Blackrock",
       lines = {
           "New region north of Darkshire: Redridge to Blackrock.",

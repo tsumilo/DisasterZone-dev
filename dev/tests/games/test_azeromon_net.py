@@ -122,7 +122,9 @@ def bad_updates_are_ignored_and_peers_time_out():
                 "{ t = 'AZP', v = 1, m = 'town', x = 999, y = 1, f = 'up', p = '' }",
                 "{ t = 'AZP', v = 1, m = 'town', x = 3, y = 3, f = 'sideways', p = '' }",
                 "{ t = 'AZP', v = 1, m = 'town', x = 3, y = 3, f = 'up', p = 'UUXX' }",
-                "{ t = 'AZP', v = 99, m = 'town', x = 3, y = 3, f = 'up', p = '' }"):
+                "{ t = 'AZP', v = 99, m = 'town', x = 3, y = 3, f = 'up', p = '' }",
+                # an older client on the old, smaller Goldshire (no map revision): its spots don't fit this town
+                "{ t = 'AZP', v = 1, m = 'town', x = 8, y = 9, f = 'up', p = '' }"):
         a.eval("ns.Comm:Send(%s, 'GUILD', nil, 'game')" % bad)
     w.tick(0.5)
     assert b.eval("return ns.AzeroNet:Count()") == 0
@@ -130,7 +132,7 @@ def bad_updates_are_ignored_and_peers_time_out():
     a.eval("ns.AzeroNet:SetActive(false)")
     a.eval("ns.AzeroNet.SetActive = function() end")     # keep Alice silent
     b.eval("ns.AzeroNet._Reset()")
-    a.eval("ns.Comm:Send({ t = 'AZP', v = 1, m = 'town', x = 3, y = 3, f = 'up', p = '' }, 'GUILD', nil, 'game')")
+    a.eval("ns.Comm:Send({ t = 'AZP', v = 1, m = 'town', x = 8, y = 9, f = 'up', p = '', r = 2 }, 'GUILD', nil, 'game')")
     w.tick(1)
     assert peer(b, "Alice") is not None
     w.tick(30)

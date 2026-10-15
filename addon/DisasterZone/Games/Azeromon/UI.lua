@@ -2990,7 +2990,10 @@ Amb.GLINT = { elwynn = { 0.82, 0.92, 1 }, westfall = { 0.84, 0.94, 1 }, duskwood
               redridge = { 0.84, 0.92, 1 }, steppes = { 1, 0.86, 0.5 }, gorge = { 1, 0.86, 0.5 }, blackrock = { 1, 0.86, 0.5 } }
 Amb.parts = {}        -- footstep dust and leaves: { kind, x, y, t0, seed } in map pixels
 Amb.GLOW = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
-Amb.CHIMNEY_KINDS = { house = true, darkhouse = true, farmhouse = true, stonehouse = true, rrhouse = true }
+-- stamps with chimneys: where each chimney's top is (px in the stamp); the Lion's Pride has two
+Amb.CHIMNEY_KINDS = { house = { { 16, 13 } }, darkhouse = { { 16, 13 } }, farmhouse = { { 16, 13 } },
+                      stonehouse = { { 16, 13 } }, rrhouse = { { 16, 13 } }, cottage = { { 16, 13 } },
+                      smithy = { { 16, 13 } }, stable = { { 16, 13 } }, inn = { { 16, 27 }, { 80, 27 } } }
 Amb.CRITTERS = {                -- butterfly wing colours and the flock's colours, per map theme
     elwynn = { wings = { { 1, 1, 1 }, { 0.96, 0.89, 0.48 }, { 0.62, 0.83, 1 } }, flies = 4,
                bird = { 0.17, 0.16, 0.19 }, bird2 = { 0.17, 0.16, 0.19 } },
@@ -3154,7 +3157,9 @@ function Amb.Smoke(m, px, py)
     if not m.chimneys then
         m.chimneys = {}
         for _, s in ipairs(m.def.stamps or {}) do
-            if Amb.CHIMNEY_KINDS[s.kind] then m.chimneys[#m.chimneys + 1] = { s.x * 16 + 16, s.y * 16 + 13 } end
+            for _, c in ipairs(Amb.CHIMNEY_KINDS[s.kind] or {}) do
+                m.chimneys[#m.chimneys + 1] = { s.x * 16 + c[1], s.y * 16 + c[2] }
+            end
         end
     end
     local sin = math.sin

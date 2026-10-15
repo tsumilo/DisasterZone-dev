@@ -261,8 +261,15 @@ DRESSING = {
             "rugs": [(36, 52, 88, 38, QUILT, GOLD)],
             "lights": [(30, 14, 30, 1), (130, 14, 30, 1)], "sconces": [(28, 10), (128, 10)],
             "shafts": [(6, 6, 14), (140, 6, 14)]},
-    "post": {"wall": [("shelf", 4, 12), ("banner", 34, 6), ("shelf", 108, 12), ("banner", 126, 6),
-                      ("window", 140, 6)],
+    # the Lion's Pride (0.27: 16 x 10): bar shelves, banners round the hearth, windows over the guest beds
+    "post": {"wall": [("shelf", 6, 12), ("shelf", 40, 12), ("banner", 70, 6), ("hearth", 112, 0), ("banner", 150, 6),
+                      ("window", 182, 6), ("painting", 208, 7), ("window", 234, 6)],
+             "rugs": [(100, 76, 60, 52, QUILT, GOLD), (186, 40, 64, 30, CLOTH, GOLD)],
+             "lights": [(128, 26, 46, 1), (64, 14, 30, 1), (196, 14, 30, 1)], "sconces": [(62, 10), (194, 10)],
+             "shafts": [(182, 6, 14), (234, 6, 14)]},
+    # the 10-wide inn (Booty Bay, Darkshire, Sentinel Hill)
+    "inn": {"wall": [("shelf", 4, 12), ("banner", 34, 6), ("shelf", 108, 12), ("banner", 126, 6),
+                     ("window", 140, 6)],
              "rugs": [(64, 64, 32, 48, QUILT, GOLD)],
              "lights": [(62, 14, 30, 1), (98, 14, 30, 1)], "sconces": [(60, 10), (96, 10)],
              "shafts": [(140, 6, 14)]},
@@ -275,8 +282,8 @@ DRESSING["hall"] = {"wall": [("window", 6, 6), ("painting", 40, 7), ("shelf", 72
                     "lights": [(30, 14, 30, 1), (130, 14, 30, 1)], "sconces": [(28, 10), (128, 10)],
                     "shafts": [(6, 6, 14), (140, 6, 14)]}
 # rooms that share a dressing (every interior is the same 10 x 8 room)
-DRESSING_OF = {"saldean": "home", "mistmantle": "home", "bootybayinn": "post", "darkshireinn": "post",
-               "sentinelinn": "post", "bbhall": "hall"}
+DRESSING_OF = {"saldean": "home", "mistmantle": "home", "cottage": "home", "bootybayinn": "inn", "darkshireinn": "inn",
+               "sentinelinn": "inn", "bbhall": "hall"}
 
 
 def dressing(map_id):

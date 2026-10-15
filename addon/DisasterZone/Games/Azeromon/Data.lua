@@ -7,7 +7,7 @@ local addonName, ns = ...
 local D = {}
 ns.AzeroData = D
 
-D.SAVE_VERSION = 1
+D.SAVE_VERSION = 2            -- 2: the bigger Goldshire (0.27): old Goldshire / inn spots are moved on load
 D.MAX_PARTY = 6
 D.MAX_LEVEL = 100
 D.START_MONEY = 3000       -- copper (30 silver)

@@ -383,8 +383,8 @@ Maps.hideout = {
     dynamic = true,                      -- compiled afresh on every visit: the trophies and wings follow the raid log
     prepare = Prepare,
     rows = ROWS,
-    warps = { { x = 17, y = 32, map = "post", tx = 5, ty = 3, face = "down" },
-              { x = 18, y = 32, map = "post", tx = 5, ty = 3, face = "down" } },
+    warps = { { x = 17, y = 32, map = "post", tx = 10, ty = 3, face = "down" },      -- up the inn's stairs (0.27 layout)
+              { x = 18, y = 32, map = "post", tx = 10, ty = 3, face = "down" } },
     objects = objects,
     npcs = npcs,
 }

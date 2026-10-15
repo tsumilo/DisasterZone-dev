@@ -90,7 +90,7 @@ def erma_and_kirk_share_one_stable_through_the_menus():
     c.eval("""local G, M = ns.Azero, ns.AzeroMon
       G.save.box = { M.New('coyote', 12, G.rng), M.New('tuskling', 9, G.rng) }
       G.save.box[2].shiny = true
-      G:EnterMap('post', 7, 5, 'right', true)""")
+      G:EnterMap('post', 12, 6, 'right', true)""")
     w.tick(0.2)
     talk(w, c)
     assert title(c) == "STABLE", title(c)

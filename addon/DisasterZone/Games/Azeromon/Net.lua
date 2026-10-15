@@ -2,7 +2,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Net.lua", ...) then
 -- ns.AzeroNet: seeing guildmates who play Azeromon in the same world.
 -- While the game is open (and out of combat), each client tells the guild where it is, at most once a second:
 --   { t = "AZP", v, m = map, x, y, f = facing, p = "UDLR..." (steps taken since the last update), c = class,
---     s = what I'm busy with (nil | "pvp" | "battle" | "trade" | "watch"), o = my opponent's key when s = "pvp" }
+--     s = what I'm busy with (nil | "pvp" | "battle" | "trade" | "watch"), o = my opponent's key when s = "pvp",
+--     r = the map's revision (Maps def.rev; missing = 1) }
 -- plus a heartbeat every HEARTBEAT seconds when standing still, and { t = "AZL" } when leaving. Presence yields to
 -- the game's own traffic: nothing goes out while the game prefix has a backlog, and during a player battle (whose
 -- turns share that queue) at most every MATCH_EVERY seconds.
@@ -76,8 +77,10 @@ local function SendPresence()
         class = c
     end
     local st, opp = Net.Status()
+    local def = Maps[s.map]
     local ok = ns.Games:Send(G.GAME_ID, { t = "AZP", v = Net.VERSION, m = s.map, x = s.x, y = s.y, f = s.face,
-                                          p = steps, c = class, s = st, o = opp }, "GUILD")
+                                          p = steps, c = class, s = st, o = opp,
+                                          r = type(def) == "table" and def.rev or nil }, "GUILD")
     if ok then
         steps = ""
         sentAt = Now()
@@ -113,6 +116,9 @@ local function Valid(msg)
     if type(msg.m) ~= "string" or type(msg.x) ~= "number" or type(msg.y) ~= "number" then return false end
     local m = G.Compile(msg.m)
     if not m then return false end
+    -- a map that changed shape (def.rev, e.g. the bigger Goldshire): players on another revision of it are not shown,
+    -- their spots would be wrong here (a message without r is revision 1)
+    if (tonumber(msg.r) or 1) ~= (m.def.rev or 1) then return false end
     if msg.x < 0 or msg.y < 0 or msg.x >= m.w or msg.y >= m.h or msg.x % 1 ~= 0 or msg.y % 1 ~= 0 then return false end
     if type(msg.p) ~= "string" or #msg.p > Net.MAX_STEPS or not msg.p:match("^[UDLR]*$") then return false end
     if not STEP_CODE[msg.f] then return false end

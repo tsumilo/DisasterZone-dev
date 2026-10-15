@@ -140,7 +140,7 @@ def a_lesson_costs_the_fee_and_needs_a_slot_once_it_knows_four_moves():
 def the_pet_trainer_teaches_through_the_menus():
     w, c = game(ui=True)
     drake(c)
-    c.eval("ns.Azero.save.money = 2000 ns.Azero:EnterMap('post', 2, 5, 'left', true)")
+    c.eval("ns.Azero.save.money = 2000 ns.Azero:EnterMap('post', 12, 7, 'left', true)")
     w.tick(0.2)
     key(w, c, "A")                                           # talk to Gorvin
     # read his lines up to the Yes / No
@@ -196,7 +196,7 @@ def the_pet_trainer_teaches_through_the_menus():
 def the_pet_trainer_turns_away_a_player_who_cannot_pay():
     w, c = game(ui=True)
     drake(c)
-    c.eval("ns.Azero.save.money = 100 ns.Azero:EnterMap('post', 2, 5, 'left', true)")
+    c.eval("ns.Azero.save.money = 100 ns.Azero:EnterMap('post', 12, 7, 'left', true)")
     w.tick(0.2)
     key(w, c, "A")
     for _ in range(20):

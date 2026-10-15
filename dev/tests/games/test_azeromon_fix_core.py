@@ -180,7 +180,7 @@ def a_broken_position_lands_on_open_ground():
       local out = {}
       for _, case in ipairs({ { map = "START", x = 1, y = 1 }, { map = "town", x = "a", y = nil, face = "sideways" },
                               { map = "town", x = 2.5, y = 900 }, { map = "town", x = 0, y = 0 } }) do
-        G:Data().save = { v = 1, map = case.map, x = case.x, y = case.y, face = case.face, party = {}, flags = {} }
+        G:Data().save = { v = 2, map = case.map, x = case.x, y = case.y, face = case.face, party = {}, flags = {} }
         G:Load()
         local s, m = G.save, G.map
         out[#out + 1] = { map = s.map, solid = m.solid[m.key(s.x, s.y)] == true, int = s.x == math.floor(s.x)

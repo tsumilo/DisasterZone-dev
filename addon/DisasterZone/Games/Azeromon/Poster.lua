@@ -19,7 +19,7 @@ local SPEED = 2.2                      -- the hero's pace, in tiles a second
 -- is longer than a shot, so the hero is still walking while the next shot fades in. (on roads only: the hero never
 -- walks through a prop)
 P.SHOTS = {
-    { map = "town", period = "day", path = { { 10.5, 18 }, { 10.5, 8 }, { 18, 8 } } },
+    { map = "town", period = "day", path = { { 9.5, 23.5 }, { 17.5, 23.5 }, { 17.5, 10 } } },   -- past the inn, up to the square
     { map = "route1", period = "day", path = { { 14.5, 25 }, { 14.5, 15 }, { 10.5, 15 }, { 10.5, 4 } } },
     { map = "westfall", period = "dusk", path = { { 11.5, 32 }, { 11.5, 23.5 }, { 20, 23.5 } } },
     { map = "darkshire", period = "night", path = { { 11.5, 19 }, { 11.5, 9.5 }, { 22, 9.5 } } },

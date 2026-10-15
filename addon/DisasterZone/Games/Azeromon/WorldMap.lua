@@ -33,7 +33,7 @@ W.PLACES = {
     { id = "elwynn", name = "Elwynn Forest", zone = "elwynn", kind = "route", x = 2, y = 3, maps = { "route1" },
       text = "Wolves, kobolds and owls between Goldshire and Westfall." },
     { id = "goldshire", name = "Goldshire", zone = "elwynn", kind = "town", x = 2, y = 4,
-      maps = { "town", "home", "lab", "post", "hideout" },
+      maps = { "town", "home", "lab", "post", "cottage", "hideout" },
       text = "Home: Huntmaster Aldric's lodge, the Lion's Pride Inn and the Guild Hall beneath it." },
     -- Stranglethorn Vale: the road south from Darkshire, down to Booty Bay
     { id = "rebelcamp", name = "The Rebel Camp", zone = "stv", kind = "route", x = 5, y = 2, maps = { "rebelcamp" },

@@ -65,7 +65,7 @@ def title(c):
 @case
 def learning_trades_from_the_goldshire_trainers():
     w, c = game()
-    c.eval("ns.Azero.save.money = 200 ns.Azero:EnterMap('town', 8, 4, 'up', true) ns.Azero:PressA()")
+    c.eval("ns.Azero.save.money = 200 ns.Azero:EnterMap('town', 14, 5, 'up', true) ns.Azero:PressA()")
     said = texts_until_choice(c)
     assert said and said[0].startswith("Alchemist Mallory:"), said
     opts = c.eval_py("return ns.Azero.pending.options")
@@ -80,7 +80,7 @@ def learning_trades_from_the_goldshire_trainers():
     c.eval("ns.Azero:Advance(2)")                                  # B: cancel
     texts_until_choice(c)
     # Smith Argus, across the road
-    c.eval("ns.Azero:EnterMap('town', 18, 18, 'up', true) ns.Azero:PressA()")
+    c.eval("ns.Azero:EnterMap('town', 23, 23, 'up', true) ns.Azero:PressA()")
     said = texts_until_choice(c)
     assert said[0].startswith("Smith Argus:") and c.eval_py("return ns.Azero.pending.options") == ["Learn Mining", "Learn Blacksmithing"]
     c.eval("ns.Azero:Advance(1)")
@@ -88,7 +88,7 @@ def learning_trades_from_the_goldshire_trainers():
     assert c.eval("return ns.AzeroCraft.Skill('mining')") == 1
     # two trades: a third means forgetting one
     assert c.eval_py("return { ns.AzeroCraft:Learn('alchemy') }") == [False, "You can only know two professions. Forget one first."]
-    c.eval("ns.Azero:EnterMap('town', 8, 4, 'up', true) ns.Azero:PressA()")
+    c.eval("ns.Azero:EnterMap('town', 14, 5, 'up', true) ns.Azero:PressA()")
     said = texts_until_choice(c)
     assert "You already know Herbalism and Mining. A tamer can only keep two trades." in said[-1], said
     assert c.eval_py("return ns.Azero.pending.options") == ["Forget Herbalism", "Forget Mining"]
@@ -126,11 +126,11 @@ def a_hint_shows_what_space_would_do_and_choices_fit():
     for _ in range(5):
         c.eval("ns.AzeroUI._HandleKey('A')")
         w.tick(0.2)
-    c.eval("ns.Azero:EnterMap('town', 19, 18, 'up', true)")         # the forge
+    c.eval("ns.Azero:EnterMap('town', 22, 21, 'up', true)")         # the forge
     w.tick(0.2)
     assert c.eval("return ns.AzeroUI._Hint()") == "Smelt at the forge"
     # a choice box is as wide as its longest option
-    c.eval("ns.Azero:EnterMap('town', 18, 18, 'up', true)")
+    c.eval("ns.Azero:EnterMap('town', 23, 23, 'up', true)")
     w.tick(0.2)
     c.eval("ns.AzeroUI._HandleKey('A')")
     for _ in range(10):
@@ -226,7 +226,7 @@ def smelting_at_a_forge_smithing_at_an_anvil_brewing_anywhere():
       G:EnterMap('route1', 10, 10, 'up', true)
       local away = { C:Craft(R.smeltcopper) }
       local brew = { C:Craft(R.minorhealing) }
-      G:EnterMap('town', 18, 18, 'up', true)
+      G:EnterMap('town', 21, 21, 'up', true)
       local smelt = { C:Craft(R.smeltcopper) }
       local stone = { C:Craft(R.roughsharpening) }
       local belt = { C:Craft(R.copperchainbelt) }                -- needs 10 skill
@@ -339,7 +339,7 @@ def the_professions_page_and_a_forge_through_the_ui():
     assert "Copper Ore 2/1" in c.eval("return ns.AzeroUI._DescText()") and "Needs a forge." in c.eval("return ns.AzeroUI._DescText()")
     key(w, c, "B", "B", "B")
     # the forge in Goldshire opens smelting, and crafting works there
-    c.eval("ns.Azero:EnterMap('town', 19, 18, 'up', true)")
+    c.eval("ns.Azero:EnterMap('town', 22, 21, 'up', true)")
     w.tick(0.2)
     key(w, c, "A")
     w.tick(0.2)

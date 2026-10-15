@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "launcher-ui",
+      "runtimeExecutable": "C:\\Users\\emilo\\CDLoot-dev\\dev\\luaenv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "8791", "--bind", "127.0.0.1", "--directory", "C:\\Users\\emilo\\CDLoot-dev\\launcher\\ui"],
+      "port": 8791
+    },
+    {
+      "name": "mockups",
+      "runtimeExecutable": "C:\\Users\\emilo\\CDLoot-dev\\dev\\luaenv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "8792", "--bind", "127.0.0.1", "--directory", "C:\\Users\\emilo\\CDLoot-dev\\dev\\art\\casc"],
+      "port": 8792
+    },
+    {
+      "name": "mockups-2",
+      "runtimeExecutable": "C:\\Users\\emilo\\CDLoot-dev\\dev\\luaenv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "8793", "--bind", "127.0.0.1", "--directory", "C:\\Users\\emilo\\CDLoot-dev\\dev\\art\\casc"],
+      "port": 8793
+    }
+  ]
+}

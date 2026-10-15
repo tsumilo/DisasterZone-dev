@@ -18,7 +18,7 @@ local Maps = {}
 ns.AzeroMaps = Maps
 
 Maps.START = { map = "home", x = 3, y = 3, face = "down" }
-Maps.RESPAWN = { map = "post", x = 4, y = 5, face = "up" }
+Maps.RESPAWN = { map = "post", x = 5, y = 4, face = "up" }
 
 ---------------------------------------------------------------------------
 -- Goldshire (town)
@@ -26,56 +26,72 @@ Maps.RESPAWN = { map = "post", x = 4, y = 5, face = "up" }
 
 Maps.town = {
     name = "Goldshire",
+    rev = 2,                -- 2: the bigger Goldshire (0.27); presence hides players on another revision (Net.lua)
     music = "forest",
     outdoor = true,
     rows = {
-        "TTTTTTTTTT==TTTTTTTTTT",
-        "T.........==.........T",
-        "T.........==.........T",
-        "T.........==.........T",
-        "T.........==.........T",
-        "T.........==.........T",
-        "T.........==.........T",
-        "T...===============..T",
-        "T...===============..T",
-        "T.........==.........T",
-        "T.........==....www..T",
-        "T.........==...wwwww.T",
-        "T.........==...wwwww.T",
-        "T.........==....www..T",
-        "T.........==.........T",
-        "T.........==.........T",
-        "T.........==.........T",
-        "T...========.........T",
-        "T...========.........T",
-        "TTTTTTTTTTTTTTTTTTTTTT",
+        "TTTTTTTTTTTTTTTT.==.TTTTTTTTTTTTTTTT",
+        "TTTTTTTTT...TTT..==..TTTTTTTTTTTTTTT",
+        "TTT..TT..........==...TTT...TTTTTTTT",
+        "T................==#####......TTTTTT",
+        "T................==#o.o#.......T..TT",
+        "T................==#.o.#...........T",
+        "TT...............==#o.o#...........T",
+        "TT...............==##.##...........T",
+        "T................==................T",
+        "T.....=.....=....==........==......T",
+        "T.....======.==========....==.....TT",
+        "T.....=======================.....TT",
+        "TTT.........=================.wwwwTT",
+        "TTTT........============.....wwwww.T",
+        "TTTT..........========.......wwwww.T",
+        "TTT..............==............ww..T",
+        "TTT..............==...............TT",
+        "T................==..............TTT",
+        "T................==..............TTT",
+        "T................==...............TT",
+        "T................==....g...........T",
+        "T................==....k...........T",
+        "TT...............==................T",
+        "TTT....=======================....TT",
+        "TTT....=======================.TTTTT",
+        "TTTT......TT............TT....TTTTTT",
+        "TTTTT....TTTT..........TTTT..TTTTTTT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
     },
+    -- the bigger Goldshire (0.27): new stamps from dev/generators/azeromon_buildings.py, placed so every prop keeps
+    -- a tile of grass round it (dev/tests/games/test_azeromon_goldshire.py checks it)
     stamps = {
-        { kind = "house", x = 2, y = 1 },       -- home, door (5, 6)
-        { kind = "house", x = 14, y = 1 },      -- Huntmaster Aldric's lodge, door (17, 6)
-        { kind = "house", x = 2, y = 11 },      -- the Lion's Pride Inn, door (5, 16)
-        { kind = "mailbox", x = 7, y = 5 },
-        { kind = "bigtree", x = 15, y = 14 },
+        { kind = "house", x = 3, y = 3 },       -- home, door (6, 8)
+        { kind = "house", x = 25, y = 3 },      -- Huntmaster Aldric's lodge, door (28, 8)
+        { kind = "cottage", x = 9, y = 3 },     -- the Maclures' cottage, door (12, 8)
+        { kind = "inn", x = 3, y = 15 },        -- the Lion's Pride Inn, double door (7..8, 22)
+        { kind = "stable", x = 12, y = 17 },    -- the inn's stable
+        { kind = "smithy", x = 24, y = 17 },    -- Smith Argus' smithy, open to the lane
+        { kind = "well", x = 20, y = 11 },      -- the well in the market square
+        { kind = "mailbox", x = 2, y = 10 },
+        { kind = "bigtree", x = 30, y = 18 },
     },
     signs = {
-        { x = 12, y = 9, text = "GOLDSHIRE\nElwynn Forest. Stormwind City lies to the north, Westfall to the west." },
-        { x = 13, y = 6, text = "HUNTMASTER ALDRIC'S LODGE\nBeast training for aspiring hunters of the Alliance." },
-        { x = 7, y = 15, text = "THE LION'S PRIDE INN\nRest your beasts. Brog Hamfist sells general goods inside." },
+        { x = 19, y = 9, text = "GOLDSHIRE\nElwynn Forest. Stormwind City lies to the north, Westfall to the west." },
+        { x = 30, y = 8, text = "HUNTMASTER ALDRIC'S LODGE\nBeast training for aspiring hunters of the Alliance." },
     },
     objects = {
-        { x = 9, y = 15, tile = "wantedboard", hint = "Read the bounty board", script = function(G) G:BountyBoard() end },   -- the bounty board (every town has one)
-        { x = 9, y = 3, tile = "alchemy", hint = "Brew at the alchemy table", script = function(G) G:CraftAt("alchemy") end },   -- Mallory's table
-        { x = 17, y = 17, tile = "anvil", station = "anvil", hint = "Smith at the anvil", script = function(G) G:CraftAt("blacksmithing") end },
-        { x = 19, y = 17, tile = "forge", station = "forge", hint = "Smelt at the forge", script = function(G) G:CraftAt("mining") end },
+        { x = 24, y = 9, tile = "wantedboard", hint = "Read the bounty board", script = function(G) G:BountyBoard() end },   -- the bounty board (every town has one)
+        { x = 15, y = 4, tile = "alchemy", hint = "Brew at the alchemy table", script = function(G) G:CraftAt("alchemy") end },   -- Mallory's table
+        { x = 22, y = 22, tile = "anvil", station = "anvil", hint = "Smith at the anvil", script = function(G) G:CraftAt("blacksmithing") end },
+        { x = 22, y = 20, tile = "forge", station = "forge", hint = "Smelt at the forge", script = function(G) G:CraftAt("mining") end },
     },
     warps = {
-        { x = 5, y = 6, map = "home", tx = 4, ty = 6, face = "up" },
-        { x = 17, y = 6, map = "lab", tx = 4, ty = 6, face = "up" },
-        { x = 5, y = 16, map = "post", tx = 4, ty = 6, face = "up" },
+        { x = 6, y = 8, map = "home", tx = 4, ty = 6, face = "up" },
+        { x = 28, y = 8, map = "lab", tx = 4, ty = 6, face = "up" },
+        { x = 12, y = 8, map = "cottage", tx = 4, ty = 6, face = "up" },
+        { x = 7, y = 22, map = "post", tx = 7, ty = 8, face = "up" },
+        { x = 8, y = 22, map = "post", tx = 7, ty = 8, face = "up" },
     },
-    edges = { north = { map = "route1", dx = 0 } },
+    edges = { north = { map = "route1", dx = -7 } },     -- the north road: Goldshire x 17-18 = Elwynn x 10-11
     npcs = {
-        { id = "guard", name = "Marshal Dughan", x = 12, y = 1, sprite = "bald", tint = { 0.55, 0.65, 1 }, face = "left",   -- Marshal Dughan
+        { id = "guard", name = "Marshal Dughan", x = 19, y = 1, sprite = "bald", tint = { 0.55, 0.65, 1 }, face = "left",   -- Marshal Dughan
           script = function(G)
               if G:Flag("starter") then
                   G:Say("Marshal Dughan: The road north runs through Elwynn Forest toward Westfall. Mind the tall grass, and keep an eye out for Hogger.")
@@ -84,23 +100,23 @@ Maps.town = {
                   G:Say("Marshal Dughan: Wolves, kobolds and worse lurk in the forest.\nNobody leaves Goldshire without a beast of their own.")
               end
           end },
-        { id = "farmer", name = "Maybell Maclure", x = 8, y = 12, sprite = "bald", tint = { 1, 0.85, 0.6 }, face = "down", wander = true,
+        { id = "farmer", name = "Maybell Maclure", x = 15, y = 13, sprite = "bald", tint = { 1, 0.85, 0.6 }, face = "down", wander = true,
           script = function(G)
               G:Say("Maybell Maclure: Huntmaster Aldric can tame anything, they say. His lodge is in the northeast.\nIf you see Tommy Joe Stonefield... never mind.")
           end },
-        { id = "mallory", name = "Alchemist Mallory", role = "profession", x = 8, y = 3, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "down",       -- Herbalism, Alchemy
+        { id = "mallory", name = "Alchemist Mallory", role = "profession", x = 14, y = 4, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "right",       -- Herbalism, Alchemy
           script = function(G) ns.AzeroCraft:TrainerTalk(G, "mallory") end },
-        { id = "argus", name = "Smith Argus", role = "profession", x = 18, y = 17, sprite = "bald", tint = { 0.85, 0.72, 0.6 }, face = "down",      -- Mining, Blacksmithing
+        { id = "argus", name = "Smith Argus", role = "profession", x = 23, y = 22, sprite = "bald", tint = { 0.85, 0.72, 0.6 }, face = "left",      -- Mining, Blacksmithing
           script = function(G) ns.AzeroCraft:TrainerTalk(G, "argus") end },
-        { id = "kid", name = "Billy Maclure", x = 14, y = 9, sprite = "hero", tint = { 1, 0.75, 0.75 }, face = "left", wander = true,
+        { id = "kid", name = "Billy Maclure", x = 21, y = 18, sprite = "hero", tint = { 1, 0.75, 0.75 }, face = "left", wander = true,
           script = function(G)
               G:Say("Billy Maclure: When I grow up I'm gonna tame a dragon whelp! Or a murloc! Mrgllglgl!")
           end },
     },
     triggers = {
-        { x = 10, y = 1, cond = function(G) return not G:Flag("starter") end,
+        { x = 17, y = 1, cond = function(G) return not G:Flag("starter") end,
           script = function(G) G:StopAtGuard() end },
-        { x = 11, y = 1, cond = function(G) return not G:Flag("starter") end,
+        { x = 18, y = 1, cond = function(G) return not G:Flag("starter") end,
           script = function(G) G:StopAtGuard() end },
     },
 }
@@ -122,7 +138,7 @@ Maps.home = {
         "ffffffffff",
         "WWWWrWWWWW",
     },
-    warps = { { x = 4, y = 7, map = "town", tx = 5, ty = 7, face = "down" } },
+    warps = { { x = 4, y = 7, map = "town", tx = 6, ty = 9, face = "down" } },
     npcs = {
         { id = "mom", name = "Mom", x = 6, y = 4, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "left",
           script = function(G)
@@ -135,6 +151,23 @@ Maps.home = {
               end
           end },
     },
+}
+
+Maps.cottage = {
+    name = "The Maclures' Cottage",
+    music = "tavern",
+    rows = {
+        "WWWWWWWWWW",
+        "WWWWWWWWWW",
+        "fbfbffffdf",
+        "ffffffffff",
+        "fffftfffff",
+        "ffffffffpf",
+        "pfffffffff",
+        "WWWWrWWWWW",
+    },
+    warps = { { x = 4, y = 7, map = "town", tx = 12, ty = 9, face = "down" } },
+    npcs = {},
 }
 
 local function PickStarter(G, sp)
@@ -185,7 +218,7 @@ Maps.lab = {
         "ffffffffff",
         "WWWWrWWWWW",
     },
-    warps = { { x = 4, y = 7, map = "town", tx = 17, ty = 7, face = "down" } },
+    warps = { { x = 4, y = 7, map = "town", tx = 28, ty = 9, face = "down" } },
     objects = {
         { x = 3, y = 4, tile = "chest", script = function(G) PickStarter(G, "emberwhelp") end },
         { x = 4, y = 4, tile = "chest", script = function(G) PickStarter(G, "murkling") end },
@@ -218,20 +251,24 @@ Maps.lab = {
 
 Maps.post = {
     name = "Lion's Pride Inn",
+    rev = 2,                -- 2: the bigger inn (0.27)
     music = "tavern",
+    -- 0.27: the bigger inn of the bigger Goldshire (two storeys outside; guests' beds by the windows)
     rows = {
-        "WWWWWWWWWW",
-        "WWWWWWWWWW",
-        "fffffLffff",
-        "fcccffcccf",
-        "ffffffffff",
-        "ffffffffff",
-        "pffffffffp",
-        "WWWWrWWWWW",
+        "WWWWWWWWWWWWWWWW",
+        "WWWWWWWWWWWWWWWW",
+        "ffffffffffLfbfbf",
+        "fccccccfffffffff",
+        "ffffffffffffffff",
+        "fftfftfftfffdfdf",
+        "ffffffffffffffff",
+        "fftfftfftfffffff",
+        "pfffffffffffffpf",
+        "WWWWWWWrWWWWWWWW",
     },
-    warps = { { x = 4, y = 7, map = "town", tx = 5, ty = 17, face = "down" },
-              { x = 5, y = 2, map = "hideout", tx = 17, ty = 31, face = "up" } },           -- the Guild Hall below
-    signs = { { x = 6, y = 2, text = "THE GUILD HALL\nDown the stairs: the guild's raid trophies and its champions." } },
+    warps = { { x = 7, y = 9, map = "town", tx = 7, ty = 23, face = "down" },
+              { x = 10, y = 2, map = "hideout", tx = 17, ty = 31, face = "up" } },          -- the Guild Hall below
+    signs = { { x = 9, y = 2, text = "THE GUILD HALL\nDown the stairs: the guild's raid trophies and its champions." } },
     npcs = {
         { id = "healer", name = "Innkeeper Farley", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.8, 0.85 }, face = "down",
           script = function(G)
@@ -239,25 +276,25 @@ Maps.post = {
               G:ClassSay("farley")
               if G:YesNo("Innkeeper Farley: Shall I give your beasts a warm meal and a place by the fire?") then
                   G:HealParty()
-                  G:SetRespawn("post", 4, 5, "up", "the Lion's Pride Inn")
+                  G:SetRespawn("post", 5, 4, "up", "the Lion's Pride Inn")
                   G:Say("Innkeeper Farley: Your beasts are fighting fit! Come back anytime.")
               else
                   G:Say("Innkeeper Farley: Come back anytime.")
               end
           end },
-        { id = "clerk", name = "Brog Hamfist", role = "shop", x = 7, y = 2, sprite = "bald", tint = { 0.7, 1, 0.7 }, face = "down",
+        { id = "clerk", name = "Brog Hamfist", role = "shop", x = 5, y = 2, sprite = "bald", tint = { 0.7, 1, 0.7 }, face = "down",
           script = function(G)
               G:Say("Brog Hamfist: Welcome! Potions, rods, the finest goods in Goldshire. And I buy, too.")
               G:Shop("Brog Hamfist")
               G:Say("Brog Hamfist: Come again!")
           end },
-        { id = "erma", name = "Erma", role = "stable", x = 8, y = 5, sprite = "girl", tint = { 0.85, 0.95, 0.75 }, face = "left",      -- stable master
+        { id = "erma", name = "Erma", role = "stable", x = 13, y = 6, sprite = "girl", tint = { 0.85, 0.95, 0.75 }, face = "left",      -- stable master
           script = function(G)
               G:Say("Erma: Stable Master Erma, at your service. I'll mind any beasts you can't take along.")
               G:Stable()
               G:Say("Erma: They'll be well looked after. Come back anytime.")
           end },
-        { id = "pettrainer", name = "Gorvin Wildhammer", role = "pettrainer", x = 1, y = 5, sprite = "bald", tint = { 0.86, 0.66, 0.46 }, face = "right",
+        { id = "pettrainer", name = "Gorvin Wildhammer", role = "pettrainer", x = 11, y = 7, sprite = "bald", tint = { 0.86, 0.66, 0.46 }, face = "right",
           script = function(G)
               local who = "Gorvin Wildhammer: "
               G:Say(who .. "Pet trainer, down from Aerie Peak. Wildhammers raise gryphons; beasts I understand.")
@@ -389,7 +426,7 @@ Maps.route1 = {
         "T.........==.........T",
         "TTTTTTTTTT==TTTTTTTTTT",
     },
-    edges = { south = { map = "town", dx = 0 }, north = { map = "westfall", dx = 1 }, west = { map = "forestedge", dy = 4 } },
+    edges = { south = { map = "town", dx = 7 }, north = { map = "westfall", dx = 1 }, west = { map = "forestedge", dy = 4 } },
     triggers = {
         { x = 10, y = 1, cond = function(G) return not G:Flag("badge_hogger") end, script = function(G) G:HoggerGate() end },
         { x = 11, y = 1, cond = function(G) return not G:Flag("badge_hogger") end, script = function(G) G:HoggerGate() end },

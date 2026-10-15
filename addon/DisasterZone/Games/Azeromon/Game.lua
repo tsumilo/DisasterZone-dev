@@ -80,14 +80,17 @@ local STAMP_SIZE = { house = { 5, 6 }, farmhouse = { 5, 6 }, stonehouse = { 5, 6
                      ruinhouse = { 5, 6 }, mineentrance = { 3, 2 }, mast = { 1, 3 }, darkhouse = { 5, 6 },
                      dbigtree = { 3, 3 }, jbigtree = { 3, 3 }, bbhouse = { 5, 6 }, hut = { 3, 3 }, totem = { 1, 2 },
                      banner = { 1, 2 }, bannerblue = { 1, 2 }, window = { 1, 2 }, crest = { 2, 2 }, pillar = { 1, 2 },
-                     fireplace = { 2, 2 }, throne = { 2, 1 }, rrhouse = { 5, 6 } }
+                     fireplace = { 2, 2 }, throne = { 2, 1 }, rrhouse = { 5, 6 },
+                     -- the bigger Goldshire (0.27, dev/generators/azeromon_buildings.py)
+                     inn = { 9, 8 }, smithy = { 5, 6 }, cottage = { 5, 6 }, stable = { 5, 6 }, well = { 2, 3 } }
 local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true, darkhouse = true, bbhouse = true,
-                 rrhouse = true }
+                 rrhouse = true, cottage = true }
 -- the walkable doorway tile of a stamp (dx, dy), if it has one
 local function IsDoor(kind, dx, dy)
     if HOUSES[kind] then return dx == 3 and dy == 5 end
     if kind == "mineentrance" then return dx == 1 and dy == 1 end
     if kind == "hut" then return dx == 1 and dy == 2 end
+    if kind == "inn" then return (dx == 4 or dx == 5) and dy == 7 end      -- the Lion's Pride's double door
     return false
 end
 -- Map themes swap the outdoor tile set. Westfall: dry golden grass, wheat for tall grass, olive trees.
@@ -329,11 +332,26 @@ function G:NewGame()
 end
 
 -- Validates the save (unknown species / maps are dropped), then enters the saved map.
+-- Saves from before the bigger Goldshire (0.27) hold spots on the old, smaller town and inn: a player standing in
+-- Goldshire goes to the Lion's Pride's door, one inside the inn to its new doorway, and an inn revive point to the
+-- new spot by the bar.
+function G.MigrateGoldshire(s)
+    if s.map == "town" then
+        s.x, s.y, s.face = 7, 23, "down"
+    elseif s.map == "post" then
+        s.x, s.y, s.face = 7, 8, "up"
+    end
+    if type(s.respawn) == "table" and s.respawn.map == "post" then
+        s.respawn.x, s.respawn.y, s.respawn.face = 5, 4, "up"
+    end
+end
+
 function G:Load()
     self.co, self.pending = nil, nil
     self:RestoreUndo()
     local s = self:Data().save
     self.save = s
+    if (tonumber(s.v) or 1) < 2 then G.MigrateGoldshire(s) end
     s.v = D.SAVE_VERSION
     local function clean(list)
         local out = {}

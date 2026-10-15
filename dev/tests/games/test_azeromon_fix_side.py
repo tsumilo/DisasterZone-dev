@@ -183,7 +183,7 @@ def the_trainer_forgets_the_old_trade_only_once_the_new_one_is_paid():
     c.eval("ns.Azero.save.prof = { herbalism = 40, mining = 30 } ns.Azero.save.money = 200")
 
     def to_learn_choice():
-        c.eval("ns.Azero:EnterMap('town', 8, 4, 'up', true) ns.Azero:PressA()")
+        c.eval("ns.Azero:EnterMap('town', 14, 5, 'up', true) ns.Azero:PressA()")
         texts_until_choice(c)
         assert c.eval_py("return ns.Azero.pending.options") == ["Forget Herbalism", "Forget Mining"]
         c.eval("ns.Azero:Advance(2)")                                  # Forget Mining

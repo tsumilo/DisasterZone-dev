@@ -36,6 +36,7 @@ import gen_azeromon_hall as hall  # noqa: E402
 import azeromon_battle as battle  # noqa: E402
 import azeromon_blp  # noqa: E402
 import azeromon_blackrock_art as blackrock_art  # noqa: E402
+import azeromon_buildings  # noqa: E402
 
 ADDON = os.path.join(os.path.dirname(DEV), "addon", "DisasterZone")
 MEDIA = os.path.join(ADDON, "Media", "Azeromon")
@@ -664,10 +665,14 @@ def lights(m, atlas):
             if lt:
                 out.append((x * 16 + lt[0], y * 16 + lt[1], lt[2], lt[3], 0))
     for s in m["stamps"]:
-        if "house" not in s["kind"]:
+        fx, fy = azeromon_buildings.FORGE.get(s["kind"], (None, None))
+        if fx is not None:                                   # the smithy's forge, glowing inside its open front
+            out.append((s["x"] * 16 + fx, s["y"] * 16 + fy, 30, 1, 0))
+        if "house" not in s["kind"] and s["kind"] not in ("inn", "cottage", "stable"):
             continue
-        for dy in range(6):
-            for dx in range(5):
+        sw, sh = azeromon_buildings.SIZE.get(s["kind"], (5, 6))
+        for dy in range(sh):
+            for dx in range(sw):
                 t_ = atlas.tile("%s_%d_%d" % (s["kind"], dx, dy))
                 if t_ is None:
                     continue

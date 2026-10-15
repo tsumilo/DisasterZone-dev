@@ -155,7 +155,7 @@ def people_stand_on_a_shadow():
 
 @case
 def the_pond_moves_and_life_goes_on_around_it():
-    w, c = play("town", 17, 12)
+    w, c = play("town", 27, 13)
     st = lambda: c.eval_py("return ns.AzeroUI._Ambient()")
     a = st()
     assert a["water"] and a["water"][0].endswith("town_w1"), a
@@ -182,9 +182,9 @@ def a_map_without_a_baked_ground_has_no_ambient():
 
 @case
 def a_road_at_the_edge_carries_on_into_the_forest():
-    w, c = play("town", 10, 0)                      # Goldshire's north road (columns 10 and 11) leaves the map
+    w, c = play("town", 17, 0)                      # Goldshire's north road (columns 17 and 18) leaves the map
     over = lambda i, j: c.eval("return ns.AzeroUI._OverAt(%d, %d)" % (i, j))
-    # view cell i shows column fx - floor(HX) - 1 + i = i + 3 (HX = 6.5): the road (10, 11) is cells 7 and 8; rows 1-4
+    # view cell i shows column fx - floor(HX) - 1 + i = i + 10 (HX = 6.5): the road (17, 18) is cells 7 and 8; rows 1-4
     # are past the edge
     for j in (1, 2, 3, 4):
         assert not over(7, j) and not over(8, j), (j, over(7, j), over(8, j))

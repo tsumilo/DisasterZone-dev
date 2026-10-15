@@ -68,13 +68,13 @@ def log(c):
 @case
 def the_stairs_under_the_inn_lead_to_the_hall_and_back():
     w, c = game()
-    c.eval("ns.Azero:EnterMap('post', 5, 3, 'up', true)")
+    c.eval("ns.Azero:EnterMap('post', 10, 3, 'up', true)")
     c.eval("T_AZ.step('up')")
     where = c.eval_py("local s = ns.Azero.save return { s.map, s.x, s.y }")
     assert where == ["hideout", 17, 31], where
     c.eval("T_AZ.step('down')")
     where = c.eval_py("local s = ns.Azero.save return { s.map, s.x, s.y }")
-    assert where == ["post", 5, 3], where
+    assert where == ["post", 10, 3], where
     assert c.eval_py("return ns.AzeroWorld.PlaceOf('hideout').id") == "goldshire"
     no_errors(w)
 

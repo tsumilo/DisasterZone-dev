@@ -83,7 +83,7 @@ def selling_takes_the_goods_and_pays():
 def selling_through_the_shop_screen():
     w, c = game(ui=True)
     c.eval("ns.Azero.save.bag = { copperbar = 4, peacebloom = 1 } ns.Azero.save.money = 0")
-    c.eval("ns.Azero:EnterMap('post', 7, 3, 'up', true)")
+    c.eval("ns.Azero:EnterMap('post', 5, 3, 'up', true)")
     key(w, c, "A")                                             # Brog Hamfist
     for _ in range(10):
         if title(c) == "BROG HAMFIST":
