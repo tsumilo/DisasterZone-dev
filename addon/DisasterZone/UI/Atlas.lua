@@ -80,6 +80,17 @@ local CAT_ICON = {
     sets = "Interface\\Icons\\INV_Chest_Plate03",
 }
 local CAT_ICON_DEFAULT = "Interface\\Icons\\INV_Misc_Book_09"
+-- A Classic place's own dungeon-finder icon (LFGIcon-*, FileDataIDs; the TBC ones come from the raid meta and the
+-- dungeon complexes). A place without one (Alterac Valley) shows its category's.
+CAT_ICON.places = {
+    MoltenCore = 136346, Onyxia = 329121, BlackwingLair = 136329, ZulGurub = 136369, AQ20 = 136320, AQ40 = 136321,
+    Naxxramas = 136347, Ragefire = 136350, WailingCaverns = 136364, Deadmines = 136332, ShadowfangKeep = 136357,
+    Stockade = 136358, BlackfathomDeeps = 136325, RazorfenKraul = 136353, Gnomeregan = 136336, SMGraveyard = 136354,
+    SMLibrary = 136354, SMArmory = 136354, SMCathedral = 136354, RazorfenDowns = 136352, Uldaman = 136363,
+    ZulFarrak = 136368, Maraudon = 136345, SunkenTemple = 136360, BlackrockDepths = 136326, LBRS = 136327,
+    UBRS = 136327, DireMaulEast = 136333, DireMaulWest = 136333, DireMaulNorth = 136333, Scholomance = 136355,
+    Stratholme = 136359, WarsongGulch = 136365, ArathiBasin = 136322,
+}
 
 local panel, layout, searchBox, grid, hero, chipsRow, curBar, toast
 local state = {
@@ -710,7 +721,15 @@ end
 local function SourceIcon(src, cat)
     local prof = ProfessionOf(src)
     if prof and prof.icon then return prof.icon end
-    if type(src) == "table" and src.kind == "raid" then
+    if type(src) ~= "table" then return CatIcon(cat) end
+    if type(cat) == "table" and cat.era == "classic" and CAT_ICON.places[src.key] then return CAT_ICON.places[src.key] end
+    if src.kind == "dungeon" then
+        -- a TBC dungeon: its complex's (Hellfire Citadel, Coilfang, Auchindoun ...)
+        local R = ns.DungeonRuns
+        local d = R and R.GetDungeon and R:GetDungeon(src.key)
+        if d and d.complex and d.complex.icon then return d.complex.icon end
+    end
+    if src.kind == "raid" then
         local DB = ns.ItemDB
         local key = DB and DB.GetRaidByInstance and DB:GetRaidByInstance(src.instanceID or 0)
         local m = key and DB.GetRaidMeta and DB:GetRaidMeta(key)
