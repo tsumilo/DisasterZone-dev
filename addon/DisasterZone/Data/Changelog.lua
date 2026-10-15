@@ -6,6 +6,17 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.5.1", date = "October 2026", title = "Walking together",
+      sections = {
+          { heading = "Walking together in 3D", area = "raids", kind = "changed", hi = true, open = "strategies",
+            lead = "The others walking in a strategy's room stay where they really are, as themselves.", lines = {
+              "No more snapping: they run down the steps and stop at walls just as they really do.",
+              "Turns, strafing, backing off and jumps show as they happen.",
+              "Positions never wait in a queue, so what you see is never seconds old.",
+              "Their own race, sex and gear (helm and cloak only when shown).",
+              "/dz 3d looks npc: walkers of the other sex as a dressed NPC of their race.",
+          } },
+      } },
     { version = "1.5.0", date = "15 October 2026", title = "Groups, UI profiles and key binds",
       sections = {
           { heading = "Groups", area = "raids", kind = "new", hi = true, open = "dungeons",

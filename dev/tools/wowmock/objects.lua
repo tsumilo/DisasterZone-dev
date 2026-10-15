@@ -1304,12 +1304,22 @@ function ActorMethods:Tick()
     if self.onLoaded then self.onLoaded(self) end
   end
 end
-function ActorMethods:SetModelByCreatureDisplayID(id)
+function ActorMethods:SetModelByCreatureDisplayID(id, custom)
+  self.unit, self.customLooks, self.worn = nil, custom, {}
   local slow = rawget(_G, "__MOCK_SLOW_DISPLAY")
   self.pending, self.loadAt = id, Now() + ((slow == id) and 12 or MOCK_ACTOR_LOAD_TIME)
   self.modelRequests = (self.modelRequests or 0) + 1
   return true
 end
+-- a character by unit: loads like a display; what it wears is recorded (Undress / TryOn) for the tests
+function ActorMethods:SetModelByUnit(unit, sheathe, autoDress, hideWeapons, nativeForm, holdBow, customRace)
+  self.pending, self.loadAt = 900000, Now() + MOCK_ACTOR_LOAD_TIME
+  self.unit, self.customRace, self.worn = unit, customRace, {}
+  self.modelRequests = (self.modelRequests or 0) + 1
+  return true
+end
+function ActorMethods:Undress() self.worn = {} end
+function ActorMethods:TryOn(item, hand) self.worn = self.worn or {}; self.worn[#self.worn + 1] = { item, hand } end
 function ActorMethods:SetModelByFileID(id) self.display, self.pending, self.fileID = nil, nil, id return true end
 function ActorMethods:ClearModel() self.display, self.pending = nil, nil end
 function ActorMethods:IsLoaded() self:Tick() return self.display ~= nil end

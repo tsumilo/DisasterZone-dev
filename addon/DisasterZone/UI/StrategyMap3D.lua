@@ -77,6 +77,16 @@ local RACE_DISPLAY = { Human = { 49, 50 }, Orc = { 51, 52 }, Dwarf = { 53, 54 },
 local RACE_LOOK = { [49] = 3167, [50] = 5444, [51] = 4259, [52] = 5706, [53] = 3524, [54] = 3041, [55] = 1542,
                     [56] = 2306, [57] = 7117, [58] = 8190, [59] = 2141, [60] = 5487, [1563] = 7028, [1564] = 3067,
                     [1478] = 3608, [1479] = 3999, [15476] = 16701, [15475] = 15530, [16125] = 17372, [16126] = 16785 }
+-- How a walker looks to the others (SWL, Core/StrategyCollab.lua): their race id -> RACE_DISPLAY's key, and the slots
+-- whose gear shows on a body (no neck, rings, trinkets).
+local RACE_FILE = { [1] = "Human", [2] = "Orc", [3] = "Dwarf", [4] = "NightElf", [5] = "Scourge", [6] = "Tauren",
+                    [7] = "Gnome", [8] = "Troll", [10] = "BloodElf", [11] = "Draenei" }
+local LOOK_SLOTS = { 1, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 18, 19 }
+local HAND_SLOT = { [16] = "MAINHANDSLOT", [17] = "SECONDARYHANDSLOT" }
+-- The others between their words: run on by the room's walker from where their last word put them, with the keys it
+-- said they held, for at most REMOTE_RUN s (then they stand); a new word's guess drawn from where they were drawn,
+-- the gap closing over about 1 / REMOTE_EASE s; one more than REMOTE_SNAP yd off (or 4 yd up or down) is put there.
+local REMOTE_RUN, REMOTE_EASE, REMOTE_SNAP = 3, 7, 6
 
 -- Floor marks (yd over the floor, so they never sink into it), posts (yd)
 local LIFT, LIFT_HATCH, LIFT_SEL = 0.08, 0.06, 0.11
@@ -1731,6 +1741,20 @@ ns:RegisterSlash("3d", function(rest)
         end
         return
     end
+    if cmd == "looks" then
+        if arg == "custom" or arg == "npc" then
+            M3.walkLooks = arg
+            local cv = _G.DisasterZoneStrategyBoard and _G.DisasterZoneStrategyBoard.canvas
+            if cv and cv.v3 then
+                for _, a in pairs(cv.v3.walkers) do a.look = nil end
+            end
+            ns:Print("Walkers of the other sex are drawn as: %s.", arg == "npc" and "a dressed NPC of their race"
+                or "their race with their gear on")
+        else
+            ns:Print("/dz 3d looks custom | npc - how walkers of the other sex are drawn.")
+        end
+        return
+    end
     if cmd == "probe" then
         -- the render probe (Render3D/Probe.lua): what this client's model scenes can do, for the depth design
         local probe = ns.Render3D and ns.Render3D.Probe
@@ -1742,7 +1766,8 @@ ns:RegisterSlash("3d", function(rest)
         return
     end
     M3:Report()
-end, "the 3D strategy board's models (what the client says of them); centre <active|max|geo|off>; "
+end, "the 3D strategy board's models (what the client says of them); centre <active|max|geo|off>; looks "
+    .. "<custom|npc>; "
     .. "probe [safe/only <key>/results/reset/clear] - the render probe; standins [on/off/debug/flag/budget] - the "
     .. "stand-in depth mode")
 
@@ -2388,28 +2413,89 @@ function V:WalkKey(key, down)
     return true
 end
 
--- Where I walk, to the others who have this strategy open (Core/StrategyCollab.lua SWK): at once when I start,
--- start or stop running, jump, land or turn more than 20 degrees (no faster than 4 a second), else once a second
--- while I move and every 2 s while I stand.
+-- A walker (R3.NewWalker) standing as a word says: feet at (x, y, z) facing f, in the air with upward speed vz and
+-- speed over the ground fvx, fvy when falling.
+local function SimFrom(ground, fl, x, y, z, f, falling, vz, fvx, fvy)
+    local k = R3().NewWalker(ground, fl.w, fl.h, x, y, z + 0.05, f)
+    if falling then
+        k.z, k.falling, k.vz, k.fvx, k.fvy = z, true, vz or 0, fvx or 0, fvy or 0
+    elseif abs(k.z - z) > 1.5 then
+        k.z = z                                   -- (no ground under the word's feet: kept where it said)
+    end
+    return k
+end
+
+-- Runs a walker on for dt s with keys fwd, strafe held, turning w rad/s (as Walker:Step's keyboard turn does), in
+-- steps of at most 1/30 s.
+local function RunSim(k, dt, fwd, strafe, w)
+    if fwd == 0 and strafe == 0 and w == 0 and not k.falling then
+        k.moving, k.backward, k.bodyTurn, k.vx, k.vy = false, false, 0, 0, 0
+        return
+    end
+    local left = min(dt, REMOTE_RUN)
+    while left > 1e-6 do
+        local st = min(left, 1 / 30)
+        if w ~= 0 then k.facing = k.facing + w * st end
+        k:Step(st, fwd, strafe, 0, false)
+        left = left - st
+    end
+end
+
+local function Turned(a, b) return abs((a - b + pi) % (2 * pi) - pi) end
+
+-- How I look, for the others (Collab:SendWalkLook): race id, sex, the gear that shows (the helm and cloak only when
+-- shown), weapon enchants.
+local function MyLook()
+    local _, _, rc = UnitRace("player")
+    local g, en = {}, {}
+    for _, slot in ipairs(LOOK_SLOTS) do
+        local hidden = (slot == 1 and ShowingHelm and not ShowingHelm())
+            or (slot == 15 and ShowingCloak and not ShowingCloak())
+        local link = not hidden and GetInventoryItemLink and GetInventoryItemLink("player", slot)
+        local id, e = link and link:match("item:(%d+):?(%d*)")
+        if id then
+            g[slot] = tonumber(id)
+            e = tonumber(e)
+            if HAND_SLOT[slot] and e and e > 0 then en[slot] = e end
+        end
+    end
+    return { rc = rc or 1, sx = UnitSex("player") == 3 and 3 or 2, g = g, en = en }
+end
+
+-- Where I walk, to the others who have this strategy open (Core/StrategyCollab.lua SWK): the keys I hold and how fast
+-- I turn, so they run me on as I go. A word goes out when those change, start or stop running, jump or land, when
+-- what they guess (wk.ghost: my last word run on the same way) drifts more than 0.6 yd or 15 degrees from me, else
+-- every 1.5 s while I move and every 3 s while I stand; never faster than the budget lets (Collab:SendWalk says no:
+-- asked again next frame). How I look goes before it when due (Collab:WalkLookDue).
 function V:ShareWalk()
     local C = ns.StrategyCollab
     local wk = self.walk
     if not (C and C.SendWalk and wk) then return end
     local k, now = wk.k, GetTime()
+    if C.WalkLookDue and C:WalkLookDue() then C:SendWalkLook(MyLook()) end
     local s = (k.moving and 1 or 0) + (k.backward and 2 or 0) + (k.falling and 4 or 0) + (k.swimming and 8 or 0)
+    local i = ((wk.inFwd or 0) + 1) * 3 + (wk.inStrafe or 0) + 1
+    local tr = wk.turnRate or 0
     local since = now - (wk.sentAt or -10)
-    local turned = wk.sentF and abs((k.facing - wk.sentF + pi) % (2 * pi) - pi) > 0.35
-    if not ((since >= 0.25 and (s ~= wk.sentS or turned)) or (since >= 1 and (k.moving or k.falling)) or since >= 2) then
-        return
-    end
+    if since < 0.1 then return end
+    local g = wk.ghost
+    local drift = not g or (g.x - k.x) ^ 2 + (g.y - k.y) ^ 2 > 0.36 or abs(g.z - k.z) > 1
+        or Turned(g.facing, k.facing) > 0.26
+    local changed = s ~= wk.sentS or i ~= wk.sentI or abs(tr - (wk.sentTr or 0)) > 0.5
+    if not (changed or drift or (since >= 1.5 and (k.moving or k.falling or tr ~= 0)) or since >= 3) then return end
     if not wk.look then
         local _, race = UnitRace("player")
         local t = race and RACE_DISPLAY[race]
         wk.look = t and t[UnitSex("player") == 3 and 2 or 1] or 49
     end
-    C:SendWalk({ r = self.room.floor, x = k.x, y = k.y, z = k.z, f = k.facing, vx = k.vx or 0, vy = k.vy or 0, s = s,
-                 d = wk.look })
-    wk.sentAt, wk.sentS, wk.sentF = now, s, k.facing
+    if not C:SendWalk({ r = self.room.floor, x = k.x, y = k.y, z = k.z, f = k.facing, vx = k.vx or 0, vy = k.vy or 0,
+                        s = s, d = wk.look, i = i, tr = tr, vz = k.falling and k.vz or nil }) then
+        return
+    end
+    wk.sentAt, wk.sentS, wk.sentI, wk.sentTr = now, s, i, tr
+    local r3 = R3()
+    wk.ghost = SimFrom(r3.Ground(self.room), r3.Floor(self.room), k.x, k.y, k.z, k.facing, k.falling, k.vz, k.fvx,
+                       k.fvy)
 end
 
 -- The others walking in this room (Core/StrategyCollab.lua), or {}.
@@ -2439,15 +2525,91 @@ local function GroupUnit(key)
     return nil
 end
 
--- The others walking here, drawn: where they are now (from their last word and speed, at most 2.5 s on, eased there
--- so a new word never makes them jump), looking as they do (in my group: their own character), running or standing,
--- their name over them in their class colour; each an occluder. -> n with theirs added to occ.
+-- A member the client can draw as they are, by key: their unit in my group ("raid3", "party1") or my target, focus or
+-- mouseover, while the client sees them (else it draws a white, untextured body); or nil.
+local function SeenUnit(key)
+    local Util = ns.Util
+    if not (Util and Util.UnitKey) then return nil end
+    local u = GroupUnit(key)
+    if u and UnitIsVisible and UnitIsVisible(u) then return u end
+    for _, o in ipairs({ "target", "focus", "mouseover" }) do
+        if UnitExists(o) and UnitIsPlayer(o) and Util.UnitKey(o) == key and UnitIsVisible and UnitIsVisible(o) then
+            return o
+        end
+    end
+    return nil
+end
+
+-- Puts on a walker's gear (SWL look) over the body it has.
+local function Dress(a, lk)
+    pcall(a.Undress, a)
+    for _, slot in ipairs(LOOK_SLOTS) do
+        local id = lk.g[slot]
+        if id then
+            local e = lk.en[slot]
+            pcall(a.TryOn, a, "item:" .. id .. (e and (":" .. e) or ""), HAND_SLOT[slot])
+        end
+    end
+end
+
+-- A walker's body: as the client sees them when it does (SeenUnit); else, from how they said they look (SWL), my own
+-- character turned into their race with their gear on when we are the same sex (SetModelByUnit's custom race), their
+-- race's bare body with my looks and their gear on when not (M3.walkLooks "npc": a dressed NPC of their race and sex
+-- instead); before that a dressed NPC of their race and sex (RACE_LOOK). The gear goes on again once the model loaded.
+function V:DressWalker(a, rw)
+    local unit, lk = SeenUnit(rw.key), rw.look
+    local key, how
+    if unit then
+        key, how = "u:" .. unit, "unit"
+    elseif lk and lk.sx == UnitSex("player") then
+        key, how = "p:" .. lk.sig, "player"
+    elseif lk and M3.walkLooks ~= "npc" and RACE_DISPLAY[RACE_FILE[lk.rc] or ""] then
+        key, how = "c:" .. lk.sig, "custom"
+    else
+        local t = lk and RACE_DISPLAY[RACE_FILE[lk.rc] or ""]
+        local d = t and t[lk.sx == 3 and 2 or 1] or rw.d
+        key, how = "d:" .. tostring(RACE_LOOK[d] or d or RACE_LOOK[49]), "npc"
+        a.pending = RACE_LOOK[d] or d or RACE_LOOK[49]
+    end
+    if a.look == key then
+        if a.dressLook and a.loadedOnce then
+            Dress(a, a.dressLook)
+            a.dressLook = nil
+        end
+        return
+    end
+    a.look, a.loadedOnce, a.dressLook, a.how = key, nil, nil, how
+    pcall(a.ClearModel, a)
+    if how == "unit" then
+        pcall(a.SetModelByUnit, a, unit)
+    elseif how == "player" then
+        local _, _, mine = UnitRace("player")
+        pcall(a.SetModelByUnit, a, "player", false, false, false, true, false, lk.rc ~= mine and lk.rc or nil)
+        Dress(a, lk)
+        a.dressLook = lk
+    elseif how == "custom" then
+        local t = RACE_DISPLAY[RACE_FILE[lk.rc]]
+        pcall(a.SetModelByCreatureDisplayID, a, t[lk.sx == 3 and 2 or 1], true)
+        Dress(a, lk)
+        a.dressLook = lk
+    else
+        pcall(a.SetModelByCreatureDisplayID, a, a.pending)
+    end
+    pcall(a.SetUseCenterForOrigin, a, false, false, false)
+    pcall(a.SetScale, a, 1)
+end
+
+-- The others walking here, drawn: run on between their words by the room's own walker with the keys they hold
+-- (stopped by walls, up and down the steps as they are), a new word's guess eased in from where they were drawn (so
+-- it never makes them jump), looking as they do (DressWalker), running, strafing, backing, swimming or falling as
+-- their walker does, their name over them in their class colour; each an occluder. -> n with theirs added to occ.
 function V:DrawWalkers(occ, n)
     local now = GetTime()
     local dt = min(0.25, now - (self.walkersAt or now))
     self.walkersAt = now
-    local seen, ground = {}, R3().Ground(self.room)
-    for _, rw in ipairs(self:RemoteWalkers()) do
+    local r3 = R3()
+    local seen, ground, fl = {}, r3.Ground(self.room), r3.Floor(self.room)
+    for _, rw in ipairs(ground and fl and self:RemoteWalkers() or {}) do
         local a = self.walkers[rw.key]
         if not a then
             -- (a pool of their own: an actor shared with the bosses' kept their scale and centre, and lost Hydross)
@@ -2455,50 +2617,66 @@ function V:DrawWalkers(occ, n)
             if a then
                 a.look, a.display, a.anim, a.bb, a.wx, a.wy, a.wf = nil, nil, nil, nil, nil, nil, nil
                 a.scale, a.ctr, a.ctrMode, a.box, a.partIds = 1, nil, nil, nil, nil
+                a.sim, a.n, a.dressLook, a.pending = nil, nil, nil, nil
                 self.walkers[rw.key] = a
             end
         end
         if a then
             seen[rw.key] = true
-            -- (their own character only while the client can see them: else it draws a white, untextured body)
-            local unit = GroupUnit(rw.key)
-            if unit and not (UnitIsVisible and UnitIsVisible(unit)) then unit = nil end
-            local look = unit or RACE_LOOK[rw.d] or rw.d or RACE_LOOK[49]
-            if a.look ~= look then
-                a.look = look
-                pcall(a.ClearModel, a)
-                if unit then pcall(a.SetModelByUnit, a, unit) else pcall(a.SetModelByCreatureDisplayID, a, look) end
-                pcall(a.SetUseCenterForOrigin, a, false, false, false)
-                pcall(a.SetScale, a, 1)
-            end
-            -- (on from their speed only while they run or fall: a member on an older version sends the speed they
-            -- stopped with, and was drawn sliding on, then snapping back at their next word)
-            local falling, swimming = floor(rw.s / 4) % 2 == 1, floor(rw.s / 8) % 2 == 1
-            local t = (rw.s % 2 == 1 or falling) and min(rw.age, 2.5) or 0
-            local px, py = rw.x + rw.vx * t, rw.y + rw.vy * t
-            if not a.wx or (px - a.wx) ^ 2 + (py - a.wy) ^ 2 > 100 then
-                a.wx, a.wy = px, py
+            self:DressWalker(a, rw)
+            local k = a.sim
+            if a.n ~= rw.n or not k then
+                -- a new word: where it says they are now, run on from when they sent it
+                a.n = rw.n
+                local falling = floor(rw.s / 4) % 2 == 1
+                local fwd, strafe, w, adj = 0, 0, rw.w or 0, 0
+                local f = rw.f
+                if rw.i then
+                    fwd, strafe = floor(rw.i / 3) - 1, rw.i % 3 - 1
+                elseif rw.s % 2 == 1 and (rw.vx ~= 0 or rw.vy ~= 0) then
+                    -- (an older version says only its speed: run on that way, faced as it says)
+                    fwd, w = 1, 0
+                    f = atan2(rw.vy, rw.vx)
+                    adj = rw.f - f
+                end
+                k = SimFrom(ground, fl, rw.x, rw.y, rw.z, f, falling, rw.vz, rw.vx, rw.vy)
+                RunSim(k, min(rw.age, REMOTE_RUN), fwd, strafe, w)
+                if a.sim and a.wx then
+                    local ox, oy, oz = a.wx - k.x, a.wy - k.y, a.wz - k.z
+                    if ox * ox + oy * oy > REMOTE_SNAP * REMOTE_SNAP or abs(oz) > 4 then
+                        a.ox, a.oy, a.oz, a.of = 0, 0, 0, 0
+                    else
+                        a.ox, a.oy, a.oz = ox, oy, oz
+                        a.of = (a.wface - (k.facing + adj) + pi) % (2 * pi) - pi
+                    end
+                else
+                    a.ox, a.oy, a.oz, a.of = 0, 0, 0, 0
+                end
+                a.sim, a.inF, a.inS, a.inW, a.adj = k, fwd, strafe, w, adj
             else
-                local e = min(1, 10 * dt)
-                a.wx, a.wy = a.wx + (px - a.wx) * e, a.wy + (py - a.wy) * e
+                -- between words: on with the keys they hold (they stand once nothing came for REMOTE_RUN s)
+                if rw.age > REMOTE_RUN then a.inF, a.inS, a.inW = 0, 0, 0 end
+                RunSim(k, dt, a.inF, a.inS, a.inW)
             end
-            local z = rw.z
-            if not falling and ground then z = ground(a.wx, a.wy, rw.z + 0.5) or rw.z end
-            if swimming then z = z - SWIM_SINK end
-            -- their turn eased too (a word comes every 20 degrees or so: drawn as it came, they turned in jerks)
-            if not a.wf then
-                a.wf = rw.f
-            else
-                local turn = (rw.f - a.wf + pi) % (2 * pi) - pi
-                a.wf = a.wf + turn * min(1, 12 * dt)
+            local e = max(0, 1 - REMOTE_EASE * dt)
+            a.ox, a.oy, a.oz, a.of = a.ox * e, a.oy * e, a.oz * e, a.of * e
+            a.wx, a.wy, a.wz = k.x + a.ox, k.y + a.oy, k.z + a.oz
+            a.wface = k.facing + a.adj + a.of
+            -- a strafing body swings round over a moment (as your own: PlaceWalker)
+            local want, have = k.bodyTurn or 0, a.bodyTurn or 0
+            if have ~= want then
+                local st = 9 * dt
+                have = (want > have) and min(want, have + st) or max(want, have - st)
+                a.bodyTurn = have
             end
+            a.wf = a.wface + have
+            local z = a.wz - (k.swimming and SWIM_SINK or 0)
             local dx, dy = self.view:CentreShift(a, 1, a.wf)
             pcall(a.SetPosition, a, a.wx + dx, self.view:SY(a.wy + dy), z)
             pcall(a.SetYaw, a, self.cam.mirror * a.wf)
             pcall(a.SetShown, a, true)
-            local moving, back = rw.s % 2 == 1, floor(rw.s / 2) % 2 == 1
-            local anim = (falling and WANIM.fall) or (swimming and (moving and WANIM.swim or WANIM.swimIdle))
-                or (moving and (back and WANIM.back or WANIM.run)) or WANIM.stand
+            local anim = (k.falling and WANIM.fall) or (k.swimming and (k.moving and WANIM.swim or WANIM.swimIdle))
+                or (k.moving and (k.backward and WANIM.back or WANIM.run)) or WANIM.stand
             if a.anim ~= anim then
                 a.anim = anim
                 pcall(a.SetAnimation, a, anim)
@@ -2530,7 +2708,7 @@ function V:DrawWalkers(occ, n)
         if not seen[key] then
             pcall(a.SetShown, a, false)
             pcall(a.ClearModel, a)
-            a.look, a.display, a.anim = nil, nil, nil
+            a.look, a.display, a.anim, a.sim, a.dressLook = nil, nil, nil, nil, nil
             self.walkers[key] = nil
             self.walkerPool[#self.walkerPool + 1] = a
             if self.walkerLabels[key] then self.walkerLabels[key]:Hide() end
@@ -2580,6 +2758,14 @@ function V:WalkStep(elapsed)
     strafe = Clamp(strafe, -1, 1)
     local x, y, z, f = k.x, k.y, k.z, k.facing
     local left = min(elapsed or 0, 0.25)
+    -- (what the others are told: the keys, and how fast I turn by keys and mouse together, smoothed over ~0.15 s)
+    local dtf = min(elapsed or 0, 0.25)
+    wk.inFwd, wk.inStrafe = fwd, strafe
+    if dtf > 0 then
+        local rate = ((k.facing - (wk.lastFacing or k.facing) + pi) % (2 * pi) - pi) / dtf + turn * R3().WALK.turn
+        local tr = (wk.turnRate or 0) + (rate - (wk.turnRate or 0)) * min(1, 7 * dtf)
+        wk.turnRate = abs(tr) < 0.1 and 0 or tr
+    end
     if wk.jump or fwd ~= 0 or strafe ~= 0 or turn ~= 0 or k.falling then
         while left > 1e-6 do
             local s = min(left, 1 / 30)
@@ -2592,6 +2778,8 @@ function V:WalkStep(elapsed)
         k.moving, k.backward, k.bodyTurn, k.vx, k.vy = false, false, 0, 0, 0
     end
     wk.jump = nil
+    wk.lastFacing = k.facing
+    if wk.ghost then RunSim(wk.ghost, dtf, floor((wk.sentI or 4) / 3) - 1, (wk.sentI or 4) % 3 - 1, wk.sentTr or 0) end
     self:ShareWalk()
     if (k.moving or turn ~= 0) and wk.yawOff ~= 0 and not (self.drag3 and self.drag3.kind == "swing") then
         wk.yawOff = wk.yawOff * max(0, 1 - 4 * (elapsed or 0))
@@ -2619,6 +2807,7 @@ function V:MouseDown(button, editable, tool)
         -- the camera round you (both: run)
         if button == "RightButton" then
             wk.k.facing, wk.yawOff = wk.k.facing + wk.yawOff, 0
+            wk.lastFacing = wk.k.facing                     -- (a swing of the camera made mine: not a turn to tell)
             self.drag3 = { kind = "look", button = button, cx = cx, cy = cy, facing = wk.k.facing, pitch = wk.pitch }
         elseif button == "LeftButton" then
             -- the planner's tools work on as you walk: a drawing tool draws on the floor, the select tool picks

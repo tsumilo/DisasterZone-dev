@@ -702,11 +702,10 @@ def walking_shows_on_the_boards_of_the_others_who_have_the_strategy_open():
                         "return { n = #ws, x = a and a.wx - T3.ox, y = a and a.wy - T3.oy }")
     assert seen["n"] == 1 and math.hypot(seen["x"] - k["x"], seen["y"] - k["y"]) < 1, (seen, k)
     assert gina.eval("local ws = T3.v():RemoteWalkers() return T3.v().walkerLabels[ws[1].key]:GetText()") == "Bob"
-    # dressed, not the race's bare (white) body
+    # dressed, not the race's bare (white) body: the same race and sex as Gina, so her own character in his gear
     look = gina.eval_py("local ws = T3.v():RemoteWalkers() local a = T3.v().walkers[ws[1].key] "
-                        "return a.display or a.pending")
-    assert look and look not in (49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 1563, 1564, 1478, 1479, 15476,
-                                 15475, 16125, 16126), look
+                        "return { how = a.how, unit = a.unit }")
+    assert look == {"how": "player", "unit": "player"}, look
     # stood still, he stays where he stopped through his next words (no slide on with the speed he stopped with,
     # as when no step ran after the keys came up)
     bob.eval("T3.v().walk.k.vx = 7")
@@ -767,6 +766,108 @@ def a_walker_whose_words_come_late_by_turns_runs_on_smoothly():
     w.latency = 0.1
     assert k["y"] > 30, k                                                    # (he ran the whole time)
     assert worst < 1.5, worst
+    no_errors(w)
+
+
+def two_walkers():
+    """Bob and Gina on the same saved Teron strategy, both in 3D; Bob walking from the hall's entrance."""
+    w, c = world()
+    bob, gina = c["Bob"], c["Gina"]
+    for cl in (bob, gina):
+        cl.eval(HELPERS)
+    bob.eval("ns.StrategyBoard:NewStrategy(...)", TERON)
+    w.tick(0.2)
+    sid = bob.eval_py("local s = ns.StrategyBoard:GetState().strat local ok, r = ns.Strategy:SaveStrategy(s) "
+                      "return r")
+    w.tick(1)
+    for cl in (bob, gina):
+        cl.eval("ns.StrategyBoard:OpenStrategy(...)", sid)
+        w.tick(2)
+        cl.eval("local s = ns.Render3D.RoomForBoss(...).spot T3.ox, T3.oy = s.x - 29.9, s.y - 85.2", TERON)
+        go3d(w, cl)
+    tick(w, 2)
+    return w, bob, gina
+
+
+SEEN = ("local ws = T3.v():RemoteWalkers() local a = ws[1] and T3.v().walkers[ws[1].key] "
+        "return { x = a and a.wx - T3.ox, y = a and a.wy - T3.oy, z = a and a.wz, f = a and a.wface }")
+
+
+@case
+def a_walker_turning_down_the_ramp_into_a_wall_is_seen_where_he_is_without_snaps():
+    # Bob runs north down the ramp into Teron's alcove, turning by the mouse as he goes, and on into its back wall.
+    # Gina's copy of him runs the same walker on the same ground with the keys he holds and the turn he makes:
+    # close to him all the way (down the steps too), never jumping, stopped by the wall, and his words stay within
+    # the server's budget.
+    w, bob, gina = two_walkers()
+    bob.eval("local o = T3.v().orb o.x, o.y = 30 + T3.ox, 20 + T3.oy T3.v():StartWalk()")
+    n0 = len(w.addon_log)
+    walk_key(bob, "W", True)
+    worst, worst_z, jump, prev = 0, 0, 0, None
+    for i in range(240):
+        if 20 <= i < 60:
+            bob.eval("local k = T3.v().walk.k k.facing = k.facing + 0.008")         # (the mouse: 0.16 rad/s)
+        elif 60 <= i < 100:
+            bob.eval("local k = T3.v().walk.k k.facing = k.facing - 0.008")
+        tick(w, 0.05)
+        k = bob.eval_py(WALKER)
+        seen = gina.eval_py(SEEN)
+        if seen.get("x") is None:
+            continue
+        if i >= 10:
+            worst = max(worst, math.hypot(seen["x"] - k["x"], seen["y"] - k["y"]))
+            worst_z = max(worst_z, abs(seen["z"] - k["z"]))
+        if prev:
+            jump = max(jump, math.hypot(seen["x"] - prev["x"], seen["y"] - prev["y"]))
+        prev = seen
+    walk_key(bob, "W", False)
+    tick(w, 1)
+    k = bob.eval_py(WALKER)
+    assert abs(k["z"]) < 0.3 and k["y"] > 85, (k, worst, worst_z, jump)      # (down in the alcove, at its wall)
+    # (0.7 yd of it is the 0.1 s the word travels at 7 yd/s: no clock can see that one way; on the ramp the same lag
+    # is height)
+    assert worst < 1.2 and worst_z < 1.0, (worst, worst_z)
+    assert jump < 0.7, jump                                                  # (7 yd/s = 0.35 a step, plus easing)
+    seen = gina.eval_py(SEEN)
+    assert math.hypot(seen["x"] - k["x"], seen["y"] - k["y"]) < 0.2, (seen, k)
+    words = [e for e in w.addon_log[n0:] if e["prefix"] == "CDLw"]
+    assert len(words) <= 5 + 0.8 * 13 + 1, len(words)
+    no_errors(w)
+
+
+@case
+def the_others_see_my_race_sex_and_gear():
+    w, bob, gina = two_walkers()
+    bob.define_item(31001, "Test Helm", equip_loc="INVTYPE_HEAD")
+    bob.define_item(31002, "Test Robe", equip_loc="INVTYPE_CHEST")
+    bob.define_item(31003, "Test Sword", equip_loc="INVTYPE_WEAPON")
+    bob.define_item(31004, "Test Ring", equip_loc="INVTYPE_FINGER")
+    bob.equip({1: 31001, 5: 31002, 16: 31003, 11: 31004})
+    bob.eval("local r = UnitRace UnitRace = function(u) if u == 'player' then return 'Orc', 'Orc', 2 end "
+             "return r(u) end")
+    bob.eval("local o = T3.v().orb o.x, o.y = 30 + T3.ox, 20 + T3.oy T3.v():StartWalk()")
+    tick(w, 1)
+    look = gina.eval_py("local ws = T3.v():RemoteWalkers() local a = T3.v().walkers[ws[1].key] "
+                        "return { how = a.how, unit = a.unit, race = a.customRace, worn = a.worn }")
+    assert look["how"] == "player" and look["unit"] == "player" and look["race"] == 2, look
+    worn = [x[0] for x in look["worn"]]
+    assert sorted(worn) == ["item:31001", "item:31002", "item:31003"], look      # (no ring: it does not show)
+    assert ["item:31003", "MAINHANDSLOT"] in look["worn"], look
+    # she (now): the orc woman's own body with Gina's looks and Bob's gear, or a dressed orc woman (/dz 3d looks npc)
+    bob.eval("local x = UnitSex UnitSex = function(u) if u == 'player' then return 3 end return x(u) end")
+    walk_key(bob, "ESCAPE", True)
+    tick(w, 0.5)
+    bob.eval("T3.v():StartWalk()")
+    tick(w, 1)
+    look = gina.eval_py("local ws = T3.v():RemoteWalkers() local a = T3.v().walkers[ws[1].key] "
+                        "return { how = a.how, d = a.display or a.pending, custom = a.customLooks, n = #(a.worn or {}) }")
+    assert look == {"how": "custom", "d": 52, "custom": True, "n": 3}, look
+    gina.eval("SlashCmdList and ns:RunSlash('3d looks npc')" if False else "ns.StrategyMap3D.walkLooks = 'npc' "
+              "for _, a in pairs(T3.v().walkers) do a.look = nil end")
+    tick(w, 0.3)
+    look = gina.eval_py("local ws = T3.v():RemoteWalkers() local a = T3.v().walkers[ws[1].key] "
+                        "return { how = a.how, d = a.display or a.pending }")
+    assert look == {"how": "npc", "d": 5706}, look
     no_errors(w)
 
 

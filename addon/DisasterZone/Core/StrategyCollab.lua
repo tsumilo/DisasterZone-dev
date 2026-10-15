@@ -23,8 +23,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/StrategyCollab.lua", ...) the
 -- (UI/StrategyMap3D.lua) says where about once a second, and at once when they start, stop running, jump or turn
 -- ({ id, r = the room, x, y, z = their feet in room yards, f = facing, vx, vy = yd/s, s = 1 moving + 2 backward +
 -- 4 falling + 8 swimming, d = how they look: a player race's creature display }); { id, off = true } when they stop
--- walking. Only while someone else has that strategy open. The others who have it open show them there, guessing
--- between messages from the speed; one not heard from for WALK_TTL seconds is gone.
+-- walking. Only while someone else has that strategy open. Since 1.5.1 a word also carries the keys they hold (i:
+-- (fwd + 1) * 3 + strafe + 1), how fast they turn (w, rad/s), their upward speed in a jump (vz) and when they sent it
+-- (ts): the others run them on through the room's own ground with the same walker (stopped by walls, up the steps)
+-- instead of sliding them along a speed. Words go out on a budget below the server's (WALK_BURST, WALK_RATE) and
+-- never queue: while one waits in the send queue the next is held, so a word on the wire is never stale.
+-- SWL { id, rc = race id, sx = sex (2 / 3), g = { [inventory slot] = item id }, en = { [slot] = enchant } }: how they
+-- look, when they start, every WALK_LOOK_EVERY s and when someone new opens the strategy; drawn as that race, sex and
+-- gear. One not heard from for WALK_TTL seconds is gone.
 local addonName, ns = ...
 
 local Collab = ns:NewModule("StrategyCollab")
@@ -56,7 +62,9 @@ local MAX_PARTS = 400        -- of a board sent to a joiner
 local MAX_MESSAGES = 60      -- ... and the messages they travel in
 local SNAP_ELEMENTS = 30     -- drawings per part
 local HISTORY_MAX = 60
-local WALK_TTL = 4             -- seconds a walker stays without word from them
+local WALK_TTL = 6             -- seconds a walker stays without word from them
+local WALK_BURST, WALK_RATE = 5, 0.8   -- words: the server lets 10 through at once, then 1 a second per prefix
+local WALK_LOOK_EVERY = 15     -- s: how I look, again (for one who missed it)
 local WALK_MAX = 2000          -- yd: a room point further than this from 0 is no room point
 
 local pres = {}              -- [strategy id] = { [member key] = { m, k, pg, sel, at, h, c, idle } }
@@ -64,6 +72,9 @@ local mine                   -- what my board shows: { id, m, pg }
 local sess                   -- my edit session (see EnterEdit)
 local uidCounter = 0
 local walkers = {}           -- [member key] = { id, r, x, y, z, f, vx, vy, s, d, at } (Collab:RemoteWalkers)
+local walkLooks = {}         -- [member key] = { rc, sx, g, en, sig } (SWL)
+local walkTokens, walkTokensAt = WALK_BURST, 0
+local lookSentAt, lookSentTo = nil, {}   -- when I last said how I look, and to whom (who had the strategy open)
 
 local function S() return ns.Strategy end
 local function Board() return ns.StrategyBoard end
@@ -846,22 +857,65 @@ local function Num(v, lo, hi)
     return type(v) == "number" and v == v and v >= lo and v <= hi
 end
 
--- Tells the others who have my board's strategy open where I walk in its room (w: { r, x, y, z, f, vx, vy, s, d }),
--- or that I stopped (nil). -> true when it went out.
+-- A word may go out now (the budget, and nothing of mine still waiting in the send queue). take: spend it.
+local function WalkBudget(take)
+    local now = GetTime()
+    walkTokens = math.min(WALK_BURST, walkTokens + (now - walkTokensAt) * WALK_RATE)
+    walkTokensAt = now
+    if walkTokens < 1 then return false end
+    local Comm = ns.Comm
+    if Comm and Comm.Backlog and Comm:Backlog("walk") > 0 then return false end
+    if take then walkTokens = walkTokens - 1 end
+    return true
+end
+
+-- Tells the others who have my board's strategy open where I walk in its room (w: { r, x, y, z, f, vx, vy, s, d, i,
+-- tr, vz }), or that I stopped (nil). -> true when it went out (false also when the budget holds it: ask again).
 function Collab:SendWalk(w)
     if not (mine and mine.id) then return false end
     local others = pres[mine.id]
     if not (others and next(others)) then return false end
     local msg
     if w then
+        if not WalkBudget(true) then return false end
         local function r2(v) return floor((v or 0) * 100 + 0.5) / 100 end
         msg = { t = "SWK", id = mine.id, r = w.r, x = r2(w.x), y = r2(w.y), z = r2(w.z), f = r2(w.f), vx = r2(w.vx),
-                vy = r2(w.vy), s = w.s or 0, d = w.d, ts = r2(GetTime()) }
+                vy = r2(w.vy), s = w.s or 0, d = w.d, ts = r2(GetTime()), i = w.i, w = w.tr and r2(w.tr) or nil,
+                vz = w.vz and r2(w.vz) or nil }
     else
         msg = { t = "SWK", id = mine.id, off = true }
+        lookSentAt, lookSentTo = nil, {}
     end
     local Comm = ns.Comm
     return (Comm and Comm.Send and Comm:Send(msg, "GUILD", nil, "walk")) and true or false
+end
+
+-- Is it time to say how I look (I just started, someone opened the strategy since, or WALK_LOOK_EVERY went by)?
+function Collab:WalkLookDue()
+    if not (mine and mine.id) then return false end
+    local others = pres[mine.id]
+    if not (others and next(others)) then return false end
+    if not lookSentAt or GetTime() - lookSentAt >= WALK_LOOK_EVERY then return true end
+    for key in pairs(others) do
+        if not lookSentTo[key] then return true end
+    end
+    return false
+end
+
+-- Says how I look (look: { rc, sx, g, en }) to the others who have my strategy open. -> true when it went out.
+function Collab:SendWalkLook(look)
+    if not (mine and mine.id and look) then return false end
+    local others = pres[mine.id]
+    if not (others and next(others)) then return false end
+    if not WalkBudget(true) then return false end
+    local Comm = ns.Comm
+    local ok = Comm and Comm.Send and Comm:Send({ t = "SWL", id = mine.id, rc = look.rc, sx = look.sx, g = look.g,
+                                                   en = look.en }, "GUILD", nil, "walk")
+    if ok then
+        lookSentAt, lookSentTo = GetTime(), {}
+        for key in pairs(others) do lookSentTo[key] = true end
+    end
+    return ok and true or false
 end
 
 -- SWK: someone walking in a strategy's room (see the top of the file).
@@ -885,13 +939,36 @@ local function OnWalk(sender, msg, dist)
         if old and old.gap then gap = math.min(gap, old.gap + 0.05) end
         at = math.min(now, msg.ts + gap)
     end
+    local prev = walkers[sender]
     walkers[sender] = { id = msg.id, r = msg.r, x = msg.x, y = msg.y, z = msg.z, f = msg.f, vx = msg.vx, vy = msg.vy,
                         s = Num(msg.s, 0, 15) and floor(msg.s) or 0, d = Num(msg.d, 1, 1e7) and floor(msg.d) or nil,
-                        at = at or now, gap = gap, heard = now }
+                        i = Num(msg.i, 0, 8) and floor(msg.i) or nil, w = Num(msg.w, -50, 50) and msg.w or 0,
+                        vz = Num(msg.vz, -100, 100) and msg.vz or 0,
+                        at = at or now, gap = gap, heard = now, n = ((prev and prev.n) or 0) + 1 }
 end
 
--- Who walks in strategy `id`'s room `roomKey` now (not me): { key, x, y, z, f, vx, vy, s, d, age (seconds since
--- they were where their last word says, sent time on my clock), r, g, b (their class colour) }, by name.
+-- SWL: how someone walking looks (see the top of the file).
+local function OnWalkLook(sender, msg, dist)
+    if dist ~= "GUILD" or type(msg.id) ~= "string" or #msg.id > 40 then return end
+    if not (Num(msg.rc, 1, 100) and (msg.sx == 2 or msg.sx == 3)) then return end
+    local g, en, parts = {}, {}, { floor(msg.rc), msg.sx }
+    if type(msg.g) == "table" then
+        for slot = 1, 19 do
+            local id = msg.g[slot]
+            if Num(id, 1, 1e6) then
+                g[slot] = floor(id)
+                local e = type(msg.en) == "table" and msg.en[slot]
+                if Num(e, 1, 1e5) then en[slot] = floor(e) end
+                parts[#parts + 1] = slot .. ":" .. g[slot] .. ":" .. (en[slot] or 0)
+            end
+        end
+    end
+    walkLooks[sender] = { rc = floor(msg.rc), sx = msg.sx, g = g, en = en, sig = tconcat(parts, ",") }
+end
+
+-- Who walks in strategy `id`'s room `roomKey` now (not me): { key, x, y, z, f, vx, vy, s, d, i, w, vz (nil i: an
+-- older version), n (words heard: a new one when it grows), age (seconds since they were where their last word says,
+-- sent time on my clock), r, g, b (their class colour), look (SWL, or nil) }, by name.
 function Collab:RemoteWalkers(id, roomKey)
     local out, now = {}, GetTime()
     for key, w in pairs(walkers) do
@@ -900,7 +977,8 @@ function Collab:RemoteWalkers(id, roomKey)
         elseif w.id == id and w.r == roomKey then
             local r, g, b = self:ColorOf(key)
             out[#out + 1] = { key = key, x = w.x, y = w.y, z = w.z, f = w.f, vx = w.vx, vy = w.vy, s = w.s, d = w.d,
-                              age = now - w.at, r = r, g = g, b = b }
+                              i = w.i, w = w.w, vz = w.vz, n = w.n, age = now - w.at, r = r, g = g, b = b,
+                              look = walkLooks[key] }
         end
     end
     table.sort(out, function(a, b) return a.key < b.key end)
@@ -1218,6 +1296,7 @@ function Collab:OnInit()
         Comm:Register("SBO", OnOps)
         Comm:Register("SBC", OnSelection)
         Comm:Register("SWK", OnWalk)
+        Comm:Register("SWL", OnWalkLook)
         -- one action can carry a whole page (a pasted / duplicated one): as large as a saved strategy may be
         if Comm.AllowLarge then Comm:AllowLarge("SBO", "live") end
     end
