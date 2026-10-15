@@ -6,6 +6,49 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.5.0", date = "October 2026", title = "Groups",
+      sections = {
+          { heading = "Groups", area = "raids", kind = "new", hi = true, open = "dungeons",
+            lead = "The Dungeons tab is now Groups: dungeons, raids, quests and PvP on one board.", lines = {
+              "Tabs for every kind, each with how many groups it holds.",
+              "The groups that want you come first; the ones you can't join sink to the bottom.",
+              "Click a card to open it: who's in by role, the loot and bosses, why you fit.",
+              "Up to 10 players as seats, with your own portrait waiting in your place.",
+              "Bigger groups as raid frames, all 25 names in their class colours.",
+              "I'm up for: pick the kinds you want a ping for, dungeons and raids at first.",
+              "Raid lockouts count: a raid you're saved to says so and can't be joined.",
+          } },
+          { heading = "List a group", area = "raids", kind = "new", open = "dungeons",
+            lead = "One sheet for every kind: Dungeon, Raid, Quest, PvP and Other, with the preview the guild sees.", lines = {
+              "Raids as art tiles: pick a few of one size for one night; saved, locked and not attuned are marked.",
+              "Places per role with steppers, full clear or picked bosses, rolls / soft reserve / loot council.",
+              "Other: attunement runs, world bosses, farming, reputation, or anything you put in the note.",
+          } },
+          { heading = "Raid groups", area = "raids", kind = "new", open = "dungeons",
+            lead = "Fill 25 places without a spreadsheet: your group gets its own page.", lines = {
+              "The roster by role with the open places, what the group still lacks, the role meters.",
+              "Requests say what matters: BiS here, a buff you still lack, a blacklist warning, guests.",
+              "Guildies up for raids who fit an open place sit beside them with Invite.",
+              "Your BiS in a raid shows on its card; a missing attunement is a hint, never a block.",
+              "Arrive in the raid and a pop-up starts the raid session with your group's loot.",
+              "Planned raids short of players: Fill open places puts them on the board, marked with the team.",
+              "Joining a group that clashes with a raid you signed up for asks you first.",
+          } },
+          { heading = "Quest groups", area = "raids", kind = "new", open = "dungeons",
+            lead = "220 group quests, starting from your own quest log.", lines = {
+              "Your log first, then the quests guildies have, every zone with its own art, and a search.",
+              "Tick several quests in one zone: one group for all of them.",
+              "A quest that already has a group shows it with Join instead, so nobody lists it twice.",
+              "Pings go to guildies with the quest in their log; the group ends once you've turned it in.",
+          } },
+          { heading = "PvP groups", area = "raids", kind = "new", open = "dungeons",
+            lead = "Arenas, battlegrounds and world PvP, each with its own rules.", lines = {
+              "Arena: the bracket, skirmish or rated. Rated is your team's, with the lowest rating for pings.",
+              "Someone who joins a rated group gets a team invite from you first.",
+              "Battleground premades sized to the battleground, with a flag carrier wanted.",
+              "PvP has no tanks: healers and damage only.",
+          } },
+      } },
     { version = "1.4.6", date = "15 October 2026", title = "Azeromon: Blackrock",
       sections = {
           { heading = "Azeromon: Blackrock", area = "games", kind = "new", hi = true, open = "games",

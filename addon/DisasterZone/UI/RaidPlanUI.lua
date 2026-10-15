@@ -1370,6 +1370,18 @@ local function cancelMenu(root)
     if v.cancelled then
         root:CreateButton("Restore this raid", function() run(RP().EditRaid, v.id, { x = false }) end)
     else
+        -- (1.5) short of players: the raid shows on the Groups board, the guild asks to join from there
+        local fill = root:CreateCheckbox("Fill open places on Groups", function() return v.fo end, function()
+            run(RP().EditRaid, v.id, { fo = not v.fo })
+        end)
+        if fill and fill.SetTooltip then
+            fill:SetTooltip(function(tt)
+                tt:AddLine("Fill open places", S:RGB("GOLD"))
+                tt:AddLine("While the raid is short of players its open places show on the Groups board, marked "
+                    .. "with the team. Asking there is this raid's own sign-up or join request.", 1, 1, 1, true)
+            end)
+        end
+        root:CreateDivider()
         root:CreateButton(v.weekly and "Cancel this week's raid" or "Cancel this raid", function()
             run(RP().CancelRaid, v.id)
         end)

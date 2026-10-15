@@ -228,7 +228,7 @@ local function register()
 
     -- Dungeon runs: someone wants to join mine (the Dungeons tab's own pop-up stays: no pop-up from here)
     N:RegisterKind("runRequests", {
-        section = "Dungeons", page = "dungeons", icon = 36, color = { 0.47, 0.83, 0.54 },
+        section = "Groups", page = "dungeons", icon = 36, color = { 0.47, 0.83, 0.54 },
         label = "Run requests", desc = "Someone wants to join your dungeon run.",
         needsYou = true, popup = false, sound = false, home = true,
         open = function(it) openRun(it.key) end,
@@ -238,38 +238,37 @@ local function register()
     })
     N:RegisterSource("runRequests", function()
         local R, out = ns.DungeonRuns, {}
-        local mine = R and R.GetMine and R:GetMine()
+        local mine = R and R.GetMyGroup and R:GetMyGroup()
         if not mine then return out end
         local asking = R:GetRequests(mine.id) or {}
         if #asking == 0 then return out end
-        local d = R:GetDungeon(mine.d)
-        local name = (d and d.name or tostring(mine.d)) .. (mine.h and " (Heroic)" or "")
+        local name = R:GetName(mine) .. ((R:GetKind(mine) == "dungeon" and mine.h) and " (Heroic)" or "")
         local first = asking[1]
-        local tip = { "Your run: " .. name }
+        local tip = { "Your group: " .. name }
         for _, r in ipairs(asking) do tip[#tip + 1] = (UI():ColoredName(r.key) or Short(r.key)) .. S:Wrap("SUB", " wants to join") end
-        tip[#tip + 1] = S:Wrap("SUB", "Accept or decline them on the Dungeons tab.")
+        tip[#tip + 1] = S:Wrap("SUB", "Accept or decline them on the Groups tab.")
         out[1] = { key = mine.id, n = #asking, data = { r = first.r, tip = tip },
-            title = #asking == 1 and (Short(first.key) .. " wants to join your run") or (#asking .. " want to join your run"),
-            text = name .. " · accept or decline them on the Dungeons tab" }
+            title = #asking == 1 and (Short(first.key) .. " wants to join your group") or (#asking .. " want to join your group"),
+            text = name .. " · accept or decline them on the Groups tab" }
         return out
     end, { "DUNGEON_RUNS_UPDATED", "DUNGEON_RUN_REQUEST" })
 
     -- Dungeon runs: one that needs my role while I'm up for a run
     N:RegisterKind("runNeedsYou", {
-        section = "Dungeons", page = "dungeons", icon = 36, color = { 0.47, 0.83, 0.54 },
-        label = "Runs that need you", desc = "While you're up for a run: a run that needs your role.",
+        section = "Groups", page = "dungeons", icon = 36, color = { 0.47, 0.83, 0.54 },
+        label = "Groups that need you", desc = "While you're up for a group: one that needs your role.",
         needsYou = false, popup = false, sound = false, home = true,
         open = function(it) openRun(it.key) end,
         chip = function(it) return { kind = "info", icon = it.data and roleIcon(it.data.role) or nil } end,
     })
     N:RegisterSource("runNeedsYou", function()
         local R, out = ns.DungeonRuns, {}
-        if not (R and R.IsUp and not R:GetMine() and R:IsUp()) then return out end
-        for _, run in ipairs(R:GetRuns()) do
-            local role = R:IsNow(run) and R:FitsMe(run)
-            if role and not R:GetBlocker(run.d, run.h) and not R:GetAsked(run.id) then
-                local d = R:GetDungeon(run.d)
-                local name = (d and d.name or tostring(run.d)) .. (run.h and " (H)" or "")
+        if not (R and R.IsUp and not R:GetMyGroup() and R:IsUp()) then return out end
+        local kinds = R:GetMyKinds()
+        for _, run in ipairs(R:GetGroups()) do
+            local role = not run.rp and kinds[R:GetKind(run)] and R:IsNow(run) and R:FitsMe(run)
+            if role and not R:GetGroupBlocker(run) and not R:GetAsked(run.id) then
+                local name = R:GetName(run) .. ((R:GetKind(run) == "dungeon" and run.h) and " (H)" or "")
                 local roleText = role == "dps" and "DPS" or role
                 out[1] = { key = run.id, from = run.o, data = { role = role },
                     title = Short(run.o) .. " needs a " .. roleText .. ": " .. name,
