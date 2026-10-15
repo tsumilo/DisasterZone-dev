@@ -1731,6 +1731,10 @@ STATES = [
                                             "ns.AtlasUI:HoverItem(21841); ns.AtlasUI:ShowShopNote(21841)")),
     # Classic | TBC (the last Atlas states: they end on TBC again)
     ("Atlas - category tiles", opened("atlas", "ns.AtlasUI:OpenCategory('c_dungeons')")),
+    # a boss the Journal never had: a round portrait from its model (Data/AtlasPortraits.lua .display)
+    ("Atlas - model portrait", opened("atlas", "ns.AtlasUI:Select('c_raids', 'ZulGurub', 'HighPriestessJeklik')")),
+    ("Atlas - model portrait picker", opened("atlas", "ns.AtlasUI:Select('c_raids', 'ZulGurub', 'HighPriestessJeklik'); "
+                                                      "ns.AtlasNav:OpenBosses(ns.AtlasNav:GetCrumbFrames()[4])")),
     ("Atlas - place search", opened("atlas", "ns.AtlasUI:SetSearch('scar')")),
     ("Atlas - classic dungeon", opened("atlas", "ns.AtlasUI:Select('c_dungeons', 'ShadowfangKeep')")),
     ("Atlas - classic raid", opened("atlas", "ns.AtlasUI:Select('c_raids', 'MoltenCore', 'Ragnaros')")),

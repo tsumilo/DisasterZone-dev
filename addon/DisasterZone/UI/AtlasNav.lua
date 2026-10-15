@@ -474,9 +474,7 @@ function Nav:OpenBosses(crumb)
             on = st.view == "source"
         else
             -- (no Journal portrait: the name alone, in the card's middle)
-            local tex, own = AUI():PortraitOf(e.page)
-            b.port:SetShown(own)
-            if own then b.port:SetTexture(tex) end
+            local own = AUI():SetBossPortrait(b.port, e.page, 64, 32) ~= nil
             b.name:ClearAllPoints()
             if own then
                 b.name:SetPoint("TOP", b.port, "BOTTOM", 0, -3)

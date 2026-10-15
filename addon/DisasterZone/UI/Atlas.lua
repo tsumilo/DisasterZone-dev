@@ -686,6 +686,31 @@ local function PortraitOf(page)
     return own or (P and P.DEFAULT) or EJ_DEFAULT, own ~= nil
 end
 
+-- Puts a boss's portrait on tex: its Journal art at w x h (2:1) -> "art"; a boss the Journal never had (the old Zul'Gurub
+-- priests, world bosses, rares: Data/AtlasPortraits.lua .display) a round portrait painted from its model at h x h ->
+-- "model"; nil when it has neither (a chest, a book: the caller shows the name alone). tex is left hidden then.
+local function SetBossPortrait(tex, page, w, h)
+    local P = ns.Data and ns.Data.AtlasPortraits
+    local name = type(page) == "table" and page.name or page
+    tex:SetTexCoord(0, 1, 0, 1)
+    local fid = P and name and P[name]
+    if fid then
+        tex:SetSize(w, h)
+        tex:SetTexture(fid)
+        tex:Show()
+        return "art"
+    end
+    local disp = P and P.display and name and P.display[name]
+    if disp and SetPortraitTextureFromCreatureDisplayID then
+        tex:SetSize(h, h)
+        SetPortraitTextureFromCreatureDisplayID(tex, disp)
+        tex:Show()
+        return "model"
+    end
+    tex:Hide()
+    return nil
+end
+
 -- Does a source list bosses (portraits, "All bosses")?
 local function HasBosses(src)
     return type(src) == "table" and (src.kind == "raid" or src.kind == "dungeon")
@@ -1835,8 +1860,11 @@ do
             b.thumb:SetTexture(file)
             b.thumb:SetTexCoord(l, r, t, bb)
         end
-        b.port:SetShown(p.page ~= nil)
-        if p.page then b.port:SetTexture(PortraitOf(p.page)) end
+        -- a boss: its portrait (a round one sits in the middle of the 64 px place)
+        b.port:ClearAllPoints()
+        local kind = p.page and SetBossPortrait(b.port, p.page, 64, 32)
+        if not p.page then b.port:Hide() end
+        b.port:SetPoint("LEFT", kind == "model" and 20 or 4, 0)
         b.name:SetText(p.page and p.page.name or p.src.name)
         local where = {}
         if p.page then where[#where + 1] = p.src.name end
@@ -1895,11 +1923,9 @@ do
         end
         s:SetAllPoints(row)
         local page = d.page
-        local tex, own = PortraitOf(page)
-        s.port:SetShown(own)
-        if own then s.port:SetTexture(tex) end
+        local kind = SetBossPortrait(s.port, page, 56, 28)
         s.title:ClearAllPoints()
-        s.title:SetPoint("BOTTOMLEFT", own and 62 or 2, 10)
+        s.title:SetPoint("BOTTOMLEFT", (kind == "art" and 62) or (kind == "model" and 36) or 2, 10)
         s.title:SetText(page.name or "?")
         s.count:SetText(d.count == 1 and "1 item" or (d.count .. " items"))
         s.stars:SetText(d.stars > 0 and (StarText(10) .. " " .. d.stars) or "")
@@ -2084,6 +2110,13 @@ do
         h.port = h:CreateTexture(nil, "ARTWORK", nil, 1)
         h.port:SetSize(PORTRAIT_W, PORTRAIT_W / 2)
         h.port:SetPoint("BOTTOMLEFT", 1, 1)
+        -- (a round portrait's ring: a gold disc a little larger behind it)
+        h.ring = h:CreateTexture(nil, "ARTWORK", nil, 0)
+        h.ring:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+        h.ring:SetVertexColor(S:Color(S:WithAlpha("GOLD", 0.85)))
+        h.ring:SetPoint("TOPLEFT", h.port, "TOPLEFT", -3, 3)
+        h.ring:SetPoint("BOTTOMRIGHT", h.port, "BOTTOMRIGHT", 3, -3)
+        h.ring:Hide()
         h.icon = h:CreateTexture(nil, "ARTWORK", nil, 1)
         h.icon:SetSize(46, 46)
         h.icon:SetPoint("LEFT", 16, 0)
@@ -2222,16 +2255,24 @@ do
         SetHeroArt(src, w)
         local bosses = HasBosses(src)
         local onPage = state.view == "page" and page ~= nil
-        local portrait = onPage and bosses
-        hero.port:SetShown(portrait)
-        if portrait then hero.port:SetTexture(PortraitOf(page)) end
+        -- the boss: its Journal art standing on the banner's foot, or a round portrait from its model in a gold ring
+        local kind = onPage and bosses and SetBossPortrait(hero.port, page, PORTRAIT_W, PORTRAIT_W / 2) or nil
+        if not kind then hero.port:Hide() end
+        hero.port:ClearAllPoints()
+        if kind == "model" then
+            hero.port:SetSize(64, 64)
+            hero.port:SetPoint("LEFT", hero, "LEFT", 22, 0)
+        else
+            hero.port:SetPoint("BOTTOMLEFT", hero, "BOTTOMLEFT", 1, 1)
+        end
+        hero.ring:SetShown(kind == "model")
         local prof = ProfessionOf(src)
         hero.icon:SetShown(prof ~= nil)
         if prof then
             hero.icon:SetTexture(prof.icon)
             hero.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         end
-        local x = portrait and (PORTRAIT_W + 8) or (prof and 74 or 16)
+        local x = (kind == "art" and (PORTRAIT_W + 8)) or (kind == "model" and 104) or (prof and 74 or 16)
         -- the texts
         local kicker, title, sub
         local pages = VisiblePages(src)
@@ -3104,6 +3145,7 @@ end
 function AtlasUI:GetPanel() return panel end
 AtlasUI.SourceArt = function(_, ...) return SourceArt(...) end
 AtlasUI.PortraitOf = function(_, page) return PortraitOf(page) end
+AtlasUI.SetBossPortrait = function(_, tex, page, w, h) return SetBossPortrait(tex, page, w, h) end
 AtlasUI.CatIcon = function(_, cat) return CatIcon(cat) end
 AtlasUI.SourceIcon = function(_, src, cat) return SourceIcon(src, cat) end
 AtlasUI.PhaseTag = function(_, src) return PhaseTag(src) end
