@@ -180,7 +180,8 @@ def the_bloodsail_captains_then_firallon_give_the_blackwater_seal():
     c.eval("T_AZ.log = {}")
     talk(c, "bbhall", 4, 4, "up")
     assert "You have finished Stranglethorn Vale." in log(c), log(c)
-    talk(c, "bootybay", 13, 18, "right")                             # the dockhand
+    c.eval("ns.Azero.clockHour = 7 + 10 / 60")                       # the dockhand starts his pier round at (14, 17)
+    talk(c, "bootybay", 14, 18, "up")
     assert "The Bloodsail fleet turned tail!" in log(c), log(c)
     no_errors(w)
 

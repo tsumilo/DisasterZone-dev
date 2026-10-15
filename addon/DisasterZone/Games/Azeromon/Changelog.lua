@@ -6,6 +6,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.31", date = "15 October 2026", title = "More towns keep their day",
+      lines = {
+          "Darkshire, Booty Bay and Lakeshire keep a daily routine.",
+          "The Night Watch and Marshal Marris patrol with lanterns.",
+          "Shopkeepers and trainers sit in the inn at night: still there.",
+          "People step round you instead of waiting in your way.",
+          "In a doorway, they go back in until you've passed.",
+          "Wind in the trees by the forest's edge; frogs at the pond.",
+      } },
     { version = "0.30", date = "15 October 2026", title = "The guild in town",
       lines = {
           "A guild statue rises in Goldshire with the weekly goal.",

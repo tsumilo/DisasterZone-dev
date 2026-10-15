@@ -1382,6 +1382,15 @@ Maps.darkshire = {
           trainer = "stitches", sight = 3,
           hidden = function(G) return not HauntsDone(G) or G:Flag("beat_stitches") end },
         { id = "ello", name = "Lord Ello Ebonlocke", x = 15, y = 8, sprite = "hero", tint = { 0.95, 0.85, 0.6 }, face = "down",
+          -- Lord Ello keeps the square from half past seven and goes home to the town hall at nine
+          day = {
+              { "00:00", inside = "darkshirehall", label = "At home in the town hall" },
+              { "07:30", path = { { 17, 6 }, { 17, 8 }, { 15, 8 } }, face = "down", label = "Holding court in the square",
+                walk = "Out to the square" },
+              { "21:00", path = { { 15, 8 }, { 17, 8 }, { 17, 6 } }, enter = "darkshirehall", label = "At home in the town hall",
+                walk = "Going home" },
+          },
+          says = { { "08:00", "Another night held. Good." }, { "20:40", "Lamps lit? Then goodnight, Darkshire." } },
           script = function(G)
               G:Say("Lord Ello Ebonlocke: Welcome to Darkshire. We hold on because the Night Watch holds on.")
               G:Say("Lord Ello Ebonlocke: Commander Ebonlocke runs the Watch. If you mean to help, talk to her.")
@@ -1405,6 +1414,15 @@ Maps.darkshire = {
               G:Say("Commander Althea Ebonlocke: Three haunts feed this darkness. Still out there: " .. table.concat(left, "; ") .. ".")
           end },
         { id = "eva", name = "Madame Eva", x = 6, y = 16, sprite = "girl", tint = { 0.85, 0.6, 0.9 }, face = "up",
+          -- Madame Eva reads the cards from the afternoon deep into the night, then sleeps at the Scarlet Raven
+          day = {
+              { "00:00", path = { { 6, 16 } }, face = "up", label = "Reading the cards by lamplight" },
+              { "03:00", path = { { 6, 16 }, { 6, 7 }, { 6, 6 } }, enter = "darkshireinn", label = "Asleep at the tavern",
+                walk = "Off to bed" },
+              { "14:00", path = { { 6, 6 }, { 6, 7 }, { 6, 16 } }, face = "up", label = "Telling fortunes",
+                walk = "Off to her wagon" },
+          },
+          says = { { "22:00", "The cards are restless tonight..." } },
           script = function(G)
               G:Say("Madame Eva: Sit, child. Let the cards speak...")
               if G:Flag("badge_nightwatch") then
@@ -1465,6 +1483,16 @@ Maps.darkshire = {
         { id = "paige", x = 9, y = 13, sprite = "girl", tint = { 0.7, 0.75, 0.95 }, face = "right",
           trainer = "paige", sight = 2 },
         { id = "dsguard", name = "Night Watch Guard", x = 21, y = 12, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "left",
+          lantern = true,
+          -- the Night Watch: the east road by day, the town's lanes all night with a lantern
+          day = {
+              { "00:00", loop = { { 21, 11 }, { 21, 9 }, { 1, 9 }, { 1, 10 }, { 21, 10 }, { 21, 11 } }, label = "Night patrol" },
+              { "06:00", path = { { 21, 11 }, { 21, 12 } }, face = "left", label = "Watching the east road",
+                walk = "Back to the east road" },
+              { "19:50", path = { { 21, 12 }, { 21, 11 } }, label = "On watch", walk = "Starting the night watch" },
+              { "20:00", loop = { { 21, 11 }, { 21, 9 }, { 1, 9 }, { 1, 10 }, { 21, 10 }, { 21, 11 } }, label = "Night patrol" },
+          },
+          says = { { "23:00", "Keep to the lamplight, traveller." } },
           script = function(G)
               G:Say("Night Watch Guard: East is Deadwind Pass. Nobody goes there. South is Stranglethorn Vale, once the Commander says so.")
           end },
@@ -1472,6 +1500,8 @@ Maps.darkshire = {
 }
 
 Maps.darkshireinn = {
+    -- daily routines (Routine.lua): whoever's day has them in here sits at these
+    seats = { { 1, 4, "up" }, { 3, 4, "up" }, { 6, 4, "up" }, { 8, 4, "up" } },
     name = "Scarlet Raven Tavern",
     music = "tavern",
     rows = {

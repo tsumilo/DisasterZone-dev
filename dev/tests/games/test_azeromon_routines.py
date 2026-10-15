@@ -1,9 +1,9 @@
 """Azeromon: daily routines (Routine.lua, 0.27).
 
-Covers: every routine path and loop runs on open ground (roads, grass, doors); people stand where the realm clock
+Covers: Darkshire, Booty Bay and Lakeshire's days; every routine path and loop runs on open ground (roads, grass, doors); people stand where the realm clock
 puts them on entering Goldshire (Argus at the anvil at noon, Thomas on patrol at night); the inn fills up in the
-evening and the cottage at night; walking goes one tile at a time and reaches the spot; a player in the way makes
-them wait; the lamps are lit from the lamplighter's dusk round to his dawn round; Maybell's stall opens and shuts
+evening and the cottage at night; walking goes one tile at a time and reaches the spot; a player in the way is walked round (or, in a
+doorway, they go back in until the player has passed); the lamps are lit from the lamplighter's dusk round to his dawn round; Maybell's stall opens and shuts
 (its tiles and her shop); lines for the bubbles come at their minute; two clients agree.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_routines.py [-k name]
@@ -111,20 +111,36 @@ def people_walk_one_tile_at_a_time_and_arrive():
 
 
 @case
-def a_player_in_the_way_makes_them_wait():
+def a_player_in_the_way_is_walked_round():
     w, c = town(6 + 10 / 60, 15, 23)                 # standing on the lane Argus walks
+    seen = []
+    for _ in range(140):
+        c.eval("ns.Azero.clockHour = ns.Azero.clockHour + 0.08 / 3600 ns.Azero:UpdateNpcs(0.08)")
+        a = people(c)["argus"]
+        if not a["hidden"] and (not seen or seen[-1] != (a["x"], a["y"])):
+            seen.append((a["x"], a["y"]))
+    assert (15, 23) not in seen, seen                # never on the player's tile
+    assert (14, 23) in seen and (16, 23) in seen, seen
+    assert (14, 22) in seen or (14, 24) in seen, seen  # one tile to the side, round the player
+    for (x0, y0), (x1, y1) in zip(seen, seen[1:]):
+        assert abs(x1 - x0) + abs(y1 - y0) == 1, seen  # one tile at a time, no jumps
+    assert seen[-1] == (23, 22), seen                # and on to the anvil
+    no_errors(w)
+
+
+@case
+def someone_coming_out_of_a_door_goes_back_in_to_let_the_player_pass():
+    w, c = town(6 + 10 / 60, 8, 23)                  # right outside the Lion's Pride as Argus comes out
     def step(n):
         for _ in range(n):
             c.eval("ns.Azero.clockHour = ns.Azero.clockHour + 0.08 / 3600 ns.Azero:UpdateNpcs(0.08)")
+    step(12)
+    a = people(c)["argus"]
+    assert a["hidden"], a                            # back inside: the doorway is free for the player
+    c.eval("ns.Azero.save.x, ns.Azero.save.y = 12, 24")    # the player walks on
     step(40)
     a = people(c)["argus"]
-    assert (a["x"], a["y"]) == (14, 23), a          # right behind the player
-    step(10)
-    assert (people(c)["argus"]["x"], people(c)["argus"]["y"]) == (14, 23)
-    c.eval("ns.Azero:EnterMap('town', 15, 22, 'down', true)")    # (a fresh enter puts him where the clock says)
-    step(30)
-    a = people(c)["argus"]
-    assert (a["x"], a["y"]) == (23, 22), a
+    assert not a["hidden"] and a["x"] > 8, a         # out again and on his way
     no_errors(w)
 
 
@@ -287,6 +303,32 @@ def two_clients_agree():
         c.eval("ns.Azero:NewGame() ns.Azero.clockHour = 18.25 ns.Azero:EnterMap('town', 17, 12, 'down', true)")
         spots.append(people(c))
     assert spots[0] == spots[1], spots
+
+
+@case
+def darkshire_booty_bay_and_lakeshire_keep_their_days_too():
+    w, c = solo("Alice", tick=2)
+    def at(mapid, hour, x, y):
+        c.eval("ns.Azero:NewGame() ns.Azero.clockHour = %r ns.Azero:EnterMap(%r, %d, %d, 'down', true)" % (hour, mapid, x, y))
+        return people(c)
+    p = at("darkshire", 12, 12, 14)
+    assert (p["ello"]["x"], p["ello"]["y"]) == (15, 8) and (p["eva"]["x"], p["eva"]["y"]) == (6, 16), p
+    assert (p["dsguard"]["x"], p["dsguard"]["y"]) == (21, 12), p
+    p = at("darkshire", 23, 12, 14)
+    assert p["ello"]["hidden"] and not p["eva"]["hidden"] and p["dsguard"]["y"] in (9, 10, 11), p
+    p = at("bootybay", 12, 12, 12)
+    assert (p["heming"]["x"], p["heming"]["y"], p["heming"]["act"]) == (10, 18, "fish"), p
+    assert p["dockhand"]["y"] == 17, p
+    p = at("bootybayinn", 23, 4, 6)
+    assert p["heming"]["visitor"] and p["dockhand"]["visitor"], p
+    p = at("lakeshire", 12, 12, 14)
+    assert (p["verner"]["x"], p["verner"]["y"], p["verner"]["act"]) == (4, 12, "smith"), p
+    assert (p["lamar"]["x"], p["lamar"]["y"]) == (7, 9) and (p["solomon"]["x"], p["solomon"]["y"]) == (11, 9), p
+    p = at("lakeshire", 23, 12, 14)
+    assert p["verner"]["hidden"] and p["lamar"]["hidden"] and p["marris"]["y"] in (10, 11), p
+    p = at("lakeshireinn", 23, 4, 6)
+    assert p["verner"]["visitor"] and p["lamar"]["visitor"], p           # the shop and the trainer, still there to talk to
+    no_errors(w)
 
 
 if __name__ == "__main__":

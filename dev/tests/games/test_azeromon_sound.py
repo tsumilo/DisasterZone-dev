@@ -228,6 +228,28 @@ def sources_start_near_and_fade_away():
 
 
 @case
+def wind_at_the_forest_edge_and_frogs_by_the_pond():
+    w, c = game()
+    enter(w, c)
+    c.eval("ns.AzeroSound.trace = {}")
+    at(w, c, "'town', 1, 9, 'down'")                                 # Goldshire's west edge: trees beside you
+    assert ambience(c).get("wind") == 538985, ambience(c)
+    at(w, c, "'town', 17, 16, 'down'")                               # the middle of town: no wind
+    assert "wind" not in ambience(c), ambience(c)
+    at(w, c, "'town', 28, 14, 'right'")                              # by the pond: frogs, more often close up
+    for _ in range(40):
+        w.tick(0.5)
+    frogs = [t for t in c.eval_py("return ns.AzeroSound.trace") if t[0] == "shot" and t[1] == "frog"]
+    assert len(frogs) >= 3 and all(t[2] == 549327 for t in frogs), frogs
+    at(w, c, "'bootybay', 12, 12, 'down'")                           # the sea has no frogs
+    c.eval("ns.AzeroSound.trace = {}")
+    for _ in range(40):
+        w.tick(0.5)
+    assert not [t for t in c.eval_py("return ns.AzeroSound.trace") if t[1] == "frog"]
+    no_errors(w)
+
+
+@case
 def loops_restart_as_they_end_and_ambience_switches_off():
     w, c = game()
     enter(w, c)

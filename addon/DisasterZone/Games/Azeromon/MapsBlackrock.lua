@@ -160,6 +160,14 @@ Maps.lakeshire = {
     },
     npcs = {
         { id = "solomon", name = "Magistrate Solomon", x = 11, y = 9, sprite = "hero", tint = { 0.9, 0.86, 0.7 }, face = "down",
+          day = {
+              { "00:00", inside = "lakeshirehall", label = "At home in the town hall" },
+              { "08:00", path = { { 12, 8 }, { 12, 9 }, { 11, 9 } }, face = "down", label = "Hearing the town's troubles",
+                walk = "Out to the square" },
+              { "19:30", path = { { 11, 9 }, { 12, 9 }, { 12, 8 } }, enter = "lakeshirehall", label = "At home in the town hall",
+                walk = "Going home" },
+          },
+          says = { { "09:00", "More orcs at Render's Camp. More letters to Stormwind." } },
           script = function(G)
               if G:Flag("badge_stonewatch") then
                   G:Say("Magistrate Solomon: Gath'Ilzogg beaten! Redridge breathes again, and Stormwind will hear whose doing it was.")
@@ -171,6 +179,14 @@ Maps.lakeshire = {
               G:Say("Magistrate Solomon: Gath'Ilzogg runs Stonewatch Keep. Break him and Redridge breathes again.")
           end },
         { id = "marris", name = "Marshal Marris", x = 22, y = 10, sprite = "hero", tint = { 0.7, 0.8, 1 }, face = "down",
+          lantern = true,
+          -- the bridge by day; the road through town all night with a lantern
+          day = {
+              { "00:00", loop = { { 22, 10 }, { 22, 11 }, { 1, 11 }, { 1, 10 }, { 22, 10 } }, label = "Night patrol" },
+              { "06:00", path = { { 22, 10 } }, face = "down", label = "Guarding the bridge" },
+              { "20:30", loop = { { 22, 10 }, { 22, 11 }, { 1, 11 }, { 1, 10 }, { 22, 10 } }, label = "Night patrol" },
+          },
+          says = { { "21:00", "Lanterns up. The Blackrock like the dark." } },
           script = function(G)
               G:Say("Marshal Marris: Bridge is open again, thanks to you. Yowler's lot kept knocking the planks out.")
               G:Say("Marshal Marris: Past the lake the road climbs to Stonewatch. Bring fire-proof beasts. Or water ones.")
@@ -182,12 +198,27 @@ Maps.lakeshire = {
                   { TO_DARKSHIRE, TO_VIGIL, TO_THORIUM })
           end },
         { id = "lamar", name = "Lamar Veisilli", role = "shop", x = 7, y = 9, sprite = "bald", tint = { 0.95, 0.8, 0.7 }, face = "down",
+          day = {
+              { "00:00", inside = "lakeshireinn", label = "Asleep at the inn" },
+              { "08:00", path = { { 6, 8 }, { 6, 9 }, { 7, 9 } }, face = "down", label = "Selling by the inn door",
+                walk = "Opening up" },
+              { "20:00", path = { { 7, 9 }, { 6, 9 }, { 6, 8 } }, enter = "lakeshireinn", label = "Supper at the inn",
+                walk = "Closing up" },
+          },
           script = function(G)
               G:Say("Lamar Veisilli: Fresh fruit! And Greater Healing Potions, since that's what folk buy now.")
               G:Shop("Lamar Veisilli", "lakeshire")
               G:Say("Lamar Veisilli: Mind the gnolls on the road.")
           end },
         { id = "verner", name = "Verner Osgood", role = "profession", x = 4, y = 12, sprite = "bald", tint = { 0.85, 0.7, 0.6 }, face = "left",
+          day = {
+              { "00:00", inside = "lakeshireinn", label = "Asleep at the inn" },
+              { "06:30", path = { { 6, 8 }, { 6, 11 }, { 4, 11 }, { 4, 12 } }, face = "left", act = "smith",
+                label = "Hammering at the anvil", walk = "Off to the forge" },
+              { "18:30", path = { { 4, 12 }, { 4, 11 }, { 6, 11 }, { 6, 8 } }, enter = "lakeshireinn",
+                label = "Supper at the inn", walk = "Heading to the inn" },
+          },
+          says = { { "10:00", "Iron, not copper. Journeyman work." } },
           script = function(G)
               G:Say("Verner Osgood: Copper and tin? That's apprentice work. I teach Journeyman, up to 150, in all four trades.")
               if G.ProfessionTrainer then
@@ -206,6 +237,8 @@ Maps.lakeshire = {
 }
 
 Maps.lakeshireinn = {
+    -- daily routines (Routine.lua): whoever's day has them in here sits at these
+    seats = { { 1, 4, "up" }, { 3, 4, "up" }, { 6, 4, "up" }, { 8, 4, "up" } },
     name = "Lakeshire Inn",
     music = "tavern",
     rows = {

@@ -661,9 +661,29 @@ Maps.bootybay = {
               end
           end },
         { id = "heming", name = "Old Man Heming", role = "profession", x = 10, y = 18, sprite = "bald",
+          -- fishes off the docks all day, tells fish stories at the Salty Sailor at night
+          day = {
+              { "00:00", inside = "bootybayinn", label = "Telling fish stories at the tavern" },
+              { "05:30", path = { { 5, 6 }, { 5, 8 }, { 11, 8 }, { 11, 17 }, { 10, 17 }, { 10, 18 } }, face = "down",
+                act = "fish", label = "Fishing off the docks", walk = "Off to the docks" },
+              { "20:30", path = { { 10, 18 }, { 10, 17 }, { 11, 17 }, { 11, 8 }, { 5, 8 }, { 5, 6 } }, enter = "bootybayinn",
+                label = "Telling fish stories at the tavern", walk = "Heading to the tavern" },
+          },
+          says = { { "06:00", "Early bite's the best bite." }, { "15:00", "That one was THIS big, I swear." } },
           tint = { 0.85, 0.82, 0.72 }, face = "down",       -- Expert Fishing
           script = function(G) G:FishingTrainer("heming") end },
         { id = "dockhand", name = "Dockhand", x = 14, y = 18, sprite = "hero", tint = { 0.7, 0.75, 0.6 }, face = "left",
+          -- hauls crates up and down the pier all day; the tavern at night
+          day = {
+              { "00:00", inside = "bootybayinn", label = "Asleep at the tavern" },
+              { "07:00", path = { { 5, 6 }, { 5, 8 }, { 11, 8 }, { 11, 17 }, { 14, 17 } }, face = "left",
+                label = "On the docks", walk = "Off to the docks" },
+              { "07:10", loop = { { 14, 17, wait = 3, face = "down" }, { 9, 17, wait = 3, face = "down" }, { 14, 17 } },
+                label = "Hauling crates down the pier" },
+              { "19:00", path = { { 14, 17 }, { 11, 17 }, { 11, 8 }, { 5, 8 }, { 5, 6 } }, enter = "bootybayinn",
+                label = "A drink at the tavern", walk = "Done for the day" },
+          },
+          says = { { "10:00", "Heave! ...ho." }, { "18:40", "Last crate. Grog time." } },
           script = function(G)
               if G:Flag("badge_blackwater") then
                   G:Say("Dockhand: The Bloodsail fleet turned tail! Drinks are on the Baron tonight. Well. One drink.")
@@ -675,6 +695,8 @@ Maps.bootybay = {
 }
 
 Maps.bootybayinn = {
+    -- daily routines (Routine.lua): whoever's day has them in here sits at these
+    seats = { { 1, 4, "up" }, { 3, 4, "up" }, { 6, 4, "up" }, { 8, 4, "up" } },
     name = "Salty Sailor Tavern",
     music = "tavern",
     rows = {

@@ -292,6 +292,7 @@ function R.Place(n, now)
     local st = R.State(n.def, now)
     if not st then return end
     n.routine = true
+    n.detour, n.detourTi, n.backIn = nil, nil, nil
     n.act, n.label = st.act, st.label
     n.seg, n.ti = st.seg, st.i
     if st.hidden then n.hidden = true return end
@@ -325,10 +326,77 @@ end
 -- A walker keeps its own place on its path (n.seg, n.ti) and walks it tile by tile, never jumping: it hurries while
 -- it is behind the clock (the player stood in the way, someone talked, a slow frame), goes all the way round a loop,
 -- finishes a walk to a door before it goes in, and only then starts the clock's next segment.
+R.ASIDE = 0.5           -- seconds a walker waits for the player before it steps round them
+
+-- Is (x, y) open ground a walker may step onto (not solid, nobody there)?
+local function Open(m, x, y, n)
+    if x < 0 or y < 0 or x >= m.w or y >= m.h then return false end
+    local k = m.key(x, y)
+    if m.solid[k] and not m.warp[k] then return false end
+    return not Occupied(x, y, n)
+end
+
+-- A way round the player standing on the walker's next tile: one tile to the side, along past them, and back onto
+-- the path at the tile after theirs. Returns the tiles to walk and the path index it rejoins at, or nil.
+local function Detour(m, n, tiles, L)
+    local function at(i)
+        if L then i = (i - 1) % L + 1 end
+        return tiles[i], i
+    end
+    local nx = at(n.ti + 1)
+    local after, ai = at(n.ti + 2)
+    if not (nx and after) then return nil end
+    local dx, dy = nx.x - n.x, nx.y - n.y
+    for _, p in ipairs({ { -dy, dx }, { dy, -dx } }) do
+        local a = { x = n.x + p[1], y = n.y + p[2] }
+        local b = { x = nx.x + p[1], y = nx.y + p[2] }
+        if Open(m, a.x, a.y, n) and Open(m, b.x, b.y, n) then
+            if b.x == after.x and b.y == after.y then return { a, b }, ai end              -- the path turns that way
+            if Open(m, after.x, after.y, n) then
+                if math.abs(b.x - after.x) + math.abs(b.y - after.y) == 1 then return { a, b, after }, ai end
+                local c = { x = after.x + p[1], y = after.y + p[2] }                         -- straight on: one more
+                if math.abs(b.x - c.x) + math.abs(b.y - c.y) == 1 and Open(m, c.x, c.y, n) then
+                    return { a, b, c, after }, ai
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- One step of a detour (n.detour); done, it is back on its path at n.detourTi.
+local function DetourStep(n, dt)
+    local t = n.detour[1]
+    if Occupied(t.x, t.y, n) then
+        n.blocked = (n.blocked or 0) + dt
+        if n.blocked > 3 then n.detour, n.detourTi, n.blocked = nil, nil, nil end   -- give up: wait on the path
+        return
+    end
+    n.blocked = nil
+    table.remove(n.detour, 1)
+    n.face = Dir(n.x, n.y, t.x, t.y)
+    n.fromX, n.fromY = n.x, n.y
+    n.x, n.y = t.x, t.y
+    n.moving = { t = 0, dur = R.STEP }
+    if #n.detour == 0 then n.ti, n.detour, n.detourTi = n.detourTi, nil, nil end
+end
+
 function R.Step(n, dt, now)
     local st = R.State(n.def, now)
     if not st then return end
     n.label = st.label
+    if n.backIn then                        -- went back in to let the player through the door: out again once free
+        local b = n.backIn
+        -- (out again once the doorway and the spot the player blocked are both free)
+        if Occupied(b.x, b.y, n) or Occupied(b.wx, b.wy, n) then return end
+        n.backIn, n.hidden = nil, false
+        n.x, n.y, n.seg, n.ti = b.x, b.y, b.seg, b.ti
+        return
+    end
+    if n.detour then
+        if G:IsFree() then DetourStep(n, dt) end
+        return
+    end
     if n.hidden then                        -- comes out of a door / back on the road
         if st.hidden or Occupied(st.x, st.y, n) then return end
         n.hidden = false
@@ -378,7 +446,18 @@ function R.Step(n, dt, now)
     local nx = tiles[n.ti + 1]
     if not nx then R.Place(n, now) return end
     if Occupied(nx.x, nx.y, n) then
-        n.blocked = (n.blocked or 0) + dt   -- the player stands in the way: wait for them, then hurry on
+        n.blocked = (n.blocked or 0) + dt   -- someone stands in the way: wait a moment
+        local s, m = G.save, G.map
+        if n.blocked >= R.ASIDE and m and s.x == nx.x and s.y == nx.y then
+            -- it's the player: step round them, or (in a doorway, walls either side) go back in until they've passed
+            local route, rejoin = Detour(m, n, tiles, L)
+            if route then
+                n.detour, n.detourTi, n.blocked = route, rejoin, nil
+            elseif m.warp[m.key(n.x, n.y)] then
+                n.backIn = { x = n.x, y = n.y, seg = n.seg, ti = n.ti, wx = nx.x, wy = nx.y }
+                n.hidden, n.blocked = true, nil
+            end
+        end
         return
     end
     n.blocked = nil

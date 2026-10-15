@@ -208,6 +208,7 @@ S.LEN = {
     [538973] = 10.12,                                -- water river_lakestilla
     [566808] = 5.19,                                 -- doodad tradeskill_fishschool_01standvar2
     [537332] = 59.54,                                -- wmoambience blacksmith
+    [538985] = 29.95,                                -- weather snowlight: a soft wind (no forest wind loop in 2.5)
 }
 -- the bed for each map theme (UI.lua Amb.MOODS keys), day and night
 S.BEDS = {
@@ -232,12 +233,16 @@ S.SOURCES = {
     school = { id = 566808, radius = 3 },   -- a school of fish (Fishing.lua)
     smithy = { id = 537332, radius = 5 },   -- a forge or anvil, while someone is smithing at it
     inn = { id = 537423, radius = 4 },      -- the door of a room with S.CROWD or more people in it
+    wind = { id = 538985, radius = 2 },     -- wind in the trees, near the forest's edge
 }
+S.WIND_THEMES = { elwynn = true, westfall = true, duskwood = true, redridge = true, jungle = true }
 -- one-shots: id(s), and the gap in seconds near (distance 0) and far (at radius)
 S.SHOTS = {
     anvil = { ids = { 569814, 569822, 569799 }, radius = 7, near = 1.8, far = 6 },     -- blacksmithcrafting a/b/c
     owl = { ids = { 557971 }, near = 25, far = 60 },                                    -- owlpreaggro, night woods
+    frog = { ids = { 549327 }, radius = 6, near = 5, far = 14 },                        -- creature/frog/float, by a pond
 }
+S.FROG_THEMES = { elwynn = true, westfall = true, duskwood = true, redridge = true }
 S.OWL_THEMES = { elwynn = true, duskwood = true, redridge = true }
 S.FADE = 1500                               -- ms a loop takes to fade when it stops
 S.TICK = 0.25                               -- seconds between ambience updates
@@ -290,6 +295,25 @@ local function Nearest(s, tiles)
     return best
 end
 
+-- The forest's edge trees: "T" tiles of the map's rows next to open ground (cached on the compiled map).
+function S.TreeEdge(m)
+    if m.treeEdge then return m.treeEdge end
+    local list, rows = {}, m.def.rows or {}
+    local function tree(x, y)
+        local r = rows[y + 1]
+        return not r or x < 0 or x >= #r or r:sub(x + 1, x + 1) == "T"
+    end
+    for y = 0, #rows - 1 do
+        for x = 0, #rows[y + 1] - 1 do
+            if tree(x, y) and (not tree(x + 1, y) or not tree(x - 1, y) or not tree(x, y + 1) or not tree(x, y - 1)) then
+                list[#list + 1] = { x = x, y = y }
+            end
+        end
+    end
+    m.treeEdge = list
+    return list
+end
+
 -- What should be heard right now: key -> id loops, and the one-shots with their distance.
 function S:AmbienceWants()
     local wants, shots = {}, {}
@@ -338,6 +362,17 @@ function S:AmbienceWants()
         end
     end
     if night and S.OWL_THEMES[m.def.theme or "elwynn"] and not G.raining then shots.owl = 0 end
+    local theme = m.def.theme or "elwynn"
+    -- wind in the trees at the forest's edge
+    if S.WIND_THEMES[theme] then
+        local d = Nearest(s, S.TreeEdge(m))
+        if d and d <= S.SOURCES.wind.radius then wants.wind = S.SOURCES.wind.id end
+    end
+    -- frogs by a pond (not the sea)
+    if S.FROG_THEMES[theme] and Fish and Fish.WaterOf(m) and not m.def.coastEncounters then
+        local d = Nearest(s, Fish.Shore(m))
+        if d and d <= S.SHOTS.frog.radius then shots.frog = d end
+    end
     return wants, shots
 end
 
