@@ -85,6 +85,29 @@ def levels_become_milestones_and_a_raider_at_70_is_a_word_for_the_raid_leaders()
 
 
 @case
+def a_night_they_never_came_to_is_no_first_raid():
+    w, c = joined(level=70)
+    gina = c["Gina"]
+
+    def first_raid():
+        ms = person(gina, "Kaelthorn").get("ms") or {}
+        return bool(ms.get("r"))
+
+    # expected (lineup) but a no-show, and a clash only: not there
+    gina.eval("ns.Attendance.GetHistory = function() return { { night = {}, r = { kind = 'l', noShow = true } },"
+              " { night = {}, r = { clash = true } } } end")
+    gina.eval("ns.Recruit._H.CheckSettling()")
+    w.tick(2)
+    assert not first_raid(), person(gina, "Kaelthorn")
+    # came as a fill-in
+    gina.eval("ns.Attendance.GetHistory = function() return { { night = {}, r = { help = 1800 } } } end")
+    gina.eval("ns.Recruit._H.CheckSettling()")
+    w.tick(2)
+    assert first_raid(), person(gina, "Kaelthorn")
+    w.assert_no_errors()
+
+
+@case
 def last_online_and_gone_quiet():
     w, c = joined(level=60, wants_raid=False)
     gina, kael = c["Gina"], c["Kaelthorn"]

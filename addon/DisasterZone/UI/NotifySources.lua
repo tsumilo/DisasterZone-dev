@@ -552,7 +552,13 @@ local function registerRecruit(N)
             local team = ns.RaidPlan and ns.RaidPlan:GetTeam(n.team)
             local spec = n.c and n.sp and ns.SPECS[n.c] and ns.SPECS[n.c][n.sp]
             local what = (spec and (spec.label .. " ") or "") .. (n.c and ns.ClassName(n.c) or "")
-            local where = team and (n.why == "70" and (team.name .. " has a place for them") or ("on " .. team.name .. "'s bench")) or ""
+            -- (only a recruiter who may manage teams puts them on the bench: otherwise they are not on it)
+            local onTeam = false
+            for _, m in ipairs(team and team.members or {}) do
+                if m == n.key then onTeam = true break end
+            end
+            local where = team and (n.why == "70" and (team.name .. " has a place for them")
+                or (onTeam and ("on " .. team.name .. "'s bench") or ("for " .. team.name))) or ""
             out[#out + 1] = { key = n.id, from = n.by, time = n.at, data = { id = n.id, team = n.team },
                 title = UI():ColoredName(n.key, n.c) .. (n.why == "70" and " hit 70 and wants to raid" or " joined the guild"),
                 text = (what ~= "" and where ~= "") and (what .. " · " .. where) or (what .. where),

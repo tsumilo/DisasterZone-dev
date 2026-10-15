@@ -126,7 +126,34 @@ def joining_does_the_chores():
     news = lee.eval_py("return ns.Recruit:GetTeamNews()")
     news = list(news.values()) if isinstance(news, dict) else (news or [])
     assert news and news[0]["key"] == K("Kaelthorn") and news[0]["team"] == tid, news
+    team_text = ("for _, it in ipairs(ns.Notify:List()) do if it.kind == 'recruitTeam' then "
+                 "return it.text end end")
+    assert lee.eval(team_text).endswith("on Main team's bench"), lee.eval(team_text)
+    # off the team again: the word for the raid leaders no longer says they are on its bench
+    gina.eval("ns.RaidPlan:SaveTeam(..., 'Main team', {}, {})", tid)
+    w.tick(5)
+    assert lee.eval(team_text).endswith("for Main team"), lee.eval(team_text)
     assert friends(gina) == [], gina.friends
+    w.assert_no_errors()
+
+
+@case
+def a_long_officer_note_is_never_cut_inside_a_letter():
+    w, c = guild()
+    gina, kael = c["Gina"], c["Kaelthorn"]
+    add(w, gina, "Kaelthorn", c="PALADIN", sp=1)
+    d = gina.eval_py("return ns.Recruit:InviteDefaults(...)", K("Kaelthorn"))
+    d["note"] = "x" * 30 + "ä" + "yz"   # the game's 31 bytes end inside the "ä"
+    # (the raw bytes the addon hands the game: the mock's note store would hide a broken letter)
+    gina.eval("local set = GuildRosterSetOfficerNote; GuildRosterSetOfficerNote = function(i, s) "
+              "_G.DZ_TEST_NOTE = { #s, s:byte(-1) }; return set(i, s) end")
+    assert invite(gina, "Kaelthorn", d)["ok"] is True
+    w.tick(2)
+    kael.eval("AcceptGuild()")
+    w.tick(10)
+    got = gina.eval_py("return _G.DZ_TEST_NOTE")
+    got = list(got.values()) if isinstance(got, dict) else got
+    assert got == [30, ord("x")], got
     w.assert_no_errors()
 
 

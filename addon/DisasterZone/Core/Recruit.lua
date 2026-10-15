@@ -943,7 +943,12 @@ function H.WriteNote(key, note, tries)
     end
     if CanEditOfficerNote and CanEditOfficerNote() and GuildRosterSetOfficerNote then
         local short = note
-        while #short > 31 do short = short:sub(1, -2) end      -- (the game keeps 31 bytes)
+        if #short > 31 then                                    -- (the game keeps 31 bytes)
+            short = short:sub(1, 31)
+            -- (cut inside a letter like the "ä" of Släy: drop its first half too)
+            local nb = note:byte(32)
+            if nb >= 128 and nb < 192 then short = short:gsub("[\192-\255][\128-\191]*$", "") end
+        end
         GuildRosterSetOfficerNote(found, short)
     elseif ns.OfficerNotes and ns.OfficerNotes.Set then
         ns.OfficerNotes:Set(key, note)
@@ -1121,7 +1126,16 @@ function H.CheckSettling()
                 local Att = ns.Attendance
                 if ms.r ~= false and not reached.r and Att and Att.GetHistory then
                     local ok, hist = pcall(Att.GetHistory, Att, key)
-                    if ok and type(hist) == "table" and #hist > 0 then reached.r, changed = now, true end
+                    -- (a night they were expected at but never came, or only clashed with, is no first raid)
+                    local came = false
+                    for _, h in ipairs(ok and type(hist) == "table" and hist or {}) do
+                        local x = type(h) == "table" and h.r
+                        if type(x) == "table" and ((x.kind and not x.noShow) or (tonumber(x.help) or 0) > 0) then
+                            came = true
+                            break
+                        end
+                    end
+                    if came then reached.r, changed = now, true end
                 end
                 if changed then set("ms", reached) end
             end
