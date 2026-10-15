@@ -5,7 +5,7 @@
                      with a block being carved, 2 a knight of the guild on the plinth. 32 x 56 art standing on the
                      bottom of a 32 x 64 cell; UI.lua draws it live (its stage changes during the week) with the
                      base (the bottom 2 x 2) solid
-  marker      1 x 1  a last-seen marker: a small rune stone where a guildmate last stood (12 x 14 on a 16 x 16 tile)
+  marker      1 x 1  a last-seen marker: a hearthstone on the ground where a guildmate left (14 x 10 on a 16 x 16 tile)
 
 Used by gen_azeromon_art.py: tiles() -> [(name, 16 x 16 RGBA Image)], appended so earlier slots never move."""
 import numpy as np
@@ -78,33 +78,32 @@ def statue(stage):
     return s
 
 
-# the last-seen marker, hand-placed in the people sheet's DawnBringer 16 (pixels.py)
-MARKER_PAL = {"K": (20, 12, 28), "L": (109, 170, 44), "E": (52, 101, 36), "M": (117, 113, 97),
-              "s": (176, 186, 196), "m": (96, 100, 112), "A": (109, 194, 202)}
+# the last-seen marker: a hearthstone lying on the ground where a guildmate hearthed out (they left from here), its
+# rune ring lit (UI.lua pulses a soft glow over it). Hand-placed in the people sheet's DawnBringer 16 (pixels.py).
+MARKER_PAL = {"K": (20, 12, 28), "s": (176, 186, 196), "m": (117, 125, 140), "d": (78, 74, 90),
+              "A": (109, 194, 202), "W": (222, 238, 214)}
 MARKER = [
-    "....KKKK....",
-    "...KsssmK...",
-    "..KssAsmmK..",
-    "..KsAAAsmK..",
-    "..KssAsmmK..",
-    "..KsAsAmmK..",
-    "..KssssmmK..",
-    "..KsssmmmK..",
-    "..KssmmmmK..",
-    ".KKsmmmmmKK.",
-    "KLKKKKKKKKLK",
-    ".KLLELLLELK.",
-    "..MMMMMMMM..",
-    "............",
+    "....KKKKKK....",
+    "..KKssssssKK..",
+    ".KssAAAAsssmK.",
+    "KssAsWWsAsmmmK",
+    "KsssAAAAssmmmK",
+    "KssssssssmmmmK",
+    ".KsssssssmmmK.",
+    ".KmssmmmmmmdK.",
+    "..KdmmmmddddK.",
+    "...KKKKKKKKK..",
 ]
 
 
 def marker():
     img = np.zeros((16, 16, 4), dtype=np.uint8)
+    for x in range(4, 13):                                     # its shadow on the ground
+        img[14, x] = (0, 0, 0, 80)
     for y, row in enumerate(MARKER):
         for x, ch in enumerate(row):
             if ch != ".":
-                img[y + 1, x + 2] = MARKER_PAL[ch] + (255,)    # centred, its foot on the tile's lower part
+                img[y + 4, x + 1] = MARKER_PAL[ch] + (255,)    # centred, lying on the tile's lower part
     return img
 
 

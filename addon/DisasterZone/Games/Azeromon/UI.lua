@@ -4074,6 +4074,11 @@ function Amb.Guild(m, g, px, py)
             SetTile(t, "marker")
             t:SetDrawLayer("BORDER", 2)
             place(t, e.x, e.y)
+            -- the hearthstone's rune glowing softly, a slow pulse (each its own beat)
+            local glow = 0.6 + 0.4 * math.sin(now * 2.2 + e.x * 1.7 + e.y)
+            local gx, gy = e.x * 16, e.y * 16
+            Amb.Pix(px, py, gx + 2, gy + 5, 13, 9, 0.45, 0.8, 1, 0.10 * glow, "BORDER", 3)
+            Amb.Pix(px, py, gx + 4, gy + 6, 6, 3, 0.55, 0.88, 1, 0.30 * glow, "BORDER", 3)
             nf = nf + 1
             local fs = Amb.markFs[nf]
             if not fs then
