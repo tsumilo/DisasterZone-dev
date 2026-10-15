@@ -8,6 +8,21 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.5.1", date = "October 2026", title = "Walking together",
       sections = {
+          { heading = "Recruitment", area = "guild", kind = "new", hi = true, open = "recruit", ["for"] = "gm officers",
+            lead = "Guild > Recruitment: the people you talk to about joining, for the GM and officers.", lines = {
+              "Add someone from a name's right-click menu, from Raids > Guests, or by name.",
+              "What they want, their spec, the nights they can raid and their own words.",
+              "Fits a team: their nights beside each team's raid nights, and an open place.",
+              "Every officer's notes in one story, with their guest raids and milestones.",
+              "Follow-ups remind you when they're online: they go on your friends list.",
+              "Pass someone to another officer; introductions nobody took remind everyone.",
+              "Bring them along: a group invite, a guest seat in a raid, or a member.",
+              "Invite: a welcome in guild chat, the officer note, the team's bench, its leaders told.",
+              "Then check-ins after a week and a month, level 58 and 70, first raid, gone quiet.",
+              "Message: the guild's recruitment line from blocks, posted in turns.",
+              "Every member can introduce a friend from Guild > Members.",
+              "The Guild Master sets it up in Settings > Guild > Recruitment.",
+          } },
           { heading = "Walking together in 3D", area = "raids", kind = "changed", hi = true, open = "strategies",
             lead = "The others walking in a strategy's room stay where they really are, as themselves.", lines = {
               "No more snapping: they run down the steps and stop at walls just as they really do.",
@@ -15,8 +30,8 @@ ns.CHANGELOG = {
               "Positions never wait in a queue, so what you see is never seconds old.",
               "Their own race, sex and gear (helm and cloak only when shown).",
               "/dz 3d looks npc: walkers of the other sex as a dressed NPC of their race.",
-              "A whole raid can walk together: 25 at once stay smooth, only the nearest hide behind pillars.",
-              "Walking and turning cost far less: the room is a touch coarser while you move, sharp when you stop.",
+              "A whole raid can walk together: 25 stay smooth, only the nearest hide behind pillars.",
+              "Walking and turning cost far less: a touch coarser while you move, sharp when you stop.",
           } },
           { heading = "A new Atlas", area = "gear", kind = "changed", hi = true, open = "atlas",
             lead = "The Atlas is one wide page under a path you click: era, category, place, boss.", lines = {

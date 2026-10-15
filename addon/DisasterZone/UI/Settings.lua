@@ -62,7 +62,7 @@ local CATS = {
       cards = { "meters", "bossmods", "classtools", "strategy", "mylog" } },
     { key = "interface", label = "Interface", icon = 31, lead = "How everything looks and where it goes.", cards = { "looks", "layout" } },
     { key = "guild", label = "Guild", icon = 26, lead = "The guild's council and how attendance counts: the Guild Master sets them.",
-      cards = { "council", "attendance", "discord", "setup" } },
+      cards = { "council", "attendance", "discord", "recruit", "setup" } },
     { key = "help", label = "Help", icon = 11, small = true, lead = "Tutorials, demo mode and what version you have.",
       cards = { "tutorials", "demo", "about" } },
 }
@@ -141,6 +141,10 @@ local CARDS = {
                 lead = "The guild's Discord bot: where raids are posted.",
                 visible = function() return SettingsUI:IsGM() or (ns.Bridge and ns.Bridge:HasLauncher()) or false end },
     -- the GM's set-up checklist (UI/WelcomeTour.lua)
+    -- 1.6: recruitment (Core/Recruit.lua): the GM's rules, for the GM and officers
+    recruit = { label = "Recruitment", build = "BuildRecruit", scope = "guild", icon = 46,
+                lead = "Who talks to new people, and how the addon helps them settle in.",
+                visible = function() return ns.Recruit and ns.Recruit:CanUse() or false end },
     setup = { label = "Guild set-up", build = "BuildSetup", scope = "gm", icon = 64,
               lead = "What is left to set up for your guild. Each open item opens its page.",
               visible = function() return SettingsUI:IsGM() end },
@@ -389,7 +393,7 @@ function SettingsUI:OnInit()
                            "DEMO_TOGGLED", "SYNC_STATUS", "DUNGEON_MODE_CHANGED", "GROUP_UPDATED",
                            "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED", "MYLOG_CHANGED", "ATTENDANCE_RULES_CHANGED",
                            "TOUR_CHANGED", "LOOT_RULES_CHANGED", "RAIDPLAN_CHANGED", "UI_LOOK_CHANGED",
-                           "DISCORD_CHANGED" }) do
+                           "DISCORD_CHANGED", "RECRUIT_RULES_CHANGED" }) do
         ns:On(msg, changed)
     end
 end
@@ -2592,7 +2596,7 @@ end
 
 -- What reaches you: one grid for every kind of notification and the BiS drop alert, grouped by the part of the addon
 -- they come from (Loot first, with the BiS alert on top), then "Off-spec items too" for the BiS alert.
-local KIND_GROUPS = { "Loot", "Raids", "Dungeons", "Polls", "Games", "Feedback", "DisasterZone" }
+local KIND_GROUPS = { "Loot", "Raids", "Dungeons", "Polls", "Recruitment", "Games", "Feedback", "DisasterZone" }
 
 function SettingsUI:BuildNotify(sec)
     local N = ns.Notify
@@ -4386,6 +4390,81 @@ function SettingsUI:RefreshDiscord()
     end
 end
 
+-- Guild > Recruitment: the GM's rules (Guild:SetRecruitRules), read-only for officers; and my own friends-list switch.
+local RECRUIT_CHOICES = {
+    uc = { { value = 0, text = "Never" }, { value = 1, text = "After 1 day" }, { value = 2, text = "After 2 days" },
+           { value = 7, text = "After a week" } },
+    ck = { { value = 1, text = "1 week and 1 month" }, { value = 2, text = "1 month" }, { value = 0, text = "None" } },
+    q  = { { value = 0, text = "Never" }, { value = 7, text = "7 days" }, { value = 14, text = "14 days" },
+           { value = 30, text = "30 days" } },
+    nn = { { value = 0, text = "Never" }, { value = 30, text = "After a month" }, { value = 90, text = "After 3 months" },
+           { value = 180, text = "After 6 months" } },
+}
+
+local function RecruitRules() return ns.Guild and ns.Guild:GetRecruitRules() or {} end
+local function SetRecruit(changes)
+    local ok, err = ns.Guild:SetRecruitRules(changes)
+    if not ok and err then ns:Print("%s", tostring(err)) end
+    SettingsUI:RefreshRecruit()
+end
+
+function SettingsUI:BuildRecruit(sec)
+    self.rec = sec
+    sec.notice = self:Notice(sec, "info")
+    sec.status = sec.notice.text
+    sec.ruleRows = {}
+    local function rule(row) sec.ruleRows[#sec.ruleRows + 1] = row end
+    local function choice(field, title, desc)
+        local _, row = self:Dropdown(sec, title, desc, function() return RECRUIT_CHOICES[field] end,
+            function() return RecruitRules()[field] end, function(a, b) SetRecruit({ [field] = Value(a, b) }) end)
+        row.choices = RECRUIT_CHOICES[field]
+        rule(row)
+    end
+    local function switch(title, desc, get, set)
+        local _, row = self:Switch(sec, title, desc, get, set)
+        rule(row)
+    end
+    switch("Raid leaders work on recruits too", "Officers and the Guild Master always do. Raid leaders see People when this is on.",
+        function() return (RecruitRules().wk or {}).l == true end,
+        function(a, b) SetRecruit({ wk = { o = true, l = Bool(a, b) } }) end)
+    switch("Members can introduce friends", "From the Guild menu and a member card: it reaches you as a notification.",
+        function() return RecruitRules().it ~= false end, function(a, b) SetRecruit({ it = Bool(a, b) }) end)
+    choice("uc", "Remind if nobody takes someone", "Every officer, once, about an introduction nobody has taken.")
+    choice("ck", "Check-ins", "Whoever invited them gets a reminder.")
+    switch("Milestones", "Level 58, level 70, their first dungeon and raid with the guild: told to whoever invited them.",
+        function() local ms = RecruitRules().ms or {} return ms[70] == true end,
+        function(a, b) local on = Bool(a, b) SetRecruit({ ms = { [58] = on, [70] = on, d = on, r = on } }) end)
+    switch("Raiders at 70: tell the raid leaders", "With the teams that have a place for their spec.",
+        function() return RecruitRules().rl ~= false end, function(a, b) SetRecruit({ rl = Bool(a, b) }) end)
+    choice("q", "Gone quiet after", "A new member offline this long: whoever invited them hears about it.")
+    choice("nn", "Not now comes back", "Someone you said Not now to shows up again as a reminder.")
+    -- mine (every recruiter): the friends list
+    self:Switch(sec, "Add people to my friends list", "So you see when they're online. Taken off again when they join. Only this character.",
+        function() return ns.Recruit:FriendsOn() end,
+        function(a, b) ns.Recruit:SetFriendsOn(Bool(a, b)) end)
+    self:EndSection(sec)
+end
+
+function SettingsUI:RefreshRecruit()
+    local sec = self.rec
+    if not sec then return end
+    local gm = ns.Guild and ns.Guild.IsGM and (ns.Guild:IsGM(ns.Util.PlayerKey()) or ns.Util.DemoOn())
+    local text = gm and ("You set these as Guild Master." .. Grey(" Every officer gets them."))
+        or Grey("Set by the Guild Master.")
+    sec.status:SetText(text)
+    sec.notice:SetNotice(gm and "info" or "readonly", text)
+    for _, row in ipairs(sec.ruleRows or {}) do
+        local shown
+        if row.choices then
+            local v = row.getValue()
+            for _, o in ipairs(row.choices) do if o.value == v then shown = o.text end end
+        else
+            shown = row.getValue() and "On" or "Off"
+        end
+        SetReadOnly(row, not gm, shown)
+    end
+end
+
 function SettingsUI:BuildAttendance(sec)
     self.att = sec
     sec.notice = self:Notice(sec, "info")
@@ -4627,6 +4706,7 @@ function SettingsUI:Refresh()
     self:RefreshCouncil()
     self:RefreshAttendance()
     self:RefreshDiscord()
+    self:RefreshRecruit()
     self:RefreshTutorials()
     for _, row in ipairs(self.settingRows) do PaintDot(row) end
     self:LayoutPartTiles()

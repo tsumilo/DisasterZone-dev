@@ -2341,8 +2341,29 @@ function BNFeaturesEnabledAndConnected() return false end
 function BNConnected() return false end
 function BNGetNumFriends() return 0, 0 end
 C_BattleNet = { GetFriendAccountInfo = function() return nil end, GetAccountInfoByGUID = function() return nil end }
-C_FriendList = { IsFriend = function() return false end, GetNumFriends = function() return 0 end, GetNumOnlineFriends = function() return 0 end,
-  GetFriendInfoByIndex = function() return nil end, IsIgnored = function() return false end, ShowFriends = function() end }
+-- the friends list (the harness keeps it per client: PY.friends rows { name, connected, level, area, className, notes })
+local function friend_rows()
+  local rows = PY.friends()
+  local out = {}
+  for i = 1, #rows do out[i] = rows[i] end
+  return out
+end
+C_FriendList = {
+  IsFriend = function() return false end, IsIgnored = function() return false end, ShowFriends = function() end,
+  GetNumFriends = function() return #friend_rows() end,
+  GetNumOnlineFriends = function() local n = 0 for _, r in ipairs(friend_rows()) do if r.connected then n = n + 1 end end return n end,
+  GetFriendInfoByIndex = function(i) return friend_rows()[i] end,
+  GetFriendInfo = function(name)
+    local n = tostring(name):gsub("%-.*", ""):lower()
+    for _, r in ipairs(friend_rows()) do if r.name:lower() == n then return r end end
+  end,
+  AddFriend = function(name, note) PY.add_friend(tostring(name), note and tostring(note) or "") end,
+  RemoveFriend = function(name) PY.remove_friend(tostring(name)) end,
+  SetFriendNotes = function() end,
+}
+function GuildInvite(name) PY.guild_invite(tostring(name)) end
+function AcceptGuild() PY.accept_guild() end
+function DeclineGuild() PY.decline_guild() end
 function IsIgnored() return false end
 
 local CHAT_TYPES = { SAY = true, YELL = true, EMOTE = true, PARTY = true, RAID = true, RAID_WARNING = true, GUILD = true,
@@ -2500,6 +2521,18 @@ ERR_FRIEND_OFFLINE_S = "%s has gone offline."
 ERR_NOT_IN_RAID = "You are not in a raid group"
 ERR_NOT_IN_GROUP = "You aren't in a party."
 ERR_GUILD_PLAYER_NOT_IN_GUILD = "You are not in a guild."
+-- a guild invite's answers (enUS GlobalStrings)
+ERR_GUILD_INVITE_S = "You have invited %s to join your guild."
+ERR_ALREADY_IN_GUILD_S = "%s is already in a guild."
+ERR_ALREADY_INVITED_TO_GUILD_S = "%s has already been invited to a guild."
+ERR_GUILD_DECLINE_S = "%s declines your guild invitation."
+ERR_GUILD_PLAYER_NOT_FOUND_S = "\"%s\" not found."
+ERR_GUILD_JOIN_S = "%s has joined the guild."
+ERR_GUILD_PERMISSIONS = "You don't have permission to do that."
+ERR_FRIEND_ADDED_S = "%s added to friends."
+ERR_FRIEND_REMOVED_S = "%s removed from friends."
+ERR_FRIEND_LIST_FULL = "Your friends list is full."
+ERR_FRIEND_ALREADY_S = "%s is already your friend."
 ERR_NOT_LEADER = "You are not the party leader."
 ERR_RAID_MEMBER_ADDED_S = "%s has joined the raid group."
 ERR_RAID_MEMBER_REMOVED_S = "%s has left the raid group."

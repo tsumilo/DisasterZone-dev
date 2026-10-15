@@ -71,6 +71,8 @@ local PAGES = {
     map        = { label = "Guild map", tab = "map", desc = "Where the guild is right now.",
                    closed = "The guild map is for guild members." },
     polls      = { label = "Polls", tab = "polls", desc = "The guild's polls: answer them or see the results." },
+    recruit    = { label = "Recruitment", tab = "recruit", desc = "The people the officers talk to about joining.",
+                   closed = "Recruitment is for the Guild Master and the officers." },
     atlas      = { label = "Atlas", tab = "atlas", desc = "Every raid and dungeon's loot, with what it costs." },
     mylog      = { label = "My Log", tab = "mylog", desc = "Your own raid log: every pull and your numbers." },
     feedback   = { label = "Feedback", tab = "feedback", icon = ICON.feedback,

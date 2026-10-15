@@ -1284,8 +1284,18 @@ local function updateNote(right, member)
     local note = right.note
     local officer = member ~= nil and notes ~= nil and notes:CanUse()
     local rec = officer and notes:Get(member) or nil
-    note:SetShown(rec ~= nil)
+    -- (1.6: someone who joined through Recruitment: "How they joined" on the card, for who works on recruits; with no
+    -- officer note, the card says when and who met them)
+    local Rc = ns.Recruit
+    local joined = member and Rc and Rc.CanUse and Rc:CanUse() and Rc:Get(member) or nil
+    if joined and joined.st ~= "joined" and joined.st ~= "gone" then joined = nil end
+    if note.joined then note.joined:SetShown(joined ~= nil) end
     right.canAddNote = officer and rec == nil
+    if not rec and joined then
+        rec = { text = "Joined " .. date("%d %b", joined.ja or joined.rev) .. (joined.jb and (", invited by " ..
+            ns.Util.ShortName(joined.jb)) or "") .. ".", by = joined.jb, rev = joined.ja or joined.rev }
+    end
+    note:SetShown(rec ~= nil)
     if not rec then return 0 end
     note.key = member
     local day = (date("%d %b", rec.rev):gsub("^0", ""))
@@ -1660,6 +1670,12 @@ local function createCard(p, L)
     note.head:SetPoint("TOPLEFT", note.body, "TOPLEFT", 0, 0)
     note.head:SetPoint("TOPRIGHT", note.body, "TOPRIGHT", 0, 0)
     note.edit = note.head.action
+    -- (1.6: someone who joined through Recruitment: their story, for who works on recruits)
+    note.joined = UI:CreateTextLink(note.body, "How they joined", function()
+        if note.key and ns.RecruitUI then ns.RecruitUI:Open(note.key) end
+    end, { chevron = "right", color = "GOLD" })
+    note.joined:SetPoint("RIGHT", note.edit, "LEFT", -10, 0)
+    note.joined:Hide()
     note.text = UI:Text(note.body, "body", "TEXT", { wrap = true })
     note.text:SetPoint("TOPLEFT", note.body, "TOPLEFT", 2, -NOTE_HEAD_H)
     note.text:SetJustifyV("TOP")
@@ -1712,6 +1728,13 @@ function MembersUI:CreatePanel(parent)
     end)
     p.profDD:SetHeight(S.BTN_H)
     bar:SetFilters({ p.profDD })
+    bar:SetMore(function(root)
+        local I = ns.RecruitIntro
+        local item = root:CreateButton(UI:AtlasIconText(UI.ICON.team or 46, 14) .. "  Introduce a friend", function()
+            MembersUI:IntroduceFriend()
+        end)
+        if not (I and I:CanIntroduce()) then item:SetEnabled(false) end
+    end, "More")
 
     -- the lists fill the list column (their bar in the shared lane at their right)
     p.roster = UI:CreateScrollList(L.list, ROW_H, initRosterRow, function(d) return d.kind == "sep" and SEP_H or ROW_H end)
@@ -1855,6 +1878,23 @@ function MembersUI:GetVersion(key) return versionOf(key) end
 
 function MembersUI:GetPanel() return panel end
 function MembersUI:GetState() return state end
+
+-- Introduce a friend (Core/RecruitIntro.lua): their name, then a line about them; the GM and officers take it.
+function MembersUI:IntroduceFriend()
+    local I = ns.RecruitIntro
+    if not (I and I:CanIntroduce()) then return end
+    ns.Popup:Prompt({ title = "Introduce a friend", text = "Someone who'd like to join? Their character's name.", ok = "Next",
+        maxLetters = 48, trim = true, validate = function(v) return v ~= "" end,
+        onAccept = function(name)
+            ns.Popup:Prompt({ title = "A line about " .. name, text = "Who they are, what they like to play. The Guild Master and "
+                .. "officers will get in touch with them.", ok = "Introduce", maxLetters = 160, multiline = true, multiHeight = 56,
+                trim = true, onAccept = function(line)
+                    local ok, err = I:Introduce(name, line)
+                    if ok then ns:Print("Thanks! %s goes to the Guild Master and officers.", name)
+                    else ns:Print("%s", tostring(err)) end
+                end })
+        end })
+end
 
 function MembersUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then

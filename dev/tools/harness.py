@@ -942,6 +942,87 @@ class World:
     # accepts after `latency` when auto_accept_invites is on; a full party or an offline / grouped target refuses.
     # With auto_accept_invites off the invite waits: the target's client gets PARTY_INVITE_REQUEST (UIParent shows
     # Blizzard's pop-up) and its AcceptGroup / DeclineGroup answers it (accept_group / decline_group).
+    # -- guild invites and the friends list (recruitment, 1.6) ------------------------------------------------------
+    def guild_invite(self, by, name):
+        """GuildInvite(name): the enUS answers WoW sends the inviter; the target gets GUILD_INVITE_REQUEST."""
+        self.guild_invite_log = getattr(self, "guild_invite_log", [])
+        target = self.find_client(str(name).split("-")[0])
+        entry = {"time": round(self.now, 3), "by": by.full_name, "target": str(name), "result": None}
+        self.guild_invite_log.append(entry)
+        if not by.guild:
+            entry["result"] = "not in a guild"
+            self._enqueue(0.0, by, "system", "You are not in a guild.")
+            return
+        if target is None or not self._is_online(target) or target.faction != by.faction:
+            entry["result"] = "not found"
+            self._enqueue(0.0, by, "system", '"%s" not found.' % str(name).split("-")[0])
+            return
+        if target.guild:
+            entry["result"] = "in a guild"
+            self._enqueue(self.latency, by, "system", "%s is already in a guild." % target.name)
+            return
+        entry["result"] = "invited"
+        target.guild_invite_from = by
+        self._enqueue(0.0, by, "system", "You have invited %s to join your guild." % target.name)
+
+        def ask():
+            if target.runtime is not None:
+                target.fire("GUILD_INVITE_REQUEST", by.name, by.guild)
+        self._enqueue(self.latency, None, "call", ask)
+
+    def accept_guild(self, c):
+        by, c.guild_invite_from = c.guild_invite_from, None
+        if by is None or not by.guild:
+            return
+        c.guild = by.guild
+        c.guild_rank = len(self.ranks_for(by.guild)) - 1
+        self._sync(roster_changed=True, guild=c.guild)
+        for m in self.clients:
+            if m.guild == c.guild and m.runtime is not None and m.online:
+                self._enqueue(self.latency, m, "system", "%s has joined the guild." % c.name)
+
+    def decline_guild(self, c):
+        by, c.guild_invite_from = c.guild_invite_from, None
+        if by is not None:
+            self._enqueue(self.latency, by, "system", "%s declines your guild invitation." % c.name)
+
+    def friend_rows(self, c):
+        rows = []
+        for f in c.friends:
+            t = self.find_client(f["name"].split("-")[0])
+            on = t is not None and self._is_online(t)
+            rows.append({"name": f["name"].split("-")[0], "connected": on, "level": t.level if t else 0,
+                         "area": (getattr(t, "zone", None) or "Shattrath City") if on else None,
+                         "className": (t.class_file.capitalize() if t else "Unknown"), "notes": f.get("note") or ""})
+        return rows
+
+    def add_friend(self, c, name, note):
+        full = str(name)
+        if any(f["name"].split("-")[0].lower() == full.split("-")[0].lower() for f in c.friends):
+            self._enqueue(0.0, c, "system", "%s is already your friend." % full.split("-")[0])
+            return
+        if len(c.friends) >= 100:
+            self._enqueue(0.0, c, "system", "Your friends list is full.")
+            return
+        c.friends.append({"name": full, "note": note or ""})
+        self._enqueue(0.0, c, "system", "%s added to friends." % full.split("-")[0])
+        self._enqueue(0.0, None, "call", lambda: c.runtime is not None and c.fire("FRIENDLIST_UPDATE"))
+
+    def remove_friend(self, c, name):
+        n = str(name).split("-")[0].lower()
+        before = len(c.friends)
+        c.friends = [f for f in c.friends if f["name"].split("-")[0].lower() != n]
+        if len(c.friends) != before:
+            self._enqueue(0.0, c, "system", "%s removed from friends." % str(name).split("-")[0])
+            self._enqueue(0.0, None, "call", lambda: c.runtime is not None and c.fire("FRIENDLIST_UPDATE"))
+
+    def _notify_friends(self, who, text):
+        for c in self.clients:
+            if c is not who and c.runtime is not None and any(
+                    f["name"].split("-")[0] == who.name for f in getattr(c, "friends", [])):
+                self._enqueue(self.latency, c, "system", text)
+                self._enqueue(self.latency, None, "call", lambda c=c: c.runtime is not None and c.fire("FRIENDLIST_UPDATE"))
+
     def invite(self, by, name):
         target = self.find_client(str(name).split("-")[0])
         entry = {"time": round(self.now, 3), "by": by.full_name, "target": str(name), "result": None}
@@ -1498,6 +1579,8 @@ class Client:
         self.realm = realm or world.realm
         self.class_file = class_file
         self.guild = guild
+        self.friends = []                    # the game's friends list: [{"name": full name, "note": text}]
+        self.guild_invite_from = None        # a guild invite waiting for AcceptGuild / DeclineGuild
         self.guild_rank = guild_rank
         self.level = level
         self.race = race
@@ -1573,6 +1656,12 @@ class Client:
             "promote": lambda name: self.world.promote(self, name),
             "decline_group": lambda: self.world.decline_group(self),
             "uninvite": lambda name: self.world.uninvite(self, name),
+            "guild_invite": lambda name: self.world.guild_invite(self, name),
+            "accept_guild": lambda: self.world.accept_guild(self),
+            "decline_guild": lambda: self.world.decline_guild(self),
+            "friends": lambda: to_lua(self.runtime, self.world.friend_rows(self)),
+            "add_friend": lambda name, note: self.world.add_friend(self, name, note),
+            "remove_friend": lambda name: self.world.remove_friend(self, name),
             "convert_to_raid": lambda: self.world.convert_to_raid(self),
             "set_raid_subgroup": lambda i, g: self.world.set_raid_subgroup(self, i, g),
             "swap_raid_subgroup": lambda a, b: self.world.swap_raid_subgroup(self, a, b),
@@ -1901,12 +1990,14 @@ class Client:
         self.online = False
         self._notify_guild("%s has gone offline." % self.name)
         self.world._sync(roster_changed=True, guild=self.guild)
+        self.world._notify_friends(self, "%s has gone offline." % self.name)
 
     def login(self, load=True):
         self.online = True
         self._new_runtime()
         self.world._sync(roster_changed=True, guild=self.guild)
         self._notify_guild("|Hplayer:%s|h[%s]|h has come online." % (self.name, self.name))
+        self.world._notify_friends(self, "|Hplayer:%s|h[%s]|h has come online." % (self.name, self.name))
         if load:
             self.load_addon(reload=False)
         return self

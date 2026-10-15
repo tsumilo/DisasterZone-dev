@@ -195,6 +195,11 @@ local officer = {
           .. "results when you choose.",
       skip = function() return not (MF() and MF():IsPageShown("polls")) end,
       enter = function() go("polls") end, anchor = byText("polls", "New poll") },
+    { title = "Recruitment", side = "bottom",
+      text = "The people you talk to about joining: what they want, the nights they can raid and the team that fits, "
+          .. "your notes, follow-ups, the invite, and how they settle in. Add someone from a name's right-click menu.",
+      skip = function() return not (MF() and MF():IsPageShown("recruit")) end,
+      enter = function() go("recruit") end, anchor = byText("recruit", "Add someone") },
     { title = "Guests and the blacklist", side = "bottom",
       text = "Players from outside the guild who raided with you, with notes, and the blacklist: a blacklisted "
           .. "player can't be invited or sign up.",
