@@ -17,6 +17,7 @@ ns.AzeroChangelog = {
           "Brog knows your usual; Lee Brown remembers your best fish.",
           "The crier sums up each raid night instead of every boss.",
           "Speech bubbles stay up while you walk.",
+          "The crier cries his news once, then rests a few minutes; a guild first is big news for a day.",
       } },
     { version = "0.33", date = "15 October 2026", title = "The guild's chronicle",
       lines = {

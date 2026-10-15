@@ -199,7 +199,10 @@ def a_guild_raid_kill_brings_the_crier_pennants_and_standard_for_a_week():
     kinds = c.eval_py("local o = {} for _, p in ipairs(ns.AzeroMarks.Props(ns.Azero.map)) do o[#o + 1] = p.kind end return o")
     assert kinds.count("pennant") == 6 and kinds.count("standard_red") == 1, kinds
     news = c.eval_py("return ns.AzeroMarks.News()")
-    assert news == ["A guild first! Prince Malchezaar has fallen in Karazhan!"], news      # (its first kill ever)
+    assert news == ["Hear ye! The guild slew Prince Malchezaar in Karazhan!"], news   # (a first, but two days old)
+    kill(c, 0)
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert news == ["A guild first! Prince Malchezaar has fallen in Karazhan!"], news  # (its first kill ever, today)
     lines = talk_texts(c, 21, 10, "up")
     assert lines and lines[0] == "Town Crier: " + news[0], lines
     # the crier's day: the inn at night
@@ -297,10 +300,39 @@ def a_raid_week_is_one_headline_not_a_roll_call():
     raid_week(c, kara[0], count=4)                          # a part of the raid
     news = c.eval_py("return ns.AzeroMarks.News()")
     assert news == ["Hear ye! The guild felled 4 bosses in %s!" % kara[1]], news
-    raid_week(c, gruul[0], days_ago=2, old_days=0)           # killed for the very first time
+    raid_week(c, gruul[0], days_ago=0, old_days=0)           # killed for the very first time, today
     news = c.eval_py("return ns.AzeroMarks.News()")
     assert len(news) == 3 and news[0].startswith("A guild first! ") and news[1].startswith("A guild first! "), news
     assert news[2] == "Hear ye! The guild felled 4 bosses in %s!" % kara[1], news
+    raid_week(c, gruul[0], days_ago=2, old_days=0)           # the firsts, two days on: one raid line like the rest
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert news == ["Hear ye! The guild felled 4 bosses in %s!" % kara[1],
+                    "Hear ye! The guild cleared %s!" % gruul[1]], news
+    no_errors(w)
+
+
+@case
+def the_crier_cries_a_round_then_rests():
+    w, c = solo("Alice", tick=2)
+    c.eval("ns.Azero:NewGame() ns.Azero.started = true ns.db.raids = {}")
+    kill(c, 0)
+    kill2 = c.eval_py("""local H = ns.AzeroHideout H.Build() local now = GetServerTime()
+      for _, r in ipairs(H.RAIDS) do if #r.bosses == 2 then
+        ns.db.raids.g = { id = 'g', start = now - 9000, stop = now - 3000, zone = 'x', att = {},
+          bosses = { { enc = r.bosses[1].enc, ts = now - 3600, dur = 200 }, { enc = r.bosses[1].enc, ts = now - 40 * 86400, dur = 200 } } }
+        H.Invalidate() return r.name end end""")
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert len(news) == 2, (news, kill2)
+    seen = c.eval_py("""local real, o = GetTime, {}
+      ns.AzeroMarks.roundAt = nil
+      for t = 1000, 1000 + 2 * (12 + 180), 0.5 do GetTime = function() return t end o[#o + 1] = ns.AzeroMarks.CrierLine() or false end
+      GetTime = real return o""")
+    # each line once per round (both rounds), quiet in between: 2 lines x 2 rounds, ~10 shown samples each
+    said = [x for x in seen if x]
+    assert set(said) == set(news), said
+    assert 30 <= len(said) <= 50, len(said)
+    first_quiet = seen.index(False, 25)
+    assert not any(seen[first_quiet:first_quiet + 300]), "talks during the rest"
     no_errors(w)
 
 

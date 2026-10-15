@@ -159,6 +159,8 @@ end
 
 Marks.CHRONICLE_DAYS = 7
 Marks.CRY_EVERY = 6              -- seconds a line of the crier's stays in his bubble
+Marks.CRY_REST = 180             -- seconds he's quiet after a round (each line once), before the next
+Marks.FIRST_DAYS = 1             -- a guild first gets its own line this long, then joins its raid's line
 Marks.NEWS_KEEP = 10             -- guild news lines kept (shinies: GuildBoard.lua)
 Marks.PENNANTS = { { 16, 6 }, { 22, 9 }, { 11, 13 }, { 19, 22 }, { 26, 9 }, { 6, 24 } }   -- Goldshire's lamp posts
 Marks.STANDARD = { 26, 14 }      -- the standard by the statue
@@ -196,9 +198,10 @@ local function Cap(text) return (text:gsub("^%l", string.upper)) end
 -- { text (the crier's line), topic (for people's words), id (new for each raid night or first) }, newest first.
 function Marks.Headlines()
     local H = ns.AzeroHideout
-    local firsts, byRaid, order = {}, {}, {}
+    local firsts, byRaid, order, now = {}, {}, {}, Now()
     for _, k in ipairs(Marks.RecentKills()) do
-        if k.first then firsts[#firsts + 1] = k end
+        local fresh = k.first and now - k.ts <= Marks.FIRST_DAYS * 86400     -- (big news for a day, then old news)
+        if fresh then firsts[#firsts + 1] = k end
         local key = k.raid or "?"
         local r = byRaid[key]
         if not r then
@@ -208,7 +211,7 @@ function Marks.Headlines()
         end
         r.kills[#r.kills + 1] = k
         r.ts = math.max(r.ts, k.ts)
-        if not k.first then r.onlyFirsts = false end
+        if not fresh then r.onlyFirsts = false end
     end
     local out = {}
     for _, k in ipairs(firsts) do
@@ -255,14 +258,21 @@ function Marks.News()
     return out
 end
 
--- The line in the crier's bubble now (one after another, CRY_EVERY seconds each, a short breath between).
+-- The line in the crier's bubble now: a round (each line once, CRY_EVERY seconds each, a short breath between)
+-- when he's first in view, then quiet for CRY_REST seconds before the next round. (Talk to him for it all now.)
+Marks.roundAt = nil              -- when the current round began (GetTime)
 function Marks.CrierLine()
     local news = Marks.News()
     if #news == 0 then return nil end
     local t = GetTime and GetTime() or 0
-    local slot = math.floor(t / Marks.CRY_EVERY)
-    if (t % Marks.CRY_EVERY) > Marks.CRY_EVERY - 1 then return nil end
-    return news[slot % #news + 1]
+    local len = #news * Marks.CRY_EVERY
+    if not Marks.roundAt or t - Marks.roundAt >= len + Marks.CRY_REST then
+        Marks.roundAt = t
+        if G.Sfx and G.map and G.map.id == "town" then G:Sfx("bell") end
+    end
+    local e = t - Marks.roundAt
+    if e >= len or (e % Marks.CRY_EVERY) > Marks.CRY_EVERY - 1 then return nil end
+    return news[math.floor(e / Marks.CRY_EVERY) + 1]
 end
 
 -- Talking to the crier: everything, read out.
