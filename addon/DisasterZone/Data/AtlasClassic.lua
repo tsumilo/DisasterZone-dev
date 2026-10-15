@@ -7,7 +7,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/AtlasClassic.lua", ...) then 
 -- ns.Data.AtlasClassic: the Atlas tab's tree while its switch says Classic, shaped like ns.Data.Atlas, plus
 --   category kind ("raid" / "dungeon" / "sets" / ...; the key is "c_" + the TBC half's so both share one index) and
 --   source size (raid), lv ("13-18": a dungeon's recommended levels), art (its loading screen's FileDataID).
---   No Season of Discovery content, no Naxxramas / Tier 3 (closed on a TBC realm).
+--   No Season of Discovery content.
 -- ns.Data.AtlasClassicNames: English names the TBC half (ns.Data.AtlasNames) doesn't have.
 -- Recipes the TBC half doesn't list are added to ns.Data.AtlasRecipes.
 local _, ns = ...
@@ -1166,6 +1166,237 @@ ns.Data.AtlasClassic = {
           21521, -- Runesword of the Red
           21522, -- Shadowsong's Sorrow
           21520, -- Ravencrest's Legacy
+      } },
+    }},
+    { key = "Naxxramas", name = "Naxxramas", size = 40, art = 131854, pages = {
+      { key = "AnubRekhan", name = "Anub'Rekhan", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22369, -- Desecrated Bindings
+          22362, -- Desecrated Wristguards
+          22355, -- Desecrated Bracers
+          22935, -- Touch of Frost
+          22938, -- Cryptfiend Silk Cloak
+          22936, -- Wristguards of Vengeance
+          22939, -- Band of Unanswered Prayers
+          22937, -- Gem of Nerubis
+      } },
+      { key = "GrandWidowFaerlina", name = "Grand Widow Faerlina", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22369, -- Desecrated Bindings
+          22362, -- Desecrated Wristguards
+          22355, -- Desecrated Bracers
+          22943, -- Malice Stone Pendant
+          22941, -- Polar Shoulder Pads
+          22940, -- Icebane Pauldrons
+          22942, -- The Widow's Embrace
+          22806, -- Widow's Remorse
+      } },
+      { key = "Maexxna", name = "Maexxna", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22371, -- Desecrated Gloves
+          22364, -- Desecrated Handguards
+          22357, -- Desecrated Gauntlets
+          22947, -- Pendant of Forgotten Names
+          23220, -- Crystal Webbed Robe
+          22954, -- Kiss of the Spider
+          22807, -- Wraith Blade
+          22804, -- Maexxna's Fang
+      } },
+      { key = "NothThePlaguebringer", name = "Noth the Plaguebringer", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22370, -- Desecrated Belt
+          22363, -- Desecrated Girdle
+          22356, -- Desecrated Waistguard
+          23030, -- Cloak of the Scourge
+          23031, -- Band of the Inevitable
+          23028, -- Hailstone Band
+          23029, -- Noth's Frigid Heart
+          23006, -- Libram of Light
+          23005, -- Totem of Flowing Water
+          22816, -- Hatchet of Sundered Bone
+      } },
+      { key = "HeiganTheUnclean", name = "Heigan the Unclean", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22370, -- Desecrated Belt
+          22363, -- Desecrated Girdle
+          22356, -- Desecrated Waistguard
+          23035, -- Preceptor's Hat
+          23033, -- Icy Scale Coif
+          23019, -- Icebane Helmet
+          23036, -- Necklace of Necropsy
+          23068, -- Legplates of Carnage
+      } },
+      { key = "Loatheb", name = "Loatheb", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22366, -- Desecrated Leggings
+          22359, -- Desecrated Legguards
+          22352, -- Desecrated Legplates
+          23038, -- Band of Unnatural Forces
+          23037, -- Ring of Spiritual Fervor
+          23042, -- Loatheb's Reflection
+          23039, -- The Eye of Nerub
+          22800, -- Brimstone Staff
+      } },
+      { key = "InstructorRazuvious", name = "Instructor Razuvious", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22372, -- Desecrated Sandals
+          22365, -- Desecrated Boots
+          22358, -- Desecrated Sabatons
+          23017, -- Veil of Eclipse
+          23219, -- Girdle of the Mentor
+          23018, -- Signet of the Fallen Defender
+          23004, -- Idol of Longevity
+          23009, -- Wand of the Whispering Dead
+          23014, -- Iblis, Blade of the Fallen Seraph
+      } },
+      { key = "GothikTheHarvester", name = "Gothik the Harvester", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22372, -- Desecrated Sandals
+          22365, -- Desecrated Boots
+          22358, -- Desecrated Sabatons
+          23032, -- Glacial Headdress
+          23020, -- Polar Helmet
+          23023, -- Sadist's Collar
+          23021, -- The Soul Harvester's Bindings
+          23073, -- Boots of Displacement
+      } },
+      { key = "TheFourHorsemen", name = "The Four Horsemen", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22351, -- Desecrated Robe
+          22350, -- Desecrated Tunic
+          22349, -- Desecrated Breastplate
+          23071, -- Leggings of Apocalypse
+          23025, -- Seal of the Damned
+          23027, -- Warmth of Forgiveness
+          22811, -- Soulstring
+          22809, -- Maul of the Redeemed Crusader
+          22691, -- Corrupted Ashbringer
+      } },
+      { key = "Patchwerk", name = "Patchwerk", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22368, -- Desecrated Shoulderpads
+          22361, -- Desecrated Spaulders
+          22354, -- Desecrated Pauldrons
+          22960, -- Cloak of Suturing
+          22961, -- Band of Reanimation
+          22820, -- Wand of Fates
+          22818, -- The Plague Bearer
+          22815, -- Severance
+      } },
+      { key = "Grobbulus", name = "Grobbulus", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22368, -- Desecrated Shoulderpads
+          22361, -- Desecrated Spaulders
+          22354, -- Desecrated Pauldrons
+          22968, -- Glacial Mantle
+          22967, -- Icy Scale Spaulders
+          22810, -- Toxin Injector
+          22803, -- Midnight Haze
+          22988, -- The End of Dreams
+      } },
+      { key = "Gluth", name = "Gluth", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22983, -- Rime Covered Mantle
+          22981, -- Gluth's Missing Collar
+          22994, -- Digested Hand of Power
+          23075, -- Death's Bargain
+          22813, -- Claymore of Unholy Might
+          22368, -- Desecrated Shoulderpads
+          22369, -- Desecrated Bindings
+          22370, -- Desecrated Belt
+          22372, -- Desecrated Sandals
+          22361, -- Desecrated Spaulders
+          22362, -- Desecrated Wristguards
+          22363, -- Desecrated Girdle
+          22365, -- Desecrated Boots
+          22354, -- Desecrated Pauldrons
+          22355, -- Desecrated Bracers
+          22356, -- Desecrated Waistguard
+          22358, -- Desecrated Sabatons
+      } },
+      { key = "Thaddius", name = "Thaddius", items = {
+          22726, -- Splinter of Atiesh
+          22727, -- Frame of Atiesh
+          22367, -- Desecrated Circlet
+          22360, -- Desecrated Headpiece
+          22353, -- Desecrated Helmet
+          23000, -- Plated Abomination Ribcage
+          23070, -- Leggings of Polarity
+          23001, -- Eye of Diminution
+          22808, -- The Castigator
+          22801, -- Spire of Twilight
+      } },
+      { key = "Sapphiron", name = "Sapphiron", items = {
+          23050, -- Cloak of the Necropolis
+          23045, -- Shroud of Dominion
+          23040, -- Glyph of Deflection
+          23047, -- Eye of the Dead
+          23041, -- Slayer's Crest
+          23046, -- The Restrained Essence of Sapphiron
+          23049, -- Sapphiron's Left Eye
+          23048, -- Sapphiron's Right Eye
+          23043, -- The Face of Death
+          23242, -- Claw of the Frost Wyrm
+          23549, -- Fortitude of the Scourge
+          23548, -- Might of the Scourge
+          23545, -- Power of the Scourge
+          23547, -- Resilience of the Scourge
+      } },
+      { key = "KelThuzad", name = "Kel'Thuzad", items = {
+          23057, -- Gem of Trapped Innocents
+          23053, -- Stormrage's Talisman of Seething
+          22812, -- Nerubian Slavemaker
+          22821, -- Doomfinger
+          22819, -- Shield of Condemnation
+          22802, -- Kingsfall
+          23056, -- Hammer of the Twisting Nether
+          23054, -- Gressil, Dawn of Ruin
+          23577, -- The Hungering Cold
+          22798, -- Might of Menethil
+          22799, -- Soulseeker
+          22520, -- The Phylactery of Kel'Thuzad
+          23061, -- Ring of Faith
+          23062, -- Frostfire Ring
+          23063, -- Plagueheart Ring
+          23060, -- Bonescythe Ring
+          23064, -- Ring of the Dreamwalker
+          23067, -- Ring of the Cryptstalker
+          23065, -- Ring of the Earthshatterer
+          23066, -- Ring of Redemption
+          23059, -- Ring of the Dreadnaught
+          22733, -- Staff Head of Atiesh
+      } },
+      { key = "Trash", name = "Trash", items = {
+          23664, -- Pauldrons of Elemental Fury
+          23667, -- Spaulders of the Grand Crusader
+          23069, -- Necro-Knight's Garb
+          23226, -- Ghoul Skin Tunic
+          23663, -- Girdle of Elemental Fury
+          23666, -- Belt of the Grand Crusader
+          23665, -- Leggings of Elemental Fury
+          23668, -- Leggings of the Grand Crusader
+          23237, -- Ring of the Eternal Flame
+          23238, -- Stygian Buckler
+          23044, -- Harbinger of Doom
+          23221, -- Misplaced Servo Arm
+          22376, -- Wartorn Cloth Scrap
+          22373, -- Wartorn Leather Scrap
+          22374, -- Wartorn Chain Scrap
+          22375, -- Wartorn Plate Scrap
+          23055, -- Word of Thawing
+          22682,
       } },
     }},
     { key = "WorldBosses", name = "World Bosses", size = 40, art = 131839, pages = {
@@ -7060,6 +7291,107 @@ ns.Data.AtlasClassic = {
           21333, -- Conqueror's Greaves
       } },
     }},
+    { key = "Tier3", name = "Tier 3", pages = {
+      { key = "521", name = "Druid", title = "Dreamwalker Raiment", items = {
+          22490, -- Dreamwalker Headpiece
+          22491, -- Dreamwalker Spaulders
+          22488, -- Dreamwalker Tunic
+          22495, -- Dreamwalker Wristguards
+          22493, -- Dreamwalker Handguards
+          22494, -- Dreamwalker Girdle
+          22489, -- Dreamwalker Legguards
+          22492, -- Dreamwalker Boots
+          23064, -- Ring of the Dreamwalker
+      } },
+      { key = "530", name = "Hunter", title = "Cryptstalker Armor", items = {
+          22438, -- Cryptstalker Headpiece
+          22439, -- Cryptstalker Spaulders
+          22436, -- Cryptstalker Tunic
+          22443, -- Cryptstalker Wristguards
+          22441, -- Cryptstalker Handguards
+          22442, -- Cryptstalker Girdle
+          22437, -- Cryptstalker Legguards
+          22440, -- Cryptstalker Boots
+          23067, -- Ring of the Cryptstalker
+      } },
+      { key = "526", name = "Mage", title = "Frostfire Regalia", items = {
+          22498, -- Frostfire Circlet
+          22499, -- Frostfire Shoulderpads
+          22496, -- Frostfire Robe
+          22503, -- Frostfire Bindings
+          22501, -- Frostfire Gloves
+          22502, -- Frostfire Belt
+          22497, -- Frostfire Leggings
+          22500, -- Frostfire Sandals
+          23062, -- Frostfire Ring
+      } },
+      { key = "528", name = "Paladin", title = "Redemption Armor", items = {
+          22428, -- Redemption Headpiece
+          22429, -- Redemption Spaulders
+          22425, -- Redemption Tunic
+          22424, -- Redemption Wristguards
+          22426, -- Redemption Handguards
+          22431, -- Redemption Girdle
+          22427, -- Redemption Legguards
+          22430, -- Redemption Boots
+          23066, -- Ring of Redemption
+      } },
+      { key = "525", name = "Priest", title = "Vestments of Faith", items = {
+          22514, -- Circlet of Faith
+          22515, -- Shoulderpads of Faith
+          22512, -- Robe of Faith
+          22519, -- Bindings of Faith
+          22517, -- Gloves of Faith
+          22518, -- Belt of Faith
+          22513, -- Leggings of Faith
+          22516, -- Sandals of Faith
+          23061, -- Ring of Faith
+      } },
+      { key = "524", name = "Rogue", title = "Bonescythe Armor", items = {
+          22478, -- Bonescythe Helmet
+          22479, -- Bonescythe Pauldrons
+          22476, -- Bonescythe Breastplate
+          22483, -- Bonescythe Bracers
+          22481, -- Bonescythe Gauntlets
+          22482, -- Bonescythe Waistguard
+          22477, -- Bonescythe Legplates
+          22480, -- Bonescythe Sabatons
+          23060, -- Bonescythe Ring
+      } },
+      { key = "527", name = "Shaman", title = "The Earthshatterer", items = {
+          22466, -- Earthshatter Headpiece
+          22467, -- Earthshatter Spaulders
+          22464, -- Earthshatter Tunic
+          22471, -- Earthshatter Wristguards
+          22469, -- Earthshatter Handguards
+          22470, -- Earthshatter Girdle
+          22465, -- Earthshatter Legguards
+          22468, -- Earthshatter Boots
+          23065, -- Ring of the Earthshatterer
+      } },
+      { key = "529", name = "Warlock", title = "Plagueheart Raiment", items = {
+          22506, -- Plagueheart Circlet
+          22507, -- Plagueheart Shoulderpads
+          22504, -- Plagueheart Robe
+          22511, -- Plagueheart Bindings
+          22509, -- Plagueheart Gloves
+          22510, -- Plagueheart Belt
+          22505, -- Plagueheart Leggings
+          22508, -- Plagueheart Sandals
+          23063, -- Plagueheart Ring
+      } },
+      { key = "523", name = "Warrior", title = "Dreadnaught's Battlegear", items = {
+          22418, -- Dreadnaught Helmet
+          22419, -- Dreadnaught Pauldrons
+          22416, -- Dreadnaught Breastplate
+          22423, -- Dreadnaught Bracers
+          22421, -- Dreadnaught Gauntlets
+          22422, -- Dreadnaught Waistguard
+          22417, -- Dreadnaught Legplates
+          22420, -- Dreadnaught Sabatons
+          23059, -- Ring of the Dreadnaught
+      } },
+    }},
     { key = "ZulGurub", name = "Zul'Gurub", pages = {
       { key = "479A", name = "Druid", title = "Haruspex's Garb", side = "Alliance", items = {
           19613, -- Pristine Enchanted South Seas Kelp
@@ -11832,6 +12164,34 @@ ns.Data.AtlasClassicNames = {
   [22342] = "Leggings of Torment",
   [22343] = "Handguards of Savagery",
   [22345] = "Totem of Rebirth",
+  [22349] = "Desecrated Breastplate",
+  [22350] = "Desecrated Tunic",
+  [22351] = "Desecrated Robe",
+  [22352] = "Desecrated Legplates",
+  [22353] = "Desecrated Helmet",
+  [22354] = "Desecrated Pauldrons",
+  [22355] = "Desecrated Bracers",
+  [22356] = "Desecrated Waistguard",
+  [22357] = "Desecrated Gauntlets",
+  [22358] = "Desecrated Sabatons",
+  [22359] = "Desecrated Legguards",
+  [22360] = "Desecrated Headpiece",
+  [22361] = "Desecrated Spaulders",
+  [22362] = "Desecrated Wristguards",
+  [22363] = "Desecrated Girdle",
+  [22364] = "Desecrated Handguards",
+  [22365] = "Desecrated Boots",
+  [22366] = "Desecrated Leggings",
+  [22367] = "Desecrated Circlet",
+  [22368] = "Desecrated Shoulderpads",
+  [22369] = "Desecrated Bindings",
+  [22370] = "Desecrated Belt",
+  [22371] = "Desecrated Gloves",
+  [22372] = "Desecrated Sandals",
+  [22373] = "Wartorn Leather Scrap",
+  [22374] = "Wartorn Chain Scrap",
+  [22375] = "Wartorn Plate Scrap",
+  [22376] = "Wartorn Cloth Scrap",
   [22383] = "Sageblade",
   [22384] = "Persuader",
   [22385] = "Titanic Leggings",
@@ -11855,8 +12215,81 @@ ns.Data.AtlasClassicNames = {
   [22410] = "Gauntlets of Deftness",
   [22411] = "Helm of the Executioner",
   [22412] = "Thuzadin Mantle",
+  [22416] = "Dreadnaught Breastplate",
+  [22417] = "Dreadnaught Legplates",
+  [22418] = "Dreadnaught Helmet",
+  [22419] = "Dreadnaught Pauldrons",
+  [22420] = "Dreadnaught Sabatons",
+  [22421] = "Dreadnaught Gauntlets",
+  [22422] = "Dreadnaught Waistguard",
+  [22423] = "Dreadnaught Bracers",
+  [22424] = "Redemption Wristguards",
+  [22425] = "Redemption Tunic",
+  [22426] = "Redemption Handguards",
+  [22427] = "Redemption Legguards",
+  [22428] = "Redemption Headpiece",
+  [22429] = "Redemption Spaulders",
+  [22430] = "Redemption Boots",
+  [22431] = "Redemption Girdle",
   [22433] = "Don Mauricio's Band of Domination",
+  [22436] = "Cryptstalker Tunic",
+  [22437] = "Cryptstalker Legguards",
+  [22438] = "Cryptstalker Headpiece",
+  [22439] = "Cryptstalker Spaulders",
+  [22440] = "Cryptstalker Boots",
+  [22441] = "Cryptstalker Handguards",
+  [22442] = "Cryptstalker Girdle",
+  [22443] = "Cryptstalker Wristguards",
+  [22464] = "Earthshatter Tunic",
+  [22465] = "Earthshatter Legguards",
+  [22466] = "Earthshatter Headpiece",
+  [22467] = "Earthshatter Spaulders",
+  [22468] = "Earthshatter Boots",
+  [22469] = "Earthshatter Handguards",
+  [22470] = "Earthshatter Girdle",
+  [22471] = "Earthshatter Wristguards",
   [22472] = "Boots of Ferocity",
+  [22476] = "Bonescythe Breastplate",
+  [22477] = "Bonescythe Legplates",
+  [22478] = "Bonescythe Helmet",
+  [22479] = "Bonescythe Pauldrons",
+  [22480] = "Bonescythe Sabatons",
+  [22481] = "Bonescythe Gauntlets",
+  [22482] = "Bonescythe Waistguard",
+  [22483] = "Bonescythe Bracers",
+  [22488] = "Dreamwalker Tunic",
+  [22489] = "Dreamwalker Legguards",
+  [22490] = "Dreamwalker Headpiece",
+  [22491] = "Dreamwalker Spaulders",
+  [22492] = "Dreamwalker Boots",
+  [22493] = "Dreamwalker Handguards",
+  [22494] = "Dreamwalker Girdle",
+  [22495] = "Dreamwalker Wristguards",
+  [22496] = "Frostfire Robe",
+  [22497] = "Frostfire Leggings",
+  [22498] = "Frostfire Circlet",
+  [22499] = "Frostfire Shoulderpads",
+  [22500] = "Frostfire Sandals",
+  [22501] = "Frostfire Gloves",
+  [22502] = "Frostfire Belt",
+  [22503] = "Frostfire Bindings",
+  [22504] = "Plagueheart Robe",
+  [22505] = "Plagueheart Leggings",
+  [22506] = "Plagueheart Circlet",
+  [22507] = "Plagueheart Shoulderpads",
+  [22508] = "Plagueheart Sandals",
+  [22509] = "Plagueheart Gloves",
+  [22510] = "Plagueheart Belt",
+  [22511] = "Plagueheart Bindings",
+  [22512] = "Robe of Faith",
+  [22513] = "Leggings of Faith",
+  [22514] = "Circlet of Faith",
+  [22515] = "Shoulderpads of Faith",
+  [22516] = "Sandals of Faith",
+  [22517] = "Gloves of Faith",
+  [22518] = "Belt of Faith",
+  [22519] = "Bindings of Faith",
+  [22520] = "The Phylactery of Kel'Thuzad",
   [22523] = "Insignia of the Dawn",
   [22635] = "Savage Guard",
   [22637] = "Primal Hakkari Idol",
@@ -11879,6 +12312,7 @@ ns.Data.AtlasClassicNames = {
   [22673] = "Outrider's Chain Leggings",
   [22676] = "Outrider's Mail Leggings",
   [22683] = "Pattern: Gaea's Embrace",
+  [22691] = "Corrupted Ashbringer",
   [22711] = "Cloak of the Hakkari Worshippers",
   [22712] = "Might of the Tribe",
   [22713] = "Zulian Scepter of Rites",
@@ -11889,10 +12323,13 @@ ns.Data.AtlasClassicNames = {
   [22720] = "Zulian Headdress",
   [22721] = "Band of Servitude",
   [22722] = "Seal of the Gurubashi Berserker",
+  [22726] = "Splinter of Atiesh",
+  [22727] = "Frame of Atiesh",
   [22728] = "Steam Tonk Controller",
   [22730] = "Eyestalk Waist Cord",
   [22731] = "Cloak of the Devoured",
   [22732] = "Mark of C'Thun",
+  [22733] = "Staff Head of Atiesh",
   [22734] = "Base of Atiesh",
   [22736] = "Andonisus, Reaper of Souls",
   [22739] = "Tome of Polymorph: Turtle",
@@ -11926,6 +12363,27 @@ ns.Data.AtlasClassicNames = {
   [22772] = "Pattern: Sylvan Shoulders",
   [22773] = "Pattern: Sylvan Crown",
   [22774] = "Pattern: Sylvan Vest",
+  [22798] = "Might of Menethil",
+  [22799] = "Soulseeker",
+  [22800] = "Brimstone Staff",
+  [22801] = "Spire of Twilight",
+  [22802] = "Kingsfall",
+  [22803] = "Midnight Haze",
+  [22804] = "Maexxna's Fang",
+  [22806] = "Widow's Remorse",
+  [22807] = "Wraith Blade",
+  [22808] = "The Castigator",
+  [22809] = "Maul of the Redeemed Crusader",
+  [22810] = "Toxin Injector",
+  [22811] = "Soulstring",
+  [22812] = "Nerubian Slavemaker",
+  [22813] = "Claymore of Unholy Might",
+  [22815] = "Severance",
+  [22816] = "Hatchet of Sundered Bone",
+  [22818] = "The Plague Bearer",
+  [22819] = "Shield of Condemnation",
+  [22820] = "Wand of Fates",
+  [22821] = "Doomfinger",
   [22843] = "Blood Guard's Chain Greaves",
   [22852] = "Blood Guard's Dragonhide Treads",
   [22855] = "Blood Guard's Dreadweave Walkers",
@@ -11959,6 +12417,82 @@ ns.Data.AtlasClassicNames = {
   [22886] = "Legionnaire's Silk Tunic",
   [22887] = "Legionnaire's Mail Legguards",
   [22897] = "Tome of Conjure Food VII",
+  [22935] = "Touch of Frost",
+  [22936] = "Wristguards of Vengeance",
+  [22937] = "Gem of Nerubis",
+  [22938] = "Cryptfiend Silk Cloak",
+  [22939] = "Band of Unanswered Prayers",
+  [22940] = "Icebane Pauldrons",
+  [22941] = "Polar Shoulder Pads",
+  [22942] = "The Widow's Embrace",
+  [22943] = "Malice Stone Pendant",
+  [22947] = "Pendant of Forgotten Names",
+  [22954] = "Kiss of the Spider",
+  [22960] = "Cloak of Suturing",
+  [22961] = "Band of Reanimation",
+  [22967] = "Icy Scale Spaulders",
+  [22968] = "Glacial Mantle",
+  [22981] = "Gluth's Missing Collar",
+  [22983] = "Rime Covered Mantle",
+  [22988] = "The End of Dreams",
+  [22994] = "Digested Hand of Power",
+  [23000] = "Plated Abomination Ribcage",
+  [23001] = "Eye of Diminution",
+  [23004] = "Idol of Longevity",
+  [23005] = "Totem of Flowing Water",
+  [23006] = "Libram of Light",
+  [23009] = "Wand of the Whispering Dead",
+  [23014] = "Iblis, Blade of the Fallen Seraph",
+  [23017] = "Veil of Eclipse",
+  [23018] = "Signet of the Fallen Defender",
+  [23019] = "Icebane Helmet",
+  [23020] = "Polar Helmet",
+  [23021] = "The Soul Harvester's Bindings",
+  [23023] = "Sadist's Collar",
+  [23025] = "Seal of the Damned",
+  [23027] = "Warmth of Forgiveness",
+  [23028] = "Hailstone Band",
+  [23029] = "Noth's Frigid Heart",
+  [23030] = "Cloak of the Scourge",
+  [23031] = "Band of the Inevitable",
+  [23032] = "Glacial Headdress",
+  [23033] = "Icy Scale Coif",
+  [23035] = "Preceptor's Hat",
+  [23036] = "Necklace of Necropsy",
+  [23037] = "Ring of Spiritual Fervor",
+  [23038] = "Band of Unnatural Forces",
+  [23039] = "The Eye of Nerub",
+  [23040] = "Glyph of Deflection",
+  [23041] = "Slayer's Crest",
+  [23042] = "Loatheb's Reflection",
+  [23043] = "The Face of Death",
+  [23044] = "Harbinger of Doom",
+  [23045] = "Shroud of Dominion",
+  [23046] = "The Restrained Essence of Sapphiron",
+  [23047] = "Eye of the Dead",
+  [23048] = "Sapphiron's Right Eye",
+  [23049] = "Sapphiron's Left Eye",
+  [23050] = "Cloak of the Necropolis",
+  [23053] = "Stormrage's Talisman of Seething",
+  [23054] = "Gressil, Dawn of Ruin",
+  [23055] = "Word of Thawing",
+  [23056] = "Hammer of the Twisting Nether",
+  [23057] = "Gem of Trapped Innocents",
+  [23059] = "Ring of the Dreadnaught",
+  [23060] = "Bonescythe Ring",
+  [23061] = "Ring of Faith",
+  [23062] = "Frostfire Ring",
+  [23063] = "Plagueheart Ring",
+  [23064] = "Ring of the Dreamwalker",
+  [23065] = "Ring of the Earthshatterer",
+  [23066] = "Ring of Redemption",
+  [23067] = "Ring of the Cryptstalker",
+  [23068] = "Legplates of Carnage",
+  [23069] = "Necro-Knight's Garb",
+  [23070] = "Leggings of Polarity",
+  [23071] = "Leggings of Apocalypse",
+  [23073] = "Boots of Displacement",
+  [23075] = "Death's Bargain",
   [23078] = "Gauntlets of Undead Slaying",
   [23081] = "Handwraps of Undead Slaying",
   [23082] = "Handguards of Undead Slaying",
@@ -11991,6 +12525,13 @@ ns.Data.AtlasClassicNames = {
   [23198] = "Idol of Brutality",
   [23200] = "Totem of Sustaining",
   [23201] = "Libram of Divinity",
+  [23219] = "Girdle of the Mentor",
+  [23220] = "Crystal Webbed Robe",
+  [23221] = "Misplaced Servo Arm",
+  [23226] = "Ghoul Skin Tunic",
+  [23237] = "Ring of the Eternal Flame",
+  [23238] = "Stygian Buckler",
+  [23242] = "Claw of the Frost Wyrm",
   [23243] = "Champion's Plate Shoulders",
   [23244] = "Champion's Plate Helm",
   [23251] = "Champion's Chain Helm",
@@ -12068,9 +12609,20 @@ ns.Data.AtlasClassicNames = {
   [23467] = "High Warlord's Quickblade",
   [23468] = "High Warlord's Tome of Destruction",
   [23469] = "High Warlord's Tome of Mending",
+  [23545] = "Power of the Scourge",
+  [23547] = "Resilience of the Scourge",
+  [23548] = "Might of the Scourge",
+  [23549] = "Fortitude of the Scourge",
   [23557] = "Larvae of the Great Worm",
   [23558] = "The Burrower's Shell",
   [23570] = "Jom Gabbar",
+  [23577] = "The Hungering Cold",
+  [23663] = "Girdle of Elemental Fury",
+  [23664] = "Pauldrons of Elemental Fury",
+  [23665] = "Leggings of Elemental Fury",
+  [23666] = "Belt of the Grand Crusader",
+  [23667] = "Spaulders of the Grand Crusader",
+  [23668] = "Leggings of the Grand Crusader",
   [24101] = "Book of Ferocious Bite V",
   [24102] = "Manual of Eviscerate IX",
 }

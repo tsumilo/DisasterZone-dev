@@ -12,6 +12,7 @@
   "raid/Zul'Gurub": null,
   "raid/TheRuinsofAhnQiraj": null,
   "raid/TheTempleofAhnQiraj": null,
+  "raid/Naxxramas": null,
   "raid/WorldBosses2": "World Bosses",
   "dungeon/Ragefire": null,
   "dungeon/WailingCaverns": null,
@@ -829,11 +830,11 @@
   }
  ],
  "output": "C:\\Users\\emilo\\CDLoot-dev\\addon\\DisasterZone\\Data\\AtlasClassic.lua",
- "bytes": 489648,
+ "bytes": 510633,
  "validation_errors": [],
  "counts": {
-  "c_raids sources": 7,
-  "c_raids items": 1138,
+  "c_raids sources": 8,
+  "c_raids items": 1335,
   "c_dungeons sources": 25,
   "c_dungeons items": 1870,
   "c_crafting sources": 12,
@@ -844,12 +845,12 @@
   "c_pvp items": 462,
   "c_events sources": 6,
   "c_events items": 111,
-  "c_sets sources": 10,
-  "c_sets items": 871
+  "c_sets sources": 11,
+  "c_sets items": 952
  },
- "names_written": 4223,
+ "names_written": 4443,
  "name_sources": {
-  "Questie TBC item DB": 4096,
+  "Questie TBC item DB": 4316,
   "crafting row comment": 127
  },
  "ids_without_names_dropped": [
@@ -2384,7 +2385,7 @@
  ],
  "recipes_added": 224,
  "skipped_counts": {
-  "Season of Discovery list left out": 284,
+  "Season of Discovery list left out": 300,
   "Season of Discovery page left out": 1,
   "duplicate within page": 21,
   "empty page dropped": 4,
@@ -2393,8 +2394,7 @@
   "same created item twice on a page - second craft listed as its spell": 5,
   "secondary id in row ignored (kept the main id)": 21,
   "set row without a known set id": 33,
-  "set sub-table (not handled here)": 1,
-  "set sub-table left out (closed on a TBC realm)": 1,
+  "set sub-table (not handled here)": 2,
   "version-gated row (AtlasLoot:GameVersion_* call, Wrath-only)": 1,
   "version-gated sub-table (AtlasLoot:GameVersion_* call, Wrath-only)": 6
  },
@@ -2623,10 +2623,8 @@
    "sets/ClassSets/PvP Ranks pos 30"
   ],
   "set sub-table (not handled here)": [
-   "raid/Zul'Gurub/Zul'Gurub Sets"
-  ],
-  "set sub-table left out (closed on a TBC realm)": [
-   "sets/TierSets/Tier 3 Sets"
+   "raid/Zul'Gurub/Zul'Gurub Sets",
+   "raid/Naxxramas/Tier 3 Sets"
   ],
   "version-gated row (AtlasLoot:GameVersion_* call, Wrath-only)": [
    "dungeon/ScarletMonasteryLibrary/Arcanist Doan [NORMAL_DIFF] #5"

@@ -20,8 +20,8 @@ classic_era client's (the same AtlasLoot release carries data.lua for every clie
   * Questie/Database/TBC/tbcItemDB.lua          -> English item names
   * DisasterZone/Data/Atlas.lua (the TBC half)  -> names already shipped (only the missing ones are written here)
 
-Left out: Season of Discovery content (Demon Fall Canyon, Karazhan Crypts, the Scarlet Enclave, SoD tables), Naxxramas
-and Tier 3 (closed on a TBC realm), tables AtlasLoot gates to the Classic client (gameVersion = CLASSIC: on a TBC
+Left out: Season of Discovery content (Demon Fall Canyon, Karazhan Crypts, the Scarlet Enclave, SoD tables, SoD ids in
+the normal lists), tables AtlasLoot gates to the Classic client (gameVersion = CLASSIC: on a TBC
 client their TBC versions show, which the TBC half has).
 
 Writes:
@@ -78,7 +78,7 @@ ART = {"MoltenCore": 131851, "BlackwingLair": 131827, "ZulGurub": 131886, "Ruins
        "Uldaman": 131876, "ZulFarrak": 131885, "Maraudon": 131850, "SunkenTemple": 131872, "WailingCaverns": 131882,
        "ShadowfangKeep": 131869, "Stockade": 131870, "RazorfenKraul": 131865, "RazorfenDowns": 131864,
        "BlackfathomDeeps": 131823, "RagefireChasm": 131862, "Kalimdor": 131848, "EasternKingdoms": 131839,
-       "WarsongGulch": 131883, "ArathiBasin": 131820, "AlteracValley": 131861}
+       "WarsongGulch": 131883, "ArathiBasin": 131820, "AlteracValley": 131861, "Naxxramas": 131854}
 
 # AtlasLoot key -> (source key, name, size, art)
 RAIDS = OrderedDict([
@@ -88,6 +88,7 @@ RAIDS = OrderedDict([
     ("Zul'Gurub", ("ZulGurub", "Zul'Gurub", 20, "ZulGurub")),
     ("TheRuinsofAhnQiraj", ("AQ20", "Ruins of Ahn'Qiraj", 20, "RuinsAQ")),
     ("TheTempleofAhnQiraj", ("AQ40", "Temple of Ahn'Qiraj", 40, "TempleAQ")),
+    ("Naxxramas", ("Naxxramas", "Naxxramas", 40, "Naxxramas")),
     ("WorldBosses2", ("WorldBosses", "World Bosses", 40, "EasternKingdoms")),
 ])
 DUNGEONS = OrderedDict([
@@ -144,13 +145,13 @@ EVENTS = OrderedDict([
     ("HarvestFestival", ("HarvestFestival", "Harvest Festival")), ("WinterVeil", ("WinterVeil", "Feast of Winter Veil")),
 ])
 # TierSets / ClassSets sub-table name (AtlasLoot's text; ZG / AQ read as "C_Map_GetAreaInfo(<area>)") -> (source key,
-# display name), None = left out (Tier 3: Naxxramas is closed on a TBC realm). Sources are listed in SET_ORDER.
+# display name), None = left out. Sources are listed in SET_ORDER.
 SET_NAMES = [(r"^Dungeon Set 1", ("Tier0", "Tier 0")), (r"^Dungeon Set 2", ("Tier05", "Tier 0.5")),
              (r"^Tier 1 ", ("Tier1", "Tier 1")), (r"^Tier 2 ", ("Tier2", "Tier 2")),
-             (r"^Tier 2\.5", ("Tier25", "Tier 2.5")), (r"^Tier 3", None), (r"1977", ("ZulGurub", "Zul'Gurub")),
+             (r"^Tier 2\.5", ("Tier25", "Tier 2.5")), (r"^Tier 3", ("Tier3", "Tier 3")), (r"1977", ("ZulGurub", "Zul'Gurub")),
              (r"3428\D+20", ("AQ20", "Ruins of Ahn'Qiraj")), (r"3428\D+40", ("AQ40", "Temple of Ahn'Qiraj")),
              (r"^(Misc|Cloth|Leather|Mail|Plate)", ("World", "World & crafted"))]
-SET_ORDER = ["Tier0", "Tier05", "Tier1", "Tier2", "Tier25", "ZulGurub", "AQ20", "AQ40", "World", "PvP"]
+SET_ORDER = ["Tier0", "Tier05", "Tier1", "Tier2", "Tier25", "Tier3", "ZulGurub", "AQ20", "AQ40", "World", "PvP"]
 # Recommended levels where AtlasLoot gives Season of Discovery's (no GetForVersion): the original instances'
 LV_FIX = {"BlackfathomDeeps": "24-32", "Gnomeregan": "29-38", "SunkenTemple": "45-55"}
 
@@ -308,7 +309,7 @@ HEADER = """\
 -- ns.Data.AtlasClassic: the Atlas tab's tree while its switch says Classic, shaped like ns.Data.Atlas, plus
 --   category kind ("raid" / "dungeon" / "sets" / ...; the key is "c_" + the TBC half's so both share one index) and
 --   source size (raid), lv ("13-18": a dungeon's recommended levels), art (its loading screen's FileDataID).
---   No Season of Discovery content, no Naxxramas / Tier 3 (closed on a TBC realm).
+--   No Season of Discovery content.
 -- ns.Data.AtlasClassicNames: English names the TBC half (ns.Data.AtlasNames) doesn't have.
 -- Recipes the TBC half doesn't list are added to ns.Data.AtlasRecipes.
 """

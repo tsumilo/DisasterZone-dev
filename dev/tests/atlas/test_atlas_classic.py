@@ -6,7 +6,7 @@ Covers: the era by level (below 58 Classic, opening on the dungeon for my level;
 switch swapping the sources and keeping where I was in each era, a place in the other era (Select / a search result /
 ShowItem) moving the switch along, search over the shown era with "In TBC" / "In Classic" for the other's matches,
 Classic banners (loading screen, levels, size), no BiS adds for Classic items, the shipped data (names for every id, no
-Season of Discovery, no Naxxramas / Tier 3), and a walk over every Classic page without Lua errors.
+Season of Discovery; Naxxramas and Tier 3 in), and a walk over every Classic page without Lua errors.
 
 Run: luaenv\\Scripts\\python.exe tests\\atlas\\test_atlas_classic.py [-k name]
 """
@@ -130,9 +130,9 @@ def the_shipped_classic_data_is_whole_and_tbc_only():
       for _, cat in ipairs(ns.Atlas:GetCategories(true)) do
         if cat.era == 'classic' then
           for _, src in ipairs(cat.sources) do
-            if src.key:find('Naxx') or src.name:find('Season') then out[#out + 1] = src.key end
+            if src.name:find('Season') then out[#out + 1] = src.key end
             for _, page in ipairs(src.pages) do
-              if (page.name or ''):find('%(Sod%)') or (page.title or ''):find('Plagueheart') then
+              if (page.name or ''):find('%(Sod%)') then
                 out[#out + 1] = src.key .. '/' .. page.key end
               for _, id in ipairs(page.items) do
                 if type(id) == 'number' and not ns.Atlas:GetShippedName(id) and not seen[id] then
@@ -146,6 +146,8 @@ def the_shipped_classic_data_is_whole_and_tbc_only():
       end
       return out""")
     assert bad == [], bad[:20]
+    assert c.eval("return ns.Atlas:GetSource('c_raids', 'Naxxramas') ~= nil")
+    assert c.eval("return ns.Atlas:GetSource('c_sets', 'Tier3') ~= nil")
     no_errors(w)
 
 
