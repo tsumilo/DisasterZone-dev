@@ -737,18 +737,87 @@ Maps.westfall = {
     },
     npcs = {
         { id = "furlbrow", name = "Farmer Furlbrow", x = 14, y = 5, sprite = "bald", tint = { 1, 0.85, 0.65 }, face = "right",
+          -- what he says follows the week after VanCleef (Aftermath.lua)
           script = function(G)
-              G:Say("Farmer Furlbrow: The Defias ran my wife and me off our own farm, and they took Old Blanchy too!")
-              G:Say("Farmer Furlbrow: At least they left the pumpkins. Nobody wants the pumpkins.")
+              local day = G:AfterDay("badge_vancleef")
+              if not day then
+                  G:Say("Farmer Furlbrow: The Defias ran my wife and me off our own farm, and they took Old Blanchy too!")
+                  G:Say("Farmer Furlbrow: At least they left the pumpkins. Nobody wants the pumpkins.")
+              elseif day == 0 then
+                  G:Say("Farmer Furlbrow: VanCleef... gone? The Defias camps emptied overnight. I can hardly believe it.")
+                  G:Say("Farmer Furlbrow: That north field was theirs for three years. Maybe it's ours again.")
+              elseif day <= 2 then
+                  G:Say("Farmer Furlbrow: The militia's planted its standards on the north field. Nobody's taking it back now.")
+              elseif day <= 4 then
+                  G:Say("Farmer Furlbrow: Ploughed! Mara's come home from Sentinel Hill to work it. First time in years.")
+              elseif day <= 6 then
+                  G:Say("Farmer Furlbrow: Look at it come up. Give it a day or two and it's harvest.")
+              elseif G:HarvestFeast() then
+                  G:Say("Farmer Furlbrow: To the harvest, and to {PLAYER}! Grab a seat by the fire!")
+              elseif day == 7 then
+                  G:Say("Farmer Furlbrow: Harvest! There's a feast at the farm tonight, by the fire. You're the guest of honour.")
+              else
+                  G:Say("Farmer Furlbrow: Best harvest in years. Westfall owes you, {PLAYER}.")
+              end
           end },
+        -- the Defias leave Westfall once VanCleef falls (Aftermath.lua)
         { id = "defias1", x = 10, y = 28, sprite = "hero", tint = { 0.85, 0.3, 0.3 }, face = "right",
-          trainer = "defias1", sight = 2 },
+          trainer = "defias1", sight = 2, hidden = function(G) return G:Flag("badge_vancleef") end },
         { id = "defias2", x = 10, y = 20, sprite = "hero", tint = { 0.8, 0.35, 0.35 }, face = "left",
-          trainer = "defias2", sight = 3 },
+          trainer = "defias2", sight = 3, hidden = function(G) return G:Flag("badge_vancleef") end },
         { id = "defias3", x = 5, y = 12, sprite = "hero", tint = { 0.75, 0.3, 0.4 }, face = "left",
-          trainer = "defias3", sight = 2 },
+          trainer = "defias3", sight = 2, hidden = function(G) return G:Flag("badge_vancleef") end },
         { id = "farmer1", x = 18, y = 14, sprite = "girl", tint = { 1, 0.9, 0.7 }, face = "down",
           trainer = "farmer1", sight = 3 },
+        -- after VanCleef (Aftermath.lua): the militia guards the field, farmhands and Mara work it, a feast on day 7
+        { id = "wfmilitia1", name = "Militia Guard", x = 10, y = 3, sprite = "bald", tint = { 0.7, 0.78, 1 }, face = "left",
+          when = function(G) local d = G:AfterDay("badge_vancleef") return d ~= nil and d >= 1 and d <= 6 end,
+          script = function(G) G:Say("Militia Guard: Gryan's orders: this field stays Westfall's. We'll stand here till it's harvested.") end },
+        { id = "wfmilitia2", name = "Militia Guard", x = 10, y = 6, sprite = "bald", tint = { 0.65, 0.72, 1 }, face = "left",
+          when = function(G) local d = G:AfterDay("badge_vancleef") return d ~= nil and d >= 1 and d <= 6 end,
+          script = function(G) G:Say("Militia Guard: Not a Defias in sight since VanCleef fell. Strange, the quiet.") end },
+        { id = "farmhand1", name = "Farmhand Jory", x = 6, y = 4, sprite = "hero", tint = { 0.95, 0.85, 0.7 }, face = "down",
+          when = function(G) local d = G:AfterDay("badge_vancleef") return d ~= nil and d >= 3 end,
+          day = {
+              { "00:00", inside = "saldean", label = "Asleep at Saldean's farm" },
+              { "06:30", path = { { 19, 22 }, { 19, 23 }, { 12, 23 }, { 12, 4 }, { 6, 4 } }, face = "down",
+                label = "Working the north field", walk = "Off to the field" },
+              { "18:00", path = { { 6, 4 }, { 12, 4 }, { 12, 23 }, { 19, 23 }, { 19, 22 } }, enter = "saldean",
+                label = "Supper at Saldean's farm", walk = "Done for the day" },
+          },
+          says = { { "09:00", "Good soil, this. The Defias never knew what they had." } },
+          script = function(G) G:Say("Farmhand Jory: Three years of weeds! We'll have it right by the week's end.") end },
+        { id = "farmhand2", name = "Farmhand Ellis", x = 8, y = 6, sprite = "bald", tint = { 0.9, 0.82, 0.68 }, face = "left",
+          when = function(G) local d = G:AfterDay("badge_vancleef") return d ~= nil and d >= 3 end,
+          day = {
+              { "00:00", inside = "saldean", label = "Asleep at Saldean's farm" },
+              { "06:40", path = { { 19, 22 }, { 19, 23 }, { 12, 23 }, { 12, 6 }, { 8, 6 } }, face = "left",
+                label = "Working the north field", walk = "Off to the field" },
+              { "18:10", path = { { 8, 6 }, { 12, 6 }, { 12, 23 }, { 19, 23 }, { 19, 22 } }, enter = "saldean",
+                label = "Supper at Saldean's farm", walk = "Done for the day" },
+          },
+          script = function(G) G:Say("Farmhand Ellis: Mind the furrows, friend.") end },
+        { id = "wfmara", name = "Mara", x = 4, y = 6, sprite = "girl", tint = { 0.95, 0.85, 0.75 }, face = "down",
+          when = function(G) local d = G:AfterDay("badge_vancleef") return d ~= nil and d >= 3 end,
+          day = {
+              { "00:00", inside = "saldean", label = "Home on the farm" },
+              { "06:00", path = { { 19, 22 }, { 19, 23 }, { 12, 23 }, { 12, 7 }, { 4, 7 }, { 4, 6 } }, face = "down",
+                label = "Working her field", walk = "Out to her field" },
+              { "19:00", path = { { 4, 6 }, { 4, 7 }, { 12, 7 }, { 12, 23 }, { 19, 23 }, { 19, 22 } }, enter = "saldean",
+                label = "Home on the farm", walk = "Heading home" },
+          },
+          says = { { "07:00", "Home. I still can't believe it." } },
+          script = function(G)
+              G:Say("Mara: Home! Three years sleeping behind the militia's walls, and now look. My own field again.")
+          end },
+        { id = "dancer1", x = 12, y = 9, sprite = "hero", tint = { 0.95, 0.85, 0.7 }, face = "right", dance = true,
+          when = function(G) return G:HarvestFeast() end },
+        { id = "dancer2", x = 15, y = 9, sprite = "girl", tint = { 1, 0.8, 0.8 }, face = "left", dance = true,
+          when = function(G) return G:HarvestFeast() end },
+        { id = "dancer3", x = 13, y = 10, sprite = "girl", tint = { 0.95, 0.85, 0.75 }, face = "up", dance = true,
+          when = function(G) return G:HarvestFeast() end },
+        { id = "dancer4", x = 14, y = 7, sprite = "bald", tint = { 0.7, 0.78, 1 }, face = "down", dance = true,
+          when = function(G) return G:HarvestFeast() end },
         { id = "militia1", x = 13, y = 8, sprite = "bald", tint = { 0.6, 0.7, 1 }, face = "left",
           trainer = "militia1", sight = 2 },
     },
@@ -919,6 +988,8 @@ Maps.sentinel = {
               G:Say("Militia Footman: The People's Militia keeps this road. Farmers first, then everyone else.")
           end },
         { id = "refugee", name = "Mara", x = 9, y = 14, sprite = "girl", tint = { 0.95, 0.85, 0.75 }, face = "down",
+          -- (three days after VanCleef she moves home to her Westfall field: Aftermath.lua)
+          when = function(G) local d = G:AfterDay("badge_vancleef") return not (d and d >= 3) end,
           day = {
               { "00:00", inside = "sentinelinn", label = "Staying the night" },
               { "07:30", path = { { 5, 8 }, { 5, 9 }, { 9, 9 }, { 9, 15 } }, away = true, label = "Gone to her farm",
@@ -1420,11 +1491,13 @@ Maps.darkshire = {
         { kind = "tent", x = 4, y = 14 },           -- Madame Eva's wagon
     },
     warps = { { x = 6, y = 6, map = "darkshireinn", tx = 4, ty = 6, face = "up" } },
+    -- its lamp posts: dark until Stitches falls, lit every night after (Aftermath.lua, UI.lua covers an unlit one)
+    lamps = { { 2, 8 }, { 9, 8 }, { 14, 8 }, { 21, 8 }, { 4, 11 }, { 16, 11 }, { 20, 11 } },
     objects = {
         { x = 10, y = 8, tile = "wantedboard", hint = "Read the bounty board", script = function(G) G:BountyBoard() end },
     },
     signs = {
-        { x = 1, y = 8, text = "DARKSHIRE\nSeat of the Night Watch. The lamps burn all night, every night." },
+        { x = 1, y = 8, text = "DARKSHIRE\nSeat of the Night Watch. Keep to the lamplight." },
         { x = 13, y = 11, text = "SOUTH: Madame Eva, fortunes told.\nGryphons to Sentinel Hill.\nNORTH: Redridge and Lakeshire." },
     },
     npcs = {
@@ -1532,6 +1605,40 @@ Maps.darkshire = {
           trainer = "backus", sight = 2 },
         { id = "paige", x = 9, y = 13, sprite = "girl", tint = { 0.7, 0.75, 0.95 }, face = "right",
           trainer = "paige", sight = 2 },
+        -- after Stitches (Aftermath.lua): people stay out after dark, and a second watchman walks the lanes
+        { id = "dsvillager1", name = "Tavern-goer Bren", x = 14, y = 12, sprite = "bald", tint = { 1, 0.9, 0.8 }, face = "up",
+          when = function(G) return G:AfterDay("badge_nightwatch") ~= nil end,
+          day = {
+              { "00:00", inside = "darkshireinn", label = "Asleep at the tavern" },
+              { "18:30", path = { { 6, 6 }, { 6, 10 }, { 14, 10 }, { 14, 12 } }, face = "up", label = "Out after dark",
+                walk = "Out for an evening stroll" },
+              { "23:30", path = { { 14, 12 }, { 14, 10 }, { 6, 10 }, { 6, 6 } }, enter = "darkshireinn",
+                label = "Asleep at the tavern", walk = "Heading in" },
+          },
+          says = { { "19:00", "Out after dark again! Who'd have thought." } },
+          script = function(G) G:Say("Bren: A year I didn't set foot outside after sundown. Now look at me.") end },
+        { id = "dsvillager2", name = "Tavern-goer Lisette", x = 15, y = 12, sprite = "girl", tint = { 0.9, 1, 0.9 }, face = "left",
+          when = function(G) return G:AfterDay("badge_nightwatch") ~= nil end,
+          day = {
+              { "00:00", inside = "darkshireinn", label = "Asleep at the tavern" },
+              { "18:40", path = { { 6, 6 }, { 6, 10 }, { 15, 10 }, { 15, 12 } }, face = "left", label = "Out after dark",
+                walk = "Out for an evening stroll" },
+              { "23:20", path = { { 15, 12 }, { 15, 10 }, { 6, 10 }, { 6, 6 } }, enter = "darkshireinn",
+                label = "Asleep at the tavern", walk = "Heading in" },
+          },
+          script = function(G) G:Say("Lisette: The lamps! Every one of them lit. I'd forgotten what the square looks like at night.") end },
+        { id = "dswatch2", name = "Watcher Dodds", x = 8, y = 10, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "left",
+          lantern = true,
+          when = function(G) return G:AfterDay("badge_nightwatch") ~= nil end,
+          day = {
+              { "00:00", loop = { { 8, 10 }, { 8, 9 }, { 20, 9 }, { 20, 10 }, { 8, 10 } }, label = "Night patrol" },
+              { "06:00", path = { { 8, 10 }, { 6, 10 }, { 6, 6 } }, enter = "darkshireinn", label = "Asleep at the tavern",
+                walk = "Off duty" },
+              { "20:00", path = { { 6, 6 }, { 6, 10 }, { 8, 10 } }, label = "On watch", walk = "Starting the night watch" },
+              { "20:10", loop = { { 8, 10 }, { 8, 9 }, { 20, 9 }, { 20, 10 }, { 8, 10 } }, label = "Night patrol" },
+          },
+          says = { { "22:00", "The Watch thanks you, friend." } },
+          script = function(G) G:Say("Watcher Dodds: Two of us on the lanes now, and lamps all the way to the gate. Darkshire sleeps again.") end },
         { id = "dsguard", name = "Night Watch Guard", x = 21, y = 12, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "left",
           lantern = true,
           -- the Night Watch: the east road by day, the town's lanes all night with a lantern

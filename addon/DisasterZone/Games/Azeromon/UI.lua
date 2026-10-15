@@ -3435,6 +3435,14 @@ function Amb.Night(m, g, px, py)
                          (0.4 + 0.05 * math.sin(now * 7 + x)) * k)
                 end
             end
+            -- a bonfire's light (Aftermath.lua props)
+            for _, p in ipairs(ns.AzeroAftermath and ns.AzeroAftermath.Props(m) or {}) do
+                if p.glow then
+                    gn = gn + 1
+                    Glow(gn, (p.x + 1 - px + HX) * TILE, (p.y - 0.2 - py + HY) * TILE, 90 * S, 1, 0.6, 0.28,
+                         (0.6 + 0.08 * math.sin(now * 9) * math.sin(now * 5.3)) * k)
+                end
+            end
             -- the player's lantern (outdoors)
             if not g.indoor then
                 gn = gn + 1
@@ -3503,7 +3511,7 @@ function Amb.Mood(m, g, px, py, period)
     if mood.mist and Overlay(R.mist, MEDIA .. "Ground\\mist", "BLEND", true) then
         local mx = ox + (calm and 0 or now * 5)
         R.mist:SetTexCoord(mx / 256, (mx + VW * 16) / 256, oy / 256, (oy + VH * 16) / 256)
-        R.mist:SetAlpha(0.45)
+        R.mist:SetAlpha(math.min(0.9, 0.45 * (ns.AzeroAftermath and ns.AzeroAftermath.Mist(m.id) or 1)))
         R.mist:Show()
     end
     -- sun shafts through the jungle canopy by day
@@ -4053,6 +4061,41 @@ function Amb.Guild(m, g, px, py)
     for i = nf + 1, #Amb.markFs do Amb.markFs[i]:Hide() end
 end
 
+-- Things standing because of a win (Aftermath.lua A.Props): the militia's standard (1 x 2) and the harvest bonfire
+-- (2 x 2, flames over the logs), drawn behind or in front of the player by their foot.
+Amb.propTex = {}
+function Amb.Props(m, g, px, py)
+    local list = ns.AzeroAftermath and ns.AzeroAftermath.Props(m) or {}
+    local n = 0
+    local foot = py * 16 + 16
+    local function tile(name, tx, ty, layer)
+        n = n + 1
+        local t = Amb.propTex[n]
+        if not t then
+            t = Tex(world, "ARTWORK", 0)
+            t:SetSize(TILE, TILE)
+            SetPixelTexture(t, ATLAS)
+            Amb.propTex[n] = t
+        end
+        SetTile(t, name)
+        t:SetDrawLayer("ARTWORK", layer)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", world, "TOPLEFT", (tx - px + HX) * TILE, -((ty - py + HY) * TILE))
+        t:Show()
+    end
+    for _, p in ipairs(list) do
+        local front = (p.y + 1) * 16 > foot and 3 or 0
+        if p.kind == "standard" then
+            tile("standard_0_0", p.x, p.y - 1, front)
+            tile("standard_0_1", p.x, p.y, front)
+        elseif p.kind == "bonfire" then
+            for dy = 0, 1 do for dx = 0, 1 do tile(string.format("bonfire_%d_%d", dx, dy), p.x + dx, p.y - 1 + dy, front) end end
+            tile("flame_" .. (floor(now * 8) % 4), p.x + 0.5, p.y - 1 + 0.5, front)
+        end
+    end
+    for i = n + 1, #Amb.propTex do Amb.propTex[i]:Hide() end
+end
+
 function Amb.Draw(m, g, px, py)
     local period = G:Period()
     Amb.Water(m, g, px, py)
@@ -4069,6 +4112,7 @@ function Amb.Draw(m, g, px, py)
     Amb.Steps(m, px, py)
     if g then Amb.Acts(m, px, py) end      -- (maps without a baked ground have no ambient at all)
     Amb.Guild(m, g, px, py)
+    Amb.Props(m, g, px, py)
     Amb.Fishing(m, g, px, py)
     Amb.Mood(m, g, px, py, period)
     local dark = Amb.Night(m, g, px, py)
@@ -4306,6 +4350,8 @@ local function DrawWorld()
                     local up, res = ns.AzeroCraft:NodeState(m.id, node)
                     over = up and D.resources[res] and D.resources[res].tile or over
                 end
+                local covers = ns.AzeroAftermath and ns.AzeroAftermath.Covers(m)     -- (a field after a win)
+                if covers and covers[k] then over = covers[k] end
             end
             SetTile(cell.base, base)
             SetTile(cell.over, over)
@@ -4355,7 +4401,11 @@ local function DrawWorld()
                 nx, ny = Lerp(npc.fromX, npc.x, f), Lerp(npc.fromY, npc.y, f)
                 if f > 0.2 and f < 0.8 then nframe = (npc.fromX + npc.fromY) % 2 == 0 and 0 or 2 end
             end
-            local sx, sy = (nx - px + HX) * TILE, -(ny - py + HY) * TILE + (npc.def.lift or 0) * TILE / 16
+            local hop = 0
+            if npc.def.dance and not npc.moving and not G:Data().calm then
+                hop = math.abs(math.sin(now * 8 + (npc.homeX or 0))) * 2
+            end
+            local sx, sy = (nx - px + HX) * TILE, -(ny - py + HY) * TILE + ((npc.def.lift or 0) + hop) * TILE / 16
             sp:ClearAllPoints()
             sp:SetPoint("TOPLEFT", world, "TOPLEFT", sx, sy)
             -- now and then a standing NPC glances to the side for a moment (drawn only: the game's facing is unchanged)
@@ -4366,6 +4416,9 @@ local function DrawWorld()
                 if cyc < 1.1 then face = (face == "left" or face == "right") and "down" or ((h < 0.5) and "left" or "right") end
             end
             if npc.act == "smith" and not npc.moving then nframe = floor(now * 2.2) % 2 == 0 and 0 or 1 end
+            if npc.def.dance and not npc.moving and not G:Data().calm then
+                face = ({ "down", "left", "up", "right" })[floor(now * 4 + (npc.homeX or 0)) % 4 + 1]
+            end
             SetChar(sp, npc.def.sprite or "bald", face, nframe)
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
@@ -5782,6 +5835,7 @@ local function OnUpdate(self, elapsed)
     KH.DrawChat()
     KH.DrawReel()
     ns.AzeroMarks:Update(elapsed)
+    if ns.AzeroAftermath then ns.AzeroAftermath:Update() end
     Scr.UpdateMusic()
     ns.AzeroSound:UpdateAmbience(elapsed, G.started and not R.title:IsShown() and not BT.battle)
     if R.title:IsShown() then KH.TickTitle(elapsed) end

@@ -138,6 +138,8 @@ function R.State(def, now)
     local rt = R.Of(def)
     if not rt then return nil end
     local seg, e = R.SegAt(rt, now or R.Now())
+    -- not here at all yet, or any more (Aftermath.lua: someone who moved home after a win)
+    if def.when and not def.when(G) then return { hidden = true, gone = true, label = "", seg = seg } end
     if seg.inside then return { hidden = true, inside = seg.inside, label = seg.label, seg = seg } end
     if seg.loop then
         local n = #seg.loop - 1
@@ -218,6 +220,8 @@ end
 
 -- Is the map's lamp i lit now? (a map without a lamplighter keeps its lamps lit)
 function R.LampLit(mapId, i, now)
+    local after = ns.AzeroAftermath and ns.AzeroAftermath.LampLit(mapId)
+    if after ~= nil then return after end                             -- (Darkshire: dark until Stitches falls)
     local times = R.LampTimes(mapId)
     local t = times and times[i]
     if not (t and t.on and t.off) then return true end
@@ -588,9 +592,10 @@ function R.Town(town, now)
     for _, p in ipairs(R.People()) do
         if p.map == town then
             local st = R.State(p.def, now) or {}
-            out[#out + 1] = { def = p.def, name = G.NpcName(p.def) or p.def.name or "?", tint = p.def.tint,
+            if st.gone then st = nil end
+            if st then out[#out + 1] = { def = p.def, name = G.NpcName(p.def) or p.def.name or "?", tint = p.def.tint,
                               label = st.label or "", where = Where(st, town), inside = st.inside, away = st.away,
-                              bar = R.DayBar(p.def) }
+                              bar = R.DayBar(p.def) } end
         end
     end
     local order = {}

@@ -366,6 +366,7 @@ function G:Load()
     self.save = s
     if (tonumber(s.v) or 1) < 2 then G.MigrateGoldshire(s) end
     s.v = D.SAVE_VERSION
+    if ns.AzeroAftermath then ns.AzeroAftermath.Migrate() end
     local function clean(list)
         local out = {}
         if type(list) == "table" then
@@ -455,7 +456,11 @@ function G.NpcTitle(def)
 end
 
 function G:Flag(name) return self.save and self.save.flags[name] end
-function G:SetFlag(name, v) if v == nil then v = true end self.save.flags[name] = v end
+function G:SetFlag(name, v)
+    if v == nil then v = true end
+    self.save.flags[name] = v
+    if v and ns.AzeroAftermath then ns.AzeroAftermath.Note(name) end      -- (a win the world remembers: when)
+end
 
 ---------------------------------------------------------------------------
 -- Map state
@@ -476,6 +481,7 @@ function G:EnterMap(id, x, y, face, silent)
     end
     -- daily routines (Routine.lua): people where the clock puts them, visitors in a room's seats, a stall's hours
     if ns.AzeroRoutine then ns.AzeroRoutine.Enter(self, m) end
+    if ns.AzeroAftermath then ns.AzeroAftermath.Covers(m) end            -- (the field's stage; its fence is solid)
     if not silent then
         self.fade = 0.3
         if m.def.outdoor then
@@ -491,6 +497,7 @@ end
 -- An NPC is gone when its map says so, or when it is a trainer who leaves once beaten (a boss, a pirate captain).
 function G:NpcHidden(def)
     if def.hidden and def.hidden(self) then return true end
+    if def.when and not def.when(self) then return true end           -- (Aftermath.lua: here from a day after a win)
     local t = def.trainer and D.trainers[def.trainer]
     return (t and t.vanish and self:Flag("beat_" .. def.trainer)) and true or false
 end

@@ -1,0 +1,109 @@
+"""Aftermath art for the atlas (Azeromon 0.32, Aftermath.lua), approved in the "alive" and "Azeroth Remembers" mockups
+(dev/art/casc/azeromon_alive: pixels.py STANDARD / bonfire / FLAME, newart.py crop()):
+
+  field_soil            1 x 1  a ploughed field: furrows of turned earth (Westfall's north field, days 3 to 4)
+  field_crop_a / _b     1 x 1  the first shoots in rows (days 5 to 6)
+  standard              1 x 2  the People's Militia's blue standard on a pole, stone foot
+  bonfire               2 x 2  a ring of stones round a log stack (the harvest feast)
+  flame_0 .. flame_3    1 x 1  its flames, four frames drawn over the logs
+
+Used by gen_azeromon_art.py: tiles() -> [(name, 16 x 16 RGBA Image)], appended so earlier slots never move."""
+import numpy as np
+from PIL import Image
+
+from azeromon_props import Spr, H
+
+SOIL = [(46, 30, 20), (74, 50, 32), (102, 72, 46), (130, 96, 62)]
+WHEAT = [(96, 70, 26), (150, 116, 40), (198, 162, 60), (230, 204, 104)]
+GREEN = [(20, 56, 30), (34, 96, 46), (60, 140, 62), (110, 184, 86)]
+
+# the people sheet's DawnBringer 16 (pixels.py), with the few in-between tones the mockup used
+DB = {"K": (20, 12, 28), "B": (133, 76, 48), "Y": (218, 212, 94), "M": (117, 113, 97), "s": (176, 186, 196),
+      "m": (96, 100, 112), "O": (210, 125, 44), "o": (240, 160, 70), "w": (255, 250, 220), "R": (208, 70, 72),
+      "A": (89, 125, 206), "a": (48, 52, 109)}
+
+STANDARD = [
+    "......KYK.......", "......KYK.......", ".....KBKBK......", "..KKKKKBKKKKKK..", "..KBBBBBBBBBBK..",
+    "..KKKKKBKKKKKK..", "...KAAAAAAAAK...", "...KAaAAAAAaK...", "...KAAAYYAAAK...", "...KAAYYYYAAK...",
+    "...KAAYAYYAAK...", "...KAAAYYYAAK...", "...KAAYAAYAAK...", "...KAAAAAAAaK...", "...KAaAAAAAAK...",
+    "...KAAAAAAAAK...", "...KAAAKKAAAK...", "...KAAKBKKAAK...", "...KAK.KBK.AK...", "...KK..KBK..K...",
+    ".......KBK......", ".......KBK......", ".......KBK......", ".......KBK......", ".......KBK......",
+    ".......KBK......", ".......KBK......", ".....KKKBKKK....", "....KsssmmmmK...", "...KsssssmmmmK..",
+    "...KKKKKKKKKKK..", "....MMMMMMMMMM..",
+]
+BONFIRE = [
+    "................................", "................................", "................................",
+    "................................", "................................", "................................",
+    "................................", "................................", "................................",
+    "................................", "................................", "................................",
+    "...............KK...............", "..............KBBK..............", ".............KBBBK..............",
+    "......KK....KBBKBBK....KK.......", ".....KBBK..KBBK.KBBK..KBBK......", ".....KBBBKKBBK...KBBKKBBBK......",
+    "......KBBBBBK.....KBBBBBK.......", ".......KBBBBK.....KBBBBK........", "......KKOKBBBKKKKKBBBKOKK.......",
+    "....KKOOOOKBBBBBBBBBKOOOOKK.....", "...KssKOOOOKKKKKKKKKOOOOKssK....", "..KsssmKKOOOOOOOOOOOOOKKsssmK...",
+    "..KssmmKmKKKKKKKKKKKKKmKssmmK...", "...KKKKsssmK.KssmK.KsssmKKKK....", "......KssmmK.KsmmK.KssmmK.......",
+    ".......KKKK...KKK...KKKK........", "......MMMMMMMMMMMMMMMMMMMM......", "................................",
+    "................................", "................................",
+]
+FLAMES = [
+    ["..........Y.....", ".........YY..Y..", "....Y...YoY..YY.", "...YY..YooY.YoY.", "...YoY.YowY.YoY.",
+     "..YooYYowwYYooY.", "..YowoYowwoYoY..", "..RYowoowwwooYR.", ".RYoowwwwwwwoYR.", ".ROowwwwwwwwwoOR",
+     ".ROowwwwwwwwwoOR", "..ROowwwwwwwoOR.", "...RROoooooORR..", ".....RRRRRRR...."],
+    [".......Y........", "......YY.....Y..", "..Y..YoY....YY..", "..YY.YoY...YoY..", "..YoYYowY..YoY..",
+     "..YowYowwYYooY..", "...YowoowwYowY..", "..RYowwowwwooYR.", ".RYoowwwwwwwoYR.", ".ROowwwwwwwwwoOR",
+     ".ROowwwwwwwwwoOR", "..ROowwwwwwwoOR.", "...RROoooooORR..", ".....RRRRRRR...."],
+    [".............Y..", "....Y.......YY..", "...YY...Y..YoY..", "...YoY.YY..YoY..", "..YoY..YoYYowY..",
+     "..YowYYowYoowY..", "..YowoowwYowY...", "..RYowwowwooYR..", ".RYoowwwwwwwoYR.", ".ROowwwwwwwwwoOR",
+     ".ROowwwwwwwwwoOR", "..ROowwwwwwwoOR.", "...RROoooooORR..", ".....RRRRRRR...."],
+    [".........Y......", "..Y.....YY......", "..YY...YoY...Y..", "..YoY..YoY..YY..", "...YoYYowY.YoY..",
+     "..YowYoowwYowY..", "..YowoowwwowY...", "..RYowwowwwooYR.", ".RYoowwwwwwwoYR.", ".ROowwwwwwwwwoOR",
+     ".ROowwwwwwwwwoOR", "..ROowwwwwwwoOR.", "...RROoooooORR..", ".....RRRRRRR...."],
+]
+
+
+def grid(rows, w, h, top=0):
+    img = np.zeros((h, w, 4), dtype=np.uint8)
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch != ".":
+                img[top + y, x] = DB[ch] + (255,)
+    return img
+
+
+def soil(seed, plants):
+    s = Spr(16, 16)
+    for y in range(16):
+        for x in range(16):
+            row = y % 8
+            if row < 2:
+                s.put(x, y, SOIL[1] if row == 0 else SOIL[2])
+            else:
+                s.put(x, y, SOIL[2] if H(x, y, seed) < 0.6 else SOIL[3])
+    if plants:
+        for y0 in (2, 10):                                                   # two rows of young wheat
+            for x in range(0, 16, 2):
+                hgt = 3 + int(H(x, y0, seed + 1) * 3)
+                for k in range(hgt):
+                    c = WHEAT[3] if k == hgt - 1 else GREEN[2] if k > 1 else GREEN[1]
+                    s.put(x + (k % 2 if k > 1 else 0), y0 + 5 - k, c)
+                if H(x, y0, seed + 2) < 0.5:
+                    s.put(x + 1, y0 + 2, WHEAT[2])
+    return np.array(s.image())
+
+
+def cut(img, name, w, h):
+    out = []
+    for y in range(h):
+        for x in range(w):
+            out.append(("%s_%d_%d" % (name, x, y), Image.fromarray(img[y * 16:y * 16 + 16, x * 16:x * 16 + 16], "RGBA")))
+    return out
+
+
+def tiles():
+    out = [("field_soil", Image.fromarray(soil(5, False), "RGBA")),
+           ("field_crop_a", Image.fromarray(soil(3, True), "RGBA")),
+           ("field_crop_b", Image.fromarray(soil(9, True), "RGBA"))]
+    out += cut(grid(STANDARD, 16, 32), "standard", 1, 2)
+    out += cut(grid(BONFIRE, 32, 32), "bonfire", 2, 2)
+    for i, f in enumerate(FLAMES):
+        out.append(("flame_%d" % i, Image.fromarray(grid(f, 16, 16, top=2), "RGBA")))
+    return out

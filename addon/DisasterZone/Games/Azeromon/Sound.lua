@@ -54,7 +54,8 @@ S.SFX = {
     cure = 569632,                                                       -- nullifypoison
     equip = 567560,                                                      -- pickupmetalsmall
     buy = 567428, sell = 567413,                                         -- lootcoinsmall / lootcoinlarge
-    fishcast = 569807, fishbite = 569816, fishreel = 569808,             -- tradeskills fishcast / fishbite / fishreelin
+    fishcast = 569807, fishbite = 569816, fishreel = 569808,
+    bell = 566564,                                                       -- doodad belltollalliance (Darkshire at dusk)             -- tradeskills fishcast / fishbite / fishreelin
     herb = 567552, ore = 567564,                                         -- pickupherb / pickuprocks_ore01
     alchemy = 565598, smith = 567569,                                    -- ak_alchemyset01 / putdownlargemetal
     skillup = 567516, learn = 567400,                                    -- iquestupdate / iquestactivate

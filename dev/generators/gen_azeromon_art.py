@@ -117,6 +117,9 @@ def build_atlas():
     # the guild in Goldshire (0.30): the weekly goal's statue in three stages and the last-seen marker
     for name, img in azeromon_guildart.tiles():
         add(name, img, 0, 0)
+    # the aftermath (0.32): Westfall's field stages, the militia's standard, the harvest bonfire and its flames
+    for name, img in azeromon_afterart.tiles():
+        add(name, img, 0, 0)
     tga(atlas, "atlas")
     return index
 
@@ -131,6 +134,7 @@ import azeromon_interiors  # noqa: E402
 import azeromon_blackrock_art as blackrock_art  # noqa: E402
 import azeromon_buildings  # noqa: E402
 import azeromon_guildart  # noqa: E402
+import azeromon_afterart  # noqa: E402
 import numpy as np  # noqa: E402
 
 SHADE = 0.74            # forest floor under the trees (the ground baker uses the same)

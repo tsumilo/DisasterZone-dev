@@ -563,6 +563,8 @@ local function NodeKey(mapId, node) return mapId .. ":" .. node.x .. ":" .. node
 -- Whether the node is there to gather, and what it is right now.
 function C:NodeState(mapId, node)
     local s = G.save
+    -- under a field that was ploughed over (Aftermath.lua): nothing to gather there now
+    if ns.AzeroAftermath and ns.AzeroAftermath.Covered(mapId, node.x, node.y) then return false end
     local st = type(s.nodes) == "table" and s.nodes[NodeKey(mapId, node)]
     local up = not st or Now() - (tonumber(st.t) or 0) >= C.RESPAWN
     local list = node.list
