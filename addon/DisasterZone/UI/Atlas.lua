@@ -828,6 +828,8 @@ local function NoteRecent(catKey, srcKey, heroic)
         if not (r.cat == catKey and r.src == srcKey) then list[#list + 1] = r end
     end
     state.recent = list
+    -- (demo mode saves nothing: the list lives until the next reload)
+    if ns.Util.DemoOn() then return end
     if ns.db and ns.DB and ns.DB.SetSetting then ns.DB:SetSetting("atlas.recent", list) end
 end
 

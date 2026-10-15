@@ -194,12 +194,14 @@ assert gina.eval("return DisasterZoneBlessBar ~= nil and DisasterZoneBlessBar:Is
 assert gina.eval("local n = 0; for _, r in ipairs(ns.BlessingsBar:MyRows()) do n = n + 1 end; return n") >= 3
 assert vic.eval("return DisasterZoneBlessBar == nil") is True, "no bar for a warrior"
 
-# Settings > Class tools: a Blessings card for paladins; no Class tools at all for a warrior (no tools yet)
+# Settings > Class tools: a Blessings card for paladins; a Protection warrior sees the warriors' tools (the Arms / Fury
+# swing timer, greyed: not their spec) and no Blessings
 for c in (gina, vic):
     c.slash("/dz settings")
 w.tick(0.5)
 assert gina.eval("return ns.SettingsUI:KitShown('bless')") is True
-assert vic.eval("return ns.SettingsUI.nav.classtools:IsShown()") is False
+assert vic.eval("return ns.SettingsUI.nav.classtools:IsShown()") is True
+assert vic.eval("return ns.SettingsUI:KitShown('bless')") is False
 # cards start closed; opening one lengthens the section
 gina.eval("ns.SettingsUI:SelectSection('classtools')")
 BLESS = "for _, c in ipairs(ns.SettingsUI.sections.classtools.cards) do if c.kit.key == 'bless' then %s end end"

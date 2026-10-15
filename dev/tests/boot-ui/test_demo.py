@@ -212,7 +212,7 @@ def demo_works_without_a_guild_and_sends_nothing():
     c.slash("/dz")
     w.tick(0.3)
     tabs = c.eval_py("local o = {} for _, k in ipairs(ns.MainFrame:GetShownPages()) do o[#o + 1] = k end return o")
-    assert tabs == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "games", "feedback", "changelog", "settings"], tabs
+    assert tabs == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "recruit", "members", "games", "feedback", "changelog", "settings"], tabs
     exercise_demo_ui(c, w)
     assert c.eval("return #T_data(DisasterZoneCouncilPanel.rosterView.list.box)") == 19
     c.slash("/dz test")

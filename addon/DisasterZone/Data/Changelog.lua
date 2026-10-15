@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.5.1", date = "October 2026", title = "Walking together",
+    { version = "1.5.1", date = "16 October 2026", title = "Recruitment, a Warrior swing timer and walking together",
       sections = {
           { heading = "Recruitment", area = "guild", kind = "new", hi = true, open = "recruit", ["for"] = "gm officers",
             lead = "Guild > Recruitment: the people you talk to about joining, for the GM and officers.", lines = {

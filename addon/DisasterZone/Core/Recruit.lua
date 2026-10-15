@@ -746,6 +746,11 @@ local FRIENDS_MAX = 100
 function H.Mine()
     local db = ns.db
     if type(db) ~= "table" then return {} end
+    -- (demo mode saves nothing: a list in memory for it)
+    if ns.Util.DemoOn() then
+        H.demoMine = H.demoMine or { added = {}, queue = {} }
+        return H.demoMine
+    end
     if type(db.recruitMine) ~= "table" then db.recruitMine = {} end
     local m = db.recruitMine
     if type(m.added) ~= "table" then m.added = {} end
@@ -757,7 +762,17 @@ function H.GameName(key)
     return (Ambiguate and Ambiguate(key, "none")) or Util.ShortName(key) or key
 end
 
-function H.FriendsOn() return H.Mine().friends ~= false end
+-- My list to read: the saved one, or an empty one that is never written (H.Mine creates the saved one when something is
+-- stored, so looking never leaves an empty table in saved data).
+local NONE = { added = {}, queue = {} }
+function H.Peek()
+    if Util.DemoOn() then return H.demoMine or NONE end
+    local m = type(ns.db) == "table" and ns.db.recruitMine
+    if type(m) == "table" and type(m.added) == "table" and type(m.queue) == "table" then return m end
+    return NONE
+end
+
+function H.FriendsOn() return H.Peek().friends ~= false end
 
 -- Settings: "Add people to my friends list" (this character only).
 function Recruit:FriendsOn() return H.FriendsOn() end
@@ -812,7 +827,7 @@ function H.ScanFriends()
     end
     for _, key in ipairs(cameOnline) do
         ns:Fire("RECRUIT_ONLINE", key)
-        if H.Mine().queue[key] then ns:Fire("RECRUIT_INVITE_READY", key) end
+        if H.Peek().queue[key] then ns:Fire("RECRUIT_INVITE_READY", key) end
     end
     if changed then ns:Fire("RECRUIT_LIVE") end
 end
@@ -826,13 +841,15 @@ end
 function H.Reconcile()
     local FL = C_FriendList
     if Util.DemoOn() or not H.AmIRealRecruiter() or not (FL and FL.AddFriend) then return end
-    local mine, me = H.Mine(), Me()
+    local me = Me()
     local want = {}
     if H.FriendsOn() then
         for key, r in pairs(H.People()) do
             if r.st == "talk" and r.w == me then want[key] = true end
         end
     end
+    if next(want) == nil and next(H.Peek().added) == nil then return end
+    local mine = H.Mine()
     for key in pairs(mine.added) do
         if not want[key] then
             if H.IsFriend(key) then FL.RemoveFriend(H.GameName(key)) end
@@ -852,7 +869,7 @@ function H.Reconcile()
     end
 end
 
-function Recruit:IsFriendsListFull() return H.Mine().full == true end
+function Recruit:IsFriendsListFull() return H.Peek().full == true end
 
 ---------------------------------------------------------------------------
 -- The guild invite. Invite (from a click: the game wants a hardware event) sends GuildInvite and keeps what to do
@@ -918,9 +935,9 @@ function Recruit:Invite(key, opts)
     return true
 end
 
-function Recruit:InviteQueued(key) return H.Mine().queue[key] ~= nil end
+function Recruit:InviteQueued(key) return H.Peek().queue[key] ~= nil end
 function Recruit:CancelQueued(key) H.Mine().queue[key] = nil end
-function Recruit:QueuedOpts(key) return H.Mine().queue[key] end
+function Recruit:QueuedOpts(key) return H.Peek().queue[key] end
 
 function H.KeyOf(name)
     if type(name) ~= "string" or name == "" then return nil end

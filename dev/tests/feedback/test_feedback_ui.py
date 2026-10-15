@@ -230,7 +230,10 @@ def the_changelog_names_who_asked_and_marks_mine():
           if type(l) == 'table' and (l.fb or l.by) then s.lines[i] = l[1] end
         end
       end
-      table.insert(e.sections[1].lines, 1, { 'The roll popup waits until you leave combat.', fb = { 12 },
+      -- (the first section is the one the page opens on; one "for" the officers only would be hidden from Alfa)
+      local sec = e.sections[1]
+      sec['for'] = nil
+      table.insert(sec.lines, 1, { 'The roll popup waits until you leave combat.', fb = { 12 },
         by = { 'Alfa', 'Bert' }, mt = 3, k = 'bug' })
       ns.ChangelogUI.ResetIndex()""")
     a.eval("ns.ChangelogUI:Open(ns.version)")
