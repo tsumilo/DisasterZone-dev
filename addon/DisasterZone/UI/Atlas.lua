@@ -824,6 +824,13 @@ do
         toast:Layout()
         toast:Show()
         toast.left = 5
+        -- (slides up 8 px as it fades in)
+        local base = PAD + BAR_H + 6
+        ns.UI:Tween(toast, 0.18, function(e)
+            toast:SetAlpha(e)
+            toast:ClearAllPoints()
+            toast:SetPoint("BOTTOM", panel, "BOTTOM", 0, base - 8 * (1 - e))
+        end, not panel:IsVisible())
     end
 
     -- Puts a craft on my shopping list (UI/AtlasShop.lua: with the amount / breakdown set with Shift).
@@ -1073,7 +1080,13 @@ do
         else
             ns.UI:SetEdgeColor(row, S:Color(hot and EDGE_HOVER or EDGE_REST))
         end
-        row.lift:SetShown(hot or sel)
+        -- (the lift fades: 0.12 s)
+        local to = (hot or sel) and 1 or 0
+        local from = row.lift:GetAlpha() or 0
+        if math.abs(to - from) > 0.01 then
+            ns.UI:Tween(row.lift, 0.12, function(e) row.lift:SetAlpha(from + (to - from) * e) end,
+                not row:IsVisible())
+        end
     end
 
     local function SetupItemRow(row)
@@ -1086,7 +1099,7 @@ do
         row.lift = row:CreateTexture(nil, "BACKGROUND", nil, 1)
         row.lift:SetAllPoints()
         UI:Gradient(row.lift, "VERTICAL", S:WithAlpha("TEXT", 0.015), S:WithAlpha("TEXT", 0.05))
-        row.lift:Hide()
+        row.lift:SetAlpha(0)
         UI:AddEdges(row, "BORDER")
         -- (the hover buttons sit on a fade of the card's colour over the right end)
         row.hoverBack = row:CreateTexture(nil, "ARTWORK", nil, 2)
@@ -2553,6 +2566,20 @@ function AtlasUI:RefreshItems(resetScroll)
     end
     PlaceGrid(top)
     grid:SetData(out, resetScroll)
+    -- (a new page or a new set of results rises 8 px into place as it fades in; a new place's art fades in)
+    if resetScroll and panel:IsVisible() then
+        ns.UI:Tween(grid.frame, 0.18, function(e)
+            grid.frame:SetAlpha(e)
+            PlaceGrid(top + 8 * (1 - e))
+        end)
+    else
+        grid.frame:SetAlpha(1)
+    end
+    local heroKey = hero:IsShown() and ((state.cat or "") .. "\0" .. (state.src or "")) or nil
+    if heroKey and heroKey ~= panel.heroKey and panel:IsVisible() then
+        ns.UI:Tween(hero.art, 0.25, function(e) hero.art:SetAlpha(0.25 + 0.75 * e) end)
+    end
+    panel.heroKey = heroKey
     Prefetch(itemRows)
     barKeys = ContextKeys(itemRows)
     LayoutBar()
@@ -2904,6 +2931,8 @@ local function SetupSearchKeys(eb)
         ClearSearch()
         AtlasUI:RefreshItems(true)
     end)
+    eb:HookScript("OnEditFocusGained", function() if Nav() then Nav():LayoutSearch() end end)
+    eb:HookScript("OnEditFocusLost", function() if Nav() then Nav():LayoutSearch() end end)
 end
 
 ---------------------------------------------------------------------------

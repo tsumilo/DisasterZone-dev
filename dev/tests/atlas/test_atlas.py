@@ -218,17 +218,25 @@ def data_file_shape_and_names_for_every_entry():
 def back_from_a_search():
     w, c = setup()
     c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
+    path = [x[0] for x in c.eval_py("return ns.AtlasNav:GetCrumbs()")]
     c.eval("ns.AtlasUI:SetSearch('gladiator')")
-    # searching: the path is "‹ Attumen the Huntsman" beside the field
-    crumbs = c.eval_py("return ns.AtlasNav:GetCrumbs()")
-    assert len(crumbs) == 1 and crumbs[0][0].endswith("Attumen the Huntsman"), crumbs
-    c.click(c.eval("return ns.AtlasNav:GetCrumbFrames()[1]"))
+    # searching leaves the path as it was (where Esc leads back to), dimmed a little
+    assert [x[0] for x in c.eval_py("return ns.AtlasNav:GetCrumbs()")] == path
+    assert c.eval("return ns.AtlasNav:GetCrumbFrames()[2]:GetAlpha()") < 1
+    # the field's x ends the search: the page I was on again
+    c.click(c.eval("return T_atlas().searchBox.clearButton"))
+    w.tick(0.5)
     assert c.eval("return ns.AtlasUI:IsSearching()") is False
-    assert c.eval("return T_atlas().searchBox:GetText()") == ""
     assert state(c)[:3] == ["raids", "Karazhan", "Attumen"], state(c)
-    crumbs = [x[0] for x in c.eval_py("return ns.AtlasNav:GetCrumbs()")]
-    assert crumbs[-1] == "Attumen the Huntsman" and "Karazhan" in crumbs, crumbs
+    assert c.eval("return ns.AtlasNav:GetCrumbFrames()[2]:GetAlpha()") == 1
     assert HARBINGER in item_ids(c)
+    # a crumb picked while searching goes there (and ends the search)
+    c.eval("ns.AtlasUI:SetSearch('gladiator')")
+    c.click(c.eval("return ns.AtlasNav:GetCrumbFrames()[3]"))
+    assert c.eval("return ns.AtlasNav:GetJump():IsShown()") is True
+    c.eval("ns.AtlasUI:OpenSource('raids', 'GruulsLair')")
+    assert c.eval("return ns.AtlasUI:IsSearching()") is False and state(c)[1] == "GruulsLair", state(c)
+    c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
     # Esc in the field does the same
     c.eval("ns.AtlasUI:SetSearch('gladiator')")
     c.eval("T_atlas().searchBox:GetScript('OnEscapePressed')(T_atlas().searchBox)")

@@ -19,7 +19,8 @@ local ipairs, type, tonumber, tostring = ipairs, type, tonumber, tostring
 local floor, ceil, max, min = math.floor, math.ceil, math.max, math.min
 
 local PAD, GAP = S.PAD, S.GAP
-local CRUMB_H, SEP_W, SEARCH_MIN, SEARCH_MAX, BAG_W = 24, 14, 140, 220, 28
+local CRUMB_H, SEP_W, SEARCH_MIN, SEARCH_IDLE, BAG_W = 24, 14, 160, 240, 28
+local EASE_IN = 0.16                         -- a popover easing in, the search field widening
 local JUMP_W, CATS_W, ROW_H, HEAD_H = 640, 158, 24, 22
 local BOSS_W, BOSS_H, BOSS_COLS = 112, 62, 4
 local DOT = "  ·  "
@@ -80,7 +81,15 @@ local function Place(f, crumb)
     local cl = crumb:GetLeft() or (pl + PAD)
     local x = cl - pl
     if x + f:GetWidth() > pw - PAD then x = max(PAD, pw - PAD - f:GetWidth()) end
-    f:SetPoint("TOPLEFT", panel, "TOPLEFT", x, -(ns.UI.LAYOUT.TOP - 2))
+    local y = -(ns.UI.LAYOUT.TOP - 2)
+    f:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+    -- (eases in: a fade and a 6 px drop)
+    f:SetAlpha(0)
+    UI():Tween(f, EASE_IN, function(e)
+        f:SetAlpha(e)
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y + 6 * (1 - e))
+    end, not panel:IsVisible())
 end
 
 ---------------------------------------------------------------------------
@@ -709,9 +718,8 @@ local function Items()
     local cat = st.cat and Atlas:GetCategory(st.cat)
     if not cat then return out end
     out[#out + 1] = { text = cat.name, kind = st.view == "category" and "cur" or "mid",
-                      onClick = function() AUI():OpenCategory(cat.key) end,
-                      onArrow = function(c) Nav:OpenJump(cat.key, c) end,
-                      tip = { cat.name, "Click: every place as tiles. Arrow: jump anywhere." } }
+                      onClick = function(c) Nav:OpenJump(cat.key, c) end,
+                      tip = { cat.name, "Every place of " .. cat.name .. " (All as tiles in there), your recent ones and the other categories." } }
     if st.view == "category" then return out end
     local src = Atlas:GetSource(st.cat, st.src)
     if not src then return out end
@@ -735,23 +743,30 @@ end
 -- The search field and the bag
 ---------------------------------------------------------------------------
 
-local function LayoutRight()
+-- The search field: right of the path, left of the bag. At rest it takes up to SEARCH_IDLE of the free space; while
+-- it has the focus or a search, all of it (it widens smoothly).
+local function LayoutRight(instant)
     if not (searchBox and bagBtn) then return end
     bagBtn:ClearAllPoints()
     bagBtn:SetPoint("RIGHT", bar, "TOPRIGHT", -PAD + 2, -ns.UI.LAYOUT.ROW_MID)
     searchBox:ClearAllPoints()
-    if searching then
-        searchBox:SetPoint("LEFT", bar, "TOPLEFT", (Nav.pathEnd or PAD) + 6, -ns.UI.LAYOUT.ROW_MID)
-        searchBox:SetPoint("RIGHT", bagBtn, "LEFT", -8, 0)
-    else
-        -- what the path leaves, between its narrowest and widest
-        local w = bar:GetWidth()
-        w = (w and w > 1) and w or S.PAGE_W
-        local free = w - PAD - BAG_W - 8 - (Nav.pathEnd or PAD) - 12
-        searchBox:SetPoint("RIGHT", bagBtn, "LEFT", -8, 0)
-        searchBox:SetWidth(max(SEARCH_MIN, min(SEARCH_MAX, free)))
+    searchBox:SetPoint("RIGHT", bagBtn, "LEFT", -8, 0)
+    local w = bar:GetWidth()
+    w = (w and w > 1) and w or S.PAGE_W
+    local free = max(SEARCH_MIN, w - PAD - BAG_W - 8 - (Nav.pathEnd or PAD) - 16)
+    local open = searching or (searchBox.HasFocus and searchBox:HasFocus())
+    local target = open and free or min(free, SEARCH_IDLE)
+    local from = searchBox:GetWidth() or target
+    if from < 10 or instant or not panel:IsVisible() then
+        searchBox:SetWidth(target)
+        return
     end
+    if math.abs(from - target) < 1 then return end
+    UI():Tween(searchBox, EASE_IN, function(e) searchBox:SetWidth(from + (target - from) * e) end)
 end
+
+-- (the field's focus came or went: it widens or narrows)
+function Nav:LayoutSearch() LayoutRight() end
 
 -- The shopping list: the bag as an icon button like the bell, its count on the icon's corner (the addon's count
 -- badge, ringed in the toolbar's colour); gold while the list is open.
@@ -803,9 +818,13 @@ local function CreateBag()
     return b
 end
 
+local lastCount
 local function UpdateBag()
     if not bagBtn then return end
-    bagBadge:SetCount(ns.Shop and ns.Shop:Count() or 0)
+    local n = ns.Shop and ns.Shop:Count() or 0
+    bagBadge:SetCount(n)
+    if lastCount and n > lastCount and bagBadge.Pulse and panel:IsVisible() then bagBadge:Pulse() end
+    lastCount = n
     PaintBag()
 end
 
@@ -833,13 +852,11 @@ function Nav:Update()
         UpdateBag()
         return
     end
-    -- search mode is "there is a search": a field that only has the focus, or a result opened, keeps the path
     searching = AUI():IsSearching() and true or false
-    if searching then
-        LayoutCrumbs({ Nav.BackItem() })
-    else
-        LayoutCrumbs(Items())
-    end
+    LayoutCrumbs(Items())
+    -- (while results show, the path says where Esc leads back to: dimmed a little)
+    for _, c in ipairs(crumbs) do c:SetAlpha(searching and 0.55 or 1) end
+    for _, sp in ipairs(seps) do sp:SetAlpha(searching and 0.55 or 1) end
     LayoutRight()
     UpdateBag()
 end
