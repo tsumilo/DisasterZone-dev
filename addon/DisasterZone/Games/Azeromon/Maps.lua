@@ -183,9 +183,8 @@ Maps.town = {
                 enter = "cottage", label = "Asleep at home", walk = "Walking home" },
           },
           says = { { "10:30", "Mrgllglgl! I'm a murloc!" }, { "16:00", "I almost caught one!" }, { "18:34", "Coming, Ma!" } },
-          script = function(G)
-              G:Say("Billy Maclure: When I grow up I'm gonna tame a dragon whelp! Or a murloc! Mrgllglgl!")
-          end },
+          -- he grows with your badges (People.lua): a rod, then Gurgles, then a battle
+          script = function(G) ns.AzeroPeople.BillyTalk(G) end },
         -- The town crier (Marks.lua): only for the week after a guild raid kill. He cries the guild's news by the
         -- bounty board from eight till eight, then has a drink at the inn.
         { id = "crier", name = "Town Crier", x = 21, y = 9, sprite = "bald", tint = { 1, 0.75, 0.6 }, face = "down",
@@ -436,6 +435,17 @@ Maps.post = {
                   G:Say("Innkeeper Farley: Come back anytime.")
               end
           end },
+        -- Bard Willem plays by the fire in the evening and sings your ballad (People.lua)
+        { id = "bard", name = "Bard Willem", x = 12, y = 4, sprite = "hero", tint = { 0.75, 1, 0.8 }, face = "down",
+          day = {
+              { "00:00", inside = "willemroom", label = "Asleep upstairs" },
+              { "18:50", path = { { 7, 9 }, { 7, 8 }, { 7, 4 }, { 12, 4 } }, face = "down", act = "lute",
+                label = "Playing the lute by the fire", walk = "Tuning his lute" },
+              { "23:10", path = { { 12, 4 }, { 7, 4 }, { 7, 8 }, { 7, 9 } }, enter = "willemroom",
+                label = "Asleep upstairs", walk = "Off to bed" },
+          },
+          says = { { "19:30", "A song for Goldshire!" }, { "21:00", "Requests? Ask me for yours!" } },
+          script = function(G) ns.AzeroPeople.BardTalk(G) end },
         { id = "clerk", name = "Brog Hamfist", role = "shop", x = 5, y = 2, sprite = "bald", tint = { 0.7, 1, 0.7 }, face = "down",
           script = function(G)
               G:Say("Brog Hamfist: Welcome! Potions, rods, the finest goods in Goldshire. And I buy, too.")

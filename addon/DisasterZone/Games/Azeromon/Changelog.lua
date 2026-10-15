@@ -6,6 +6,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.34", date = "15 October 2026", title = "People remember you",
+      lines = {
+          "Billy grows up with your badges.",
+          "One badge: a rod of his own. Three: his Murkling, Gurgles.",
+          "Six badges: Billy challenges you to a friendly battle.",
+          "Bard Willem plays the Lion's Pride every evening.",
+          "Ask him for your ballad: it's made from your own journey.",
+          "Goldshire's people greet you by name for what you've done.",
+          "Brog knows your usual; Lee Brown remembers your best fish.",
+      } },
     { version = "0.33", date = "15 October 2026", title = "The guild's chronicle",
       lines = {
           "A guild raid kill? Goldshire celebrates for a week.",

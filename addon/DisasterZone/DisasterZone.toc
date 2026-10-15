@@ -362,6 +362,7 @@ Games\Azeromon\Achievements.lua
 Games\Azeromon\GuildBoard.lua
 Games\Azeromon\Bounties.lua
 Games\Azeromon\Marks.lua
+Games\Azeromon\People.lua
 Games\Azeromon\Trade.lua
 Games\Azeromon\Crafting.lua
 Games\Azeromon\Fishing.lua

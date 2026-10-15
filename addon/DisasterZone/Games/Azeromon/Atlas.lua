@@ -816,4 +816,5 @@ ns.AzeroAtlas = {
     standard_red_0_0 = 810,
     standard_red_0_1 = 811,
     pennant = 812,
+    pet_murkling = 813,
 }

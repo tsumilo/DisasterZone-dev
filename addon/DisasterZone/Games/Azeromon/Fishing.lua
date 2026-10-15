@@ -311,6 +311,7 @@ function F:Cast(g, x, y)
     local item = e.item or "smallfish"
     local bag = g.save.bag
     bag[item] = (bag[item] or 0) + 1
+    if ns.AzeroPeople then ns.AzeroPeople.NoteFish(item) end               -- (your best catch: the bard, Lee Brown)
     g:Emit("fish", { item = item })
     g:Sfx("item")
     g:Say(string.format("You caught a %s!%s", D.items[item].name, up))

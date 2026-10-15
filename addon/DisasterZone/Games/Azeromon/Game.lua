@@ -1268,6 +1268,7 @@ function G:PressA()
         elseif npc.def.script then
             -- (the week after a guild raid kill, the townsfolk mention it first: Marks.lua)
             self:Run(function(g, n)
+                if ns.AzeroPeople then ns.AzeroPeople.Greet(g, n.def) end       -- (by name, once a day: People.lua)
                 if ns.AzeroMarks then ns.AzeroMarks.Gossip(g, n.def) end
                 n.def.script(g, n)
             end, npc)
@@ -1510,6 +1511,7 @@ function G:Buy(item, qty)
     self.save.money = self.save.money - cost
     self:Sfx("buy")
     self.save.bag[item] = (self.save.bag[item] or 0) + qty
+    if ns.AzeroPeople then ns.AzeroPeople.NoteBuy(item, qty) end          -- (Brog remembers your usual)
     return true, string.format("Here you go! %d %s%s.", qty, def.name, qty > 1 and "s" or "")
 end
 

@@ -536,7 +536,7 @@ end
 ---------------------------------------------------------------------------
 
 -- The rooms that aren't maps: someone's house without an inside
-R.HOME_NAMES = { darkshirehall = "the town hall", lakeshirehall = "the town hall" }
+R.HOME_NAMES = { darkshirehall = "the town hall", lakeshirehall = "the town hall", willemroom = "a room upstairs" }
 
 -- The kind of each stretch of a day, for the bar: "w" at work (an act), "o" out in town, "p" on patrol (a lantern),
 -- "i" indoors, "a" out of town, "k" walking between.

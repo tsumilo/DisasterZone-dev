@@ -3907,6 +3907,22 @@ function Amb.Hall(m, g, px, py, period, dark)
 end
 
 -- People at work (Routine.lua: the act of their day): the smith's sparks, the alchemist's bubbles, Billy's line.
+-- Billy's Murkling, Gurgles, bobbing in the pond by his line (an atlas tile, its chin under the water).
+function Amb.Gurgles(px, py, mx, my)
+    local t = Amb.gurgles
+    if not t then
+        t = Tex(world, "ARTWORK", 1)
+        t:SetSize(TILE, TILE)
+        SetPixelTexture(t, ATLAS)
+        SetTile(t, "pet_murkling")
+        Amb.gurgles = t
+    end
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", world, "TOPLEFT", (mx / 16 - px + HX) * TILE, -((my / 16 - py + HY) * TILE))
+    t:Show()
+    Amb.gurglesAt = now
+end
+
 function Amb.Acts(m, px, py)
     local now = GetTime and GetTime() or 0
     for _, n in ipairs(G.npcs or {}) do
@@ -3929,6 +3945,14 @@ function Amb.Acts(m, px, py)
                     Amb.Pix(px, py, x + d[1] * 16 + 8 + math.sin(age * 6 + k) * 2, y + d[2] * 16 + 4 - age * 16, 1, 1,
                             0.62, 0.88, 0.54, 1 - age * 0.6)
                 end
+            elseif n.act == "lute" then                   -- notes rising off the bard's lute
+                for k = 0, 2 do
+                    local age = (now * 0.5 + k / 3) % 1
+                    local nx, ny = x + 10 + math.sin(age * 6 + k) * 3 + k * 2, y + 2 - age * 18
+                    local a = 1 - age
+                    Amb.Pix(px, py, nx, ny, 2, 2, 0.98, 0.9, 0.55, a)
+                    Amb.Pix(px, py, nx + 2, ny - 4, 1, 5, 0.98, 0.9, 0.55, a)
+                end
             elseif n.act == "cry" then                    -- the crier's hand bell, swinging
                 local sw = math.sin(now * 7) > 0 and 1 or -1
                 local bx, by = x + 12 + sw, y + 6
@@ -3942,6 +3966,9 @@ function Amb.Acts(m, px, py)
                 end
                 local bob = math.sin(now * 3) > 0.7 and 1 or 0
                 Amb.Pix(px, py, x + 12 + 18 * d[1], y + 11 + bob, 2, 2, 0.91, 0.25, 0.17, 1)
+                if n.id == "kid" and ns.AzeroPeople and ns.AzeroPeople.BillyStage() >= 2 then
+                    Amb.Gurgles(px, py, x + 20 * d[1] + (d[1] < 0 and -4 or 4), y - 3 + (math.sin(now * 2) > 0 and 1 or 0))
+                end
             end
         end
         if not n.hidden and n.def.lantern and G:IsNight() then
@@ -4124,6 +4151,7 @@ function Amb.Draw(m, g, px, py)
     Amb.Glints(m, g, px, py)
     Amb.Steps(m, px, py)
     if g then Amb.Acts(m, px, py) end      -- (maps without a baked ground have no ambient at all)
+    if Amb.gurgles and Amb.gurglesAt ~= now then Amb.gurgles:Hide() end
     Amb.Guild(m, g, px, py)
     Amb.Props(m, g, px, py)
     Amb.Fishing(m, g, px, py)
@@ -6566,6 +6594,7 @@ function UI:RegisterScreen(kind, fn) UI.screens[kind] = fn end
 -- For tests
 UI._HandleKey = function(k) HandleKey(k) end
 UI._ChatBox = function() return R.chatBox end
+UI._Gurgles = function() return Amb.gurgles ~= nil and Amb.gurgles:IsShown() end
 UI._PropTiles = function()
     local out = {}
     for _, t in ipairs(Amb.propTex) do if t:IsShown() then out[#out + 1] = t.tileName end end
