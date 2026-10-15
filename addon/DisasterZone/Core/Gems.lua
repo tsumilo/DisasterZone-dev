@@ -472,7 +472,7 @@ local qualityCap   -- while set (2 / 3, Gems:WithQuality): no candidate better t
 
 -- The guide's gems at the quality cap: each one's cut at that quality (or the best below it there is).
 local function CappedGuide(self, gd, phase)
-    local out = { gems = {}, sim = {}, enchants = gd.enchants, meta = gd.meta, w = gd.w }
+    local out = { gems = {}, sim = {}, enchants = gd.enchants, meta = gd.meta, w = gd.w, extra = gd.extra }
     for _, k in ipairs({ "gems", "sim" }) do
         local seen = {}
         for _, id in ipairs(gd[k] or {}) do
@@ -503,9 +503,11 @@ function Gems:Candidates(gd, phase, profs)
     add(gd.sim, true)
     if #out == 0 then add(gd.gems, true) end
     -- gems made only of the stats the sims' gems give (a yellow socket for a strength spec gets the strength / crit
-    -- topaz even when the sims' sets never needed one; a hit gem the weights love but the sims avoid stays out)
+    -- topaz even when the sims' sets never needed one; a hit gem the weights love but the sims avoid stays out,
+    -- unless gd.extra lets its stat in: the fill's hit pass while under the cap)
     if #out > 0 then
         local mix, minQ = {}, 9
+        for k in pairs(gd.extra or {}) do mix[k] = true end
         for _, id in ipairs(out) do
             for k in pairs(StatsOf("g", id)) do mix[k] = true end
             minQ = math.min(minQ, self:Gem(id).quality)
@@ -836,32 +838,176 @@ function Gems:FillSetups(view, phase, isDisabled, overwrite)
     if not guide then return nil end
     local profs = ProfessionSet()
     local picks = CountedPicks(view, phase, isDisabled)
+    local gd = self:GuideData(guide, phase)
     -- uniques: what is kept counts first
     local used = {}
     if not overwrite then used = self:UsedUniques(view, phase) end
+    -- first what stays and the enchants (the set's hit without the gems still to choose)
     local setups, free = {}, {}
     for sid = 1, NUM_SLOTS do
         local itemID = picks[sid]
         if itemID and not setups[itemID] then
             local enchant, gems = self:GetSetup(view, itemID)
             local new = { enchant = enchant, gems = {} }
-            local n = #self:Sockets(itemID)
-            for i = 1, n do new.gems[i] = (not overwrite) and gems[i] or 0 end
-            local sEnchant, sGems = self:Suggest(itemID, sid, guide, phase, profs, used)
-            if overwrite or enchant == 0 then new.enchant = sEnchant ~= 0 and sEnchant or (overwrite and 0 or enchant) end
             free[itemID] = {}
-            for i = 1, n do
-                if (new.gems[i] or 0) == 0 then
-                    new.gems[i] = sGems[i] or 0
-                    free[itemID][i] = true
-                end
+            for i = 1, #self:Sockets(itemID) do
+                new.gems[i] = (not overwrite) and gems[i] or 0
+                if new.gems[i] == 0 then free[itemID][i] = true end
             end
+            local sEnchant = self:BestEnchant(itemID, sid, gd, profs)
+            if overwrite or enchant == 0 then new.enchant = sEnchant ~= 0 and sEnchant or (overwrite and 0 or enchant) end
             setups[itemID] = new
         end
     end
-    -- then the set as a whole: enough gems of each colour for the meta gem
-    self:MeetMetaRule(setups, free, self:GuideData(guide, phase), phase, profs)
+    local plan, fill = self:HitPlan(view, picks, setups, gd)
+    for sid = 1, NUM_SLOTS do
+        local itemID = picks[sid]
+        local new = itemID and setups[itemID]
+        if new and not new.filled then
+            new.filled = true
+            local sGems = self:BestGems(itemID, fill, phase, profs, used)
+            for i in pairs(free[itemID]) do new.gems[i] = sGems[i] or 0 end
+        end
+    end
+    for _, s in pairs(setups) do s.filled = nil end
+    -- then the set as a whole: enough gems of each colour for the meta gem, and hit up to the cap
+    self:MeetMetaRule(setups, free, fill, phase, profs)
+    if plan then self:HitPass(setups, free, fill, plan, phase, profs) end
     return setups
+end
+
+-- Hit: the spec's weights value it as if under the cap, so a fill reads where the set stands (ns.SimRunner
+-- HitStanding: gear, enchants, talents, race, the Gear sim card's buffs) and weighs hit 0 for the gems; the hit pass
+-- then puts in what the cap still takes, where it costs least. Returns the plan - { { stat, need (rating), w } } per
+-- hit stat the spec weighs (WoWSims 20 melee / ranged, 12 spell) and is short of; nil when capped - and the guide
+-- data for the fill. Without a standing (a spec the sim lacks, a spec that doesn't weigh hit): nil, gd unchanged.
+local HIT_STATS = { [20] = "melee", [12] = "spell" }
+function Gems:HitPlan(view, picks, setups, gd)
+    local R = ns.SimRunner
+    if not (R and R.HitStanding and type(view) == "table" and view.cl == R:Class()) then return nil, gd end
+    local weighed
+    for k in pairs(HIT_STATS) do if (gd.w[k] or 0) > 0 then weighed = true end end
+    if not weighed then return nil, gd end
+    local set = {}
+    for sid, itemID in pairs(picks) do
+        local s = setups[itemID]
+        local g = {}
+        for i, id in ipairs(s.gems) do g[i] = id end
+        set[sid] = { id = itemID, enchant = s.enchant or 0, gems = g }
+    end
+    local st = R:HitStanding(set, view.sp)
+    if not st then return nil, gd end
+    local plan, w, out = {}, {}, {}
+    for k, v in pairs(gd.w) do w[k] = v end
+    for k, v in pairs(gd) do out[k] = v end
+    out.w = w
+    for k, kind in pairs(HIT_STATS) do
+        local s = st[kind]
+        if (gd.w[k] or 0) > 0 and s then
+            w[k] = 0
+            local need = math.ceil((s[2] - s[1]) * s[3] - 1e-6)
+            if need > 0 then plan[#plan + 1] = { stat = k, need = need, w = gd.w[k] } end
+        end
+    end
+    tsort(plan, function(a, b) return a.stat < b.stat end)
+    return plan[1] and plan or nil, out
+end
+
+-- Under the cap: free sockets take hit gems while one is worth more than what it replaces (hit counts up to the cap,
+-- at the spec's weight; a socket bonus lost or won counts too), the best change first; never one that leaves the
+-- meta gem's rule further from met. plan: HitPlan's; gd: the fill's (hit weighed 0).
+function Gems:HitPass(setups, free, gd, plan, phase, profs)
+    local w = gd.w
+    local extra, wide = {}, {}
+    for _, p in ipairs(plan) do extra[p.stat] = true end
+    for k, v in pairs(gd) do wide[k] = v end
+    wide.extra = extra
+    local cands = {}
+    for _, id in ipairs(self:Candidates(wide, phase, profs)) do
+        local st = StatsOf("g", id)
+        for k in pairs(extra) do
+            if (st[k] or 0) > 0 then cands[#cands + 1] = id break end
+        end
+    end
+    if not cands[1] then return end
+    -- the hit of what the pass may change: the free sockets' gems, the bonus of an item with a free socket
+    local function itemHit(itemID, gems)
+        local out = {}
+        for i in pairs(free[itemID]) do
+            local st = StatsOf("g", gems[i] or 0)
+            for k in pairs(extra) do out[k] = (out[k] or 0) + (st[k] or 0) end
+        end
+        if self:BonusActive(itemID, gems) then
+            local b = StatsOf("b", itemID)
+            for k in pairs(extra) do out[k] = (out[k] or 0) + (b[k] or 0) end
+        end
+        return out
+    end
+    local function worth(tot)
+        local n = 0
+        for _, p in ipairs(plan) do n = n + p.w * math.min(tot[p.stat] or 0, p.need) end
+        return n
+    end
+    local metaID = gd.meta
+    for _, s in pairs(setups) do
+        for _, id in pairs(s.gems) do
+            local g = self:Gem(id)
+            if g and g.color == "M" then metaID = id end
+        end
+    end
+    local function short()
+        if not metaID then return 0 end
+        local c = { R = 0, Y = 0, B = 0 }
+        for _, s in pairs(setups) do
+            for _, id in pairs(s.gems) do CountGem(c, self:Gem(id)) end
+        end
+        return MetaShort(self, metaID, c)
+    end
+    local function taken(id)
+        for _, s in pairs(setups) do
+            for _, x in pairs(s.gems) do if x == id then return true end end
+        end
+        return false
+    end
+    local items = {}
+    for itemID, f in pairs(free) do
+        if next(f) and setups[itemID] then items[#items + 1] = itemID end
+    end
+    tsort(items)
+    local tot = {}
+    for _, itemID in ipairs(items) do
+        for k, v in pairs(itemHit(itemID, setups[itemID].gems)) do tot[k] = (tot[k] or 0) + v end
+    end
+    for _ = 1, 48 do
+        local base, metaShort, best = worth(tot), short(), nil
+        for _, itemID in ipairs(items) do
+            local gems, sockets = setups[itemID].gems, self:Sockets(itemID)
+            local before, hb = ItemScore(self, itemID, gems, w), itemHit(itemID, gems)
+            local slots = {}
+            for i in pairs(free[itemID]) do slots[#slots + 1] = i end
+            tsort(slots)
+            for _, i in ipairs(slots) do
+                local old = gems[i] or 0
+                if sockets[i] ~= "M" then
+                    for _, id in ipairs(cands) do
+                        if id ~= old and not (self:Gem(id).unique and taken(id)) then
+                            gems[i] = id
+                            local ha, nt = itemHit(itemID, gems), {}
+                            for k in pairs(extra) do nt[k] = (tot[k] or 0) - (hb[k] or 0) + (ha[k] or 0) end
+                            local gain = ItemScore(self, itemID, gems, w) - before + worth(nt) - base
+                            if gain > 1e-9 and (not best or gain > best.gain + 1e-9) and short() <= metaShort then
+                                best = { gain = gain, itemID = itemID, i = i, id = id, tot = nt }
+                            end
+                            gems[i] = old
+                        end
+                    end
+                end
+            end
+        end
+        if not best then return end
+        setups[best.itemID].gems[best.i] = best.id
+        tot = best.tot
+    end
 end
 
 ---------------------------------------------------------------------------

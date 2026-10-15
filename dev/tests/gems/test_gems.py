@@ -534,6 +534,73 @@ def filling_a_phase_keeps_the_meta_gem_active():
     w.assert_no_errors()
 
 
+def hit_of_fill(c, ph):
+    """After a fill: { hit rating from the phase's gems and active socket bonuses, meta active, a unique twice,
+    the gems' part }."""
+    return c.eval_py("""local ph = ...
+        local G, view = ns.Gems, ns.BiS:GetListView()
+        local hit, gemHit, meta, uniques, dup, seen = 0, 0, nil, {}, false, {}
+        for _, id in pairs(G:CountedPicks(view, ph)) do
+          if not seen[id] then
+            seen[id] = true
+            local _, g = G:GetSetup(view, id)
+            for _, x in pairs(g) do
+              local gem = G:Gem(x)
+              local st = ns.Data.Gems[x] and ns.Data.Gems[x].st or ''
+              gemHit = gemHit + (tonumber(st:match('20:(%d+)')) or 0)
+              if gem and gem.color == 'M' then meta = x end
+              if gem and gem.unique then if uniques[x] then dup = true end uniques[x] = true end
+            end
+            if G:BonusActive(id, g) then
+              hit = hit + (tonumber((ns.Data.Sockets[id] or ''):match('|[^|]*|.*20:(%d+)')) or 0)
+            end
+          end
+        end
+        return { hit + gemHit, (G:MetaState(meta or 0, G:ColorCounts(view, ph))) and true or false, dup, gemHit }""", ph)
+
+
+@r.case
+def filling_a_phase_gems_hit_up_to_the_cap():
+    """Hit counts only up to the cap: the fill reads where the set stands (the gear sim: gear, enchants, talents,
+    race, buffs) and puts in the hit gems the cap still takes - none when capped - and the meta gem stays active."""
+    w, c = solo(spec="Retribution")
+    c.eval("ns.BiS:ApplyTemplate(1, ns.Loon:GetTemplate('PALADIN', 'Retribution', 1), true)")
+    # the real standing: the set's hit and the 9% cap (6% with Improved Faerie Fire)
+    st = c.eval_py("local set = ns.SimRunner:BiSSet(1) local s = ns.SimRunner:HitStanding(set, 'Retribution') "
+                   "return s and { s.melee[1], s.melee[2], s.spell[2] }")
+    assert st and 0 <= st[0] < 30 and st[1] in (6, 9) and st[2] == 16, st
+    c.eval("ns.Gems:FillPhase(1, nil, true)")
+    hit, active, dup, _ = hit_of_fill(c, 1)
+    assert active is True and not dup, (hit, active, dup)
+    # a made-up standing: capped, a bit short, far short
+    c.eval("T_REAL = ns.SimRunner.HitStanding")
+    def fill(pct):
+        c.eval("local pct = ... ns.SimRunner.HitStanding = function() return { melee = { pct, 9, 15.769233 }, "
+               "spell = { 0, 16, 12.615385 } } end ns.Gems:FillPhase(1, nil, true)", pct)
+        return hit_of_fill(c, 1)
+    hit, active, dup, gems = fill(9.5)
+    assert gems == 0 and active is True and not dup, (hit, active, dup)         # capped: no hit gems
+    need = 32                                                                    # 2% short
+    hit, active, dup, _ = fill(9 - need / 15.769233)
+    print("    hit gems at 2%% short: %d rating (need %d)" % (hit, need))
+    assert need - 8 < hit <= need + 10 and active is True and not dup, (hit, active, dup)
+    hit, active, dup, _ = fill(0)                                                   # far short: hit wherever it fits
+    assert hit > 60 and active is True and not dup, (hit, active, dup)
+    # a spec the sim lacks: the old fill (no standing, nothing changes)
+    c.eval("ns.SimRunner.HitStanding = T_REAL")
+    # a caster: spell hit against its 16% cap, the fill runs with it
+    w2, m = solo("Caster", "MAGE", "Fire")
+    m.eval("ns.BiS:ApplyTemplate(1, ns.Loon:GetTemplate('MAGE', 'Fire', 1), true)")
+    st = m.eval_py("local s = ns.SimRunner:HitStanding(ns.SimRunner:BiSSet(1), 'Fire') return s and { s.spell[1], s.spell[2] }")
+    assert st and 0 <= st[0] < 30 and st[1] == 16, st
+    assert m.eval("return ns.Gems:FillPhase(1, nil, true)") >= 1
+    _, active, dup, _ = hit_of_fill(m, 1)
+    assert active is True and not dup
+    w2.assert_no_errors()
+    assert c.eval("return (ns.Gems:HitPlan({ cl = 'PALADIN', sp = 'Holy' }, {}, {}, ns.Gems:GuideData('PaladinHoly', 1)))") is None
+    w.assert_no_errors()
+
+
 CRIMSON = 32195         # Teardrop Crimson Spinel (epic red, P3)
 GARNET = 23094          # Teardrop Blood Garnet (uncommon red)
 TANZANITE = 30603       # Royal Tanzanite (unique epic purple, P1)

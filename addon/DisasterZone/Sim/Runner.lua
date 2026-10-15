@@ -524,6 +524,7 @@ end
 
 -- The spec of the list My BiS shows (the off-spec list's when that one is open).
 function Runner:Spec()
+  if self.specOverride then return self.specOverride end
   local list = (ns.MyBiS and ns.MyBiS.GetList and ns.MyBiS:GetList() == "os") and "os" or nil
   return (ns.BiS and ns.BiS:GetSpec(list)) or ""
 end
@@ -571,6 +572,36 @@ function Runner:Scenario(set, settings, cons)
     duration = settings.duration or 180, seed = settings.seed or 101, mobType = settings.mobType or "Mechanical",
     reactionTimeMs = ss.reactionTimeMs or 0, distance = ss.distance or 5, channelClipDelayMs = ss.channelClipDelayMs or 0,
   }
+end
+
+-- Hit for the gem fill (Gems:FillSetups): the set's hit chance against a raid boss from everything but the gems
+-- still to choose - gear, enchants, set bonuses, talents (mine when I'm specced so, else WoWSims'), race, the Gear sim
+-- card's buffs - and the caps: special attacks 9% (less Improved Faerie Fire), spells 16% (plus the spec's main
+-- school's talent hit). spec: the list's. { melee = { pct, cap, per }, spell = { pct, cap, per } } (per = rating per
+-- 1%; ranged counts as melee), or nil when the sim lacks the spec.
+local MAIN_SCHOOL = { Fire = "Fire", Frost = "Frost", Arcane = "Arcane", Shadow = "Shadow", Affliction = "Shadow",
+  Demonology = "Shadow", Destruction = "Shadow", Elemental = "Nature", Balance = "Arcane" }
+function Runner:HitStanding(set, spec)
+  local was = self.specOverride
+  self.specOverride = spec
+  local ok, res = pcall(function()
+    if not self:IsSupported() then return nil end
+    local apl = ns.Data and ns.Data.SimAPL and ns.Data.SimAPL[self:SpecKey()]
+    if not apl then return nil end
+    local key = ns.SimPanel and ns.SimPanel.GetBuffs and ns.SimPanel:GetBuffs() or "raid25"
+    local _, p = S.NewScenario(self:Scenario(set, { buffs = key, talents = (self:Talents()) }), self:DB(), apl)
+    local cfg = self:BuffConfig(key)
+    local iff = cfg and cfg.debuffs and cfg.debuffs.faerieFire == 2
+    local ST = S.ST
+    local melee = p.stats[ST.PhysicalHitPercent] + (self:Class() == "HUNTER" and p.stats[ST.RangedHitPercent] or 0)
+    local spell = p.stats[ST.SpellHitPercent]
+    local school = S.SCHOOL and S.SCHOOL[MAIN_SCHOOL[spec] or ""]
+    if school then spell = spell + (p.ps.SchoolBonusHitChance[S.SCHOOL_INDEX[school]] or 0) end
+    return { melee = { melee, 9 - (iff and 3 or 0), S.HIT_RATING_PER_PCT },
+             spell = { spell, 16, S.SPELL_HIT_RATING_PER_PCT } }
+  end)
+  self.specOverride = was
+  return ok and res or nil
 end
 
 local clock = debugprofilestop or function() return os.clock() * 1000 end
