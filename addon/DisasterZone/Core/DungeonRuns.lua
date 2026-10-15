@@ -173,6 +173,7 @@ do
     for i, p in ipairs(data.pvp or {}) do GK.pvp[i] = p; GK.pvpIndex[p.key] = i end
     for i, o in ipairs(data.other or {}) do GK.other[i] = o; GK.otherIndex[o.key] = i end
     for i, l in ipairs(data.loot or {}) do GK.loot[i] = l; GK.lootIndex[l] = i end
+    GK.art = data.art or {}
 end
 
 local dataBuilt = false
@@ -1847,6 +1848,30 @@ BuildDemo = function()
     demo.peers[k("Faelar")].saved = { Botanica = true }
     demo.peers[k("Faelar")].savedUntil = now + 6 * 3600
     demo.daily = { x = now + 6 * 3600, at = now, h = "SethekkHalls", n = "Botanica" }
+    -- (1.5) groups of the other kinds: a Karazhan now, Gruul + Magtheridon later with pugs, two PvP groups
+    local function group(id, owner, fields, at, ageMin, slots, note)
+        run(id, owner, nil, nil, at, ageMin, {}, note)
+        local g = demo.list[id]
+        GK.Copy(fields, g)
+        for _, x in ipairs(slots) do g.s[#g.s + 1] = { k = k(x[1]), r = x[2], c = x[3] } end
+    end
+    group("demo-r1", "Aldrin", { k = "raid", a = { "Karazhan" }, n = 10, w = { tank = 2, healer = 3, dps = 5 }, lo = "roll" },
+        0, 3, { { "Aldrin", "tank" }, { "Brakka", "tank" }, { "Isolde", "healer" }, { "Grimtusk", "dps" },
+                { "Mirabel", "dps" }, { "Orinel", "dps" }, { "Faelar", "dps" } }, "Alt run, full clear")
+    group("demo-r2", "Caelith", { k = "raid", a = { "GruulsLair", "MagtheridonsLair" }, n = 25,
+            w = { tank = 3, healer = 6, dps = 16 }, lo = "sr", lr = 1 },
+        later, 20, { { "Caelith", "tank" }, { "Dornoth", "tank" }, { "Jorvik", "healer" }, { "Kaelyn", "healer" },
+                     { "Lorvane", "healer" }, { "Rhosyn", "healer" }, { "Quillon", "healer" }, { "Elowen", "dps" },
+                     { "Halvard", "dps" }, { "Nortok", "dps" }, { "Pyria", "dps" },
+                     { "Tarnok", "dps", "SHAMAN" }, { "Lumifae", "dps", "MAGE" }, { "Darkstalkerr", "dps", "HUNTER" },
+                     { "Brewbelly", "dps", "WARRIOR" }, { "Fizzlecrank", "dps", "MAGE" }, { "Nyxa", "dps", "WARLOCK" },
+                     { "Rakhul", "dps", "ROGUE" } }, "Pug fill, no BoE drama")
+    group("demo-p1", "Pyria", { k = "pvp", a = { "arena3" }, n = 3, w = { tank = 0, healer = 1, dps = 2 }, pr = true,
+            mr = 1650 }, 0, 6, { { "Pyria", "dps" }, { "Nortok", "dps" } }, "Team: Two Casters and a Prayer")
+    group("demo-p2", "Lorvane", { k = "pvp", a = { "eots" }, n = 15, w = { tank = 0, healer = 4, dps = 11 }, fc = true },
+        now + 3600 - now % 900, 12, { { "Lorvane", "healer" }, { "Jorvik", "healer" }, { "Halvard", "dps" },
+                                      { "Elowen", "dps" }, { "Grimtusk", "dps" }, { "Mirabel", "dps" } },
+        "Flag carrier wanted")
 end
 
 local function DemoRequests(run)
@@ -2176,6 +2201,75 @@ function Runs:GetSize(run) return GK.Size(run) end
 function Runs:GetWant(run) return GK.Want(run) end
 function Runs:GetName(run) return GK.Name(run) end
 function Runs:GetGroupBlocker(run) return GK.Blocker(run) end
+
+-- A group's art in a w x h box: file, l, r, t, b (a dungeon's or raid's loading screen, a PvP place's, else
+-- Outland's); fw = the share of the screen's width (the cards' crop by default). Crops stay under the logo band.
+function Runs:GetGroupArt(run, w, h, fw)
+    if GK.IsDungeon(run) then return self:GetArt(run.d, w, h, fw) end
+    if not w or not h or w <= 0 or h <= 0 then return nil end
+    fw = fw or ART_W
+    if run.k == "raid" then
+        local IDB = ns.ItemDB
+        if not (IDB and IDB.RaidArt) then return nil end
+        return IDB:RaidArt(run.a[1], w, h, fw, true)   -- (all five values: no "and" in front of the call)
+    end
+    local src = run.k == "pvp" and GK.pvp[GK.pvpIndex[run.a and run.a[1]] or 0] or GK.art[run.k]
+    if not src then return nil end
+    local fh = min(fw * (4 / 3) * (h / w), 0.68)
+    local l = min(max(src.cx - fw / 2, 0), 1 - fw)
+    local t = min(max(src.cy - fh / 2, 0.29), 0.97 - fh)
+    return src.screen, l, l + fw, t, t + fh
+end
+
+-- A group's icon: file, l, r, t, b. The LFG icons (dungeons, raids, quests, other) draw their picture in the top left
+-- 52 x 47 of their 64 x 64 inside a 3 px frame: the coords keep a square of the picture only (a ring shows no frame);
+-- PvP's are spell and item icons (their border cut off).
+function Runs:GetGroupIcon(run)
+    local l, r, t, b = 6 / 64, 45 / 64, 4 / 64, 43 / 64
+    if GK.IsDungeon(run) then
+        local d = DUNGEON[run.d]
+        return d and d.complex.icon, l, r, t, b
+    end
+    if run.k == "raid" then
+        local IDB = ns.ItemDB
+        return IDB and IDB.RaidIcon and IDB:RaidIcon(run.a[1]), l, r, t, b
+    end
+    if run.k == "pvp" then
+        local p = GK.pvp[GK.pvpIndex[run.a and run.a[1]] or 0]
+        return p and p.icon, 0.08, 0.92, 0.08, 0.92
+    end
+    local a = GK.art[run.k]
+    return a and a.icon, l, r, t, b
+end
+
+-- The bosses a raid group shows (the picked ones, else the last ones of a full clear), at most 3, in raid order:
+-- { { key = "Karazhan:Prince", name, pic = the Encounter Journal picture's file id }, ... }.
+function Runs:GetGroupBosses(run)
+    local out = {}
+    if run.k ~= "raid" then return out end
+    local IDB = ns.ItemDB
+    local J = ns.Data and ns.Data.BossJournal or {}
+    local picked = {}
+    for _, key in ipairs(run.bo or {}) do picked[key] = true end
+    local per = {}
+    for _, rk in ipairs(run.a or {}) do
+        local raid = IDB and IDB.GetRaid and IDB:GetRaid(rk)
+        local list = {}
+        for _, b in ipairs(raid and raid.bosses or {}) do
+            local key = rk .. ":" .. tostring(b.key)
+            if J[key] and (run.bo == nil or picked[key]) then list[#list + 1] = { key = key, name = b.name, pic = J[key] } end
+        end
+        per[#per + 1] = list
+    end
+    -- picked ones: as picked; a full clear: one raid's last three, or each raid's last ones
+    local each = (run.bo or #per <= 1) and 3 or max(1, floor(3 / #per))
+    for _, list in ipairs(per) do
+        for i = run.bo and 1 or max(1, #list - each + 1), #list do
+            if #out < 3 then out[#out + 1] = list[i] end
+        end
+    end
+    return out
+end
 
 -- The kinds of groups (wire order) and the activities of a kind: raids { key, size }, PvP { key, name, size, mode,
 -- bracket }, other { key, name }.
@@ -2657,7 +2751,7 @@ function Runs:OnInit()
     ns:RegisterEvent("PLAYER_LEVEL_UP", Changed)
     ns:RegisterEvent("UPDATE_FACTION", function() Util.Debounce("dungeon-runs-rep", 1, Changed) end)
     ns:RegisterSlash("lfg", function() if ns.MainFrame then ns.MainFrame:Open("dungeons") end end,
-        "open the Dungeons tab: list a 5-man run or join one")
+        "open the Groups tab: dungeons, raids, quests and PvP groups of the guild")
 end
 
 function Runs:OnLogin()

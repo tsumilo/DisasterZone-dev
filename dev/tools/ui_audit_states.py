@@ -2017,6 +2017,16 @@ STATES = [
     ("Dungeons - listing left behind", demo(DR_ME + "ns.MainFrame:Close(); "
                                             "ns.DungeonsUI:OnFinderLeftover({ id = 'x', d = 'Botanica', h = true })")),
     ("Dungeons - empty", opened("dungeons")),
+    # the Groups board (1.5): every kind on the demo's groups (a Karazhan now, Gruul + Magtheridon later with pugs,
+    # rated 3v3, Eye of the Storm), the Raids tab, cards opened in place (seats up to 10, raid frames above)
+    ("Groups - board", demo(DR_ME + "ns.DungeonRuns:SetUp(true); ns.DungeonsUI:SetTab('all')", "dungeons")),
+    ("Groups - raids", demo(DR_ME + "ns.DungeonsUI:SetTab('raid')", "dungeons")),
+    ("Groups - raid opened (10)", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); ns.DungeonsUI:OpenCard('demo-r1')",
+                                       "dungeons")),
+    ("Groups - raid opened (25)", demo(DR_ME + "ns.DungeonRuns:SetMyRole('dps', true); ns.DungeonsUI:SetTab('raid'); "
+                                       "ns.DungeonsUI:OpenCard('demo-r2')", "dungeons")),
+    ("Groups - pvp opened", demo(DR_ME + "ns.DungeonsUI:SetTab('pvp'); ns.DungeonsUI:OpenCard('demo-p1')", "dungeons")),
+    ("Groups - dungeon opened", demo(DR_ME + "ns.DungeonsUI:SetTab('all'); ns.DungeonsUI:OpenCard('demo-1')", "dungeons")),
     # Guild > Polls (UI/PollsTab.lua, polls_seed): the list, closed polls, answering one, my poll's results, a Pick
     # days poll, the New poll sheet (who votes open; Pick days), the pop-up, a member who isn't asked anything
     ("Polls", polls_view()),

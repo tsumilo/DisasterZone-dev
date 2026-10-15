@@ -59,7 +59,7 @@ local PAGES = {
                    desc = "The strategy boards for every boss." },
     raidlog    = { label = "Raids: Raid log", tab = "raids", view = "log", desc = "The raids we ran and who came.",
                    closed = "The Raid log is for the Guild Master, the guild council and the raid leaders." },
-    dungeons   = { label = "Dungeons", tab = "dungeons", desc = "The guild's dungeon runs: list one or join one." },
+    dungeons   = { label = "Groups", tab = "dungeons", desc = "The guild's groups: dungeons, raids, quests and PvP." },
     events     = { label = "Events", tab = "events", icon = ICON.events,
                    desc = "The guild's own events: duel cups, races, contests. Sign up or build one." },
     season     = { label = "Events: Season", tab = "events", eventsView = "season", icon = ICON.events,

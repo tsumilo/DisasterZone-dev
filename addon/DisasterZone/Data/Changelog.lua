@@ -6,6 +6,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.5.0", date = "October 2026", title = "Groups",
+      sections = {
+          { heading = "Groups", area = "raids", kind = "new", hi = true, open = "dungeons",
+            lead = "The Dungeons tab is now Groups: dungeons, raids, quests and PvP on one board.", lines = {
+              "Tabs for every kind, each with how many groups it holds.",
+              "The groups that want you come first; the ones you can't join sink to the bottom.",
+              "Click a card to open it: who's in by role, the loot and bosses, why you fit.",
+              "Up to 10 players as seats, with your own portrait waiting in your place.",
+              "Bigger groups as raid frames, all 25 names in their class colours.",
+              "I'm up for: pick the kinds you want a ping for, dungeons and raids at first.",
+              "Raid lockouts count: a raid you're saved to says so and can't be joined.",
+          } },
+      } },
     { version = "1.4.6", date = "15 October 2026", title = "Azeromon: Blackrock",
       sections = {
           { heading = "Azeromon: Blackrock", area = "games", kind = "new", hi = true, open = "games",

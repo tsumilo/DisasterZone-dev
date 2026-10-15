@@ -29,7 +29,8 @@ OLD_DIR = os.path.join(os.path.dirname(TESTS), "tf_e", "_groups_old_%d" % os.get
 
 
 def old_addon():
-    """This addon with Core/DungeonRuns.lua as release 1.4.6 shipped it (built once per run, removed at the end)."""
+    """This addon with Core/DungeonRuns.lua and UI/DungeonsTab.lua as release 1.4.6 shipped them (built once per run,
+    removed at the end)."""
     if os.path.exists(os.path.join(OLD_DIR, "DisasterZone.toc")):
         return OLD_DIR
     src = harness.ADDON_DIR
@@ -40,9 +41,11 @@ def old_addon():
                 dst = os.path.join(OLD_DIR, rel, f)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copyfile(os.path.join(root, f), dst)
-    data = subprocess.check_output(["git", "-C", REPO, "show", "%s:addon/DisasterZone/Core/DungeonRuns.lua" % OLD_TAG])
-    with open(os.path.join(OLD_DIR, "Core", "DungeonRuns.lua"), "wb") as fh:
-        fh.write(data)
+    # the core and its page as 1.4.6 shipped them (the new UI/GroupsCard.lua loads too, unused by the old page)
+    for rel in ("Core/DungeonRuns.lua", "UI/DungeonsTab.lua"):
+        data = subprocess.check_output(["git", "-C", REPO, "show", "%s:addon/DisasterZone/%s" % (OLD_TAG, rel)])
+        with open(os.path.join(OLD_DIR, *rel.split("/")), "wb") as fh:
+            fh.write(data)
     atexit.register(shutil.rmtree, os.path.dirname(OLD_DIR), True)
     return OLD_DIR
 

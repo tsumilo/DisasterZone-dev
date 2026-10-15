@@ -21,6 +21,7 @@ local floor, max, min = math.floor, math.max, math.min
 local tsort, tconcat = table.sort, table.concat
 
 local PAD = S.PAD
+local KIND_TABS   -- (the board's tabs, set with the page below)
 local STRIP_H = 30               -- the members up for a run
 local CARD_H = 72
 local ART_W = 180
@@ -79,6 +80,48 @@ local NewRunCard, FillCard, NewPersonChip, FillChip, Disc = G.NewRunCard, G.Fill
 -- The page
 ---------------------------------------------------------------------------
 
+-- The board's tabs: every group, or one kind (and the kinds' names on the "I'm up for" chips).
+KIND_TABS = { { "all", "All" }, { "dungeon", "Dungeons" }, { "raid", "Raids" }, { "quest", "Quests" }, { "pvp", "PvP" } }
+local EMPTY_TITLE = { all = "No groups listed right now.", dungeon = "No dungeon runs listed right now.",
+                      raid = "No raid groups listed right now.", quest = "No quest groups listed right now.",
+                      pvp = "No PvP groups listed right now." }
+
+-- The tabs row: All / Dungeons / Raids / Quests / PvP, each with how many groups it holds.
+local TABS_H = 30
+local function CreateTabs(p)
+    local row = CreateFrame("Frame", nil, p.layout.body)
+    row:SetHeight(TABS_H)
+    row.tabs = {}
+    local x = 0
+    for _, t in ipairs(KIND_TABS) do
+        local key = t[1]
+        local b = UI():CreateUnderlineTab(row, t[2], function()
+            state.tab = key
+            state.open = nil
+            DungeonsUI:Refresh()
+        end, "small")
+        b.key, b.label = key, t[2]
+        b:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", x, 0)
+        x = x + b:GetWidth() + 14
+        row.tabs[#row.tabs + 1] = b
+    end
+    row.rule = UI():Rule(row, { bottom = 0 })
+    p.tabsRow = row
+end
+
+local function UpdateTabs(p)
+    local row = p.tabsRow
+    local x = 0
+    for _, b in ipairs(row.tabs) do
+        local n = #R():GetGroups(b.key ~= "all" and b.key or nil)
+        b:SetLabel(b.label .. "  " .. S:Wrap("SUB", tostring(n)))
+        b:SetActive((state.tab or "all") == b.key)
+        b:ClearAllPoints()
+        b:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", x, 0)
+        x = x + b:GetWidth() + 14
+    end
+end
+
 -- A role I'm up for (the toolbar's tank / healer / DPS): the sleek button, "chosen" while on, its role icon greyed
 -- while off.
 local function NewRoleChip(parent, role, onClick)
@@ -132,12 +175,30 @@ local function CreateTop(p)
     top.label = CreateFrame("Button", nil, top)
     top.label.text = UI():Text(top.label, "title", "TEXT")
     top.label.text:SetPoint("LEFT")
-    top.label.text:SetText("I'm up for a run")
+    top.label.text:SetText("I'm up for")
     top.label:SetSize((top.label.text:GetStringWidth() or 100) + 4, 20)
     top.label:SetPoint("LEFT", top.switch, "RIGHT", 9, 0)
     top.label:SetScript("OnClick", function() R():SetUp(not R():IsUp()) end)
     top.label:SetScript("OnEnter", UpTip)
     top.label:SetScript("OnLeave", HideTip)
+    -- (1.5) the kinds of groups I'm up for, then "as" and my roles
+    top.kinds = {}
+    for _, kind in ipairs(KIND_TABS) do
+        if kind[1] ~= "all" then
+            local key = kind[1]
+            local chip = UI():CreateChip(top, { kind = "track", onClick = function(self)
+                R():SetMyKind(key, not self.on)
+            end })
+            chip.kindKey = key
+            UI():AttachTooltip(chip, kind[2], function(self)
+                return { self.on and "You get a ping for these groups while you're up for a run. Click to stop."
+                    or "Click to get a ping for these groups too." }
+            end, { anchor = "ANCHOR_TOP" })
+            top.kinds[#top.kinds + 1] = chip
+        end
+    end
+    top.as = UI():Text(top, "body", "SUB")
+    top.as:SetText("as")
     top.roles = {}
     for _, role in ipairs(R().ROLES) do
         top.roles[role] = NewRoleChip(top, role, function(self) R():SetMyRole(role, not self.on) end)
@@ -150,7 +211,19 @@ local function UpdateTop(p)
     top.switch:SetOn(R():IsUp())
     top.label.text:SetTextColor(S:Color(R():IsUp() and "TEXT" or "SUB"))
     local mine = R():GetMyRoles()
-    local x = top.label:GetWidth() + 9 + 34 + 12
+    local x = top.label:GetWidth() + 9 + 34 + 10
+    local kinds = R():GetMyKinds()
+    for i, chip in ipairs(top.kinds) do
+        chip.on = kinds[chip.kindKey] and true or false
+        chip:Set(KIND_TABS[i + 1][2], chip.on and GOLD or nil)
+        chip:SetSelected(chip.on)
+        chip:ClearAllPoints()
+        chip:SetPoint("LEFT", top, "LEFT", x, 0)
+        x = x + chip:GetWidth() + 5
+    end
+    top.as:ClearAllPoints()
+    top.as:SetPoint("LEFT", top, "LEFT", x + 4, 0)
+    x = x + (top.as:GetStringWidth() or 12) + 12
     for _, role in ipairs(R().ROLES) do top.roles[role]:Hide() end
     for _, role in ipairs(R():GetPlayableRoles()) do
         local b = top.roles[role]
@@ -226,10 +299,12 @@ local function SectionHeader(p, i)
     return p.headers[i]
 end
 
--- The runs to show, by section: mine, now (joinable first, blocked last), later (by start).
+-- The groups to show, by section: mine, now, later (by day); in each the ones that want me first, those I can't join
+-- last. (1.5) Every kind, or the tab's.
 local function Sections()
     local mine, now, later = nil, {}, {}
-    for _, run in ipairs(R():GetRuns()) do
+    local tab = state.tab or "all"
+    for _, run in ipairs(R():GetGroups(tab ~= "all" and tab or nil)) do
         if run.o == Me() then
             mine = run
         elseif R():IsNow(run) then
@@ -239,10 +314,10 @@ local function Sections()
         end
     end
     local function rank(run)
-        if R():GetBlocker(run.d, run.h) then return 4 end
+        if R():GetGroupBlocker(run) then return 4 end
         if R():IsInRun(run) then return 0 end
         local fits = R():FitsMe(run) ~= nil
-        local bis = #R():GetMyBiSDrops(run.d, run.h) > 0
+        local bis = R():GetKind(run) == "dungeon" and #R():GetMyBiSDrops(run.d, run.h) > 0
         if fits and bis then return 1 end
         if fits then return 2 end
         return 3
@@ -253,6 +328,10 @@ local function Sections()
         return (a.c or 0) > (b.c or 0)
     end)
     tsort(later, function(a, b)
+        local da, db = date("%Y%m%d", a.at), date("%Y%m%d", b.at)
+        if da ~= db then return da < db end
+        local ra, rb = rank(a), rank(b)
+        if ra ~= rb then return ra < rb end
         if a.at ~= b.at then return a.at < b.at end
         return a.id < b.id
     end)
@@ -270,6 +349,12 @@ function DungeonsUI:Refresh()
     p.top:SetShown(mine == nil)
     local body = p.layout.body
     local y = 0
+    -- the tabs: every group, or one kind
+    UpdateTabs(p)
+    p.tabsRow:ClearAllPoints()
+    p.tabsRow:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y)
+    p.tabsRow:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, y)
+    y = y - TABS_H - 4
     if mine == nil then
         p.layout.toolbar:SetPrimary({ text = "List a run", width = 110, onClick = function() DungeonsUI:OpenSheet() end })
         UpdateTop(p)
@@ -321,21 +406,33 @@ function DungeonsUI:Refresh()
         if run.id == state.focus then state.focusY = cy end
         cy = cy + h + GAP
     end
+    -- "4 want you": how many groups in a section have a place for me (gold, after its title)
+    local function wanting(list, day)
+        local n = 0
+        for _, run in ipairs(list) do
+            if (day == nil or DayLabel(run.at) == day) and R():FitsMe(run) and not R():GetGroupBlocker(run) then n = n + 1 end
+        end
+        return n > 0 and S:Wrap("GOLD", n .. (n == 1 and " wants you" or " want you")) or nil
+    end
+    local function join(a, b)
+        if a and b then return a .. S:Wrap("SUB", " · ") .. b end
+        return a or b
+    end
     if mine then
-        header("Your run")
+        header(R():GetKind(mine) == "dungeon" and "Your run" or "Your group")
         card(mine, { mine = true })
         cy = cy + 4
     end
     if #now > 0 then
-        header("Now")
+        header("Now", wanting(now))
         for _, run in ipairs(now) do card(run, {}) end
     end
-    -- later runs by day: "Later  today", then "Tomorrow", "Saturday 11 Oct", ...
+    -- later groups by day: "Later  today", then "Tomorrow", "Saturday 11 Oct", ...
     local lastDay
     for _, run in ipairs(later) do
         local day = DayLabel(run.at)
         if day ~= lastDay then
-            if lastDay == nil then header("Later", day) else header(day) end
+            if lastDay == nil then header("Later", join(day, wanting(later, day))) else header(day, wanting(later, day)) end
             lastDay = day
         end
         card(run, {})
@@ -350,7 +447,7 @@ function DungeonsUI:Refresh()
     if empty then
         p.empty:ClearAllPoints()
         p.empty:SetPoint("TOP", body, "TOP", 0, y - 80)
-        p.empty:SetContent({ glyph = UI().ICON.team, title = "No runs listed right now.",
+        p.empty:SetContent({ glyph = UI().ICON.team, title = EMPTY_TITLE[state.tab or "all"] or EMPTY_TITLE.all,
             text = R():IsUp() and "You'll get a ping as soon as a run needs one of your roles."
                 or "List one, or switch on \"I'm up for a run\" to get a ping when a run needs you." })
     end
@@ -365,7 +462,7 @@ function DungeonsUI:RequestRefresh()
     end
     -- a ping or a request goes with its run (an invite, or the Group Finder's word on an ended run, doesn't)
     local o = RunToastOpts()
-    if o and o.dzRun and o.dzMode == nil and not R():GetRun(o.dzRun) then UI():HideToast(TOAST_KEY) end
+    if o and o.dzRun and o.dzMode == nil and not R():GetGroup(o.dzRun) then UI():HideToast(TOAST_KEY) end
 end
 
 -- Opens the tab on a run (a chat link, the Home calendar): scrolls to it and lights it up for a moment. Returns false
@@ -373,7 +470,7 @@ end
 function DungeonsUI:Focus(id)
     if ns.MainFrame then ns.MainFrame:Open("dungeons") end
     if state.sheet then self:CloseSheet() end
-    local run = R():GetRun(id)   -- (a run whose lead passed is found by its old id: focus the run as it is now)
+    local run = R():GetGroup(id)   -- (a group whose lead passed is found by its old id: focus it as it is now)
     if not run then return false end
     state.focus, state.focusUntil, state.focusY = run.id, GetTime() + 2.5, nil
     self:Refresh()
@@ -463,12 +560,13 @@ function DungeonsUI:CreatePanel(parent)
     p.layout = UI():CreateLayout("board", p, { bottom = 6 })
     p.headers, p.cards = {}, {}
     CreateTop(p)
+    CreateTabs(p)
     CreateStrip(p)
     p.scroll = UI():CreateScrollFrame(p.layout.body)
     p.content = CreateFrame("Frame", nil, p.scroll)
     p.content:SetSize(760, 10)
     p.scroll:SetScrollChild(p.content)
-    p.empty = UI():CreateEmptyState(p.layout.body, { glyph = UI().ICON.team, title = "No runs listed right now." })
+    p.empty = UI():CreateEmptyState(p.layout.body, { glyph = UI().ICON.team, title = "No groups listed right now." })
     p.empty:SetFrameLevel(p.scroll:GetFrameLevel() + 5)
     p.empty:Hide()
     -- (MainFrame calls this on every show of the page, the first one too; an OnShow as well painted it twice
@@ -1027,7 +1125,7 @@ local function ShowToast(run, l2, l3, btnText, onClick, mode)
         Chime()
         return
     end
-    local file, l, r, tt, b = R():GetArt(run.d, TOAST_ART, TOAST_H - 2)
+    local file, l, r, tt, b = R():GetGroupArt(run, TOAST_ART, TOAST_H - 2)
     local full, short = DungeonName(run)
     UI():Toast({
         key = TOAST_KEY,
@@ -1060,7 +1158,7 @@ local function ShowToast(run, l2, l3, btnText, onClick, mode)
             if mode == "invite" then
                 UI():AttachTooltip(t.close, "Decline", "Says no to the party invite.", { anchor = "ANCHOR_TOP" })
             end
-            ToastHeroic(t, run.h and true or false)
+            ToastHeroic(t, (R():GetKind(run) == "dungeon" and run.h) and true or false)
             if mode ~= "invite" then Chime() end
         end,
     })
@@ -1072,7 +1170,7 @@ local function BoardShown()
 end
 
 function DungeonsUI:OnPing(id)
-    local run = R():GetRun(id)
+    local run = R():GetGroup(id)
     if not run or BoardShown() then return end
     local role = R():FitsMe(run)
     if not role then return end
@@ -1084,7 +1182,7 @@ function DungeonsUI:OnPing(id)
 end
 
 function DungeonsUI:OnRequest(id, key)
-    local run = R():GetRun(id)
+    local run = R():GetGroup(id)
     if not run or run.o ~= Me() then return end
     if BoardShown() then
         Chime()
@@ -1103,7 +1201,7 @@ end
 
 -- A run's leader invites me (Blizzard's pop-up closed by Core): this pop-up is the invite, even over the board.
 function DungeonsUI:OnInvite(id, from)
-    local run = R():GetRun(id)
+    local run = R():GetGroup(id)
     if not run then return end
     local a = R():GetAsked(id)
     local role = (a and a.r) or R():FitsMe(run)
@@ -1149,6 +1247,17 @@ end
 
 -- For the harness / UI audit.
 function DungeonsUI:GetPanel() return panel end
+-- (1.5) the board's tab ("all" | "dungeon" | "raid" | "quest" | "pvp") and the opened card (a group's id, or nil)
+function DungeonsUI:SetTab(tab)
+    state.tab, state.open = tab, nil
+    self:Refresh()
+end
+function DungeonsUI:GetTab() return state.tab or "all" end
+function DungeonsUI:OpenCard(id)
+    state.open = id
+    self:Refresh()
+end
+function DungeonsUI:GetOpenCard() return state.open end
 function DungeonsUI:GetToast()
     -- (the shared toast frames are reused: only the one showing my run's pop-up is mine)
     local t = RunToast()
@@ -1164,7 +1273,7 @@ end
 
 function DungeonsUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
-        ns.MainFrame:RegisterTab("dungeons", "Dungeons", 3.55,
+        ns.MainFrame:RegisterTab("dungeons", "Groups", 3.55,
             function(parent) return DungeonsUI:CreatePanel(parent) end,
             function() return (IsInGuild() or (ns.Demo and ns.Demo:IsEnabled())) and true or false end,
             { layout = "board" })
