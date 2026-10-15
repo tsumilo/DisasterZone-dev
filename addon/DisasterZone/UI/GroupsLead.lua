@@ -145,12 +145,47 @@ local function Create(panel)
 end
 
 ---------------------------------------------------------------------------
--- The roster
+-- The body's parts (pooled): section heads, member rows, "+n open" lines, cards, item rows, the empty state
 ---------------------------------------------------------------------------
 
 local ROLE_TITLE = { tank = "Tanks", healer = "Healers", dps = "Damage" }
+local MROW_H = 22                -- a member row
+local SEG_MAX = 25
 
--- The raid-wide buffs nobody in the group brings yet: names (three at most) and the buff records.
+local pools = { heads = {}, rows = {}, opens = {}, cards = {}, items = {}, bosses = {} }
+local used = {}
+GL.pools = pools   -- (tests: the shown member rows, open lines, cards)
+
+local function Take(kind, make)
+    used[kind] = (used[kind] or 0) + 1
+    local list = pools[kind]
+    local f = list[used[kind]]
+    if not f then
+        f = make()
+        list[used[kind]] = f
+    end
+    f:ClearAllPoints()
+    f:Show()
+    return f
+end
+
+local function HideBody()
+    for kind, list in pairs(pools) do
+        for _, f in ipairs(list) do f:Hide() end
+        used[kind] = 0
+    end
+    if sh.empty then sh.empty:Hide() end
+    if sh.arrange then sh.arrange:Hide() end
+    if sh.summary then sh.summary:Hide() end
+    sh.note:Hide()
+end
+
+local function IsGuest(key)
+    local Gd = ns.Guild
+    return Gd and Gd.IsInGuild and not Gd:IsInGuild(key)
+end
+
+-- The raid-wide buffs nobody in the group brings yet: names (two at most) and the buff records.
 local function MissingBuffs(run)
     local Comp = ns.RaidComp
     local out, names = {}, {}
@@ -168,198 +203,444 @@ local function MissingBuffs(run)
     return names, out
 end
 
-local function IsGuest(key)
-    local Gd = ns.Guild
-    return Gd and Gd.IsInGuild and not Gd:IsInGuild(key)
+-- A section's head: the role's icon, its name and have / want, a hint on the right, a segmented bar under it.
+local function NewHead()
+    local hd = CreateFrame("Frame", nil, sh.body)
+    hd:SetHeight(30)
+    hd.icon = hd:CreateTexture(nil, "ARTWORK")
+    hd.icon:SetSize(16, 16)
+    hd.icon:SetPoint("TOPLEFT", 0, -2)
+    hd.title = UI():Text(hd, "emph", "TEXT")
+    hd.title:SetPoint("LEFT", hd.icon, "RIGHT", 7, 0)
+    hd.hint = UI():Text(hd, "small", "GOLD", { justify = "RIGHT" })
+    hd.hint:SetPoint("TOPRIGHT", 0, -4)
+    hd.hint:SetWordWrap(false)
+    hd.segs = {}
+    hd:EnableMouse(true)
+    hd:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip, "ANCHOR_TOP") end end)
+    hd:SetScript("OnLeave", HideTip)
+    return hd
 end
+
+local function FillHead(hd, width, icon, title, have, want, hint, tip)
+    hd:SetWidth(width)
+    if icon then
+        hd.icon:Show()
+        UI():SetRoleIcon(hd.icon, icon)
+    else
+        hd.icon:Hide()
+    end
+    hd.title:ClearAllPoints()
+    if icon then hd.title:SetPoint("LEFT", hd.icon, "RIGHT", 7, 0) else hd.title:SetPoint("TOPLEFT", 0, -3) end
+    hd.title:SetText(title .. (want and ("  " .. S:Wrap(have >= want and "OK" or "SUB", have .. "/" .. want)) or ""))
+    hd.hint:SetText(hint or "")
+    hd.hint:SetWidth(max(40, width - (hd.title:GetStringWidth() or 80) - 40))
+    hd.tip = tip
+    -- the bar: one segment per place (up to 25), filled ones gold
+    local n = want and min(want, SEG_MAX) or 0
+    local segW = n > 0 and (width - (n - 1) * 2) / n or 0
+    for i = 1, max(n, #hd.segs) do
+        local t = hd.segs[i]
+        if i <= n then
+            if not t then
+                t = hd:CreateTexture(nil, "ARTWORK")
+                hd.segs[i] = t
+            end
+            t:ClearAllPoints()
+            t:SetPoint("BOTTOMLEFT", hd, "BOTTOMLEFT", (i - 1) * (segW + 2), 0)
+            t:SetSize(segW, 3)
+            local filled = i <= floor(have * n / max(want, 1) + 0.5)
+            if filled then t:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.85)
+            else t:SetColorTexture(S.C.HAIRLINE[1], S.C.HAIRLINE[2], S.C.HAIRLINE[3], 0.12) end
+            t:Show()
+        elseif t then
+            t:Hide()
+        end
+    end
+end
+
+-- A member: the class icon, the class-coloured name, the spec (dim), the leader's crown or a guest tag; a soft wash
+-- under the mouse.
+local function NewMemberRow()
+    local r = CreateFrame("Frame", nil, sh.body)
+    r:SetHeight(MROW_H)
+    r.hl = r:CreateTexture(nil, "BACKGROUND")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(S.C.HOVER[1], S.C.HOVER[2], S.C.HOVER[3], S.C.HOVER[4])
+    r.hl:Hide()
+    r.icon = r:CreateTexture(nil, "ARTWORK")
+    r.icon:SetSize(16, 16)
+    r.icon:SetPoint("LEFT", 2, 0)
+    r.name = UI():Text(r, "body", "TEXT")
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+    r.name:SetJustifyH("LEFT")
+    r.name:SetWordWrap(false)
+    r.spec = UI():Text(r, "small", "SUB")
+    r.spec:SetPoint("RIGHT", -4, 0)
+    r.mark = r:CreateTexture(nil, "OVERLAY")
+    r.mark:SetSize(12, 12)
+    r:EnableMouse(true)
+    r:SetScript("OnEnter", function(self)
+        self.hl:Show()
+        if self.key then UI():SetTextTooltip(self, self.tip or { UI():ColoredName(self.key) }, "ANCHOR_TOP") end
+    end)
+    r:SetScript("OnLeave", function(self)
+        self.hl:Hide()
+        HideTip()
+    end)
+    return r
+end
+
+local function FillMember(r, width, key, class, opts)
+    opts = opts or {}
+    r:SetWidth(width)
+    r.key = key
+    if class then
+        r.icon:Show()
+        UI():ClassIcon(r.icon, class)
+    else
+        r.icon:Hide()
+    end
+    local guest = key and IsGuest(key)
+    local spec = key and R():GetSpecLabel(key)
+    r.spec:SetText(opts.lead and "" or (guest and S:Wrap("SUB", "guest") or (spec or "")))
+    r.name:SetText(UI():ColoredName(key, class))
+    r.name:SetPoint("RIGHT", r.spec, "LEFT", -6, 0)
+    r.mark:ClearAllPoints()
+    if opts.lead then
+        r.mark:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+        r.mark:SetPoint("RIGHT", -4, 0)
+        r.mark:Show()
+    else
+        r.mark:Hide()
+    end
+    r.tip = { UI():ColoredName(key, class), opts.lead and "Leads the group" or (guest and "Guest: not in the guild")
+        or spec }
+end
+
+-- "+n open": the places still free in a section, one quiet line (not n empty boxes).
+local function NewOpenLine()
+    local o = CreateFrame("Frame", nil, sh.body)
+    o:SetHeight(MROW_H)
+    o.icon = o:CreateTexture(nil, "ARTWORK")
+    o.icon:SetSize(14, 14)
+    o.icon:SetPoint("LEFT", 3, 0)
+    o.icon:SetDesaturated(true)
+    o.icon:SetAlpha(0.5)
+    o.text = UI():Text(o, "body", "SUB")
+    o.text:SetPoint("LEFT", o.icon, "RIGHT", 7, 0)
+    return o
+end
+
+---------------------------------------------------------------------------
+-- Roster: a section per role, its players as slim rows in columns, what is still open on one line
+---------------------------------------------------------------------------
 
 local function LayoutRoster(run, width)
     local slots = R():GetSlots(run)
-    local want, have = R():GetWant(run), {}
-    for _, d in ipairs(slots) do
-        if not d.empty then have[d.role] = (have[d.role] or 0) + 1 end
-    end
-    local per = max(2, floor((width + CELL_GAP) / (104 + CELL_GAP)))
-    local cw = floor((width - (per - 1) * CELL_GAP) / per)
-    local y, ci, hi = 0, 0, 0
+    local want = R():GetWant(run)
+    local cols = width >= 380 and 3 or 2
+    local gap = 10
+    local colW = floor((width - (cols - 1) * gap) / cols)
+    local y = 0
     local missingNames = MissingBuffs(run)
     for _, role in ipairs(R().ROLES) do
-        local list = {}
+        local list, open = {}, 0
         for _, d in ipairs(slots) do
-            if d.role == role then list[#list + 1] = d end
+            if d.role == role then
+                if d.empty then open = open + 1 else list[#list + 1] = d end
+            end
         end
-        if #list > 0 or (want[role] or 0) > 0 then
-            hi = hi + 1
-            local hd = sh.heads[hi]
-            if not hd then
-                hd = CreateFrame("Frame", nil, sh.body)
-                hd:SetHeight(24)
-                hd.icon = hd:CreateTexture(nil, "ARTWORK")
-                hd.icon:SetSize(15, 15)
-                hd.icon:SetPoint("LEFT", 0, 0)
-                hd.title = UI():Text(hd, "emph", "TEXT")
-                hd.title:SetPoint("LEFT", hd.icon, "RIGHT", 7, 0)
-                hd.hint = UI():Text(hd, "body", "GOLD")
-                hd.hint:SetPoint("RIGHT", 0, 0)
-                sh.heads[hi] = hd
-            end
-            hd:ClearAllPoints()
-            hd:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, -y)
-            hd:SetWidth(width)
-            UI():SetRoleIcon(hd.icon, role)
-            hd.title:SetText(ROLE_TITLE[role] .. "  " .. S:Wrap("SUB", (have[role] or 0) .. "/" .. (want[role] or 0)))
-            local hint = ""
+        local w = want[role] or 0
+        if #list > 0 or w > 0 then
+            local hint, tip
             if role == "dps" and #missingNames > 0 and run.k == "raid" then
-                hint = "nobody brings yet: " .. tconcat(missingNames, ", ")
-                hd.tipText = hint
-            elseif role ~= "dps" and (want[role] or 0) > (have[role] or 0) then
-                local n = want[role] - (have[role] or 0)
-                hint = n .. " more " .. (role == "tank" and (n == 1 and "tank" or "tanks") or (n == 1 and "healer" or "healers"))
+                hint = "nobody brings " .. tconcat(missingNames, ", ")
+                tip = { "Raid buffs nobody in the group brings yet", tconcat(missingNames, ", ") }
             end
-            hd.hint:SetText(hint)
-            hd.hint:SetWidth(max(60, width - (hd.title:GetStringWidth() or 80) - 40))
-            hd.hint:SetWordWrap(false)
-            hd.hint:SetJustifyH("RIGHT")
-            hd:Show()
-            y = y + 28
-            for i, d in ipairs(list) do
-                ci = ci + 1
-                local c = sh.cells[ci] or NewCell(sh.body)
-                sh.cells[ci] = c
-                c:ClearAllPoints()
-                c:SetPoint("TOPLEFT", sh.body, "TOPLEFT", ((i - 1) % per) * (cw + CELL_GAP),
-                    -(y + floor((i - 1) / per) * (CELL_H + CELL_GAP)))
-                c:SetWidth(cw)
-                if d.empty then
-                    c.key = nil
-                    c.icon:Hide()
-                    c.name:ClearAllPoints()
-                    c.name:SetPoint("CENTER")
-                    c.name:SetJustifyH("CENTER")
-                    c.name:SetText(S:Wrap("GOLD", "open"))
-                    c.bg:SetAlpha(0.35)
-                    UI():SetEdgeColor(c, GOLD[1], GOLD[2], GOLD[3], 0.6)
-                    c.tag:Hide()
-                    c.crown:Hide()
-                else
-                    c.key = d.key
-                    c.icon:Show()
-                    UI():ClassIcon(c.icon, d.class)
-                    c.name:ClearAllPoints()
-                    c.name:SetPoint("LEFT", c.icon, "RIGHT", 6, 0)
-                    c.name:SetPoint("RIGHT", -24, 0)
-                    c.name:SetJustifyH("LEFT")
-                    c.name:SetText(UI():ColoredName(d.key, d.class))
-                    c.bg:SetAlpha(1)
-                    local lead = d.owner
-                    UI():SetEdgeColor(c, lead and GOLD[1] or S.C.EDGE[1], lead and GOLD[2] or S.C.EDGE[2],
-                        lead and GOLD[3] or S.C.EDGE[3], lead and 0.8 or S.C.EDGE[4])
-                    c.crown:SetShown(lead and true or false)
-                    local guest = IsGuest(d.key)
-                    c.tag:SetShown(guest and not lead)
-                    c.tag:SetText(S:Wrap("SUB", "guest"))
-                    c.tipLine = lead and "Leads the group" or (guest and "Guest: not in the guild" or nil)
-                end
-                c:Show()
+            local hd = Take("heads", NewHead)
+            hd:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, -y)
+            FillHead(hd, width, role, ROLE_TITLE[role], #list, w, hint, tip)
+            y = y + 36
+            local i = 0
+            for _, d in ipairs(list) do
+                i = i + 1
+                local r = Take("rows", NewMemberRow)
+                local col, row = (i - 1) % cols, floor((i - 1) / cols)
+                r:SetPoint("TOPLEFT", sh.body, "TOPLEFT", col * (colW + gap), -(y + row * MROW_H))
+                FillMember(r, colW, d.key, d.class, { lead = d.owner })
             end
-            y = y + math.ceil(#list / per) * (CELL_H + CELL_GAP) + 8
+            if open > 0 then
+                i = i + 1
+                local o = Take("opens", NewOpenLine)
+                local col, row = (i - 1) % cols, floor((i - 1) / cols)
+                o:SetPoint("TOPLEFT", sh.body, "TOPLEFT", col * (colW + gap), -(y + row * MROW_H))
+                o:SetWidth(colW)
+                UI():SetRoleIcon(o.icon, role)
+                o.text:SetText(S:Wrap("SUB", "+" .. open .. " open"))
+            end
+            y = y + math.ceil(i / cols) * MROW_H + 14
         end
     end
-    for i = ci + 1, #sh.cells do sh.cells[i]:Hide() end
-    for i = hi + 1, #sh.heads do sh.heads[i]:Hide() end
     return y
 end
 
--- Reserves so far: the items with who reserved them.
-local function LayoutReserves(run, width)
-    local RS = ns.Reserves
-    local lines = {}
-    if run.lo ~= "sr" then
-        lines[1] = "This group isn't on soft reserves: " .. G().LootText(run) .. "."
-    elseif not (RS and RS.IsOpen and RS:IsOpen()) then
-        lines[1] = "Soft reserves open when the raid session starts: " .. (run.lr or 1) .. " each. Start it from ··· "
-            .. "or the pop-up when you arrive."
-    else
-        local by = RS:ByItem()
-        local ids = {}
-        for id in pairs(by) do ids[#ids + 1] = id end
-        tsort(ids)
-        for _, id in ipairs(ids) do
-            local names = {}
-            for _, k in ipairs(by[id]) do names[#names + 1] = UI():ColoredName(k) end
-            lines[#lines + 1] = G().ItemLinkText(id) .. "  " .. tconcat(names, ", ")
-        end
-        if #lines == 0 then lines[1] = "Nobody has reserved anything yet." end
-    end
-    sh.note:SetParent(sh.body)
-    sh.note:ClearAllPoints()
-    sh.note:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, -4)
-    sh.note:SetWidth(width)
-    sh.note:SetText(tconcat(lines, "\n"))
-    sh.note:Show()
-    return (sh.note:GetStringHeight() or 20) + 8
+---------------------------------------------------------------------------
+-- Reserves: who reserved what, by boss; an empty state until they are open
+---------------------------------------------------------------------------
+
+local function EmptyState(width, opts)
+    if not sh.empty then sh.empty = UI():CreateEmptyState(sh.body, opts) end
+    sh.empty:SetParent(sh.body)
+    sh.empty:SetContent(opts)
+    if sh.empty.SetBoxWidth then sh.empty:SetBoxWidth(min(width, 380)) end
+    sh.empty:ClearAllPoints()
+    sh.empty:SetPoint("TOP", sh.body, "TOP", 0, -24)
+    sh.empty:Show()
+    return (sh.empty:GetHeight() or 160) + 40
 end
 
--- The parties as Auto-fill would place the group (25: tanks, melee, melee, ranged, healers; 10: two groups).
+local function NewItemRow()
+    local r = CreateFrame("Frame", nil, sh.body)
+    r:SetHeight(26)
+    r.bg = UI():Fill(r, "CARD", "BACKGROUND")
+    r.bg:SetAlpha(0.55)
+    r.icon = r:CreateTexture(nil, "ARTWORK")
+    r.icon:SetSize(20, 20)
+    r.icon:SetPoint("LEFT", 4, 0)
+    r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    r.name = UI():Text(r, "body", "TEXT")
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 7, 0)
+    r.name:SetJustifyH("LEFT")
+    r.name:SetWordWrap(false)
+    r.who = UI():Text(r, "small", "TEXT", { justify = "RIGHT" })
+    r.who:SetPoint("RIGHT", -7, 0)
+    r.who:SetWordWrap(false)
+    r:EnableMouse(true)
+    r:SetScript("OnEnter", function(self)
+        if self.itemID and GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink("item:" .. self.itemID)
+            GameTooltip:Show()
+        end
+    end)
+    r:SetScript("OnLeave", HideTip)
+    return r
+end
+
+local function NewBossHead()
+    local b = UI():Text(sh.body, "caps", "GOLD")
+    return b
+end
+
+local function LayoutReserves(run, width)
+    local RS = ns.Reserves
+    if run.lo ~= "sr" then
+        return EmptyState(width, { glyph = UI().ICON.reserve or UI().ICON.team, title = "No soft reserves",
+            text = "This group's loot: " .. (G().LootText(run) or "rolls") .. ". Edit the group to use soft reserves." })
+    end
+    if not (RS and RS.IsOpen and RS:IsOpen()) then
+        local GR = ns.GroupRules
+        local canStart = IsInRaid and IsInRaid() and not (GR and GR.GetSession and GR:GetSession())
+        return EmptyState(width, { glyph = UI().ICON.reserve or UI().ICON.team, title = "Reserves open with the raid session",
+            text = (run.lr or 1) .. (run.lr == 2 and " items" or (run.lr == 3 and " items" or " item")) .. " each. "
+                .. (canStart and "Start the session now and everyone can reserve." or
+                    "Start it from ··· once the group is a raid, or from the pop-up when you arrive."),
+            action = canStart and { text = "Start raid session", onClick = function() DUI():StartSession() end } or nil })
+    end
+    local L = RS:Get()
+    local by = RS:ByItem()
+    -- (the group's own players: who of them has a reserve)
+    local missing, done, total = {}, 0, 0
+    for _, d in ipairs(R():GetSlots(run)) do
+        if not d.empty then
+            total = total + 1
+            if #RS:Of(d.key) > 0 then done = done + 1 else missing[#missing + 1] = d.key end
+        end
+    end
+    table.sort(missing)
+    -- the summary: how many reserved, who hasn't
+    if not sh.summary then
+        sh.summary = CreateFrame("Frame", nil, sh.body)
+        sh.summary:SetHeight(40)
+        sh.summary.bg = UI():Fill(sh.summary, "CARD", "BACKGROUND")
+        UI():AddEdges(sh.summary, "BORDER")
+        sh.summary.big = UI():Text(sh.summary, "title", "GOLD")
+        sh.summary.big:SetPoint("LEFT", 12, 0)
+        sh.summary.text = UI():Text(sh.summary, "small", "SUB", { wrap = true })
+        sh.summary.text:SetPoint("LEFT", sh.summary.big, "RIGHT", 12, 0)
+    end
+    local sm = sh.summary
+    sm:SetParent(sh.body)
+    sm:ClearAllPoints()
+    sm:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, 0)
+    sm:SetWidth(width)
+    sm.big:SetText(done .. "/" .. total)
+    local names = {}
+    for i, k in ipairs(missing) do
+        if i > 5 then names[#names + 1] = "+" .. (#missing - 5) break end
+        names[#names + 1] = UI():ColoredName(k)
+    end
+    sm.text:SetWidth(width - (sm.big:GetStringWidth() or 40) - 36)
+    sm.text:SetText("have reserved (" .. (L and L.n or 1) .. " each)" .. (#missing > 0 and ("\nStill to reserve: "
+        .. tconcat(names, ", ")) or "\nEveryone has reserved."))
+    sm:Show()
+    local y = 50
+    -- by boss
+    local any = false
+    local rk = L and L.rk
+    for _, boss in ipairs(rk and RS:Bosses(rk) or {}) do
+        local rows = {}
+        for _, id in ipairs(boss.items or {}) do
+            if by[id] then rows[#rows + 1] = id end
+        end
+        if #rows > 0 then
+            any = true
+            local bh = Take("bosses", NewBossHead)
+            bh:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 2, -(y + 4))
+            bh:SetText((boss.name or "?"):upper())
+            y = y + 20
+            for _, id in ipairs(rows) do
+                local r = Take("items", NewItemRow)
+                r:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, -y)
+                r:SetWidth(width)
+                r.itemID = id
+                r.icon:SetTexture(GetItemIcon and GetItemIcon(id) or 134400)
+                r.name:SetText(G().ItemLinkText(id))
+                local who = {}
+                for _, k in ipairs(by[id]) do who[#who + 1] = UI():ColoredName(k) end
+                r.who:SetText(tconcat(who, ", "))
+                r.name:SetPoint("RIGHT", r.who, "LEFT", -10, 0)
+                y = y + 28
+            end
+            y = y + 6
+        end
+    end
+    if not any then
+        local bh = Take("bosses", NewBossHead)
+        bh:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 2, -(y + 4))
+        bh:SetText("NOTHING RESERVED YET")
+        y = y + 24
+    end
+    return y
+end
+
+---------------------------------------------------------------------------
+-- Groups: the parties as cards (Auto-fill's layout), and Arrange the raid
+---------------------------------------------------------------------------
+
+local THEME = { [25] = { "Tanks", "Melee", "Melee", "Ranged", "Healers" }, [10] = { "Tanks + melee", "Ranged + healers" } }
+
+local function NewPartyCard()
+    local c = CreateFrame("Frame", nil, sh.body)
+    c.bg = UI():Fill(c, "CARD", "BACKGROUND")
+    UI():AddEdges(c, "BORDER")
+    c.title = UI():Text(c, "emph", "GOLD")
+    c.title:SetPoint("TOPLEFT", 10, -8)
+    c.theme = UI():Text(c, "small", "SUB")
+    c.theme:SetPoint("LEFT", c.title, "RIGHT", 7, 0)
+    c.rows = {}
+    return c
+end
+
+-- The spec index Auto-fill places a player by: their known spec, else the first spec of their class for the role
+-- they have in the group (a damage place: the class's first damage spec).
+local function SpecFor(key, classFile, role)
+    local specs = ns.SPECS[classFile] or {}
+    local label = R():GetSpecLabel(key)
+    for i, sp in ipairs(specs) do
+        if sp.label == label then return i end
+    end
+    for i, sp in ipairs(specs) do
+        if (role == "tank" and sp.role == "tank") or (role == "healer" and sp.role == "healer")
+            or (role == "dps" and sp.role ~= "tank" and sp.role ~= "healer") then
+            return i
+        end
+    end
+    return nil
+end
+
 local function LayoutGroups(run, width)
     local Comp = ns.RaidComp
     local members = {}
     for _, d in ipairs(R():GetSlots(run)) do
-        if not d.empty and d.class then members[#members + 1] = { key = d.key, c = d.class } end
-    end
-    local byKey = (Comp and Comp.AutoFill) and Comp:AutoFill(members, R():GetSize(run)) or {}
-    local groups = {}
-    for key, g in pairs(byKey) do
-        groups[g] = groups[g] or {}
-        groups[g][#groups[g] + 1] = key
-    end
-    local n = R():GetSize(run) <= 10 and 2 or 5
-    local cw = floor((width - (n - 1) * CELL_GAP) / n)
-    local ci = 0
-    for i = 1, #sh.heads do sh.heads[i]:Hide() end
-    local maxRows = 0
-    for g = 1, n do
-        local list = groups[g] or {}
-        tsort(list)
-        for r = 1, 5 do
-            ci = ci + 1
-            local c = sh.cells[ci] or NewCell(sh.body)
-            sh.cells[ci] = c
-            c:ClearAllPoints()
-            c:SetPoint("TOPLEFT", sh.body, "TOPLEFT", (g - 1) * (cw + CELL_GAP), -(22 + (r - 1) * (CELL_H + 4)))
-            c:SetWidth(cw)
-            local key = list[r]
-            c.crown:Hide()
-            c.tag:Hide()
-            c.name:ClearAllPoints()
-            c.name:SetPoint("LEFT", c.icon, "RIGHT", 6, 0)
-            c.name:SetPoint("RIGHT", -6, 0)
-            c.name:SetJustifyH("LEFT")
-            if key then
-                c.key = key
-                c.icon:Show()
-                UI():ClassIcon(c.icon, R():GetClass(key))
-                c.name:SetText(UI():ColoredName(key, R():GetClass(key)))
-                c.bg:SetAlpha(1)
-            else
-                c.key = nil
-                c.icon:Hide()
-                c.name:SetText("")
-                c.bg:SetAlpha(0.3)
-            end
-            UI():SetEdgeColor(c, unpack(S.C.EDGE))
-            c:Show()
+        if not d.empty and d.class then
+            members[#members + 1] = { key = d.key, c = d.class, sp = SpecFor(d.key, d.class, d.role) }
         end
-        maxRows = 5
     end
-    for i = ci + 1, #sh.cells do sh.cells[i]:Hide() end
-    sh.note:SetParent(sh.body)
-    sh.note:ClearAllPoints()
-    sh.note:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, 0)
-    sh.note:SetWidth(width)
-    sh.note:SetText("Group 1 to " .. n .. " as Auto-fill places them (Raids > Groups moves players in the raid itself).")
-    sh.note:Show()
-    return 22 + maxRows * (CELL_H + 4)
+    local size = R():GetSize(run)
+    local n = size <= 10 and 2 or 5
+    local byKey = (Comp and Comp.AutoFill) and Comp:AutoFill(members, size) or {}
+    local groups = {}
+    for g = 1, n do groups[g] = {} end
+    for key, g in pairs(byKey) do
+        if groups[g] then groups[g][#groups[g] + 1] = key end
+    end
+    local per = n == 2 and 2 or 3
+    local gap = 10
+    local cw = floor((width - (per - 1) * gap) / per)
+    local ch = 30 + 5 * MROW_H + 8
+    local y = 0
+    for g = 1, n do
+        local c = Take("cards", NewPartyCard)
+        local col, row = (g - 1) % per, floor((g - 1) / per)
+        c:SetPoint("TOPLEFT", sh.body, "TOPLEFT", col * (cw + gap), -(row * (ch + gap)))
+        c:SetSize(cw, ch)
+        c.title:SetText("Group " .. g)
+        c.theme:SetText((THEME[n == 2 and 10 or 25] or {})[g] or "")
+        local list = groups[g]
+        table.sort(list)
+        for i = 1, 5 do
+            local r = c.rows[i]
+            if not r then
+                r = NewMemberRow()
+                r:SetParent(c)
+                c.rows[i] = r
+            end
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", c, "TOPLEFT", 6, -(28 + (i - 1) * MROW_H))
+            local key = list[i]
+            if key then
+                FillMember(r, cw - 12, key, (R():GetClass(key)))
+                r:SetAlpha(1)
+            else
+                r.key = nil
+                r:SetWidth(cw - 12)
+                r.icon:Hide()
+                r.mark:Hide()
+                r.spec:SetText("")
+                r.name:SetText(S:Wrap("SUB", "empty"))
+                r:SetAlpha(0.45)
+            end
+            r:Show()
+        end
+        y = max(y, (row + 1) * (ch + gap))
+    end
+    -- Arrange the raid: moves everyone in the raid into these groups (the raid leader or an assistant)
+    if not sh.arrange then
+        sh.arrange = UI():CreateSleekButton(sh.body, "Arrange the raid", 140, S.BTN_H, function()
+            local plan = {}
+            for key, g in pairs(sh.arrangePlan or {}) do plan[key] = g end
+            local RI = ns.RaidInvite
+            local ok, why = RI and RI.Resort and RI:Resort("group:" .. tostring(runId), plan, "your group")
+            if not ok and why then ns:Print("%s", why) end
+        end, "primary")
+        sh.arrangeHint = UI():Text(sh.body, "small", "SUB", { wrap = true })
+    end
+    sh.arrangePlan = byKey
+    local inRaid = IsInRaid and IsInRaid()
+    sh.arrange:SetParent(sh.body)
+    sh.arrange:ClearAllPoints()
+    sh.arrange:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, -(y + 4))
+    sh.arrange:SetEnabled(inRaid and true or false)
+    sh.arrange:Show()
+    sh.arrangeHint:ClearAllPoints()
+    sh.arrangeHint:SetPoint("LEFT", sh.arrange, "RIGHT", 12, 0)
+    sh.arrangeHint:SetWidth(width - 160)
+    sh.arrangeHint:SetText(inRaid and "Moves everyone in the raid into these groups now, and the ones who join later."
+        or "Once the group is a raid, this moves everyone into these groups.")
+    sh.arrangeHint:Show()
+    return y + S.BTN_H + 12
 end
 
 ---------------------------------------------------------------------------
@@ -604,9 +885,8 @@ function GL:Refresh()
     sh.scroll:SetPoint("TOPLEFT", sh, "TOPLEFT", PAD, top)
     sh.scroll:SetSize(bodyW, bodyH)
     sh.body:SetWidth(bodyW - 12)
-    sh.note:Hide()
-    for _, c in ipairs(sh.cells) do c:Hide() end
-    for _, hd in ipairs(sh.heads) do hd:Hide() end
+    HideBody()
+    if sh.arrangeHint then sh.arrangeHint:Hide() end
     local used
     if tab ~= "message" and ns.GroupsMessage then ns.GroupsMessage:Hide() end
     if tab == "message" and ns.GroupsMessage then
