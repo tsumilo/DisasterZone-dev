@@ -1,10 +1,10 @@
-"""Recruitment, step 6 (Core/RecruitMessage.lua): the recruitment message.
+"""Recruitment, step 6 (Core/RecruitMessage.lua): the recruitment message, written by the officers, and its places.
 
-Covers: the blocks (the guild tag, who / what / my words as texts I can change, the raid nights and the classes we're
-after from one team's open places, the team never named; a class left out; No team = all classes welcome); the 255
-limit; Post goes to the picked channels I'm in, is told to the other officers (their next turn waits) and never to
-members; the repeat: ready again after the interval since anyone's last post; Lately counts posts and the people who
-whispered after one; a member can't post.
+Covers: the message is the officers' own text (one line, 255 at most: a longer one isn't posted); places: Trade and
+GuildRecruitment at first, Say / Yell / any channel added, each with its own interval (1 to 720 minutes) and a
+"major cities only" tick, removed again; Post goes to every place that is on, skips the ones I can't post to now
+(not in a city, not in the channel) and says why; officers take turns per place (a post is told to the recruiters
+online, never members); the reminder: only the places that are due, each by its own interval; a member can't post.
 Run: luaenv\\Scripts\\python.exe tests\\recruit\\test_recruit_message.py [-k name]   (from dev)"""
 import os
 import sys
@@ -13,11 +13,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from _common import World, Client, case, run_all  # noqa: E402
 
 SETTLE = 45
-THU = 3 * 1440 + 19 * 60 + 30
-CHANNELS = """GetChannelName = function(name)
+WORLD = """GetChannelName = function(name)
   if name == 'Trade' then return 2, name end
-  if name == 'LookingForGroup' then return 4, name end
-  return 0 end"""
+  if name == 'General' then return 1, name end
+  return 0 end
+GetRealZoneText = function() return __zone or 'Orgrimmar' end
+C_Map.GetBestMapForUnit = function() return nil end"""
 
 
 def guild():
@@ -28,64 +29,104 @@ def guild():
     for x in c.values():
         x.load_addon()
     w.tick(SETTLE)
-    gina = c["Gina"]
-    gina.eval_py("""
-        local ok, id = ns.RaidPlan:SaveTeam(nil, 'Main team', {}, { size = 10, comp = { PALADIN = { 1 }, DRUID = { 0, 0, 0, 1 } },
-            nights = { { w = %d, m = 210 } } })
-        return id""" % THU)
-    w.tick(3)
+    for x in c.values():
+        x.eval(WORLD)
     return w, c
 
 
-def compose(cl):
-    return cl.eval_py("return { ns.RecruitMessage:Compose() }")
+def places(cl):
+    res = cl.eval_py("local out = {} for _, p in ipairs(ns.RecruitMessage:GetPlaces()) do "
+                     "out[#out + 1] = { p.id, p.every, p.on, p.city } end return out")
+    return [tuple(x.values()) if isinstance(x, dict) else tuple(x) for x in (res.values() if isinstance(res, dict) else res or [])]
+
+
+def post(cl, ids=None):
+    return cl.eval_py("local ok, a, b = ns.RecruitMessage:Post(...); return { ok = ok, a = a, b = b }", ids)
+
+
+def lst(v):
+    if v is None:
+        return []
+    return list(v.values()) if isinstance(v, dict) else list(v)
 
 
 @case
-def the_blocks_make_the_message():
+def the_message_is_ours():
     w, c = guild()
     gina = c["Gina"]
-    text = compose(gina)[0]
-    assert text.startswith("<Casual Disaster> (A) · chill guild"), text
-    assert "raids Thursday 19:30" in text and "especially after Holy Paladin, Restoration Druid" in text, text
-    assert "Main team" not in text                                  # the team is never named
-    assert text.endswith("/w Gina or any officer for a chat"), text
-    gina.eval("ns.RecruitMessage:SetSkipped('DRUID:4', true)")
-    assert "especially after Holy Paladin ·" in compose(gina)[0]
-    gina.eval("ns.RecruitMessage:SetTeam('none')")
-    t = compose(gina)[0]
-    assert "all classes welcome" in t and "raids " not in t, t
-    gina.eval("ns.RecruitMessage:SetText('who', 'friendly bunch'); ns.RecruitMessage:SetOn('tag', false)")
-    t = compose(gina)[0]
-    assert t.startswith("friendly bunch · "), t
-    gina.eval("ns.RecruitMessage:SetText('custom', string.rep('x', 150)); ns.RecruitMessage:SetOn('custom', true)")
-    res = compose(gina)
-    assert res[2] is True and res[1] > 255, res
+    assert gina.eval_py("return { ns.RecruitMessage:Compose() }")[0] is None       # nothing written yet
+    gina.eval("ns.RecruitMessage:SetText('<Casual Disaster> chill guild,\\nwe raid Thu + Sun. /w me!')")
+    res = gina.eval_py("return { ns.RecruitMessage:Compose() }")
+    assert res[0] == "<Casual Disaster> chill guild, we raid Thu + Sun. /w me!" and res[2] is False, res
+    gina.eval("ns.RecruitMessage:SetText(string.rep('x', 300))")
+    res = gina.eval_py("return { ns.RecruitMessage:Compose() }")
+    assert res[1] == 300 and res[2] is True, res
+    assert post(gina)["ok"] is False
     w.assert_no_errors()
 
 
 @case
-def posting_goes_to_my_channels_and_officers_take_turns():
+def places_each_with_their_own_interval():
+    w, c = guild()
+    gina = c["Gina"]
+    assert places(gina) == [("ch:trade", 60, True, True), ("ch:guildrecruitment", 60, True, True)], places(gina)
+    assert gina.eval_py("return { ns.RecruitMessage:AddPlace('YELL') }")[0] is True
+    assert gina.eval_py("return { ns.RecruitMessage:AddPlace('CHANNEL', 'General', 20) }")[0] is True
+    assert gina.eval_py("return { ns.RecruitMessage:AddPlace('CHANNEL', 'disasterhangout') }")[0] is True
+    assert gina.eval_py("return { ns.RecruitMessage:AddPlace('CHANNEL', 'trade') }")[0] is False     # already there
+    gina.eval("ns.RecruitMessage:SetPlace('ch:trade', { every = 45, city = false })")
+    gina.eval("ns.RecruitMessage:SetPlace('yell', { every = 0 }); ns.RecruitMessage:SetPlace('ch:general', { every = 9999 })")
+    gina.eval("ns.RecruitMessage:RemovePlace('ch:guildrecruitment')")
+    p = {x[0]: x for x in places(gina)}
+    assert p["ch:trade"] == ("ch:trade", 45, True, False), p
+    assert p["yell"][1] == 1 and p["yell"][3] is True, p                  # (Say / Yell: cities only at first)
+    assert p["ch:general"][1] == 720 and p["ch:general"][3] is False, p
+    assert "ch:guildrecruitment" not in p and "ch:disasterhangout" in p, p
+    w.assert_no_errors()
+
+
+@case
+def post_goes_where_it_can_and_says_where_it_couldnt():
     w, c = guild()
     gina, bob, cora = c["Gina"], c["Bob"], c["Cora"]
-    for x in (gina, bob):
-        x.eval(CHANNELS)
-    assert cora.eval_py("return { ns.RecruitMessage:Post() }")[0] is False
-    res = gina.eval_py("return { ns.RecruitMessage:Post() }")
-    assert res[0] is True and list(res[1].values() if isinstance(res[1], dict) else res[1]) == ["Trade", "LookingForGroup"], res
+    for x in (gina, cora):
+        x.eval("ns.RecruitMessage:SetText('Chill guild, /w me')")
+    gina.eval("ns.RecruitMessage:AddPlace('YELL'); ns.RecruitMessage:AddPlace('CHANNEL', 'General')")
+    assert post(cora)["ok"] is False                                        # a member can't
+    res = post(gina)
+    assert res["ok"] is True and lst(res["a"]) == ["Trade", "Yell", "General"], res
+    assert lst(res["b"]) == ["GuildRecruitment: you're not in GuildRecruitment"], res
     w.tick(3)
-    sent = [e for e in w.chat_log if e["chat_type"] == "CHANNEL"]
-    assert len(sent) == 2 and sent[0]["text"].startswith("<Casual Disaster>"), sent
-    # Bob heard the post: his next turn waits an hour after it; Cora (a member) heard nothing
-    assert bob.eval("return ns.RecruitMessage:LastPost() ~= nil") is True
-    assert bob.eval("return ns.RecruitMessage:NextDue() - GetServerTime() > 3500") is True
-    assert cora.eval("return #ns.RecruitMessage:GetPosts()") == 0
-    # the repeat: not ready before the hour, ready after
-    bob.eval("ns.RecruitMessage:SetRepeat(true)")
-    w.tick(10)
-    assert bob.eval("return ns.RecruitMessage:IsReady()") is False
-    w.tick(3600)
-    assert bob.eval("return ns.RecruitMessage:IsReady()") is True
+    kinds = [e["chat_type"] for e in w.chat_log if e["sender"].startswith("Gina")]
+    assert kinds == ["CHANNEL", "YELL", "CHANNEL"], kinds
+    # out of the city: Trade and Yell wait (cities only), General goes
+    gina.eval("__zone = 'Nagrand'")
+    res = post(gina)
+    assert lst(res["a"]) == ["General"], res
+    # Bob heard about the Trade post: Trade's turn waits for him, General's too
+    assert bob.eval("return ns.RecruitMessage:LastPost('ch:trade') ~= nil") is True
+    assert cora.eval("return ns.RecruitMessage:LastPost('ch:trade')") is None
+    w.assert_no_errors()
+
+
+@case
+def the_reminder_is_per_place():
+    w, c = guild()
+    gina = c["Gina"]
+    gina.eval("ns.RecruitMessage:SetText('Chill guild, /w me')")
+    gina.eval("ns.RecruitMessage:AddPlace('YELL', nil, 5); ns.RecruitMessage:SetPlace('ch:guildrecruitment', { on = false })")
+    post(gina)                                                               # Trade + Yell now
+    gina.eval("__due = nil; ns:On('RECRUIT_MSG_READY', function(d) __due = d end); ns.RecruitMessage:SetRepeat(true)")
+    w.tick(60)
+    gina.eval("ns.RecruitMessage:_Tick()")
+    assert gina.eval("return __due") is None
+    w.tick(5 * 60)
+    gina.eval("ns.RecruitMessage:_Tick()")
+    assert lst(gina.eval_py("return __due")) == ["yell"], gina.eval_py("return __due")
+    assert post(gina, ["yell"])["ok"] is True
+    w.tick(55 * 60)
+    gina.eval("ns.RecruitMessage:_Tick()")
+    assert lst(gina.eval_py("return ns.RecruitMessage:Ready()")) == ["ch:trade", "yell"], gina.eval_py("return ns.RecruitMessage:Ready()")
     w.assert_no_errors()
 
 
@@ -93,8 +134,8 @@ def posting_goes_to_my_channels_and_officers_take_turns():
 def lately_counts_posts_and_who_whispered_after_one():
     w, c = guild()
     gina = c["Gina"]
-    gina.eval(CHANNELS)
-    gina.eval("ns.RecruitMessage:Post()")
+    gina.eval("ns.RecruitMessage:SetText('Chill guild, /w me')")
+    post(gina)
     w.tick(600)
     gina.eval("ns.Recruit:Add('Aurelith-Thunderstrike', { c = 'PALADIN', src = 'whisper' })")
     gina.eval("ns.Recruit:Add('Thalric-Thunderstrike', { c = 'WARRIOR', src = 'intro' })")
