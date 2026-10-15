@@ -153,6 +153,8 @@ function M3:Create(canvas)
         return nil
     end
     self.R = self.view.room
+    -- (a moving camera sees the room at twice the texture error, about half the pieces; full detail once it stops)
+    if self.R then self.R.SetOpts({ moveCoarse = 2 }) end
     self.actorPool[1] = self.view.probe
     -- the camera orbits a point on the floor (riding up to eye height all the way in); decision D6: the board keeps
     -- its own feel, a wheel notch 0.82 that zooms on from where a move is going, the distance easing in its logarithm
@@ -2113,6 +2115,7 @@ function V:Draw()
     self.remoteNow = remote
     self.measured = ok and self.view:DrawFrame(occ, n, self.drawLines, si, self.standinGaps) or false
     self.remoteNow = nil
+    if R.Settling and R.Settling() then self.dirty = true end      -- (the full detail, once the camera rests)
     self:DrawPlates(remote)
     self:DrawHud()
 end

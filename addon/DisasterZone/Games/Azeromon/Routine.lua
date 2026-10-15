@@ -526,3 +526,104 @@ function R.Update(self, dt)
     end
     return now
 end
+
+---------------------------------------------------------------------------
+-- Who's where (asked of an innkeeper): everyone in a town, what they're doing, where, and their day
+---------------------------------------------------------------------------
+
+-- The rooms that aren't maps: someone's house without an inside
+R.HOME_NAMES = { darkshirehall = "the town hall", lakeshirehall = "the town hall" }
+
+-- The kind of each stretch of a day, for the bar: "w" at work (an act), "o" out in town, "p" on patrol (a lantern),
+-- "i" indoors, "a" out of town, "k" walking between.
+local function SegKind(def, seg)
+    if seg.inside or seg.enter then return "i" end
+    if seg.away then return "a" end
+    if seg.loop then return def.lantern and "p" or "o" end
+    return seg.act and "w" or "o"
+end
+
+-- The day as bar pieces { from, to, kind } in minutes (0 - 1440), a stretch past midnight split in two.
+function R.DayBar(def)
+    local rt = R.Of(def)
+    local out = {}
+    local function add(a, b, kind)
+        if b <= a then return end
+        if a >= 1440 then a, b = a - 1440, b - 1440 end
+        if b > 1440 then
+            out[#out + 1] = { a, 1440, kind }
+            out[#out + 1] = { 0, b - 1440, kind }
+        else
+            out[#out + 1] = { a, b, kind }
+        end
+    end
+    for _, seg in ipairs(rt and rt.segs or {}) do
+        local from, to = seg.t, seg.t + seg.dur / 60
+        local walk = (seg.tiles and #seg.tiles > 1) and math.max(seg.total / 60, 8) or 0     -- (at least visible)
+        if walk > 0 then
+            add(from, math.min(to, from + walk), "k")
+            from = math.min(to, from + walk)
+        end
+        add(from, to, SegKind(def, seg))
+    end
+    return out
+end
+
+-- Where someone is now, in words: a room's name, "out of town", or the town itself.
+local function Where(st, town)
+    if st.away then return "Out of town" end
+    local room = st.inside
+    if room then
+        local def = Maps[room]
+        return R.HOME_NAMES[room] and ("At home in " .. R.HOME_NAMES[room]) or (type(def) == "table" and def.name) or "Indoors"
+    end
+    local def = Maps[town]
+    return type(def) == "table" and ("Out in " .. def.name) or "Out and about"
+end
+
+-- Everyone keeping a routine in a town: { def, name, tint, label, where, inside, away, bar }, in the map's order.
+function R.Town(town, now)
+    now = now or R.Now()
+    local out = {}
+    for _, p in ipairs(R.People()) do
+        if p.map == town then
+            local st = R.State(p.def, now) or {}
+            out[#out + 1] = { def = p.def, name = G.NpcName(p.def) or p.def.name or "?", tint = p.def.tint,
+                              label = st.label or "", where = Where(st, town), inside = st.inside, away = st.away,
+                              bar = R.DayBar(p.def) }
+        end
+    end
+    local order = {}
+    for i, n in ipairs(Maps[town] and Maps[town].npcs or {}) do order[n] = i end
+    table.sort(out, function(a, b) return (order[a.def] or 0) < (order[b.def] or 0) end)
+    return out
+end
+
+-- What the innkeeper says about someone (`room`: the innkeeper's own room).
+function R.Answer(e, room)
+    if e.inside and e.inside == room then return string.format("%s? Right over there. %s.", e.name, e.label) end
+    if e.away then return string.format("%s? %s. Back by evening, usually.", e.name, e.label) end
+    return string.format("%s? %s, last I saw.", e.name, e.label)
+end
+
+-- "Anyone seen...?": the town's page (UI.lua, pending kind "whoswhere"); a pick, and the innkeeper says where.
+function G:WhosWhere(town, keeper)
+    local list = R.Town(town)
+    if #list == 0 then
+        self:Say(keeper .. ": Quiet around here. Nobody comes or goes much.")
+        return
+    end
+    local pick = self:Wait({ kind = "whoswhere", town = town, keeper = keeper, list = list, now = R.Now() })
+    if pick and list[pick] then self:Say(keeper .. ": " .. R.Answer(list[pick], self.map and self.map.id)) end
+end
+
+-- An innkeeper's question (rest?) with "Anyone seen...?" in the middle when their town keeps a day; true = rest.
+function G:InnChoice(keeper, town, question)
+    if #R.Town(town) == 0 then return self:YesNo(question) end
+    local pick = self:Choose(question, { "Yes, please", "Anyone seen...?", "No, thanks" })
+    if pick == 2 then
+        self:WhosWhere(town, keeper)
+        return false, true
+    end
+    return pick == 1
+end

@@ -105,7 +105,7 @@ local MARGIN = 2                  -- px: the frustum is this much bigger than th
 local CTL = { start = 2.0, min = 1.5, max = 5.0, merge = 0.75, target = 2000, cap = 3200, tau = 2.0, used = 2.0,
               limit = 10.0, midCap = 16384, texBudget = 20000, epoch = 0,
               targetMin = 900, targetMax = 2800, targetMs = 6.0, over = 0, under = 0,
-              selfEvery = 30, selfPx = 1.5, selfRun = 10 }
+              selfEvery = 30, selfPx = 1.5, selfRun = 10, settle = 0.12, coarse = false, movedAt = 0 }
 local MAXDEPTH = 18               -- halvings of one prim at most
 local MINCLIP2 = 0.05 * 0.05      -- a piece crossing the near plane is halved until its longest edge is under this
 local EPS_SIDE = 1e-4             -- a node seen exactly edge-on draws nothing
@@ -618,6 +618,8 @@ function Room.BeginFrame(c)
     if haveBasis and x == k[1] and y == k[2] and z == k[3] and fx == k[4] and fy == k[5] and fz == k[6]
         and w == k[7] and h == k[8] and s == k[9] then
         camMoved, camDriven = dirty, false
+        -- (the last redraw was coarse, the camera moving: once it has stood still CTL.settle s, the full detail)
+        if CTL.coarse and not dirty and GetTime() - CTL.movedAt >= CTL.settle then camMoved = true end
         return true
     end
     local flat = sqrt(fx * fx + fy * fy)
@@ -1283,6 +1285,11 @@ local function Pass2()
     -- controller's rise would buy nothing for frames.
     local lastTau, t = C.used, C.tau
     local adaptive = not fixed and o.adaptive ~= false
+    -- While the camera moves (opts.moveCoarse, a factor: the strategy board), tau times that factor: the room in half
+    -- the pieces while it slides by; BeginFrame redraws it at tau once the camera stands still (Room.Settling).
+    local mc = tonumber(o.moveCoarse)
+    C.coarse = camDriven and adaptive and mc ~= nil and mc > 1
+    if C.coarse then t = math.min(C.limit, t * mc) end
     while true do
         wipe(splitCur)
         nLeaves, nClipped, nCapped, nTmp = 0, 0, 0, 0
@@ -1292,7 +1299,7 @@ local function Pass2()
         Collect()
         if not aborted then break end
         t = math.min(C.limit, t * 1.25)
-        C.tau = math.min(C.max, t)
+        if not C.coarse then C.tau = math.min(C.max, t) end           -- (a coarse redraw leaves tau as it is)
         stats.redone = stats.redone + 1
         gen = gen + 1                                                  -- (the morph depends on tau: prepare again)
     end
@@ -1325,11 +1332,17 @@ function Room.DrawRoom()
         C.t0 = debugprofilestop()                                     -- (StopClock, at the end of DrawCopies)
     end
     C.epoch = C.epoch + 1
+    local settling = C.coarse and not camDriven                        -- (BeginFrame: the camera came to rest)
     Pass1()
     Pass2()
-    if camDriven and type(o.tau) ~= "number" and o.adaptive ~= false then
+    if C.coarse then C.movedAt = GetTime() end
+    -- (the count controller rises only on redraws at tau - the camera's own, or the one after a coarse run -; a
+    -- coarse one, about 1 / moveCoarse of the pieces, may only let it sink)
+    if (camDriven or settling) and type(o.tau) ~= "number" and o.adaptive ~= false then
         local target, t = tonumber(o.target) or C.target, C.tau
-        if nLeaves > 0.95 * hardCap then
+        if C.coarse then
+            if nLeaves * tonumber(o.moveCoarse) < 0.8 * target then t = t * 0.97 end
+        elseif nLeaves > 0.95 * hardCap then
             t = t * 1.25
         elseif nLeaves > 1.1 * target then
             t = t * math.min(1.25, max(1.08, nLeaves / (1.1 * target)))
@@ -2967,6 +2980,7 @@ function Room.Clear()
     wipe(splitPrev)
     wipe(splitCur)
     dirty, forceOrder = true, true
+    CTL.coarse = false
     camKey[1] = nil
     if Room.HideCopies then Room.HideCopies() end
 end
@@ -3054,6 +3068,10 @@ function Room.Stats()
 end
 
 function Room.ShownTextures() return nLive end
+
+-- True while the picture on screen is the coarse one of a moving camera (opts.moveCoarse): the caller draws again
+-- (BeginFrame then redraws it at full detail once the camera has stood still CTL.settle s).
+function Room.Settling() return CTL.coarse end
 
 -- Tests: the room's textures on screen by texture file (file ID -> how many).
 function Room._FileCounts()

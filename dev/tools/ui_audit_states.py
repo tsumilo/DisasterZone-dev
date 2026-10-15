@@ -426,6 +426,23 @@ def azero_menu(hour):
     return fn
 
 
+def azero_whos(town, room, x, y, keeper, hour=19.7):
+    """an innkeeper's who's-where page (Routine.lua G:WhosWhere) for `town`, asked in `room` at `hour`"""
+    def fn(w, c):
+        g = azero_at(room, x, y, "ns.AzeroUI.tipsOff = true")(w, c)
+        for _ in range(6):                                 # a tip from before tipsOff: read it away
+            st = g.eval_py("return ns.AzeroUI._State()")
+            if not st.get("msg") and not st.get("text") and not st.get("stack"):
+                break
+            g.eval("ns.AzeroUI._HandleKey('%s')" % ('B' if st.get("stack") else 'A'))
+            w.tick(0.6)
+        g.eval("ns.Azero.clockHour = %r ns.Azero:Run(function(g) g:WhosWhere(%r, %r) end) ns.AzeroUI._Focus(true)"
+               % (hour, town, keeper))
+        w.tick(0.3)
+        return g
+    return fn
+
+
 def azero_poster(shot, t=3):
     """The Games hub with Azeromon's poster in front, its film (Games/Azeromon/Poster.lua) t s into shot `shot`"""
     seek = ("ns.GamesUI:ShowFront('azeromon') ns.GamesUI:PauseAnim(true) "
@@ -1908,6 +1925,8 @@ STATES = [
     ("Games - Azeromon guild statue finished", azero_at("town", 24, 12, "ns.AzeroUI.tipsOff = true local d = ns.Azero:Data() d.lastSeen = { X = { m = 'town', x = 21, y = 16, t = GetServerTime() - 3 * 3600, n = 'Thandor', c = 'MAGE', r = 2 } }  ns.AzeroBounty.Tier = function() return 3 end ns.Azero:EnterMap('town', 24, 12, 'down', true)")),
     ("Games - Azeromon chat log and bubble", azero_at("town", 14, 12, "ns.AzeroUI.tipsOff = true local C = ns.AzeroChat C._Reset() C:Show('k1', 'Grakk', 'westfall', 'anyone up for the Deadmines run tonight?') C:Show('k2', 'Morwenna', 'darkshire', nil, 'dance') C:Show('k3', 'Kael', 'darkshire', 'need a hand with Stitches, anyone? he hits like a cart full of bricks') C:System('Emotes: /wave, /dance, /cheer, /sit') C:Show('me', 'Tsumil', 'town', 'on my way, just fishing first', nil, true)")),
     ("Games - Azeromon chat line open", azero_at("town", 14, 12, "ns.AzeroUI.tipsOff = true local C = ns.AzeroChat C._Reset() C:Show('k1', 'Grakk', 'westfall', 'anyone up for the Deadmines run tonight?') C:Show('k2', 'Morwenna', 'darkshire', nil, 'dance') C:Show('k3', 'Kael', 'darkshire', 'need a hand with Stitches, anyone? he hits like a cart full of bricks') C:System('Emotes: /wave, /dance, /cheer, /sit') C:Show('me', 'Tsumil', 'town', 'on my way, just fishing first', nil, true) ns.AzeroUI._HandleKey('CHAT') ns.AzeroUI._ChatBox().eb:SetText('hello Goldshire!')")),
+    ("Games - Azeromon whos where", azero_whos("town", "post", 2, 3, "Innkeeper Farley")),
+    ("Games - Azeromon whos where Sentinel Hill", azero_whos("sentinel", "sentinelinn", 4, 5, "Innkeeper Heather", 12)),
     ("Games - Azeromon fishing reel", azero_at("town", 28, 14, "ns.AzeroUI.tipsOff = true ns.Azero:EnterMap('town', 28, 14, 'right', true) ns.Azero:Run(function(g) g:Wait({ kind = 'reel', t = 1.1, hits = 1, misses = 0, beast = true, sweep = 0.97, zone = 0.19 }) end)")),
     ("Games - Azeromon fishing line out", azero_at("town", 28, 14, "ns.Azero.save.prof = { fishing = 1 } ns.Azero.save.bag.fishingpole = 1 ns.Azero:EnterMap('town', 28, 14, 'right', true) ns.AzeroFish.rng = function(a) return 60 end ns.Azero:PressA()")),
     ("Games - Azeromon fishing bite", azero_at("town", 28, 14, "ns.Azero.save.prof = { fishing = 1 } ns.Azero.save.bag.fishingpole = 1 ns.Azero:EnterMap('town', 28, 14, 'right', true) ns.AzeroFish.rng = function(a) return 60 end ns.Azero:PressA() ns.Azero.pending.t = 6.3 ns.Azero.pending.biting = true")),

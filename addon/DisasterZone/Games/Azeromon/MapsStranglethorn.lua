@@ -714,7 +714,7 @@ Maps.bootybayinn = {
         { id = "nixxrax", name = "Nixxrax Fillamug", role = "inn", x = 2, y = 2, sprite = "bald", tint = { 0.6, 0.85, 0.5 }, face = "down",
           script = function(G)
               G:Say("Nixxrax Fillamug: Welcome to the Salty Sailor! Rooms upstairs, rum downstairs, and I don't ask questions.")
-              if G:YesNo("Nixxrax Fillamug: Let your beasts rest here?") then
+              if G:InnChoice("Nixxrax Fillamug", "bootybay", "Nixxrax Fillamug: Let your beasts rest here?") then
                   G:HealParty()
                   G:SetRespawn("bootybayinn", 4, 5, "up", "Booty Bay")
                   G:Say("Nixxrax Fillamug: All patched up. Try the rum.")

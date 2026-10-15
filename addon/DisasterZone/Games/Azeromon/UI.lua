@@ -4549,6 +4549,9 @@ local function SyncPending()
     elseif p.kind == "netwait" then
         SetText(p.text, { lines = 3 })
         text.shown = 999
+    elseif p.kind == "whoswhere" then
+        ClearText()
+        KH.OpenWhos(p)
     elseif UI.screens[p.kind] then          -- a screen from another UI file (UI:RegisterScreen)
         ClearText()
         UI.screens[p.kind](p)
@@ -4665,6 +4668,7 @@ function KH.KeyContext()
         if p.kind == "evolve" then return "evolve" end
         if p.kind == "fish" then return "fish" end
         if p.kind == "reel" then return "reel" end
+        if p.kind == "whoswhere" then return "whos" end
         return nil
     end
     return "world"
@@ -5351,6 +5355,170 @@ function KH.DrawReel()
     box:Show()
 end
 
+-- Who's where (Routine.lua, pending kind "whoswhere", from an innkeeper's "Anyone seen...?"): everyone in the town,
+-- what they're doing, where, and their day as a 24 h bar with the time now on it. Up / down picks, Space asks the
+-- innkeeper about them, X goes back.
+KH.WHOS_COLORS = { w = { 0.85, 0.66, 0.23 }, o = { 0.47, 0.69, 0.29 }, k = { 0.95, 0.93, 0.89 }, i = { 0.42, 0.5, 0.65 },
+                   p = { 0.24, 0.35, 0.53 }, a = { 0.73, 0.7, 0.62 } }
+KH.WHOS_LEGEND = { { "w", "Working" }, { "o", "Out and about" }, { "k", "Walking" }, { "i", "Indoors" }, { "p", "Patrol" },
+                   { "a", "Away" } }
+KH.WHOS_ROW, KH.WHOS_NAME, KH.WHOS_NOW = 29, 172, 190
+
+function KH.BuildWhos()
+    local f = Box(screen, SW - 16, SH - 16, screen:GetFrameLevel() + 70)
+    f:SetPoint("CENTER")
+    f.title = Font(f, 15, nil, true)
+    f.title:SetPoint("TOPLEFT", 16, -13)
+    f.clock = Font(f, 12)
+    f.clock:SetPoint("TOPRIGHT", -16, -15)
+    f.clock:SetJustifyH("RIGHT")
+    f.rows = {}
+    f.barX = 16 + KH.WHOS_NAME + KH.WHOS_NOW + 8
+    f.barW = (SW - 16) - f.barX - 18
+    f.legend = {}
+    for i, l in ipairs(KH.WHOS_LEGEND) do
+        local sw = Tex(f, "ARTWORK", 1)
+        sw:SetSize(10, 9)
+        local c = KH.WHOS_COLORS[l[1]]
+        sw:SetColorTexture(c[1], c[2], c[3], 1)
+        local fs = Font(f, 10)
+        fs:SetText(l[2])
+        fs:SetPoint("LEFT", sw, "RIGHT", 4, 0)
+        f.legend[i] = { sw = sw, fs = fs }
+    end
+    f.keys = Font(f, 10)
+    f.keys:SetPoint("BOTTOMLEFT", 16, 10)
+    f.keys:SetText("Up / Down: pick     Space: ask where they are     X: back")
+    f.ticks = {}
+    for i = 0, 4 do
+        local fs = Font(f, 9)
+        fs:SetText(tostring(i * 6))
+        f.ticks[i] = fs
+    end
+    f:Hide()
+    R.whos = f
+    return f
+end
+
+function KH.WhosRow(f, i)
+    local r = f.rows[i]
+    if r then return r end
+    r = {}
+    r.hi = Tex(f, "BACKGROUND", 5)
+    r.hi:SetColorTexture(0.91, 0.87, 0.77, 1)
+    r.hi:SetSize(SW - 16 - 20, KH.WHOS_ROW - 2)
+    r.dot = Tex(f, "ARTWORK", 2)
+    r.dot:SetSize(10, 10)
+    r.name = Font(f, 12, nil, true)
+    r.now = Font(f, 10)
+    r.now:SetWidth(KH.WHOS_NOW)
+    r.now:SetWordWrap(false)
+    r.where = Font(f, 9)
+    r.where:SetTextColor(0.54, 0.43, 0.12)
+    r.track = Tex(f, "ARTWORK", 0)
+    r.track:SetColorTexture(0.86, 0.84, 0.78, 1)
+    r.track:SetSize(f.barW, 12)
+    r.segs = {}
+    r.nowl = Tex(f, "ARTWORK", 4)
+    r.nowl:SetColorTexture(0.75, 0.22, 0.17, 1)
+    r.nowl:SetSize(2, 16)
+    f.rows[i] = r
+    return r
+end
+
+function KH.DrawWhos()
+    local f, p = R.whos, G.pending
+    if not (f and p and p.kind == "whoswhere") then return end
+    local town = ns.AzeroMaps[p.town]
+    f.title:SetText(string.format("WHO'S WHERE  -  %s", string.upper(town and town.name or p.town)))
+    local mins = floor(p.now or 0)
+    f.clock:SetText(string.format("%02d:%02d  %s", floor(mins / 60), mins % 60, G:Period()))
+    local top = -40
+    for i, e in ipairs(p.list) do
+        local r = KH.WhosRow(f, i)
+        local y = top - (i - 1) * KH.WHOS_ROW
+        r.hi:ClearAllPoints()
+        r.hi:SetPoint("TOPLEFT", f, "TOPLEFT", 10, y + 2)
+        r.hi:SetShown(i == f.sel)
+        local t = e.tint or { 1, 1, 1 }
+        r.dot:SetColorTexture(t[1], t[2], t[3], 1)
+        r.dot:ClearAllPoints()
+        r.dot:SetPoint("TOPLEFT", f, "TOPLEFT", 16, y - 7)
+        r.name:SetText(e.name)
+        r.name:ClearAllPoints()
+        r.name:SetPoint("TOPLEFT", f, "TOPLEFT", 31, y - 4)
+        r.now:SetText(e.label)
+        r.now:ClearAllPoints()
+        r.now:SetPoint("TOPLEFT", f, "TOPLEFT", 16 + KH.WHOS_NAME, y - 1)
+        r.where:SetText(e.where)
+        r.where:ClearAllPoints()
+        r.where:SetPoint("TOPLEFT", r.now, "BOTTOMLEFT", 0, -1)
+        r.track:ClearAllPoints()
+        r.track:SetPoint("TOPLEFT", f, "TOPLEFT", f.barX, y - 7)
+        for k, piece in ipairs(e.bar) do
+            local s = r.segs[k]
+            if not s then
+                s = Tex(f, "ARTWORK", 1)
+                r.segs[k] = s
+            end
+            local c = KH.WHOS_COLORS[piece[3]] or KH.WHOS_COLORS.o
+            s:SetColorTexture(c[1], c[2], c[3], 1)
+            s:ClearAllPoints()
+            s:SetPoint("TOPLEFT", r.track, "TOPLEFT", piece[1] / 1440 * f.barW, 0)
+            s:SetSize(max(1, (piece[2] - piece[1]) / 1440 * f.barW), 12)
+            s:Show()
+        end
+        for k = #e.bar + 1, #r.segs do r.segs[k]:Hide() end
+        r.nowl:ClearAllPoints()
+        r.nowl:SetPoint("CENTER", r.track, "LEFT", (p.now or 0) / 1440 * f.barW, 0)
+        for _, w in ipairs({ r.dot, r.name, r.now, r.where, r.track, r.nowl }) do w:Show() end
+    end
+    for i = #p.list + 1, #f.rows do
+        local r = f.rows[i]
+        for _, w in ipairs({ r.hi, r.dot, r.name, r.now, r.where, r.track, r.nowl }) do w:Hide() end
+        for _, s in ipairs(r.segs) do s:Hide() end
+    end
+    -- the hours under the bars, then the legend
+    local by = top - #p.list * KH.WHOS_ROW - 2
+    for i = 0, 4 do
+        f.ticks[i]:ClearAllPoints()
+        f.ticks[i]:SetPoint("TOP", f, "TOPLEFT", f.barX + i / 4 * f.barW, by)
+    end
+    local x = 16
+    for _, l in ipairs(f.legend) do
+        l.sw:ClearAllPoints()
+        l.sw:SetPoint("TOPLEFT", f, "TOPLEFT", x, by - 18)
+        x = x + 10 + 4 + floor(TextWidth(l.fs:GetText(), 10)) + 16
+    end
+end
+
+function KH.OpenWhos(p)
+    local f = R.whos or KH.BuildWhos()
+    f.sel = 1
+    f:Show()
+    ns.AzeroSound:Play("book")
+    KH.DrawWhos()
+end
+
+-- Keys on the page: up / down pick someone, Space asks, X / back closes.
+function KH.WhosKey(key)
+    local f, p = R.whos, G.pending
+    if not (f and p) then return end
+    if key == "up" or key == "down" then
+        f.sel = (f.sel - 1 + (key == "down" and 1 or -1)) % #p.list + 1
+        ns.AzeroSound:Play("cursor")
+        KH.DrawWhos()
+    elseif key == "A" then
+        f:Hide()
+        ns.AzeroSound:Play("select")
+        G:Advance(f.sel)
+    elseif key == "B" then
+        f:Hide()
+        ns.AzeroSound:Play("back")
+        G:Advance(nil)
+    end
+end
+
 -- One log line as shown: [Place] Name: text (mine gold, others white-blue, the game's notes grey).
 function KH.ChatLine(l)
     if l.system then return "|cffa8a8b0" .. l.text .. "|r" end
@@ -5472,6 +5640,8 @@ local function HandleKey(key)
             ns.AzeroFish:Key(G, p, key)
         elseif p.kind == "reel" then
             ns.AzeroFish:ReelKey(G, p, key)
+        elseif p.kind == "whoswhere" then
+            KH.WhosKey(key)
         end
         return
     end
@@ -6328,6 +6498,15 @@ function UI:RegisterScreen(kind, fn) UI.screens[kind] = fn end
 -- For tests
 UI._HandleKey = function(k) HandleKey(k) end
 UI._ChatBox = function() return R.chatBox end
+UI._Whos = function()
+    local f = R.whos
+    if not (f and f:IsShown()) then return nil end
+    local rows = {}
+    for _, r in ipairs(f.rows) do
+        if r.name:IsShown() then rows[#rows + 1] = { r.name:GetText(), r.now:GetText(), r.where:GetText() } end
+    end
+    return { title = f.title:GetText(), sel = f.sel, rows = rows }
+end
 UI._Reel = function()
     local b = R.reel
     return b and b:IsShown() and { title = b.title:GetText() } or nil

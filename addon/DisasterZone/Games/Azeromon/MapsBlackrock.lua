@@ -256,7 +256,7 @@ Maps.lakeshireinn = {
         { id = "brianna", name = "Innkeeper Brianna", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.82, 0.68 }, face = "down",
           script = function(G)
               G:Say("Innkeeper Brianna: Welcome to the Lakeshire Inn. The view of the lake is free; the beds aren't, but for you they are.")
-              if G:YesNo("Innkeeper Brianna: Let your beasts rest here?") then
+              if G:InnChoice("Innkeeper Brianna", "lakeshire", "Innkeeper Brianna: Let your beasts rest here?") then
                   G:HealParty()
                   G:SetRespawn("lakeshireinn", 4, 5, "up", "Lakeshire")
                   G:Say("Innkeeper Brianna: There. Rested, and a bed kept for you.")

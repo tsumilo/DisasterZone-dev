@@ -414,7 +414,7 @@ Maps.post = {
           script = function(G)
               G:Say("Innkeeper Farley: Welcome to the Lion's Pride Inn!")
               G:ClassSay("farley")
-              if G:YesNo("Innkeeper Farley: Shall I give your beasts a warm meal and a place by the fire?") then
+              if G:InnChoice("Innkeeper Farley", "town", "Innkeeper Farley: Shall I give your beasts a warm meal and a place by the fire?") then
                   G:HealParty()
                   G:SetRespawn("post", 5, 4, "up", "the Lion's Pride Inn")
                   G:Say("Innkeeper Farley: Your beasts are fighting fit! Come back anytime.")
@@ -817,7 +817,7 @@ Maps.sentinel = {
         { x = 19, y = 10, cond = function(G) return not G:Flag("badge_vancleef") end, script = function(G) G:DuskwoodGate() end },
     },
     stamps = {
-        { kind = "stonehouse", x = 2, y = 3 },              -- the inn, door (5, 8)
+        { kind = "stonehouse", x = 2, y = 3, inn = "sentinelinn" },              -- the inn, door (5, 8)
         { kind = "stonehouse", x = 12, y = 3 },             -- militia barracks, door (15, 8)
         { kind = "wbigtree", x = 8, y = 1 },
     },
@@ -892,7 +892,55 @@ Maps.sentinel = {
                   G:DuskwoodGate()
               end
           end },
+        -- Sentinel Hill's day (Routine.lua): the trade vendor by the inn, a militia footman on the road, a refugee
+        { id = "hewen", name = "Christopher Hewen", x = 8, y = 8, sprite = "bald", tint = { 0.9, 0.85, 0.7 }, face = "down",
+          day = {
+              { "00:00", inside = "sentinelinn", label = "Asleep at the inn" },
+              { "08:00", path = { { 5, 8 }, { 5, 9 }, { 8, 9 }, { 8, 8 } }, face = "down", label = "Selling by the bounty board",
+                walk = "Setting up his stall" },
+              { "20:00", path = { { 8, 8 }, { 8, 9 }, { 5, 9 }, { 5, 8 } }, enter = "sentinelinn", label = "Supper at the inn",
+                walk = "Packing up" },
+          },
+          says = { { "09:00", "Thread, flour, lamp oil! Everything a farmer's lost!" } },
+          script = function(G)
+              G:Say("Christopher Hewen: Trade supplies, for whoever the Defias left anything to trade.")
+              G:Shop("Christopher Hewen")
+              G:Say("Christopher Hewen: Mind the road west. They watch it.")
+          end },
+        { id = "footman", name = "Militia Footman", x = 5, y = 9, sprite = "hero", tint = { 0.75, 0.8, 0.95 }, face = "down",
+          day = {
+              { "00:00", inside = "sentinelinn", label = "Asleep at the inn" },
+              { "07:00", path = { { 5, 8 }, { 5, 9 } }, label = "On the road", walk = "Reporting for duty" },
+              { "07:02", loop = { { 5, 9 }, { 18, 9 }, { 18, 10 }, { 1, 10 }, { 1, 9 }, { 5, 9 } }, label = "Walking the road" },
+              { "19:00", path = { { 5, 9 }, { 5, 8 } }, enter = "sentinelinn", label = "Off duty at the inn", walk = "Off duty" },
+          },
+          says = { { "12:00", "Gryan says the Defias are gathering at Moonbrook." } },
+          script = function(G)
+              G:Say("Militia Footman: The People's Militia keeps this road. Farmers first, then everyone else.")
+          end },
+        { id = "refugee", name = "Mara", x = 9, y = 14, sprite = "girl", tint = { 0.95, 0.85, 0.75 }, face = "down",
+          day = {
+              { "00:00", inside = "sentinelinn", label = "Staying the night" },
+              { "07:30", path = { { 5, 8 }, { 5, 9 }, { 9, 9 }, { 9, 15 } }, away = true, label = "Gone to her farm",
+                walk = "Off to the fields" },
+              { "18:00", path = { { 9, 15 }, { 9, 9 }, { 5, 9 }, { 5, 8 } }, enter = "sentinelinn", label = "Staying the night",
+                walk = "Back from the fields" },
+          },
+          says = { { "18:20", "The Defias burned the barn again." } },
+          script = function(G)
+              G:Say("Mara: We used to farm south of here. Now we farm by day and sleep behind the militia's walls.")
+          end },
         { id = "danuvin", name = "Captain Danuvin", x = 4, y = 12, sprite = "bald", tint = { 0.65, 0.7, 1 }, face = "right",
+          lantern = true,
+          -- drills the militia by the south road by day; walks the crossroads all night with a lantern
+          day = {
+              { "00:00", loop = { { 4, 10 }, { 18, 10 }, { 18, 9 }, { 1, 9 }, { 1, 10 }, { 4, 10 } }, label = "Night patrol" },
+              { "06:00", path = { { 4, 10 }, { 4, 12 } }, face = "right", label = "Drilling the militia",
+                walk = "Off to the drill yard" },
+              { "20:20", path = { { 4, 12 }, { 4, 10 } }, label = "On watch", walk = "Starting the night watch" },
+              { "20:30", loop = { { 4, 10 }, { 18, 10 }, { 18, 9 }, { 1, 9 }, { 1, 10 }, { 4, 10 } }, label = "Night patrol" },
+          },
+          says = { { "07:00", "Shields up! Again!" }, { "23:00", "Quiet tonight. Too quiet." } },
           script = function(G)
               G:Say("Captain Danuvin: The Defias grow bolder every day. Keep your beasts close on the road.")
           end },
@@ -901,6 +949,8 @@ Maps.sentinel = {
 
 Maps.sentinelinn = {
     name = "Sentinel Hill Inn",
+    -- daily routines (Routine.lua): whoever's day has them in here sits at these
+    seats = { { 1, 4, "up" }, { 3, 4, "up" }, { 6, 4, "up" }, { 8, 4, "up" } },
     music = "tavern",
     rows = {
         "WWWWWWWWWW",
@@ -917,7 +967,7 @@ Maps.sentinelinn = {
         { id = "heather", name = "Innkeeper Heather", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.85, 0.7 }, face = "down",
           script = function(G)
               G:Say("Innkeeper Heather: Welcome to Sentinel Hill! It's not Stormwind, but the beds are warm.")
-              if G:YesNo("Innkeeper Heather: Let your beasts rest here?") then
+              if G:InnChoice("Innkeeper Heather", "sentinel", "Innkeeper Heather: Let your beasts rest here?") then
                   G:HealParty()
                   G:SetRespawn("sentinelinn", 4, 5, "up", "Sentinel Hill")
                   G:Say("Innkeeper Heather: All rested! I'll keep a bed for you, should you come back in a hurry.")
@@ -1519,7 +1569,7 @@ Maps.darkshireinn = {
         { id = "trelayne", name = "Innkeeper Trelayne", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 0.95, 0.8, 0.75 }, face = "down",
           script = function(G)
               G:Say("Innkeeper Trelayne: Welcome to the Scarlet Raven. Warm beds, and the doors lock at night.")
-              if G:YesNo("Innkeeper Trelayne: Let your beasts rest here?") then
+              if G:InnChoice("Innkeeper Trelayne", "darkshire", "Innkeeper Trelayne: Let your beasts rest here?") then
                   G:HealParty()
                   G:SetRespawn("darkshireinn", 4, 5, "up", "Darkshire")
                   G:Say("Innkeeper Trelayne: There. Rested, and safe behind the Watch's walls.")

@@ -16,6 +16,8 @@ ns.AzeroChangelog = {
           "Wind in the trees by the forest's edge; frogs at the pond.",
           "By a busy inn's door, the lute inside drifts out.",
           "Big catches fight back: reel them in on a timing bar.",
+          "Sentinel Hill keeps a daily routine too.",
+          "Ask an innkeeper \"Anyone seen...?\" to see who's where.",
       } },
     { version = "0.30", date = "15 October 2026", title = "The guild in town",
       lines = {
