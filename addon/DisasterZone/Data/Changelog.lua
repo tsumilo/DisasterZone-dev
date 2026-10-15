@@ -79,6 +79,7 @@ ns.CHANGELOG = {
           } },
           { heading = "New ranks onto your bars", area = "look", kind = "new", open = "settings/looks",
             lead = "Learn a new rank and it takes the old one's place on your action bars.", lines = {
+              { "A new rank replaces the old one on your bars as soon as you learn it.", fb = { 23 }, by = { "Vicnado" }, k = "idea" },
               "Every bar and page, stance and form bars too; macros are left alone.",
               "Only your best rank moves up: a lower rank kept for down-ranking stays.",
               "In combat it waits for the fight to end.",
