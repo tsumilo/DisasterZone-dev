@@ -1099,22 +1099,13 @@ def paint(sealed=False, night=False):
         light(gx * 16 + 8, 5 * 16 - 2, 46, (255, 196, 120))
         block(gx, 5, gx, 5)
 
-    # --- the nave: carpet, rotunda mosaic, pillars with shadows and reflections
+    # --- the nave: carpet and the rotunda mosaic (the eight colossal pillars were taken out 2026-10-15: they stood in
+    # the way and made the layout hard to read)
     carpet(img, 16 * 16, 8 * 16 + 4, 64, 31 * 16 - 8 * 16 - 4)
     rcx, rcy, R = 18 * 16, 19 * 16 + 8, 76
     mosaic(img, rcx, rcy, R)
     plan["chandelier"] = {"x": rcx, "y": rcy}
     light(rcx, rcy, 120, (255, 214, 150), flick=1, kind="chandelier")
-    pil = pillar()
-    pillars = [(13, 11), (22, 11), (13, 27), (22, 27), (14, 15), (21, 15), (14, 24), (21, 24)]
-    for (px, py) in pillars:
-        long_shadow(img, px * 16 + 1, py * 16 + 16, 18, 40, k=0.7)
-        reflection(img, pil, px * 16 - 3, py * 16 + 16, depth=18)
-        contact(img, px * 16 + 8, py * 16 + 15.5, 11.5)
-        sprite("pillar", pil, px * 16 - 3, py * 16 + 16 - 64, foot=py * 16 + 15)
-        block(px, py, px, py)
-        plan["lights"].append({"x": px * 16 + 8, "y": py * 16 + 4, "r": 26, "c": [255, 180, 110], "wing": None,
-                               "f": 1, "k": "sconce"})
     # the chandelier's shadow ring on the floor by day
     plan["fx"].append({"type": "dust", "rect": [13 * 16, 5 * 16, 10 * 16, 16 * 16], "wing": None})
 

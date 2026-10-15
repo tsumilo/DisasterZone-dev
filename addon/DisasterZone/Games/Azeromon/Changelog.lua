@@ -13,6 +13,7 @@ ns.AzeroChangelog = {
           "A finished statue stands until next week's is done.",
           "Read its plaque for the goal and how far the guild is.",
           "A rune stone marks where a guildmate was last seen.",
+          "The Guild Hall's pillars are gone: the nave is open.",
       } },
     { version = "0.29", date = "15 October 2026", title = "Guild chat",
       lines = {

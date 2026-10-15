@@ -261,7 +261,7 @@ def the_hall_draws_its_seals_trophies_props_and_lights():
     w.tick(0.3)
     h = c.eval_py("return ns.AzeroUI._Hall()")
     assert len(h["seals"]) >= 4 and all("hideout_seal" in f and not f.endswith("e") for f in h["seals"]), h
-    assert h["trophies"] == 0 and h["props"] >= 6 and h["fires"] >= 2 and h["top"], h
+    assert h["trophies"] == 0 and h["props"] >= 3 and h["fires"] >= 2 and h["top"], h
     assert h["glows"] <= 1 and not h["dims"], h                       # (by day: no darkness, no glows)
     seed_kills(c)
     c.eval("ns.Azero.clockHour = 23 ns.Azero:EnterMap('hideout', 13, 10, 'left', true)")
@@ -270,8 +270,8 @@ def the_hall_draws_its_seals_trophies_props_and_lights():
     assert h["trophies"] == 1 and h["glows"] > 3 and h["dims"], h       # Prince on his plinth; night lights
     assert all(f.endswith("e") for f in h["seals"]) and not any(f.endswith("seal2e") for f in h["seals"]), h
     assert h["wing"] == "Karazhan", h
-    # a pillar south of the player stands in front of them
-    c.eval("ns.Azero:EnterMap('hideout', 13, 26, 'up', true)")
+    # a standing prop south of the player (the lectern) is in front of them
+    c.eval("ns.Azero:EnterMap('hideout', 32, 28, 'down', true)")
     w.tick(0.2)
     assert c.eval_py("return ns.AzeroUI._Hall()")["front"] >= 1
     no_errors(w)
