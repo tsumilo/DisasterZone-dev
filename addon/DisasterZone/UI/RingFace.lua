@@ -547,16 +547,25 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 local OH_FILL, OH_BRIGHT = { 0.81, 0.76, 0.63 }, { 0.98, 0.93, 0.78 }
 local GOLDLINE = { 1, 0.84, 0.42 }
+local RIM = { 1, 1, 1 }            -- (the glass light of older art)
 local HS_ICON = "Interface\\Icons\\Ability_Rogue_Ambush"
 
--- The globe's rim light: a short arc of strokes round its upper left, brightest in the middle (a tank: two edges).
-local function PlaceRim(gl, D)
+local FLUID = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\fluid"
+local GLASS_SHADE = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\glass_shade"
+local GLASS_SPEC = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\glass_spec"
+local TANK_SHADE = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\tank_shade"
+local TANK_SPEC = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\tank_spec"
+
+-- The globe's size changed: the flat rim light of older art (a short arc of strokes round its upper left, a tank: two
+-- edges). The baked glass fills the globe by itself.
+local function PlaceGlass(gl, D)
+    if not gl.rim then return end
     local n = #gl.rim
     if gl.square then
         local a, b = gl.rim[1], gl.rim[2]
         a:SetStartPoint("TOPLEFT", gl, 2, -2); a:SetEndPoint("TOPLEFT", gl, D * 0.55, -2)
         b:SetStartPoint("TOPLEFT", gl, 2, -2); b:SetEndPoint("TOPLEFT", gl, 2, -D * 0.45)
-        a:SetVertexColor(1, 1, 1, 0.22); b:SetVertexColor(1, 1, 1, 0.16)
+        a:SetVertexColor(RIM[1], RIM[2], RIM[3], 0.22); b:SetVertexColor(RIM[1], RIM[2], RIM[3], 0.16)
         return
     end
     local r = D / 2 - 2.2
@@ -566,7 +575,26 @@ local function PlaceRim(gl, D)
         local l = gl.rim[i]
         l:SetStartPoint("CENTER", gl, r * cos(t0), r * sin(t0))
         l:SetEndPoint("CENTER", gl, r * cos(t1), r * sin(t1))
-        l:SetVertexColor(1, 1, 1, 0.08 + 0.22 * sin(pi * (i - 0.5) / n))
+        l:SetVertexColor(RIM[1], RIM[2], RIM[3], 0.08 + 0.22 * sin(pi * (i - 0.5) / n))
+    end
+end
+
+-- The Heroic Strike notches at height y (from the globe's bottom): a short gold tick in from the rim on each side,
+-- over a dark one a little wider (readable on any rage). lit = rage is over the line.
+local function PlaceNotches(gl, D, y, lit)
+    local cy = y - D / 2
+    local half
+    if gl.square then half = D / 2 - 1
+    else half = math.sqrt(max(0, (D / 2 - 1.5) ^ 2 - cy * cy)) end
+    local len = max(4, D * 0.09)
+    for side = 1, 2 do
+        local s = side == 1 and -1 or 1
+        local x0, x1 = s * half, s * (half - len)
+        local dark, gold = gl.notch[side], gl.notch[side + 2]
+        dark:SetStartPoint("CENTER", gl, x0 + s * 0.5, cy); dark:SetEndPoint("CENTER", gl, x1 - s * 1, cy)
+        gold:SetStartPoint("CENTER", gl, x0, cy); gold:SetEndPoint("CENTER", gl, x1, cy)
+        dark:SetVertexColor(0, 0, 0, 0.75)
+        if lit then gold:SetVertexColor(1, 0.86, 0.45, 1) else gold:SetVertexColor(0.78, 0.6, 0.26, 0.9) end
     end
 end
 
@@ -609,37 +637,56 @@ function RF:BuildExtra(face)
             if mask then t:AddMaskTexture(mask) end
             return t
         end
+        -- art pack 14: a baked liquid and glass (gen_rage_globe.py); older art: the same parts, flat
+        local art = ns.HasAssets and ns:HasAssets(14)
+        gl.art, gl.square = art, g.square
         gl.back = T("BACKGROUND")
         gl.back:SetAllPoints()
-        UI:GradientRGBA(gl.back, "VERTICAL", 0.03, 0.01, 0.01, 1, 0.1, 0.035, 0.03, 1)
-        gl.liq = T("BORDER")
-        UI:GradientRGBA(gl.liq, "VERTICAL", 0.34, 0.03, 0.02, 1, 0.70, 0.09, 0.06, 1)
-        gl.spare = T("BORDER", nil, 1)
-        UI:GradientRGBA(gl.spare, "VERTICAL", 0.86, 0.20, 0.08, 1, 1, 0.42, 0.2, 1)
+        UI:GradientRGBA(gl.back, "VERTICAL", 0.03, 0.01, 0.01, 1, 0.08, 0.028, 0.024, 1)
+        -- the rage: one body of liquid (the part over the Heroic Strike line a warmer, brighter top of it)
+        local function Liquid(sub)
+            local t = T("BORDER", nil, sub)
+            if art then t:SetTexture(FLUID, "REPEAT", "REPEAT") end
+            return t
+        end
+        gl.liq, gl.spare = Liquid(0), Liquid(1)
+        -- its top: a thin bright meniscus and two glows just under it; bubbles rising (PaintExtra moves them)
         gl.surf = T("ARTWORK", SOFT, 0, true)
-        gl.surf:SetVertexColor(1, 0.62, 0.45, 0.7)
+        gl.surf:SetVertexColor(1, 0.55, 0.38, 0.45)
         gl.surf2 = T("ARTWORK", SOFT, 1, true)
-        gl.surf2:SetVertexColor(1, 0.78, 0.6, 0.45)
-        -- (bubbles rising through the rage, PaintExtra moves them)
+        gl.surf2:SetVertexColor(1, 0.72, 0.55, 0.3)
+        gl.men = T("ARTWORK", WHITE, 3)
+        gl.men:SetHeight(1)
         gl.bubbles = {}
         for i = 1, 4 do
             local b = T("ARTWORK", SOFT, 1, true)
-            b:SetVertexColor(1, 0.7, 0.5, 0)
+            b:SetVertexColor(1, 0.72, 0.55, 0)
             gl.bubbles[i] = b
         end
-        gl.line = T("ARTWORK", WHITE, 2)
-        gl.line:SetHeight(1)
-        -- the glass: a thin light along its upper-left rim (a soft blob in the middle read as something floating
-        -- over the rage)
-        gl.rim = {}
-        for i = 1, (g.square and 2 or 9) do
-            local l = gl:CreateLine(nil, "OVERLAY")
-            l:SetColorTexture(1, 1, 1, 1)
-            l:SetThickness(1.4)
-            gl.rim[i] = l
+        -- the glass over it: shading that makes it a sphere (a tank: its edges), and its light
+        if art then
+            gl.shade = T("OVERLAY", g.square and TANK_SHADE or GLASS_SHADE, -2)
+            gl.shade:SetAllPoints()
+            gl.spec = T("OVERLAY", g.square and TANK_SPEC or GLASS_SPEC, -1, true)
+            gl.spec:SetAllPoints()
+        else
+            gl.rim = {}
+            for i = 1, (g.square and 2 or 9) do
+                local l = gl:CreateLine(nil, "OVERLAY")
+                l:SetColorTexture(1, 1, 1, 1)
+                l:SetThickness(1.4)
+                gl.rim[i] = l
+            end
         end
-        gl.square = g.square
-        PlaceRim(gl, D)
+        -- the Heroic Strike line: gold notches on the rim, as on a measuring glass (a line across read as a crack)
+        gl.notch = {}
+        for i = 1, 4 do
+            local l = gl:CreateLine(nil, "OVERLAY", nil, i <= 2 and 2 or 3)
+            l:SetColorTexture(1, 1, 1, 1)
+            l:SetThickness(i <= 2 and 4 or 2)
+            gl.notch[i] = l
+        end
+        PlaceGlass(gl, D)
         gl.num = UI:Text(gl, "emph", { 1, 0.95, 0.84 }, { font = NARROW, shadow = true, justify = "CENTER" })
         gl.num:SetPoint("CENTER", 0, 0)
         x.globe, x.D = gl, D
@@ -737,7 +784,7 @@ function RF:PaintExtra(face, e)
             local D = has and g.globe[1] or g.globe[2]
             x.D = D
             x.globe:SetSize(D, D)
-            PlaceRim(x.globe, D)
+            PlaceGlass(x.globe, D)
             local ring = face.root
             if ring.inner then
                 ring.inner:SetSize(D + 10, D + 10)
@@ -774,54 +821,72 @@ function RF:PaintExtra(face, e)
     if x.globe then
         local gl, D = x.globe, x.D
         local h = D * v
-        gl.liq:SetShown(h >= 0.5)
-        gl.liq:ClearAllPoints()
-        gl.liq:SetPoint("BOTTOMLEFT"); gl.liq:SetPoint("BOTTOMRIGHT")
-        gl.liq:SetHeight(max(0.5, min(h, D * line)))
-        gl.spare:SetShown(over)
-        if over then
-            gl.spare:ClearAllPoints()
-            gl.spare:SetPoint("BOTTOMLEFT", gl, "BOTTOMLEFT", 0, D * line)
-            gl.spare:SetPoint("BOTTOMRIGHT", gl, "BOTTOMRIGHT", 0, D * line)
-            gl.spare:SetHeight(max(0.5, h - D * line))
+        local lh = D * line
+        -- the liquid: dark at the bottom, warming to the line; over it a brighter top. Its texture drifts and is laid
+        -- out in globe space, so the two parts run on as one
+        local drift = still and 0 or now * 0.018
+        local tile = D / 72
+        local function Lay(t, y0, y1, r0, g0, b0, r1, g1, b1)
+            t:SetShown(y1 - y0 >= 0.5)
+            if y1 - y0 < 0.5 then return end
+            t:ClearAllPoints()
+            t:SetPoint("BOTTOMLEFT", gl, "BOTTOMLEFT", 0, y0)
+            t:SetPoint("BOTTOMRIGHT", gl, "BOTTOMRIGHT", 0, y0)
+            t:SetHeight(y1 - y0)
+            if gl.art then
+                t:SetTexCoord(drift, drift + tile, (1 - y1 / D) * tile + drift * 0.4, (1 - y0 / D) * tile + drift * 0.4)
+            end
+            UI:GradientRGBA(t, "VERTICAL", r0, g0, b0, 1, r1, g1, b1, 1, gl.art)
         end
-        -- the surface: two glows just under the liquid's top, swaying against each other and bobbing (more after a
+        local under = min(h, lh)
+        local k = lh > 0 and under / lh or 1
+        Lay(gl.liq, 0, under, 0.30, 0.025, 0.02, 0.30 + 0.30 * k, 0.025 + 0.04 * k, 0.02 + 0.03 * k)
+        if h > lh then
+            Lay(gl.spare, lh, h, 0.60, 0.065, 0.05, 0.95, 0.25, 0.12)
+        else
+            gl.spare:Hide()
+        end
+        -- the surface: the meniscus, two glows just under it swaying against each other and bobbing (more after a
         -- change: never above it); bubbles rising
         local sl = still and 0 or (x.slosh or 0)
-        local sway = still and 0 or math.sin(now * 1.7) * D * (0.07 + 0.18 * sl)
-        local bob = still and 0 or math.sin(now * 2.6) * (0.6 + 2.5 * sl)
+        local sway = still and 0 or math.sin(now * 1.7) * D * (0.06 + 0.16 * sl)
+        local bob = still and 0 or math.sin(now * 2.6) * (0.5 + 2.2 * sl)
         local live = h >= 2 and h <= D - 1
+        gl.men:SetShown(live)
+        if live then
+            gl.men:ClearAllPoints()
+            gl.men:SetPoint("BOTTOMLEFT", gl, "BOTTOMLEFT", 0, h - 1)
+            gl.men:SetPoint("BOTTOMRIGHT", gl, "BOTTOMRIGHT", 0, h - 1)
+            if h > lh then gl.men:SetVertexColor(1, 0.72, 0.5, 0.85) else gl.men:SetVertexColor(1, 0.45, 0.32, 0.6) end
+        end
         gl.surf:SetShown(h >= 2)
         gl.surf:ClearAllPoints()
         gl.surf:SetSize(D * 1.1, D * 0.12)
-        gl.surf:SetPoint("TOP", gl, "BOTTOM", sway, h - math.abs(bob))
+        gl.surf:SetPoint("TOP", gl, "BOTTOM", sway, h - 1 - math.abs(bob))
         gl.surf2:SetShown(live and not still)
         if live and not still then
             gl.surf2:ClearAllPoints()
             gl.surf2:SetSize(D * 0.55, D * 0.07)
-            gl.surf2:SetPoint("TOP", gl, "BOTTOM", -sway * 1.4, h - 1 - math.abs(bob) * 0.7)
+            gl.surf2:SetPoint("TOP", gl, "BOTTOM", -sway * 1.4, h - 2 - math.abs(bob) * 0.7)
         end
-        local bs = max(2, D * 0.07)
+        local bs = max(1.5, D * 0.05)
         for i, b in ipairs(gl.bubbles) do
             if still or h < 8 then
                 b:Hide()
             else
                 local period = 1.9 + 0.37 * i
                 local f = ((now + i * 0.71) % period) / period
-                local y = 2 + f * (h - 4)
+                local y = 2 + f * (h - 5)
                 local bx = (i - 2.5) * D * 0.17 + math.sin(now * 3 + i * 1.3) * D * 0.03
                 b:ClearAllPoints()
                 b:SetSize(bs * (0.7 + 0.3 * f), bs * (0.7 + 0.3 * f))
                 b:SetPoint("CENTER", gl, "BOTTOM", bx, y)
-                b:SetAlpha(0.55 * math.sin(f * math.pi))
+                b:SetAlpha(0.4 * math.sin(f * math.pi))
                 b:Show()
             end
         end
-        gl.spare:SetAlpha(still and 1 or 0.86 + 0.14 * math.sin(now * 4))
-        gl.line:ClearAllPoints()
-        gl.line:SetPoint("BOTTOMLEFT", gl, "BOTTOMLEFT", 0, D * line)
-        gl.line:SetPoint("BOTTOMRIGHT", gl, "BOTTOMRIGHT", 0, D * line)
-        gl.line:SetVertexColor(GOLDLINE[1], GOLDLINE[2], GOLDLINE[3], lc)
+        gl.spare:SetAlpha(still and 1 or 0.9 + 0.1 * math.sin(now * 4))
+        PlaceNotches(gl, D, lh, over)
         gl.num:SetText(e.num and tostring(e.num) or "")
     elseif x.bar then
         local b = x.bar
