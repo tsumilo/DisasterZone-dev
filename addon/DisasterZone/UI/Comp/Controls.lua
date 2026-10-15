@@ -217,6 +217,7 @@ function Chip:Set(text, rgb, key)
     elseif rgb then
         self.cls:Hide()
         self.dot:SetPoint("LEFT", x + 1, 0)
+        self.dotEdge:SetSize(10, 10)
         self.dotEdge:SetPoint("CENTER", self.dot)
         self.dot:SetVertexColor(rgb[1], rgb[2], rgb[3], 1)
         self.dot:Show()
@@ -232,8 +233,15 @@ function Chip:Set(text, rgb, key)
             self.icon:SetTexCoord(co[1], co[2], co[3], co[4], co[5], co[6], co[7], co[8])
         elseif co then
             self.icon:SetTexCoord(co[1], co[2], co[3], co[4])
+        elseif self.roundIcon then
+            self.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)       -- (a round icon: the square's border trimmed off)
         else
             self.icon:SetTexCoord(0, 1, 0, 1)
+        end
+        if self.roundIcon then
+            self.dotEdge:SetSize(16, 16)
+            self.dotEdge:SetPoint("CENTER", self.icon)
+            self.dotEdge:Show()
         end
         local r, g, b, a = S:Color(self.iconColor or { 1, 1, 1, 1 })
         self.icon:SetVertexColor(r, g, b, a)
@@ -269,6 +277,22 @@ function Chip:SetIcon(path, coords, color, desaturate)
     self.iconPath, self.iconCoords, self.iconColor, self.iconDesat = path, coords, color, desaturate
 end
 
+-- chip:SetRoundIcon(on): the icon in a circle (a spec or class icon fits the pill), with a thin dark ring.
+function Chip:SetRoundIcon(on)
+    on = on and true or false
+    if on == (self.roundIcon or false) then return end
+    self.roundIcon = on
+    if not self.iconMask and on and self.CreateMaskTexture then
+        self.iconMask = self:CreateMaskTexture()
+        self.iconMask:SetTexture(DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        self.iconMask:SetAllPoints(self.icon)
+    end
+    if self.iconMask then
+        if on then self.icon:AddMaskTexture(self.iconMask) else self.icon:RemoveMaskTexture(self.iconMask) end
+    end
+    if not on then self.dotEdge:SetSize(10, 10) end
+end
+
 -- chip:SetLook(kind): another look of UI.CHIP_LOOK (the shape keeps its height), repainted now.
 function Chip:SetLook(kind)
     self.look = UI.CHIP_LOOK[kind] or UI.CHIP_LOOK.default
@@ -285,7 +309,7 @@ function Chip:IsSelected() return self.selected end
 -- UI:CreateChip(parent, opts): a tag as a chip, a rounded capsule with a dot in the tag's colour (or a class circle, or
 -- an icon) and its name. opts { text, rgb, key (class circle), icon, kind = "track" (18 high, the default) | "you" (the
 -- board's header: a blue edge, 22 high) | "live" | "plain" | "warn" | "info" | "bad" (the "you" shape), selected (a gold edge, gold text), onClick (a Button then, with a hover:
--- onClick(chip, mouseButton)), menu = true (a gold chevron after the text: a click opens a menu; chip.chev, flipped
+-- onClick(chip, mouseButton)), roundIcon (the icon in a circle: chip:SetRoundIcon), menu = true (a gold chevron after the text: a click opens a menu; chip.chev, flipped
 -- up while the menu is open) }. chip:Set(text, rgb, key), chip:SetSelected(on), chip:SetIcon(path); chip.fs.
 -- The call shape UI:CreateChip(parent, kind) makes an empty one of that kind.
 function UI:CreateChip(parent, opts)
@@ -324,6 +348,7 @@ function UI:CreateChip(parent, opts)
     for k, fn in pairs(Chip) do p[k] = fn end
     p.selected = opts.selected and true or false
     p.iconPath = opts.icon
+    if opts.roundIcon then p:SetRoundIcon(true) end
     if opts.onClick then
         p:RegisterForClicks("LeftButtonUp")
         p:SetScript("OnEnter", function(self) self.hovered = true; self:Paint() end)
