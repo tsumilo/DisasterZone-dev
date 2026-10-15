@@ -2052,6 +2052,18 @@ STATES = [
                                   "ns.GroupsLFG:SetSpec('SHAMAN', 3, 2); ns.GroupsLFG:SetSpec('DRUID', 3, 1); "
                                   "ns.GroupsLFG:SetBlockOn('lacks', true); "
                                   "ns.GroupsLFG:SetRepeat(true); ns.GroupsLead:Open(nil, 'message')", "dungeons")),
+    ("Groups - leader roster", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); ns.DungeonRuns:List({ k = 'raid', "
+        "a = { 'GruulsLair', 'MagtheridonsLair' }, role = 'healer', lo = 'sr', lr = 1 }); "
+        "local r = ns.DungeonRuns:GetMyGroup(); local roles = { 'tank', 'tank', 'healer', 'healer', 'healer', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps' }; local i = 0; for _, k in ipairs(ns.Demo:GetMembers()) do if not ns.Util.IsMe(k) and i < #roles then i = i + 1; r.s[#r.s + 1] = { k = k, r = roles[i] } end end; "
+        " ns.GroupsLead:Open(nil, 'roster')", "dungeons")),
+    ("Groups - leader reserves", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); ns.DungeonRuns:List({ k = 'raid', "
+        "a = { 'GruulsLair', 'MagtheridonsLair' }, role = 'healer', lo = 'sr', lr = 1 }); "
+        "local r = ns.DungeonRuns:GetMyGroup(); local roles = { 'tank', 'tank', 'healer', 'healer', 'healer', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps' }; local i = 0; for _, k in ipairs(ns.Demo:GetMembers()) do if not ns.Util.IsMe(k) and i < #roles then i = i + 1; r.s[#r.s + 1] = { k = k, r = roles[i] } end end; "
+        "ns.Reserves:Open({ rk = 'GruulsLair', n = 1 }); local m = ns.Demo:GetMembers(); local loot = {}; for id in pairs(ns.Reserves:RaidLoot('GruulsLair')) do loot[#loot + 1] = id end; table.sort(loot); for i = 1, 7 do if m[i] and loot[i * 3] then ns.Reserves:AddFor(m[i], loot[i * 3], 'd', true) end end; ns.GroupsLead:Open(nil, 'reserves')", "dungeons")),
+    ("Groups - leader groups", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); ns.DungeonRuns:List({ k = 'raid', "
+        "a = { 'GruulsLair', 'MagtheridonsLair' }, role = 'healer', lo = 'sr', lr = 1 }); "
+        "local r = ns.DungeonRuns:GetMyGroup(); local roles = { 'tank', 'tank', 'healer', 'healer', 'healer', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps', 'dps' }; local i = 0; for _, k in ipairs(ns.Demo:GetMembers()) do if not ns.Util.IsMe(k) and i < #roles then i = i + 1; r.s[#r.s + 1] = { k = k, r = roles[i] } end end; "
+        " ns.GroupsLead:Open(nil, 'groups')", "dungeons")),
     ("Groups - my raid group", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); "
                                     "ns.DungeonRuns:List({ k = 'raid', a = { 'Karazhan' }, role = 'healer', lo = 'lc' })",
                                     "dungeons")),

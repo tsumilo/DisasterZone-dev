@@ -248,9 +248,12 @@ def the_leaders_page_shows_its_roster_and_request_hints():
     card_eval(g, rid, "c.manage.btn:Click()")
     assert g.eval_py("return ns.GroupsLead:IsOpen()") is True
     lead = "local sh = ns.GroupsLead:Get(); "
-    cells = g.eval_py(lead + "local n, open = 0, 0; for _, c in ipairs(sh.cells) do if c:IsShown() then n = n + 1; "
-                             "if not c.key then open = open + 1 end end end; return { n, open }")
-    assert cells == [10, 9], cells
+    # (players as rows, each role's free places as one "+n open" line)
+    cells = g.eval_py("""local P, n, open = ns.GroupsLead.pools, 0, {}
+      for _, r in ipairs(P.rows) do if r:IsShown() then n = n + 1 end end
+      for _, o in ipairs(P.opens) do if o:IsShown() then open[#open + 1] = o.text:GetText() end end
+      return { n, open }""")
+    assert cells[0] == 1 and [strip_codes(x) for x in cells[1]] == ["+2 open", "+2 open", "+5 open"], cells
     hints = g.eval_py(lead + """local out = {}
       for _, q in ipairs(sh.reqRows) do
         if q:IsShown() then out[#out + 1] = (q.name:GetText() or '') .. '=' .. (q.what:GetText() or '') end
