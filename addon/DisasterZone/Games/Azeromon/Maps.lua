@@ -103,6 +103,7 @@ Maps.town = {
     -- daily routines (Routine.lua): the lamp posts Old Tom lights at dusk and puts out at dawn, Maybell's stall
     lamps = { { 16, 6 }, { 22, 9 }, { 11, 13 }, { 19, 22 }, { 26, 9 }, { 6, 24 } },
     stall = { x = 19, y = 14, keeper = "farmer" },     -- the north road: Goldshire x 17-18 = Elwynn x 10-11
+    statue = { x = 24, y = 13 },    -- the guild statue's base (2 x 2; it rises two tiles over the road behind it)
     npcs = {
         -- Marshal Dughan keeps the north road by day and hands it to Guard Thomas at dusk.
         { id = "guard", name = "Marshal Dughan", x = 19, y = 1, sprite = "bald", tint = { 0.55, 0.65, 1 }, face = "left",

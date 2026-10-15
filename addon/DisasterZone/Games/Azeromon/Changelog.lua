@@ -6,6 +6,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.30", date = "15 October 2026", title = "The guild in town",
+      lines = {
+          "A guild statue rises in Goldshire with the weekly goal.",
+          "Scaffolding, then a carved plinth, then a knight at Gold.",
+          "A finished statue stands until next week's is done.",
+          "Read its plaque for the goal and how far the guild is.",
+          "A rune stone marks where a guildmate was last seen.",
+      } },
     { version = "0.29", date = "15 October 2026", title = "Guild chat",
       lines = {
           "Press Enter to chat with guildmates who are playing.",

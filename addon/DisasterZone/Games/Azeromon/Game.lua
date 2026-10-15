@@ -237,6 +237,18 @@ function G.Compile(id)
         m.over[k] = (type(o.tile) == "function") and o.tile(G) or o.tile     -- (a plinth: trophy or empty)
         m.solid[k] = true
     end
+    -- the guild statue (Marks.lua, drawn live by UI.lua): its 2 x 2 base at def.statue is solid, with the plaque
+    if def.statue then
+        for dy = 0, 1 do
+            for dx = 0, 1 do
+                local o = { x = def.statue.x + dx, y = def.statue.y + dy, hint = "Read the plaque",
+                            script = function(g) g:GuildStatue() end }
+                local k = key(o.x, o.y)
+                m.object[k] = o
+                m.solid[k] = true
+            end
+        end
+    end
     -- herb and ore nodes (Crafting.lua): def.nodes = { herb = { {x, y}, ... }, ore = { ... } } with the map's
     -- def.herbs / def.ores as what grows there
     m.node = {}

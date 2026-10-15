@@ -3989,6 +3989,70 @@ function Amb.Fishing(m, g, px, py)
     end
 end
 
+-- The guild's marks (Marks.lua): Goldshire's statue for the week's guild goal, drawn behind or in front of the
+-- player by its foot, and a rune stone with "Name · 3 h ago" where each guildmate who has gone was last seen.
+Amb.guildTex, Amb.markFs = {}, {}
+function Amb.GuildTex(i)
+    local t = Amb.guildTex[i]
+    if not t then
+        t = Tex(world, "ARTWORK", 0)
+        t:SetSize(TILE, TILE)
+        SetPixelTexture(t, ATLAS)
+        Amb.guildTex[i] = t
+    end
+    return t
+end
+
+function Amb.Guild(m, g, px, py)
+    local Marks = ns.AzeroMarks
+    local n, nf = 0, 0
+    local function place(t, tx, ty)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", world, "TOPLEFT", (tx - px + HX) * TILE, -((ty - py + HY) * TILE))
+        t:Show()
+    end
+    local st = m.def.statue
+    if st and Marks then
+        local stage = Marks.StatueStage()
+        local front = (st.y + 2) * 16 > py * 16 + 16          -- its foot is lower on screen than the player's
+        if g then Amb.Pix(px, py, st.x * 16 + 2, (st.y + 2) * 16 - 3, 28, 3, 0.05, 0.1, 0.05, 0.28, "BORDER", 2) end  -- its shadow
+        for dy = 0, 3 do
+            for dx = 0, 1 do
+                n = n + 1
+                local t = Amb.GuildTex(n)
+                SetTile(t, string.format("statue%d_%d_%d", stage, dx, dy))
+                t:SetDrawLayer("ARTWORK", front and 3 or 0)
+                place(t, st.x + dx, st.y - 2 + dy)
+            end
+        end
+    end
+    if Marks and ns.AzeroChat then
+        for _, e in ipairs(Marks:On(m.id)) do
+            n = n + 1
+            local t = Amb.GuildTex(n)
+            SetTile(t, "marker")
+            t:SetDrawLayer("BORDER", 2)
+            place(t, e.x, e.y)
+            nf = nf + 1
+            local fs = Amb.markFs[nf]
+            if not fs then
+                fs = world:CreateFontString(nil, "OVERLAY")
+                if not fs:SetFont(FONT, 11, "OUTLINE") then fs:SetFont(FONT_FALLBACK, 9, "OUTLINE") end
+                Amb.markFs[nf] = fs
+            end
+            local cc = RAID_CLASS_COLORS and e.class and RAID_CLASS_COLORS[e.class]
+            fs:SetTextColor(cc and (0.5 + cc.r * 0.5) or 0.9, cc and (0.5 + cc.g * 0.5) or 0.9, cc and (0.5 + cc.b * 0.5) or 0.9)
+            fs:SetAlpha(0.8)
+            fs:SetText(e.label)
+            fs:ClearAllPoints()
+            fs:SetPoint("TOP", t, "BOTTOM", 0, 2)
+            fs:Show()
+        end
+    end
+    for i = n + 1, #Amb.guildTex do Amb.guildTex[i]:Hide() end
+    for i = nf + 1, #Amb.markFs do Amb.markFs[i]:Hide() end
+end
+
 function Amb.Draw(m, g, px, py)
     local period = G:Period()
     Amb.Water(m, g, px, py)
@@ -4004,6 +4068,7 @@ function Amb.Draw(m, g, px, py)
     Amb.Glints(m, g, px, py)
     Amb.Steps(m, px, py)
     if g then Amb.Acts(m, px, py) end      -- (maps without a baked ground have no ambient at all)
+    Amb.Guild(m, g, px, py)
     Amb.Fishing(m, g, px, py)
     Amb.Mood(m, g, px, py, period)
     local dark = Amb.Night(m, g, px, py)
@@ -5483,6 +5548,7 @@ local function OnUpdate(self, elapsed)
     FitScenes(elapsed)
     KH.UpdateKeyStrip()
     KH.DrawChat()
+    ns.AzeroMarks:Update(elapsed)
     Scr.UpdateMusic()
     ns.AzeroSound:UpdateAmbience(elapsed, G.started and not R.title:IsShown() and not BT.battle)
     if R.title:IsShown() then KH.TickTitle(elapsed) end
@@ -6200,6 +6266,12 @@ function UI:RegisterScreen(kind, fn) UI.screens[kind] = fn end
 UI._HandleKey = function(k) HandleKey(k) end
 UI._ChatBox = function() return R.chatBox end
 UI._DrawChat = function() KH.DrawChat() end
+UI._GuildDrawn = function()
+    local n, marks = 0, {}
+    for _, t in ipairs(Amb.guildTex) do if t:IsShown() and (t.tileName or ""):match("^statue") then n = n + 1 end end
+    for _, fs in ipairs(Amb.markFs) do if fs:IsShown() then marks[#marks + 1] = fs:GetText() end end
+    return { statue = n, marks = marks }
+end
 UI._PeerKey = function(name)
     for _, p in ipairs(ns.AzeroNet:PeersOn(G.save.map)) do if p.name == name then return p.key end end
 end

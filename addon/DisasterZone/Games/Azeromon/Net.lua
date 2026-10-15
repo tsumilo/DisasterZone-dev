@@ -221,6 +221,9 @@ end
 
 function Net:Peer(key) return peers[key] end
 
+-- Every peer heard from lately, by key (read only: Marks.lua notes where they stand).
+function Net:AllPeers() return peers end
+
 -- Did this guildmate close the game (AZL) and not come back since? (Silence alone says nothing: presence stops
 -- during WoW combat.)
 function Net:HasLeft(key) return leftAt[key] ~= nil and peers[key] == nil end
