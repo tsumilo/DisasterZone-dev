@@ -955,7 +955,7 @@ end
 function H.EntryChip(w, i)
     local c = w.entries[i]
     if c then return c end
-    c = UI:CreateChip(w, { kind = "track", onClick = function(self)
+    c = UI:CreateChip(w, { kind = "track", roundIcon = true, onClick = function(self)
         if w.partId and self.entryKey then M():SetPart(w.partId, { skip = self.entryKey }) end
     end })
     UI:AttachTooltip(c, nil, function(self)
