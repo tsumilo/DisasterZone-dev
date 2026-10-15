@@ -250,5 +250,50 @@ def lua_errors_in_disasterzone_are_kept_for_a_bug():
     assert got and "RollFrame" in got["m"] and "in function" in got["s"], got
 
 
+PASTE = ("|cffff00001x|r DisasterZone/UI/Members.lua:233: attempt to compare nil with number\n"
+         "[string \"@Interface/AddOns/DisasterZone/UI/Members.lua\"]:233: in function 'SortRows'\n"
+         "\nLocals:\n\tname = \"Brakka\"\n")
+
+
+@case
+def a_pasted_error_travels_whole_and_plain():
+    w, c = standard()
+    settle(w)
+    long_tail = "\n".join("(*temporary) = %d" % i for i in range(120))   # past the 900-char stack cap
+    id_ = submit(c["Alfa"], "bug", "Members tab broke when sorting.", paste=PASTE + long_tail)
+    assert "#" in id_, id_
+    w.tick(5, step=0.25)
+    got = c["Tsumil"].eval_py("return ns.Feedback:Get(...).err", id_)
+    assert got, "the item and its error reach the developer"
+    assert got["m"] == "1x DisasterZone/UI/Members.lua:233: attempt to compare nil with number", got["m"]
+    assert "|c" not in got["p"] and "|r" not in got["p"], "colour codes are taken out"
+    assert "    name = " in got["p"], "tabs become spaces"
+    assert len(got["p"]) > 900 and "(*temporary) = 119" in got["p"], len(got["p"])
+    assert c["Tsumil"].eval("return ns.Feedback:ErrorText(ns.Feedback:Get(...))", id_) == got["p"]
+    # past the cap it is cut, not refused; an idea never carries one
+    big = submit(c["Bert"], "bug", "Huge error.", paste="x" * 5000)
+    idea = submit(c["Bert"], "idea", "An idea.", paste=PASTE)
+    w.tick(5, step=0.25)
+    assert len(c["Tsumil"].eval_py("return ns.Feedback:Get(...).err.p", big)) == 3000
+    assert c["Tsumil"].eval("return ns.Feedback:Get(...).err == nil", idea) is True
+    w.assert_no_errors()
+
+
+@case
+def a_record_with_a_paste_too_long_is_refused():
+    w, c = standard()
+    settle(w)
+    for n, size in ((7, 3001), (8, 3000)):
+        c["Alfa"].eval("""local a, n, size = ...
+          local now = GetServerTime()
+          local rec = { k = "i", a = a, n = n, kd = "bug", x = "x", t = now, rv = now,
+                        e = { m = "boom", p = string.rep("y", size) } }
+          ns.Comm:Send({ t = "FBN", r = { [a .. "#" .. n] = rec } }, "GUILD", nil, "fb")""", K("Alfa"), n, size)
+    w.tick(3)
+    assert item(c["Tsumil"], K("Alfa") + "#7") is None
+    assert item(c["Tsumil"], K("Alfa") + "#8") is not None
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

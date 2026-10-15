@@ -159,8 +159,11 @@ def write_inbox():
             lines.append("")
             if it["err"]:
                 e = it["err"]
-                lines += ["Lua error (%sx%s):" % (e.get("v") and e["v"] + ", " or "", e.get("n") or 1), "", "```",
-                          e.get("m") or "", e.get("s") or "", "```", ""]
+                if e.get("p"):
+                    lines += ["Pasted error%s:" % (e.get("v") and " (" + e["v"] + ")" or ""), "", "```", e["p"], "```", ""]
+                else:
+                    lines += ["Lua error (%sx%s):" % (e.get("v") and e["v"] + ", " or "", e.get("n") or 1), "", "```",
+                              e.get("m") or "", e.get("s") or "", "```", ""]
             for rep in it["replies"]:
                 lines.append("- *%s, %s:* %s" % (name(rep["author"]), day(rep["at"]), rep["text"]))
             if it["replies"]:

@@ -557,7 +557,8 @@ function Banner:SetToolsText(text)
     self:Relayout()
 end
 
--- list: { { icon, title, text, onClick, menu, enabled, chevron = "left" | "right" } ... }, the first at the far right.
+-- list: { { icon, title, text, onClick, menu, enabled, chevron = "left" | "right", tint = { r, g, b } } ... }, the
+-- first at the far right.
 function Banner:SetTools(list)
     for _, f in ipairs(self.toolPool) do f:Hide() end
     wipe(self.tools)
@@ -565,6 +566,9 @@ function Banner:SetTools(list)
         local f = PoolGet(self.toolPool, i, function() return NewIconButton(self, P.TOOL) end)
         SetIconTexture(f.icon, t.icon or "more")
         if t.chevron then UI:SetChevron(f.icon, t.chevron == "right") end   -- (a pager's < and >)
+        f.iconTint = t.tint
+        if f.icon.SetDesaturated then f.icon:SetDesaturated(t.tint ~= nil) end
+        if f.cdlPaint then f:cdlPaint(true) end
         f.ppAction = t
         SetTip(f, (t.title or t.text) and { t.title, t.text } or nil)
         if t.enabled == false then f:Disable() else f:Enable() end

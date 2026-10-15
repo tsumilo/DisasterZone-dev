@@ -86,6 +86,11 @@ ns.CHANGELOG = {
               "Off by default: Settings > Looks, Unit frames or Party and raid; it starts at 50-90%.",
               "Demo mode and Edit layout show it on the made-up members.",
           } },
+          { heading = "Errors in bug reports", area = "other", kind = "new", open = "feedback",
+            lead = "A bug report can carry the whole error, pasted from BugSack.", lines = {
+              { "Something broke has a Paste error button: the error goes in its own window, apart from your words.", fb = { 20 }, by = { "Vicnado" }, k = "idea" },
+              "A report with an error shows a red warning icon in its header: click it to read and copy the error.",
+          } },
           { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
               "Fixed: the game's Quick Keybind Mode no longer errors when you drop an ability.",
               { "Fixed: nameplates only show Execute or Hammer of Wrath at 20% once you've learned it.", fb = { 18 }, by = { "Vicnado" }, k = "change" },

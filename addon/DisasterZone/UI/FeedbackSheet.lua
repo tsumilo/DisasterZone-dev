@@ -36,8 +36,8 @@ local PLACEHOLDER = {
     love = "What do you enjoy? Every one is read.",
 }
 
-local sheet, pointer, toast
-local draft = { kind = nil, about = nil, ref = nil }
+local sheet, pointer, toast, errWin   -- (errWin: the error window, Sheet:OpenError)
+local draft = { kind = nil, about = nil, ref = nil, paste = nil }   -- (paste: an error pasted into a bug)
 
 local function UI() return ns.UI end
 local function FB() return ns.Feedback end
@@ -332,7 +332,11 @@ local function AttachedParts()
     local who = ns.Util.Trim((c.sp or "") .. " " .. (ns.ClassName(c.cl) or ""))
     if who ~= "" then chips[#chips + 1] = { who } end
     local err = draft.kind == "bug" and F:RecentError() or nil
-    if err then
+    if draft.kind == "bug" and draft.paste then
+        local lines = select(2, draft.paste:gsub("\n", "")) + 1
+        chips[#chips + 1] = { "Pasted error, " .. lines .. (lines == 1 and " line" or " lines"), "err" }
+        err = { m = draft.paste:match("^[^\n]+") or draft.paste, pasted = true }
+    elseif err then
         local mins = floor((time() - (err.at or time())) / 60)
         chips[#chips + 1] = { "Lua error, " .. (mins < 1 and "just now" or (mins .. " min ago")), "err" }
     end
@@ -463,6 +467,19 @@ local function Build()
     f.sentLabel:SetText("With it")
     f.withY = y
     f.withChips = {}
+    -- (a bug: paste a whole error from BugSack, in its own window)
+    f.paste = UI():CreateSleekButton(c, "Paste error", 96, S.BTN_H, function()
+        Sheet:OpenError({ mode = "edit", text = draft.paste, onSave = function(text)
+            draft.paste = text
+            Sheet:Layout()
+        end })
+    end)
+    f.paste:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, y)
+    f.paste:HookScript("OnEnter", function(self)
+        UI():SetTextTooltip(self, { "Paste error", "Paste the error BugSack (or the game) showed you. The developer "
+            .. "opens it on its own, apart from your words." }, "ANCHOR_TOP")
+    end)
+    f.paste:HookScript("OnLeave", function() GameTooltip:Hide() end)
     y = y - 30
 
     -- the guild's items that sound the same
@@ -588,6 +605,11 @@ function Sheet:Layout()
     end
     local _, chips = AttachedParts()
     for _, ch in ipairs(f.withChips) do ch:Hide() end
+    local bug = draft.kind == "bug"
+    f.paste:SetShown(bug)
+    f.paste:SetText(draft.paste and "Edit error" or "Paste error")
+    f.paste:SetKind(draft.paste and "chosen" or "secondary")
+    local right = bug and (CW - 96 - 8) or CW
     local x = 54
     for i, cdef in ipairs(chips) do
         local ch = f.withChips[i]
@@ -606,7 +628,7 @@ function Sheet:Layout()
                 if ctx.p then GameTooltip:AddDoubleLine("Page open", ctx.p, 0.7, 0.7, 0.7, 1, 1, 1) end
                 if err then
                     GameTooltip:AddLine(" ")
-                    GameTooltip:AddLine("Lua error", 0.88, 0.42, 0.38)
+                    GameTooltip:AddLine(err.pasted and "Pasted error" or "Lua error", 0.88, 0.42, 0.38)
                     GameTooltip:AddLine(err.m, 1, 1, 1, true)
                 end
                 GameTooltip:Show()
@@ -615,7 +637,7 @@ function Sheet:Layout()
             f.withChips[i] = ch
         end
         ch:Set(cdef[1], cdef[2])
-        if x + ch:GetWidth() > CW then break end
+        if x + ch:GetWidth() > right then break end
         ch:ClearAllPoints()
         ch:SetPoint("TOPLEFT", f.body, "TOPLEFT", x, f.withY - 1)
         ch:Show()
@@ -657,13 +679,15 @@ function Sheet:Send()
     local err = draft.kind == "bug" and F:RecentError() or nil
     local s = ns.db and ns.db.settings
     local id, why = F:Submit(draft.kind, f.edit:GetText(), { about = draft.about, ref = draft.ref, err = err,
-        anon = s and s.feedbackAnon or nil })
+        paste = draft.kind == "bug" and draft.paste or nil, anon = s and s.feedbackAnon or nil })
     if not id then
         f.err:SetText((why or "Could not send it."):gsub("^%l", string.upper))
         return
     end
     if ns.FeedbackUI then ns.FeedbackUI:MarkSeen(F:Get(id)) end
     f.sentId = id
+    draft.paste = nil
+    if errWin then errWin:Hide() end
     self:ShowForm(false)
     local online = ns.Guild and ns.Guild.GetOnlineMembers and #ns.Guild:GetOnlineMembers() or 1
     f.done.text:SetText((online > 1 or F.DemoOn()) and "Thanks! It's on its way to the developer through the guild. Follow it "
@@ -673,6 +697,116 @@ function Sheet:Send()
         { text = "Sent", date = "now", st = "done" }, { text = "Received", st = "now" },
         { text = "Planned", st = "todo" }, { text = draft.kind == "bug" and "Fixed" or "In a release", st = "todo" },
     }, 380)
+end
+
+---------------------------------------------------------------------------
+-- The error window: paste a BugSack error into a bug (edit), or read one an item came with (view)
+---------------------------------------------------------------------------
+
+local ERR_W, ERR_H = 560, 430
+
+local function BuildErrorWindow()
+    local w = UI():CreateWindow("DisasterZoneFeedbackError", "Error", ERR_W, ERR_H, { noSavePosition = true })
+    w:SetFrameStrata("DIALOG")
+    w:Hide()
+    local L = UI():CreateLayout("tool", w, { width = ERR_W, pad = 15, top = 21, bottom = 12,
+        banner = { size = "tool", icon = FB().KIND_INFO.bug.icon, title = "Error" } })
+    w.layout = L
+    local c = L.body
+    local cw = ERR_W - 30
+    c:SetSize(cw, ERR_H - 48 - BAN_H - S.GAP + 19)
+    w.hint = UI():Text(c, "small", "SUB", WRAP)
+    w.hint:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
+    w.hint:SetWidth(cw)
+    w.area = UI():CreateTextArea(c, 200, { width = cw - 24 })
+    w.area:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -34)
+    w.area:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 36)
+    local eb = w.area.eb
+    w.eb = eb
+    eb:SetScript("OnTextChanged", function(self, userInput)
+        -- (read only while viewing: typing puts the text back)
+        if w.mode == "view" then
+            if userInput then self:SetText(w.text or "") end
+            return
+        end
+        local n = #(self:GetText() or "")
+        w.count:SetText(n .. " / " .. FB().PASTE_MAX .. (n >= FB().PASTE_MAX and "  (the rest is cut)" or ""))
+    end)
+    w.count = UI():Text(c, "small", "DIM")
+    w.count:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 0, 8)
+    w.ok = UI():CreateSleekButton(c, "Attach", 84, S.BTN_H, function()
+        if w.mode == "view" then
+            w:Hide()
+            return
+        end
+        local text = FB().CleanPaste(eb:GetText())
+        if w.onSave then w.onSave(text) end
+        w:Hide()
+    end, "primary")
+    w.ok:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 0)
+    w.alt = UI():CreateSleekButton(c, "Cancel", 84, S.BTN_H, function()
+        if w.mode == "view" then
+            eb:SetFocus()
+            eb:HighlightText()
+        else
+            w:Hide()
+        end
+    end)
+    w.alt:SetPoint("RIGHT", w.ok, "LEFT", -8, 0)
+    w.clear = UI():CreateSleekButton(c, "Remove", 84, S.BTN_H, function()
+        if w.onSave then w.onSave(nil) end
+        w:Hide()
+    end)
+    w.clear:SetPoint("RIGHT", w.alt, "LEFT", -8, 0)
+    return w
+end
+
+-- Opens the error window. opts: { mode = "edit" | "view", text, title, sub, onSave = function(text or nil) }.
+-- edit: paste an error (Attach saves it, Remove takes it off); view: the error to read and copy (Select all).
+function Sheet:OpenError(opts)
+    opts = opts or {}
+    errWin = errWin or BuildErrorWindow()
+    local w = errWin
+    local view = opts.mode == "view"
+    w.mode, w.text, w.onSave = view and "view" or "edit", opts.text or "", opts.onSave
+    w.layout.banner:SetTitle(opts.title or (view and "Error" or "Paste the error"))
+    if w.layout.banner.SetSub then w.layout.banner:SetSub(opts.sub or "") end
+    w.hint:SetText(view and "Click Select all, then Ctrl+C to copy it."
+        or "In BugSack: click the error's text, press Ctrl+A then Ctrl+C. Then click below and press Ctrl+V.")
+    w.eb:SetMaxLetters(view and 0 or FB().PASTE_MAX)
+    w.eb:SetText(w.text)
+    w.eb:SetCursorPosition(0)
+    w.area.sf:SetVerticalScroll(0)
+    w.ok:SetText(view and "Close" or "Attach")
+    w.alt:SetText(view and "Select all" or "Cancel")
+    w.clear:SetShown(not view and w.text ~= "")
+    if view then
+        local lines = select(2, w.text:gsub("\n", "")) + 1
+        w.count:SetText(lines .. (lines == 1 and " line" or " lines"))
+    else
+        w.count:SetText(#w.text .. " / " .. FB().PASTE_MAX)
+    end
+    w:ClearAllPoints()
+    if sheet and sheet:IsShown() and not view then
+        w:SetPoint("TOPLEFT", sheet, "TOPRIGHT", 8, 0)
+    else
+        w:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+    end
+    w:Show()
+    w:Raise()
+    if not view then w.eb:SetFocus() end
+end
+
+function Sheet:GetErrorWindow() return errWin end
+
+-- Opens an item's error to read (the detail's error icon and Lua error chip).
+function Sheet:ShowItemError(item)
+    local text = item and FB():ErrorText(item)
+    if not text then return end
+    local e = item.err
+    local sub = ns.Util.ShortName(item.author) .. (e.v and ("  ·  " .. e.v) or "")
+        .. ((e.n or 1) > 1 and ("  ·  " .. e.n .. " times") or "")
+    self:OpenError({ mode = "view", text = text, title = "Error" .. (item.no and (" #" .. item.no) or ""), sub = sub })
 end
 
 ---------------------------------------------------------------------------

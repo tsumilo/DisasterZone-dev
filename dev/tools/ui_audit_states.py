@@ -3337,7 +3337,7 @@ STATES[_HOME_LAST] = (STATES[_HOME_LAST][0], _home_after_qa)
 
 
 # ---------------------------------------------------------------- Feedback (Core/Feedback.lua, UI/Feedback*.lua)
-FB_CLOSE = ("for _, n in ipairs({ 'DisasterZoneFeedbackSheet', 'DisasterZoneFeedbackToast', 'DisasterZoneFeedbackPointer', 'DisasterZoneFeedbackPointerBar', 'DisasterZoneFeedbackPointer' }) "
+FB_CLOSE = ("for _, n in ipairs({ 'DisasterZoneFeedbackSheet', 'DisasterZoneFeedbackToast', 'DisasterZoneFeedbackPointer', 'DisasterZoneFeedbackPointerBar', 'DisasterZoneFeedbackPointer', 'DisasterZoneFeedbackError' }) "
             "do local f = _G[n]; if f then f:Hide() end end ")
 FB_PICK = ("local want = ...; for _, v in ipairs(ns.Feedback:List()) do if v.text:find(want, 1, true) then "
            "ns.FeedbackUI:Select(v.id) end end ")
@@ -3377,6 +3377,12 @@ STATES[_FB_AT:_FB_AT] = [
     ("Feedback - yours (demo)", fb_view(tab="mine")),
     ("Feedback - empty", fb_view(demo_on=False)),
     ("Feedback - form", fb_view(FB_SHEET)),
+    # (feedback #20, Vicnado) a pasted error: the item's header icon, the window to read it, the window to paste one
+    ("Feedback - pasted error item (demo)", fb_view(FB_PICK.replace("...", "'sort by level'"))),
+    ("Feedback - error window", fb_view(FB_PICK.replace("...", "'sort by level'")
+                                        + "; ns.FeedbackSheet:ShowItemError(ns.FeedbackUI:GetPanel().detail.item)")),
+    ("Feedback - paste error", fb_view(FB_SHEET + "; ns.FeedbackSheet:OpenError({ mode = 'edit', text = "
+                                       "ns.Feedback:ErrorText(ns.Feedback:Get(ns.Feedback:List()[1].id)) or 'x' })")),
     ("Feedback - sent", fb_view(FB_SHEET + "; ns.FeedbackSheet:Send()")),
     ("Feedback - answered pop-up", fb_view("ns.FeedbackSheet:Toast({ icon = ns.Feedback.KIND_INFO.change.icon, "
                                            "color = ns.Feedback.KIND_INFO.change.color, title = 'Caelith answered your "

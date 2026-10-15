@@ -1730,7 +1730,8 @@ function UI:CreateIconButton(parent, size, texture, coords, onClick)
             self.icon:SetVertexColor(1, 1, 1)
         else
             local ic = enabled and (hot and 1 or 0.82) or 0.35
-            self.icon:SetVertexColor(ic, ic, ic)
+            local t = self.iconTint   -- (b.iconTint = { r, g, b }: a coloured glyph, dimmed the same way)
+            if t then self.icon:SetVertexColor(t[1] * ic, t[2] * ic, t[3] * ic) else self.icon:SetVertexColor(ic, ic, ic) end
         end
     end
     function b:SetActive(on)

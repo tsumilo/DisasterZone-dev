@@ -506,6 +506,7 @@ end
 -- A chip of what came with an item: the shared pill (UI:CreatePill), its look from the chip's kind ("about" gold, a
 -- Lua error red, the rest quiet); chip:Set(text, kind) (the form's chips too, UI/FeedbackSheet.lua).
 local CHIP_LOOK = { about = "bis", err = "live" }
+local ERROR_TINT = { 1, 0.42, 0.38 }   -- (the header's error icon)
 local function NewContextPill(parent)
     local c = UI():CreatePill(parent, nil, nil, 18)
     local set = c.Set
@@ -524,7 +525,8 @@ local function ErrorTip(owner, item)
     GameTooltip:AddLine("Lua error" .. ((e.n or 1) > 1 and (" (" .. e.n .. " times)") or "")
         .. (e.v and ("  ·  " .. e.v) or ""), 0.88, 0.42, 0.38)
     GameTooltip:AddLine(e.m, 1, 1, 1, true)
-    if e.s then GameTooltip:AddLine(e.s, 0.7, 0.7, 0.7, true) end
+    if e.s and not e.p then GameTooltip:AddLine(e.s, 0.7, 0.7, 0.7, true) end
+    GameTooltip:AddLine("Click to open it.", 0.5, 0.5, 0.5)
     GameTooltip:Show()
 end
 
@@ -751,7 +753,7 @@ local function BuildDetail(box, banner)
     -- (stands in for a banner button that is not shown: d.status / d.withdraw)
     d.none = CreateFrame("Button", nil, banner)
     d.none:Hide()
-    d.status, d.withdraw = d.none, d.none
+    d.status, d.withdraw, d.errTool = d.none, d.none, d.none
 
     -- the body scrolls; the answer box and the staff buttons stay at the bottom
     d.scroll = UI():CreateScrollFrame(box, "DisasterZoneFeedbackDetailScroll")
@@ -837,6 +839,9 @@ local function ChipPool(d, i)
             if self.kind == "err" then ErrorTip(self, d.item) else ContextTip(self, d.item) end
         end)
         ch:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        ch:SetScript("OnMouseUp", function(self)
+            if self.kind == "err" and d.item and ns.FeedbackSheet then ns.FeedbackSheet:ShowItemError(d.item) end
+        end)
         d.chips[i] = ch
     end
     return ch
@@ -901,6 +906,12 @@ local function RenderDetail()
         tools[1] = { icon = "more", title = "Status", text = "Planned, already in the addon, not planned, same as another, "
             .. "open again or remove.", menu = function(root) if d.item then ItemStatusMenu(root, d.item) end end }
     end
+    -- (an error came with it: its own window, left of the Status menu)
+    if item.err then
+        tools[#tools + 1] = { icon = UI().ICON_WARN, tint = ERROR_TINT, title = item.err.p and "Pasted error" or "Lua error",
+            text = "Opens the error that came with it, to read and copy.",
+            onClick = function() if d.item and ns.FeedbackSheet then ns.FeedbackSheet:ShowItemError(d.item) end end }
+    end
     if item.mine and not item.closed then
         actions[1] = { text = "Withdraw", tip = { "Withdraw", "Takes your feedback back: it leaves everyone's lists." },
             onClick = function() if d.item then ConfirmWithdraw(d.item) end end }
@@ -909,6 +920,7 @@ local function RenderDetail()
     b:SetActions(actions)
     d.status = b.tools[1] or d.none
     d.withdraw = b.actions[1] or d.none
+    d.errTool = item.err and b.tools[#b.tools] or d.none
 
     -- the body
     d.child:SetWidth(inner)
@@ -928,7 +940,8 @@ local function RenderDetail()
     local who = ns.Util.Trim(((cx.sp or "") .. " " .. (ns.ClassName(cx.cl) or "")))
     if who ~= "" then chips[#chips + 1] = { who } end
     if item.err then
-        chips[#chips + 1] = { "Lua error" .. ((item.err.n or 1) > 1 and (" ×" .. item.err.n) or ""), "err" }
+        chips[#chips + 1] = { (item.err.p and "Pasted error" or "Lua error")
+            .. ((item.err.n or 1) > 1 and (" ×" .. item.err.n) or ""), "err" }
     end
     for _, ch in ipairs(d.chips) do ch:Hide() end
     local x = 0
@@ -1203,6 +1216,7 @@ function FeedbackUI:CreatePanel(parent)
     local L = UI():CreateLayout("listdetail", p, { top = TABS_Y, listWidth = LIST_W, bottom = PAD,
         banner = { size = "tool", icon = "notes" } })
     L.banner:Hide()
+    L.banner:SetTitleFit({ "hero", "page" })   -- (the error icon and Status leave less room: a size down before a cut)
     p.layout = L
     local bar = L.toolbar
     local tabs = {}

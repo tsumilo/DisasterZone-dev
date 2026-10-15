@@ -10,7 +10,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Feedback.lua", ...) then retu
 -- Data (SavedVariables db.feedback[guildKey], account wide):
 --   r   = { [id] = record }   every record, of five kinds (k):
 --     "i" item    id "<author>#<n>"           { a, n, kd = kind, x = text, ab = about, rf = page ref, c = context,
---                                               e = error, t = created, an = 1 (no name in the changelog), d = 1
+--                                               e = error { m, s = stack, n = times, v = version, p = pasted
+--                                               text (a BugSack copy, the whole of it) }, t = created, an = 1 (no name in the changelog), d = 1
 --                                               (withdrawn), rv }
 --     "v" me too  id "<item>+<voter>"          { i, a, d = 1 (taken back), rv }
 --     "r" reply   id "<item>@<author>#<n>"     { i, a, n, x, t, d, rv }
@@ -73,6 +74,7 @@ local ABOUT_MAX = 60
 local REF_MAX = 60
 local ERR_MSG_MAX = 300
 local ERR_STACK_MAX = 900
+local PASTE_MAX = 3000          -- an error pasted into a bug (e.p; older clients pass it on unread)
 local KEY_MAX = 48
 local ID_MAX = 140
 local OPEN_PER_AUTHOR = 25      -- open items one character may have
@@ -243,6 +245,7 @@ local function ValidError(e)
     if e == nil then return true end
     return type(e) == "table" and type(e.m) == "string" and #e.m <= ERR_MSG_MAX
         and (e.s == nil or (type(e.s) == "string" and #e.s <= ERR_STACK_MAX))
+        and (e.p == nil or (type(e.p) == "string" and e.p ~= "" and #e.p <= PASTE_MAX))
         and (e.n == nil or IsInt(e.n, 1, 1000000)) and (e.v == nil or (type(e.v) == "string" and #e.v <= 20))
 end
 
@@ -988,8 +991,29 @@ function Feedback:Context()
     return c
 end
 
+-- An error pasted by the player (a BugSack copy): colour codes, textures and links taken out, plain text kept, cut at
+-- PASTE_MAX. nil when nothing is left.
+local function CleanPaste(text)
+    if type(text) ~= "string" then return nil end
+    text = text:gsub("||", "|"):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("|H.-|h(.-)|h", "%1")
+    text = text:gsub("\t", "    ")
+    text = Clean(text, PASTE_MAX, true)
+    return text ~= "" and text or nil
+end
+Feedback.CleanPaste = CleanPaste
+Feedback.PASTE_MAX = PASTE_MAX
+
+-- The whole error text of an item (what was pasted, else the message and the stack), or nil.
+function Feedback:ErrorText(item)
+    local e = item and item.err
+    if not e then return nil end
+    if e.p then return e.p end
+    return e.s and (e.m .. "\n\n" .. e.s) or e.m
+end
+
 -- Sends feedback. kind: "bug" | "idea" | "change" | "love"; opts: { about = label, ref = page ref, anon = true,
--- err = error table (Feedback:RecentError()), ctx = context (default Feedback:Context()) }. Returns id or nil, err.
+-- err = error table (Feedback:RecentError()), paste = error text the player pasted (a bug: it replaces err),
+-- ctx = context (default Feedback:Context()) }. Returns id or nil, err.
 function Feedback:Submit(kind, text, opts)
     opts = opts or {}
     if not KIND_OK[kind] then return nil, "pick what kind of feedback it is" end
@@ -1013,6 +1037,12 @@ function Feedback:Submit(kind, text, opts)
         s = Clean(e.s or "", ERR_STACK_MAX, true), n = IsInt(e.n, 1, 1000000) and e.n or nil,
         v = type(e.v) == "string" and strsub(e.v, 1, 20) or nil } or nil
     if err and err.s == "" then err.s = nil end
+    local paste = kind == "bug" and CleanPaste(opts.paste)
+    if paste then
+        -- (m: the first line, what older clients and the tooltips show)
+        local first = strmatch(paste, "^[^\n]+") or paste
+        err = { m = Clean(first, ERR_MSG_MAX), p = paste, v = type(ns.version) == "string" and strsub(ns.version, 1, 20) or nil }
+    end
     local rec = {
         k = "i", a = me, n = n, kd = kind, x = text, t = Now(), rv = Now(),
         ab = Clean(opts.about, ABOUT_MAX) or nil, rf = type(opts.ref) == "string" and strsub(opts.ref, 1, REF_MAX) or nil,
@@ -1229,7 +1259,7 @@ local DEMO_DAY = 86400
 -- Builds the demo store on first use: nine items from the demo guild at every stage (one is mine).
 function Feedback:DemoStore()
     if demoStore then return demoStore end
-    demoStore = { r = {}, seq = {}, no = 18 }
+    demoStore = { r = {}, seq = {}, no = 19 }
     local realm = Util.GetPlayerRealm()
     local function K(name) return name .. "-" .. realm end
     local me = Me() or K("You")
@@ -1283,6 +1313,18 @@ function Feedback:DemoStore()
     votes(grim, { "me", "Orinel", "Kaelyn" })
     status(grim, dev, "planned", 2 * DEMO_DAY)
     answer(grim, dev, "Good catch! The popup will wait until you leave combat. It's in the next release.", 2 * DEMO_DAY)
+    local paste = table.concat({
+        "1x DisasterZone/UI/Members.lua:233: attempt to compare nil with number",
+        "[string \"@Interface/AddOns/DisasterZone/UI/Members.lua\"]:233: in function 'SortRows'",
+        "[string \"@Interface/AddOns/DisasterZone/UI/Members.lua\"]:301: in function 'Refresh'",
+        "[string \"@Interface/AddOns/DisasterZone/UI/MainFrame.lua\"]:540: in function 'ShowTab'",
+        "", "Locals:", "a = <table> {", "  name = \"Brakka\"", "  level = 70", "}", "b = <table> {",
+        "  name = \"Newbie\"", "}", "(*temporary) = nil", "(*temporary) = 70",
+        "(*temporary) = \"attempt to compare nil with number\"",
+    }, "\n")
+    item(K("Caelith"), 3, "bug", "Members tab throws an error when I sort by level.", 5400, "Guild › Members",
+        ctx("Shattrath City", "MAGE", "Arcane"), 19, { e = { m = "1x DisasterZone/UI/Members.lua:233: attempt to "
+            .. "compare nil with number", p = paste, v = v } })
     item(K("Brakka"), 1, "bug", "Atlas shows Sunwell items when I filter by phase 2.", 600, "Atlas",
         ctx("Ironforge", "WARRIOR", "Protection"), nil)
     local kaelyn = item(K("Kaelyn"), 2, "bug", "Gems on My BiS reset after a /reload.", 14 * DEMO_DAY, "My BiS › Gems",

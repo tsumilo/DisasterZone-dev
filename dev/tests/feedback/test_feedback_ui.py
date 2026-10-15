@@ -354,5 +354,59 @@ def feedback_pop_ups_waiting_behind_a_full_stack_are_all_shown():
     w.assert_no_errors()
 
 
+@case
+def a_bug_takes_a_pasted_error_and_the_item_opens_it_from_its_header():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    f = "%s:GetFrame()" % SHEET
+    a.eval("%s:Open({ kind = 'idea' })" % SHEET)
+    w.tick(0.2)
+    assert a.eval("return %s.paste:IsShown()" % f) is False, "only a bug pastes an error"
+    a.eval("%s:Open({ kind = 'bug' })" % SHEET)
+    w.tick(0.2)
+    assert a.eval("return %s.paste:IsShown()" % f) is True
+    a.eval("%s.paste:Click()" % f)
+    w.tick(0.2)
+    ew = "%s:GetErrorWindow()" % SHEET
+    assert a.eval("return %s:IsShown() and %s.mode" % (ew, ew)) == "edit"
+    a.eval("%s.eb:SetText(...)" % ew, "1x DisasterZone/UI/Members.lua:233: boom\nline two\nline three")
+    a.eval("%s.ok:Click()" % ew)
+    w.tick(0.2)
+    assert a.eval("return %s:IsShown()" % ew) is False
+    assert a.eval("return %s.paste:GetText()" % f) == "Edit error"
+    chips = a.eval_py("local o = {} for _, ch in ipairs(%s.withChips) do if ch:IsShown() then "
+                      "o[#o + 1] = ch.fs:GetText() or '' end end return o" % f)
+    assert any("Pasted error, 3 lines" in (t or "") for t in chips), chips
+    a.eval("%s.edit:SetText('Members tab broke.')" % f)
+    a.eval("%s:Send()" % SHEET)
+    w.tick(3)
+    assert a.eval_py("return %s:GetDraft().paste" % SHEET) is None, "sent: the paste is cleared"
+    # the developer opens the item: an error icon left of the Status menu, it opens the error to read
+    t = c["Tsumil"]
+    id_ = K("Alfa") + "#1"
+    open_page(t, w, "all")
+    t.eval("ns.FeedbackUI:Select(...)", id_)
+    w.tick(0.2)
+    d = "ns.FeedbackUI:GetPanel().detail"
+    assert t.eval("return %s.errTool:IsShown()" % d) is True
+    # (row from the right: the error icon hangs off the Status button's left edge)
+    assert t.eval("local _, rel, rp = %s.errTool:GetPoint(1); return rel == %s.status and rp" % (d, d)) == "LEFT"
+    t.eval("%s.errTool:Click()" % d)
+    w.tick(0.2)
+    assert t.eval("return %s:IsShown() and %s.mode" % (ew, ew)) == "view"
+    assert t.eval("return %s.eb:GetText()" % ew) == "1x DisasterZone/UI/Members.lua:233: boom\nline two\nline three"
+    # read only: typing puts it back
+    t.eval("local eb = %s.eb; eb:SetText('x'); eb:GetScript('OnTextChanged')(eb, true)" % ew)
+    assert t.eval("return %s.eb:GetText()" % ew).startswith("1x DisasterZone")
+    # an item without an error has no icon
+    other = submit(c["Bert"], "idea", "No error here.")
+    w.tick(3)
+    t.eval("ns.FeedbackUI:Select(...)", other)
+    w.tick(0.2)
+    assert t.eval("return %s.errTool:IsShown()" % d) is False
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()
