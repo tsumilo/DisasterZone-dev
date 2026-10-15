@@ -555,6 +555,7 @@ local GLASS_SHADE = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\glass_shad
 local GLASS_SPEC = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\glass_spec"
 local TANK_SHADE = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\tank_shade"
 local TANK_SPEC = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\tank_spec"
+local NOTCH = "Interface\\AddOns\\DisasterZone\\Media\\Warrior\\notch"
 
 -- The globe's size changed: the flat rim light of older art (a short arc of strokes round its upper left, a tank: two
 -- edges). The baked glass fills the globe by itself.
@@ -579,13 +580,38 @@ local function PlaceGlass(gl, D)
     end
 end
 
--- The Heroic Strike notches at height y (from the globe's bottom): a short gold tick in from the rim on each side,
--- over a dark one a little wider (readable on any rage). lit = rage is over the line.
+-- The Heroic Strike markers at height y (from the globe's bottom), one on each side of the rim, their tips just inside
+-- the glass. lit = rage is over the line: full gold with a glow; under it they dim.
 local function PlaceNotches(gl, D, y, lit)
     local cy = y - D / 2
     local half
-    if gl.square then half = D / 2 - 1
-    else half = math.sqrt(max(0, (D / 2 - 1.5) ^ 2 - cy * cy)) end
+    if gl.square then half = D / 2
+    else half = math.sqrt(max(0, (D / 2) ^ 2 - cy * cy)) end
+    if gl.art then
+        -- (the pointer's tip is at 0.88 of its texture's width, its body 0.04 .. 0.88)
+        local w = max(11, D * 0.17)
+        local inset = max(2, D * 0.04)
+        for side = 1, 2 do
+            local s = side == 1 and -1 or 1
+            local n = gl.notch[side]
+            local cx = s * (half - inset + 0.38 * w)
+            n.tex:ClearAllPoints()
+            n.tex:SetSize(w, w)
+            n.tex:SetPoint("CENTER", gl, "CENTER", cx, cy)
+            n.glow:ClearAllPoints()
+            n.glow:SetSize(w * 2.2, w * 1.5)
+            n.glow:SetPoint("CENTER", gl, "CENTER", cx - s * 0.15 * w, cy)
+            if lit then
+                n.tex:SetVertexColor(1, 1, 1, 1)
+                n.glow:SetAlpha(0.55)
+            else
+                n.tex:SetVertexColor(0.62, 0.55, 0.46, 0.9)
+                n.glow:SetAlpha(0)
+            end
+        end
+        return
+    end
+    half = half - (gl.square and 1 or 1.5)
     local len = max(4, D * 0.09)
     for side = 1, 2 do
         local s = side == 1 and -1 or 1
@@ -594,7 +620,8 @@ local function PlaceNotches(gl, D, y, lit)
         dark:SetStartPoint("CENTER", gl, x0 + s * 0.5, cy); dark:SetEndPoint("CENTER", gl, x1 - s * 1, cy)
         gold:SetStartPoint("CENTER", gl, x0, cy); gold:SetEndPoint("CENTER", gl, x1, cy)
         dark:SetVertexColor(0, 0, 0, 0.75)
-        if lit then gold:SetVertexColor(1, 0.86, 0.45, 1) else gold:SetVertexColor(0.78, 0.6, 0.26, 0.9) end
+        local c = GOLDLINE
+        gold:SetVertexColor(c[1], c[2], c[3], lit and 1 or 0.7)
     end
 end
 
@@ -678,13 +705,24 @@ function RF:BuildExtra(face)
                 gl.rim[i] = l
             end
         end
-        -- the Heroic Strike line: gold notches on the rim, as on a measuring glass (a line across read as a crack)
+        -- the Heroic Strike line: a gold pointer on each side of the rim (a line across read as a crack); older art:
+        -- short gold ticks
         gl.notch = {}
-        for i = 1, 4 do
-            local l = gl:CreateLine(nil, "OVERLAY", nil, i <= 2 and 2 or 3)
-            l:SetColorTexture(1, 1, 1, 1)
-            l:SetThickness(i <= 2 and 4 or 2)
-            gl.notch[i] = l
+        if art then
+            for i = 1, 2 do
+                local glow = Part(gl, "OVERLAY", SOFT, 1, 0.78, 0.35, 0, 2)
+                glow:SetBlendMode("ADD")
+                local t = Part(gl, "OVERLAY", NOTCH, nil, nil, nil, nil, 3)
+                if i == 2 then t:SetTexCoord(1, 0, 0, 1) end          -- (the right one points left)
+                gl.notch[i] = { tex = t, glow = glow }
+            end
+        else
+            for i = 1, 4 do
+                local l = gl:CreateLine(nil, "OVERLAY", nil, i <= 2 and 2 or 3)
+                l:SetColorTexture(1, 1, 1, 1)
+                l:SetThickness(i <= 2 and 4 or 2)
+                gl.notch[i] = l
+            end
         end
         PlaceGlass(gl, D)
         gl.num = UI:Text(gl, "emph", { 1, 0.95, 0.84 }, { font = NARROW, shadow = true, justify = "CENTER" })

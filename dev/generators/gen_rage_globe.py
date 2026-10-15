@@ -6,6 +6,7 @@
   Media/Warrior/glass_spec.tga   the glass's light (ADD): a crisp specular arc round the upper left, a small hot spot,
                                  and a faint warm bounce along the lower right rim
   Media/Warrior/tank_shade.tga / tank_spec.tga   the same for Sigil's square tank (edges instead of a sphere)
+  Media/Warrior/notch.tga        the Heroic Strike marker on the rim: a small bevelled gold pointer (pointing right)
 Run (from dev): luaenv\\Scripts\\python.exe generators\\gen_rage_globe.py"""
 from pathlib import Path
 
@@ -120,9 +121,54 @@ def tank_spec():
     save(np.ones(x.shape + (3,)), white, "tank_spec.tga")
 
 
+def notch():
+    """The Heroic Strike marker: a small gold pointer, pointing right (the left one; the right one is the same
+    texture mirrored). A bevelled wedge with a rounded back, lit from the top left, a dark outline and a soft shadow.
+    Drawn in colour; the HUD dims it while rage is under the line."""
+    n = 64 * SS
+    c = (np.arange(n) + 0.5) / n
+    x, y = np.meshgrid(c, 1 - c)                            # x right, y up, 0..1
+    # the wedge: a rounded back (a half disc) at the left, two straight sides meeting at the tip on the right
+    tip, back, half = 0.88, 0.30, 0.26
+    cy = 0.5
+    dy = np.abs(y - cy)
+    # signed distance (negative inside), in texture units
+    side = (dy - half * np.clip((tip - x) / (tip - back), 0, 1))       # the sides, narrowing to the tip
+    body = np.where(x >= back, np.maximum(side, x - tip), np.hypot(x - back, y - cy) - half)
+    d = body
+    aa = 1.0 / n * 1.5
+    inside = smooth(aa, -aa, d)
+    outline = smooth(aa, -aa, d - 0.055) * (1 - inside)
+    shadow = np.exp(-np.maximum(np.hypot(x - 0.03, y + 0.04) * 0 + (d + 0.0), 0) / 0.05) * 0  # (unused)
+    # soft shadow: the shape blurred, offset down right
+    sx, sy = x - 0.035, y + 0.045
+    sdy = np.abs(sy - cy)
+    sside = (sdy - half * np.clip((tip - sx) / (tip - back), 0, 1))
+    sbody = np.where(sx >= back, np.maximum(sside, sx - tip), np.hypot(sx - back, sy - cy) - half)
+    shadow = smooth(0.09, -0.02, sbody) * 0.55
+    # the gold: a bevel (lighter toward the upper edge and the back, darker toward the lower edge), a bright ridge
+    # along the middle line toward the tip
+    up = (y - cy) / half                                    # -1 bottom .. 1 top
+    edge = np.clip(-d / 0.07, 0, 1)                         # 0 at the edge .. 1 deep inside
+    # two facets meeting on a ridge: the upper one catches the light, the lower one in shade
+    facet = np.where(y >= cy, 0.92 - 0.18 * up, 0.42 + 0.10 * up)
+    ridge = np.exp(-((y - cy) / 0.018) ** 2) * 0.35
+    lip = (1 - edge) * np.where(y >= cy, 0.25, -0.15)       # a lit upper rim, a darker lower one
+    v = np.clip(facet + ridge + lip, 0, 1.2)
+    dark, mid, light = np.array([0.37, 0.26, 0.06]), np.array([0.85, 0.62, 0.19]), np.array([1.0, 0.94, 0.70])
+    t = v[..., None]
+    gold = np.where(t < 0.6, dark + (mid - dark) * (t / 0.6), mid + (light - mid) * np.clip((t - 0.6) / 0.6, 0, 1))
+    black = np.zeros_like(gold)
+    a_shadow = shadow * (1 - inside) * (1 - outline)
+    a = np.clip(inside + outline * 0.95 + a_shadow, 0, 1)
+    rgb = (gold * inside[..., None] + black * (outline * 0.95 + a_shadow)[..., None]) / np.maximum(a, 1e-6)[..., None]
+    save(rgb, a, "notch.tga")
+
+
 if __name__ == "__main__":
     fluid()
     glass_shade()
     glass_spec()
     tank_shade()
     tank_spec()
+    notch()
