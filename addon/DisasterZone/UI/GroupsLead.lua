@@ -469,6 +469,13 @@ local function LayoutReserves(run, width)
         sh.summary.big:SetPoint("LEFT", 12, 0)
         sh.summary.text = UI():Text(sh.summary, "small", "SUB", { wrap = true })
         sh.summary.text:SetPoint("LEFT", sh.summary.big, "RIGHT", 12, 0)
+        -- (the reserves are run in their own window, as on any raid: this tab only shows them)
+        sh.summary.open = UI():CreateSleekButton(sh.summary, "Open reserves window", 150, 24, function()
+            if ns.ReservesUI and ns.ReservesUI.Show then ns.ReservesUI:Show() end
+        end, "secondary")
+        sh.summary.open:SetPoint("RIGHT", -8, 0)
+        UI():AttachTooltip(sh.summary.open, "Reserves window", "Where the reserves are run: what everyone "
+            .. "reserved, held items, imports, whispers, closing them. Also /dz reserves.", { anchor = "ANCHOR_TOP" })
     end
     local sm = sh.summary
     sm:SetParent(sh.body)
@@ -481,7 +488,7 @@ local function LayoutReserves(run, width)
         if i > 5 then names[#names + 1] = "+" .. (#missing - 5) break end
         names[#names + 1] = UI():ColoredName(k)
     end
-    sm.text:SetWidth(width - (sm.big:GetStringWidth() or 40) - 36)
+    sm.text:SetWidth(width - (sm.big:GetStringWidth() or 40) - 36 - 160)
     sm.text:SetText("have reserved (" .. (L and L.n or 1) .. " each)" .. (#missing > 0 and ("\nStill to reserve: "
         .. tconcat(names, ", ")) or "\nEveryone has reserved."))
     sm:Show()
