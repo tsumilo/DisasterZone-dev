@@ -240,6 +240,7 @@ UI\PrizedUI.lua
 UI\LootRulesUI.lua
 UI\CouncilRules.lua
 UI\RaidsTab.lua
+UI\GroupsCard.lua
 UI\DungeonsTab.lua
 UI\EventWidgets.lua
 UI\EventPieces.lua
