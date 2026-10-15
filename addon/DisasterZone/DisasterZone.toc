@@ -295,6 +295,7 @@ UI\Wardrobe.lua
 UI\EditMode.lua
 UI\Look.lua
 UI\LookUnits.lua
+UI\LookAggro.lua
 UI\LookTanks.lua
 UI\LookCast.lua
 UI\LookBars.lua

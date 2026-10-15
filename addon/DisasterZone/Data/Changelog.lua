@@ -57,6 +57,14 @@ ns.CHANGELOG = {
               "Battleground premades sized to the battleground, with a flag carrier wanted.",
               "PvP has no tanks: healers and damage only.",
           } },
+          { heading = "Aggro warning", area = "look", kind = "new", hi = true, open = "settings/looks",
+            lead = "Unit, party and raid frames light up as someone nears pulling aggro off the tank.", lines = {
+              { "An outline that slides from yellow to red as their threat climbs toward the pull.", fb = { 19 }, by = { "Vicnado" }, k = "idea" },
+              "A soft glow round it; from amber on it breathes, faster as they get close.",
+              "Someone who has pulled throbs deep red. Tanks never light up.",
+              "Off by default: Settings > Looks, Unit frames or Party and raid; it starts at 50-90%.",
+              "Demo mode and Edit layout show it on the made-up members.",
+          } },
       } },
     { version = "1.4.6", date = "15 October 2026", title = "Azeromon: Blackrock",
       sections = {

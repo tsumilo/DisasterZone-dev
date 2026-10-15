@@ -2683,6 +2683,12 @@ local PART_OPTS = {
         { "healthText", "Health text", "", "both",
           { { value = "both", text = "14.2k  84%" }, { value = "pct", text = "84%" },
             { value = "full", text = "14,212 / 16,840" }, { value = "none", text = "None" } } },
+        { "aggro", "Aggro warning", "An outline from yellow to red as someone nears pulling aggro off the tank.", false,
+          tip = "For tanks and healers. It starts at Warn from and turns red at the pull, breathing faster as it gets "
+              .. "close; a player who has pulled throbs deep red. Tanks never light up: holding aggro is their job." },
+        { "aggroFrom", "Warn from", "Of the pull point: where the outline starts, in yellow.", 70,
+          { { value = 50, text = "50%" }, { value = 60, text = "60%" }, { value = 70, text = "70%" },
+            { value = 80, text = "80%" }, { value = 90, text = "90%" } } },
         { "debuffs", "Auras on target", "Your own first, everyone's, or only yours.", "mine",
           { { value = "mine", text = "Mine first" }, { value = "all", text = "All" }, { value = "onlymine", text = "Only mine" } } },
         { "timers", "Aura timers", "Seconds left under each aura.", true },
@@ -2694,6 +2700,12 @@ local PART_OPTS = {
             { value = "gradient", text = "By health" } } },
         { "player", "Me in my party", "Your own frame at the top of the party frames.", false },
         { "partyInRaid", "Party frames in a raid", "Off: your group is already in the raid frames.", false },
+        { "aggro", "Aggro warning", "An outline from yellow to red as someone nears pulling aggro off the tank.", false,
+          tip = "For tanks and healers. It starts at Warn from and turns red at the pull, breathing faster as it gets "
+              .. "close; a player who has pulled throbs deep red. Tanks never light up: holding aggro is their job." },
+        { "aggroFrom", "Warn from", "Of the pull point: where the outline starts, in yellow.", 70,
+          { { value = 50, text = "50%" }, { value = 60, text = "60%" }, { value = 70, text = "70%" },
+            { value = 80, text = "80%" }, { value = 90, text = "90%" } } },
         { "tanks", "Main tanks", "Each main tank and the mob they hold, by the raid frames.", true,
           tip = "The raid leader or an assistant sets them: + under the rows, the plan's tanks in one click, or "
               .. "/maintank. Drag a row to reorder; move the block in Edit layout." },

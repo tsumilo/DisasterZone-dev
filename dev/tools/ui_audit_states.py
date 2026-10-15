@@ -3979,6 +3979,55 @@ end
 STATES += [("Group frames - " + k, opened("home", GROUP_STATE.replace("LOOK", k)))
            for k in ("halo", "flat", "sigil", "slate", "gilded", "classic")]
 
+# The aggro warning (UI/LookAggro.lua) in look LOOK: raid cells calm, then 70% .. the pull (yellow > amber > red), one
+# who pulled (deep red); party frames and the player's frame the same way. Snapped (no easing) for a still render.
+AGGRO_STATE = r"""
+ns.MainFrame:Close(); __MOCK.real_geometry = true
+ns.DB:SetSetting('ui.group.aggro', true); ns.DB:SetSetting('ui.units.aggro', true)
+local st = DZAggroStage or CreateFrame('Frame', 'DZAggroStage', UIParent)
+st:SetSize(760, 330); st:ClearAllPoints(); st:SetPoint('CENTER'); st:Show()
+if not st.bg then
+  st.bg = st:CreateTexture(nil, 'BACKGROUND'); st.bg:SetAllPoints()
+  st.bg:SetTexture('Interface' .. string.char(92) .. 'Glues' .. string.char(92) .. 'LoadingScreens' .. string.char(92) .. 'LoadScreenOutland')
+  st.bg:SetTexCoord(0.05, 0.75, 0.25, 0.75)
+end
+for _, c in ipairs(st.cells or {}) do c:Hide() end
+st.cells = st.cells or {}
+local U, LA, look = ns.LookUnits, ns.LookAggro, ns.Look.BY_KEY['LOOK']
+local gap = math.max(6, look.gap or 2)
+local V = { { 0.3 }, { 0.72 }, { 0.8 }, { 0.87 }, { 0.93 }, { 0.98 }, { 1.0 }, { 1.05, true }, { 0.5 }, { 0.9 } }
+for i = 1, 14 do
+  local raid = i <= 10
+  local c = st.cells[i]
+  if not c then
+    c = CreateFrame('Frame', nil, st)
+    c.face = U:NewFace(c, (raid or i == 14) and (raid and 'cell' or 'big') or 'big', i == 14 and 'units' or 'group', 'left')
+    c.face.width = raid and 72 or (i == 14 and nil or 184)
+    st.cells[i] = c
+  end
+  c.face:Apply(look)
+  local w, h = c:GetWidth(), c:GetHeight()
+  c:ClearAllPoints()
+  if raid then
+    local col, row = math.floor((i - 1) / 5), (i - 1) % 5
+    c:SetPoint('TOPLEFT', st, 'TOPLEFT', 24 + col * (w + 16), -24 - row * (h + gap + 8))
+  elseif i < 14 then
+    c:SetPoint('TOPLEFT', st, 'TOPLEFT', 270, -24 - (i - 11) * (h + 18))
+  else
+    c:SetPoint('TOPLEFT', st, 'TOPLEFT', 500, -24)
+  end
+  local d = (i == 14) and U.Fake('player') or U.Fake('member', i)
+  d.dead, d.offline = false, false
+  if d.hp == 0 then d.hp = d.hpMax end
+  c.face:Set(d)
+  local v = raid and V[i] or ({ { 0.78 }, { 0.96 }, { 1.1, true }, { 0.9 } })[i - 10]
+  LA:Set(c.face, v[1], v[2], true)
+  c:Show()
+end
+"""
+STATES += [("Aggro warning - " + k, opened("home", AGGRO_STATE.replace("LOOK", k)))
+           for k in ("halo", "flat", "sigil", "slate", "gilded", "classic")]
+
 # The main tanks block (UI/LookTanks.lua) over the raid frames in look LOOK, drawn with the same faces and data the
 # live rows use: a mob on its tank (88%), one on a non-tank (red, "on Dreadhex"), one on another main tank (grey),
 # a tank without a target (the plan's job, greyed). Under it the raid frames with the shields, my target (Torvald) and

@@ -243,6 +243,7 @@ end
 
 local Face = {}
 Face.__index = Face
+Units.allFaces = setmetatable({}, { __mode = "k" })   -- every face made, live or made-up (UI/LookAggro.lua lights them)
 
 -- kind: big | small | cell; part: "units" | "group"; side: "left" | "right" (the portrait's).
 function Units:NewFace(host, kind, part, side)
@@ -296,6 +297,7 @@ function Units:NewFace(host, kind, part, side)
     F.selRing:Paint(nil)
     F.auras = {}
     F.pips = {}
+    Units.allFaces[F] = true
     return F
 end
 
@@ -594,7 +596,11 @@ end
 -- Lays the face out in a look (its sizes are the look's, from the mockup).
 function Face:Apply(look)
     self.look = look
-    if look.game then return self:ApplyClassic(look) end
+    if look.game then
+        self:ApplyClassic(look)
+        if self.aggro and ns.LookAggro then ns.LookAggro:Place(self) end
+        return
+    end
     self:ClassicOff()
     local L = Look()
     local host, kind, k = self.host, self.kind, look.key
@@ -794,6 +800,7 @@ function Face:Apply(look)
         self.leader:SetPoint("CENTER", host, "TOPLEFT", (kind == "cell") and 4 or (left and (ph > 0 and ph - 4 or 6) or 8), 0)
     end
     if self.d then self:Set(self.d) end
+    if self.aggro and ns.LookAggro then ns.LookAggro:Place(self) end
 end
 
 -- Draws data d (Units.Data or Units.Fake).
