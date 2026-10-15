@@ -75,7 +75,7 @@ local KINDS = { { key = "weapon", name = "Weapons" }, { key = "armor", name = "A
 local CAT_ICON = {
     raids = "Interface\\Icons\\INV_Misc_Head_Dragon_01", dungeons = 136339,
     crafting = "Interface\\Icons\\Trade_BlackSmithing", reputation = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
-    pvp = "Interface\\Icons\\INV_Jewelry_TrinketPVP_02", vendors = "Interface\\Icons\\Spell_Holy_ChampionsBond",
+    vendors = "Interface\\Icons\\Spell_Holy_ChampionsBond",       -- (pvp: my faction's trinket, CatIcon)
     collections = "Interface\\Icons\\Ability_Mount_RidingHorse", events = "Interface\\Icons\\INV_Misc_Ribbon_01",
     sets = "Interface\\Icons\\INV_Chest_Plate03",
 }
@@ -688,6 +688,11 @@ end
 local function CatIcon(cat)
     local key = type(cat) == "table" and cat.key or cat
     key = tostring(key or ""):gsub("^c_", "")
+    -- PvP: my faction's PvP trinket (the Alliance's medallion, the Horde's own)
+    if key == "pvp" then
+        local side = UnitFactionGroup and UnitFactionGroup("player")
+        return "Interface\\Icons\\INV_Jewelry_TrinketPVP_" .. (side == "Horde" and "02" or "01")
+    end
     return CAT_ICON[key] or CAT_ICON_DEFAULT
 end
 
