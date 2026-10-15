@@ -109,6 +109,8 @@ def the_helpers_fill_in_the_teams():
     assert compose(gina)[0] == "Holy Paladin, Restoration Druid, Retribution Paladin", compose(gina)
     gina.eval("ns.RecruitMessage:SetPart(..., { skip = 'PALADIN:3' })", nid)
     assert compose(gina)[0] == "Holy Paladin, Restoration Druid", compose(gina)
+    gina.eval("ns.RecruitMessage:SetPart(..., { by = 'short' })", nid)      # (what's left out stays out)
+    assert compose(gina)[0] == "Holy Pala, Resto Druid", compose(gina)
     gina.eval("ns.RecruitMessage:SetPart(..., { by = 'class' })", nid)      # (a new list: nothing left out)
     assert compose(gina)[0] == "Paladin, Druid", compose(gina)
     gina.eval("ns.RecruitMessage:SetPart(..., { team = 'all', by = 'spec' })", nid)

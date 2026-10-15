@@ -1087,7 +1087,8 @@ function H.CreateWrite(m)
         local p = w.partId and M():GetPart(w.partId)
         if p then H.TeamMenu(self, p) end
     end, "secondary")
-    w.by = UI:CreateSegments(w, { { key = "spec", label = "Specs" }, { key = "class", label = "Classes" } }, function(key)
+    w.by = UI:CreateSegments(w, { { key = "spec", label = "Specs" }, { key = "short", label = "Short" },
+        { key = "class", label = "Classes" } }, function(key)
         if w.partId then M():SetPart(w.partId, { by = key }) end
     end, { h = 22, itemW = 64 })
     w.info = UI:Text(w, "small", "SUB", { wrap = true, width = MSG_LW })
@@ -1268,7 +1269,10 @@ function H.FillWrite()
                 for i, e in ipairs(list) do
                     local c = H.EntryChip(w, i)
                     c.entryKey, c.entryName, c.skipped = e.key, e.name, e.skip
-                    c:Set(e.name, nil, e.c)
+                    local icon = e.c and e.sp and ns.SpecIcon(e.c, e.sp)
+                    local cc = e.c and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.c]
+                    c:SetIcon(icon or nil)
+                    c:Set(e.name, (not icon and cc) and { cc.r, cc.g, cc.b } or nil)
                     c:SetSelected(not e.skip)
                     c:SetAlpha(e.skip and 0.45 or 1)
                     if ex > 0 and ex + c:GetWidth() > MSG_LW then ex, ey = 0, ey + 24 end

@@ -2,7 +2,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RecruitMessage.lua", ...) the
 -- Recruitment > Message (1.6): the guild's recruitment message, built by the officers from parts (like the LFG
 -- message), and where it goes.
 --   Parts, in their order, each on or off: the officers' own words, and helpers that only fill in facts: the guild's
---   name, the classes a team's comp still needs (one team or every team; as specs or classes; any of them left out),
+--   name, the classes a team's comp still needs (one team or every team; as specs, short names or classes; any of them
+--   left out),
 --   a team's raid nights. Nothing is written for them: the message starts empty. The parts are joined with a space
 --   (or " - ", ", ", " / "); one chat line, 255 bytes at most.
 --   Places: Say, Yell, or a chat channel by name (Trade, LookingForGroup, GuildRecruitment, General, LocalDefense, or
@@ -13,7 +14,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RecruitMessage.lua", ...) the
 -- key (Key Bindings > AddOns) does the same. Posts are told to the recruiters online (RCP, with the place), so
 -- officers take turns per place instead of posting twice.
 -- Saved (per guild): db.recruitMsg[guildKey] = { v = 3, parts = { { id, k = "text" | "tag" | "need" | "nights", t,
--- team, by = "spec" | "class", skip = { [entry] = true }, off }, ... }, nid, sep, rep, places = { { id, kind = "SAY" |
+-- team, by = "spec" | "short" | "class", skip = { [entry] = true }, off }, ... }, nid, sep, rep, places = { { id, kind = "SAY" |
 -- "YELL" | "CHANNEL", name, every = seconds, u = "s" | "m", on, city }, ... }, posts = { [place id] = { at, ... } } }.
 local addonName, ns = ...
 
@@ -64,6 +65,17 @@ local CITY_NAMES = { ["Stormwind City"] = true, ["Ironforge"] = true, ["Darnassu
                      ["Shattrath City"] = true }
 
 local DAY_SHORT = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
+
+-- "Short": the names chat uses, to save the budget (by spec, in ns.SPECS order; a class alone).
+Msg.SHORT_SPEC = {
+    WARRIOR = { "Arms War", "Fury War", "Prot War" }, PALADIN = { "Holy Pala", "Prot Pala", "Ret Pala" },
+    HUNTER = { "BM Hunter", "MM Hunter", "Surv Hunter" }, ROGUE = { "Assa Rogue", "Combat Rogue", "Sub Rogue" },
+    PRIEST = { "Disc Priest", "Holy Priest", "Shadow Priest" }, SHAMAN = { "Ele Sham", "Enh Sham", "Resto Sham" },
+    MAGE = { "Arcane Mage", "Fire Mage", "Frost Mage" }, WARLOCK = { "Affli Lock", "Demo Lock", "Destro Lock" },
+    DRUID = { "Boomkin", "Cat Druid", "Bear Druid", "Resto Druid" },
+}
+Msg.SHORT_CLASS = { WARRIOR = "War", PALADIN = "Pala", HUNTER = "Hunter", ROGUE = "Rogue", PRIEST = "Priest",
+                    SHAMAN = "Sham", MAGE = "Mage", WARLOCK = "Lock", DRUID = "Druid" }
 
 local function R() return ns.Recruit end
 local Now = Util.Now
@@ -154,6 +166,10 @@ function Msg:NightsText(team)
 end
 
 local function SlotName(o, by)
+    if o.c and by == "short" then
+        local name = o.sp and Msg.SHORT_SPEC[o.c] and Msg.SHORT_SPEC[o.c][o.sp] or Msg.SHORT_CLASS[o.c] or o.c
+        return name, o.c .. ":" .. (o.sp or 0)
+    end
     if o.c then
         local cls = ns.ClassName(o.c) or o.c
         local spec = by ~= "class" and o.sp and ns.SPECS[o.c] and ns.SPECS[o.c][o.sp]
@@ -257,7 +273,7 @@ function Msg:AddPart(kind, opts)
             if not first then return false, "no team yet: make one in Raids > Teams" end
             p.team = first.id
         end
-        if kind == "need" then p.by = opts.by == "class" and "class" or "spec" end
+        if kind == "need" then p.by = (opts.by == "class" or opts.by == "short") and opts.by or "spec" end
     end
     d.nid = d.nid + 1
     p.id = d.nid
@@ -278,8 +294,9 @@ function Msg:SetPart(id, f)
         end
     end
     if f.by ~= nil and p.k == "need" then
-        p.by = f.by == "class" and "class" or "spec"
-        p.skip = nil
+        local by = (f.by == "class" or f.by == "short") and f.by or "spec"
+        if (by == "class") ~= (p.by == "class") then p.skip = nil end      -- (specs and short share what's left out)
+        p.by = by
     end
     if f.on ~= nil then p.off = (not f.on) or nil end
     if f.skip ~= nil and p.k == "need" then
