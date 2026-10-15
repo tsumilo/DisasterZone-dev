@@ -1,0 +1,1155 @@
+{
+ "notes": [
+  "sets/TierSets/('call', 'C_Map_GetAreaInfo', [1977]) Sets: [HORDE_DIFF] GetItemsFromDiff = ALLIANCE_DIFF (+7 rows at positions [1, 3, 16, 5, 20, 7, 9])",
+  "sets/TierSets/('call', 'C_Map_GetAreaInfo', [3428]) 20 Sets: [HORDE_DIFF] GetItemsFromDiff = ALLIANCE_DIFF (+7 rows at positions [1, 3, 16, 5, 20, 7, 9])",
+  "sets/TierSets/('call', 'C_Map_GetAreaInfo', [3428]) 40 Sets: [HORDE_DIFF] GetItemsFromDiff = ALLIANCE_DIFF (+7 rows at positions [1, 3, 16, 5, 20, 7, 9])"
+ ],
+ "atlasloot": "C:\\World of Warcraft\\_classic_era_\\Interface\\AddOns",
+ "atlasloot_names": {
+  "raid/MoltenCore2": null,
+  "raid/Onyxia2": null,
+  "raid/BlackwingLair": null,
+  "raid/Zul'Gurub": null,
+  "raid/TheRuinsofAhnQiraj": null,
+  "raid/TheTempleofAhnQiraj": null,
+  "raid/WorldBosses2": "World Bosses",
+  "dungeon/Ragefire": null,
+  "dungeon/WailingCaverns": null,
+  "dungeon/TheDeadmines": null,
+  "dungeon/ShadowfangKeep": null,
+  "dungeon/TheStockade": null,
+  "dungeon/BlackfathomDeeps2": null,
+  "dungeon/Gnomeregan2": null,
+  "dungeon/RazorfenKraul": null,
+  "dungeon/ScarletMonasteryGraveyard": "Scarlet Monastery - Graveyard",
+  "dungeon/ScarletMonasteryLibrary": "Scarlet Monastery - Library",
+  "dungeon/ScarletMonasteryArmory": "Scarlet Monastery - Armory",
+  "dungeon/ScarletMonasteryCathedral": "Scarlet Monastery - Cathedral",
+  "dungeon/RazorfenDowns": null,
+  "dungeon/Uldaman": null,
+  "dungeon/Zul'Farrak": null,
+  "dungeon/Maraudon": null,
+  "dungeon/TheTempleOfAtal'Hakkar2": null,
+  "dungeon/BlackrockDepths": null,
+  "dungeon/LowerBlackrockSpire": "Lower Blackrock Spire",
+  "dungeon/UpperBlackrockSpire": "Upper Blackrock Spire",
+  "dungeon/DireMaulEast": "Dire Maul East",
+  "dungeon/DireMaulWest": "Dire Maul West",
+  "dungeon/DireMaulNorth": "Dire Maul North",
+  "dungeon/Scholomance": null,
+  "dungeon/Stratholme": null,
+  "pvp/AlteracValley": null,
+  "pvp/WarsongGulch": null,
+  "pvp/ArathiBasin": null,
+  "pvp/Armor": "Armor",
+  "pvp/Weapons": "Weapons",
+  "pvp/PvPMounts": "Mounts",
+  "pvp/Insignia": "Insignia",
+  "events/Darkmoon": null,
+  "events/FishingExtravaganza": "Stranglethorn Fishing Extravaganza",
+  "events/LunarFestival": "Lunar Festival",
+  "events/Noblegarden": "Noblegarden",
+  "events/HarvestFestival": "Harvest Festival",
+  "events/WinterVeil": "Feast of Winter Veil"
+ },
+ "recipes_unmapped": [
+  {
+   "id": 1251,
+   "name": "Linen Bandage",
+   "spell": 746,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 2581,
+   "name": "Heavy Linen Bandage",
+   "spell": 1159,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 3530,
+   "name": "Wool Bandage",
+   "spell": 3267,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 3531,
+   "name": "Heavy Wool Bandage",
+   "spell": 3268,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4358,
+   "name": "Rough Dynamite",
+   "spell": 4054,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4360,
+   "name": "Rough Copper Bomb",
+   "spell": 4064,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4365,
+   "name": "Coarse Dynamite",
+   "spell": 4061,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4366,
+   "name": "Target Dummy",
+   "spell": 4071,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4367,
+   "name": "Small Seaforium Charge",
+   "spell": 4056,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4370,
+   "name": "Large Copper Bomb",
+   "spell": 4065,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4374,
+   "name": "Small Bronze Bomb",
+   "spell": 4066,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4378,
+   "name": "Heavy Dynamite",
+   "spell": 4062,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4380,
+   "name": "Big Bronze Bomb",
+   "spell": 4067,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4381,
+   "name": "Minor Recombobulator",
+   "spell": 18805,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4384,
+   "name": "Explosive Sheep",
+   "spell": 4074,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4390,
+   "name": "Iron Grenade",
+   "spell": 4068,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4391,
+   "name": "Compact Harvest Reaper Kit",
+   "spell": 4078,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4392,
+   "name": "Advanced Target Dummy",
+   "spell": 4072,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4394,
+   "name": "Big Iron Bomb",
+   "spell": 4069,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4395,
+   "name": "Goblin Land Mine",
+   "spell": 4100,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4396,
+   "name": "Mechanical Dragonling",
+   "spell": 23076,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4397,
+   "name": "Gnomish Cloaking Device",
+   "spell": 4079,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4398,
+   "name": "Large Seaforium Charge",
+   "spell": 4075,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 4403,
+   "name": "Portable Bronze Mortar",
+   "spell": 4067,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6041,
+   "name": "Steel Weapon Chain",
+   "spell": 7220,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6042,
+   "name": "Iron Shield Spike",
+   "spell": 7216,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6043,
+   "name": "Iron Counterweight",
+   "spell": 7218,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6450,
+   "name": "Silk Bandage",
+   "spell": 7926,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6451,
+   "name": "Heavy Silk Bandage",
+   "spell": 7927,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6530,
+   "name": "Nightcrawlers",
+   "spell": 8088,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6532,
+   "name": "Bright Baubles",
+   "spell": 8090,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6533,
+   "name": "Aquadynamic Fish Attractor",
+   "spell": 8089,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6811,
+   "name": "Aquadynamic Fish Lens",
+   "spell": 8532,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 7148,
+   "name": "Goblin Jumper Cables",
+   "spell": 8342,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 7307,
+   "name": "Flesh Eating Worm",
+   "spell": 9092,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 7506,
+   "name": "Gnomish Universal Remote",
+   "spell": 8344,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 7967,
+   "name": "Mithril Shield Spike",
+   "spell": 9781,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 7969,
+   "name": "Mithril Spurs",
+   "spell": 9783,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 8544,
+   "name": "Mageweave Bandage",
+   "spell": 10838,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 8545,
+   "name": "Heavy Mageweave Bandage",
+   "spell": 10839,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 9214,
+   "name": "Grimoire of Inferno",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 10507,
+   "name": "Solid Dynamite",
+   "spell": 12419,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10514,
+   "name": "Mithril Frag Bomb",
+   "spell": 12421,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10518,
+   "name": "Parachute Cloak",
+   "spell": 12438,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10543,
+   "name": "Goblin Construction Helmet",
+   "spell": 12561,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10562,
+   "name": "Hi-Explosive Bomb",
+   "spell": 12543,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10576,
+   "name": "Mithril Mechanical Dragonling",
+   "spell": 23075,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10586,
+   "name": "The Big One",
+   "spell": 12562,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10587,
+   "name": "Goblin Bomb Dispenser",
+   "spell": 23134,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10588,
+   "name": "Goblin Rocket Helmet",
+   "spell": 22641,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10646,
+   "name": "Goblin Sapper Charge",
+   "spell": 13241,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10716,
+   "name": "Gnomish Shrink Ray",
+   "spell": 13006,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10720,
+   "name": "Gnomish Net-o-Matic Projector",
+   "spell": 13120,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10721,
+   "name": "Gnomish Harm Prevention Belt",
+   "spell": 13234,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10724,
+   "name": "Gnomish Rocket Boots",
+   "spell": 13141,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10725,
+   "name": "Gnomish Battle Chicken",
+   "spell": 23133,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 10726,
+   "name": "Gnomish Mind Control Cap",
+   "spell": 13180,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 11590,
+   "name": "Mechanical Repair Kit",
+   "spell": 15057,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 11732,
+   "name": "Libram of Rumination",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 11733,
+   "name": "Libram of Constitution",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 11734,
+   "name": "Libram of Tenacity",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 11736,
+   "name": "Libram of Resilience",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 11737,
+   "name": "Libram of Voracity",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 12645,
+   "name": "Thorium Shield Spike",
+   "spell": 16623,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 13460,
+   "name": "Flask of Unyielding Sorrow",
+   "spell": 17519,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 14529,
+   "name": "Runecloth Bandage",
+   "spell": 18608,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 14530,
+   "name": "Heavy Runecloth Bandage",
+   "spell": 18610,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 15869,
+   "name": "Silver Skeleton Key",
+   "spell": 19646,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 15870,
+   "name": "Golden Skeleton Key",
+   "spell": 19649,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 15871,
+   "name": "Truesilver Skeleton Key",
+   "spell": 19651,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 15872,
+   "name": "Arcanite Skeleton Key",
+   "spell": 20709,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 15993,
+   "name": "Thorium Grenade",
+   "spell": 19769,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16005,
+   "name": "Dark Iron Bomb",
+   "spell": 19784,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16022,
+   "name": "Arcanite Dragonling",
+   "spell": 23074,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16023,
+   "name": "Masterwork Target Dummy",
+   "spell": 19805,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16040,
+   "name": "Arcane Bomb",
+   "spell": 19821,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16082,
+   "name": "Artisan Fishing - The Way of the Lure",
+   "spell": 18248,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16083,
+   "name": "Expert Fishing - The Bass and You",
+   "spell": 7732,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16665,
+   "name": "Tome of Tranquilizing Shot",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 18232,
+   "name": "Field Repair Bot 74A",
+   "spell": 22700,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18332,
+   "name": "Libram of Rapidity",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 18333,
+   "name": "Libram of Focus",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 18334,
+   "name": "Libram of Protection",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 18587,
+   "name": "Goblin Jumper Cables XL",
+   "spell": 22999,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18594,
+   "name": "Powerful Seaforium Charge",
+   "spell": 23008,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18634,
+   "name": "Gyrofreeze Ice Reflector",
+   "spell": 23131,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18637,
+   "name": "Major Recombobulator",
+   "spell": 23064,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18638,
+   "name": "Hyper-Radiant Flame Reflector",
+   "spell": 23097,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18639,
+   "name": "Ultra-Flash Shadow Reflector",
+   "spell": 23132,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18641,
+   "name": "Dense Dynamite",
+   "spell": 23063,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18645,
+   "name": "Gnomish Alarm-O-Bot",
+   "spell": 23004,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18660,
+   "name": "World Enlarger",
+   "spell": 23126,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18984,
+   "name": "Dimensional Ripper - Everlook",
+   "spell": 23442,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18986,
+   "name": "Ultrasafe Transporter: Gadgetzan",
+   "spell": 23453,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 19066,
+   "name": "Warsong Gulch Runecloth Bandage",
+   "spell": 23567,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 19067,
+   "name": "Warsong Gulch Mageweave Bandage",
+   "spell": 23568,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 19068,
+   "name": "Warsong Gulch Silk Bandage",
+   "spell": 23569,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 19307,
+   "name": "Alterac Heavy Runecloth Bandage",
+   "spell": 23696,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 19440,
+   "name": "Powerful Anti-Venom",
+   "spell": 23786,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 19971,
+   "name": "High Test Eternium Fishing Line",
+   "spell": 24302,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 20232,
+   "name": "Defiler's Mageweave Bandage",
+   "spell": 24413,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 20234,
+   "name": "Defiler's Runecloth Bandage",
+   "spell": 24414,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 20235,
+   "name": "Defiler's Silk Bandage",
+   "spell": 24412,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 20237,
+   "name": "Highlander's Mageweave Bandage",
+   "spell": 24413,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 20243,
+   "name": "Highlander's Runecloth Bandage",
+   "spell": 24414,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 20244,
+   "name": "Highlander's Silk Bandage",
+   "spell": 24412,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 21214,
+   "name": "Tome of Frostbolt XI",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21279,
+   "name": "Tome of Fireball XII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21280,
+   "name": "Tome of Arcane Missiles VIII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21281,
+   "name": "Grimoire of Shadow Bolt X",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21282,
+   "name": "Grimoire of Immolate VIII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21283,
+   "name": "Grimoire of Corruption VII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21284,
+   "name": "Codex of Greater Heal V",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21285,
+   "name": "Codex of Renew X",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21287,
+   "name": "Codex of Prayer of Healing V",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21288,
+   "name": "Libram: Blessing of Wisdom VI",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21289,
+   "name": "Libram: Blessing of Might VII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21290,
+   "name": "Libram: Holy Light IX",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21291,
+   "name": "Tablet of Healing Wave X",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21292,
+   "name": "Tablet of Strength of Earth Totem V",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21293,
+   "name": "Tablet of Grace of Air Totem III",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21294,
+   "name": "Book of Healing Touch XI",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21295,
+   "name": "Book of Starfire VII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21296,
+   "name": "Book of Rejuvenation XI",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21297,
+   "name": "Manual of Heroic Strike IX",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21298,
+   "name": "Manual of Battle Shout VII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21299,
+   "name": "Manual of Revenge VI",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21300,
+   "name": "Handbook of Backstab IX",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21302,
+   "name": "Handbook of Deadly Poison V",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21303,
+   "name": "Handbook of Feint V",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21304,
+   "name": "Guide: Multi-Shot V",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21306,
+   "name": "Guide: Serpent Sting IX",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 21307,
+   "name": "Guide: Aspect of the Hawk VII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 22739,
+   "name": "Tome of Polymorph: Turtle",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 22897,
+   "name": "Tome of Conjure Food VII",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 23320,
+   "name": "Tablet of Flame Shock VI",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 24101,
+   "name": "Book of Ferocious Bite V",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 24102,
+   "name": "Manual of Eviscerate IX",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 217398,
+   "name": "Recipe: Lesser Arcane Elixir",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 233802,
+   "name": "Pattern: Glowing Chitin Armor Kit",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 233803,
+   "name": "Pattern: Sharpened Chitin Armor Kit",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  }
+ ],
+ "output": "C:\\Users\\emilo\\CDLoot-dev\\addon\\DisasterZone\\Data\\AtlasClassic.lua",
+ "bytes": 531665,
+ "validation_errors": [],
+ "counts": {
+  "c_raids sources": 7,
+  "c_raids items": 1138,
+  "c_dungeons sources": 25,
+  "c_dungeons items": 1882,
+  "c_crafting sources": 12,
+  "c_crafting items": 1598,
+  "c_reputation sources": 9,
+  "c_reputation items": 243,
+  "c_pvp sources": 7,
+  "c_pvp items": 462,
+  "c_events sources": 6,
+  "c_events items": 111,
+  "c_sets sources": 10,
+  "c_sets items": 871
+ },
+ "names_written": 4601,
+ "name_sources": {
+  "Questie TBC item DB": 4096,
+  "AtlasLoot row comment": 357,
+  "crafting row comment": 148
+ },
+ "ids_without_names_dropped": [
+  {
+   "id": 136782,
+   "where": "c_pvp/AlteracValley/PvPRanks"
+  },
+  {
+   "id": 136781,
+   "where": "c_pvp/AlteracValley/PvPRanks"
+  },
+  {
+   "id": 7953,
+   "where": "c_sets/World/221"
+  }
+ ],
+ "recipes_added": 229,
+ "skipped_counts": {
+  "Season of Discovery list left out": 284,
+  "Season of Discovery page left out": 1,
+  "duplicate within page": 21,
+  "empty page dropped": 4,
+  "icon / header / marker string row": 259,
+  "row without an id": 196,
+  "same created item twice on a page - second craft listed as its spell": 5,
+  "secondary id in row ignored (kept the main id)": 21,
+  "set row without a known set id": 33,
+  "set sub-table (not handled here)": 1,
+  "set sub-table left out (closed on a TBC realm)": 1,
+  "version-gated row (AtlasLoot:GameVersion_* call, Wrath-only)": 1,
+  "version-gated sub-table (AtlasLoot:GameVersion_* call, Wrath-only)": 6
+ },
+ "skipped": {
+  "Season of Discovery list left out": [
+   "raid/MoltenCore2/Lucifron [SOD_DIFF]",
+   "raid/MoltenCore2/Magmadar [SOD_DIFF]",
+   "raid/MoltenCore2/Gehennas [SOD_DIFF]",
+   "raid/MoltenCore2/Garr [SOD_DIFF]",
+   "raid/MoltenCore2/Shazzrah [SOD_DIFF]",
+   "raid/MoltenCore2/Baron Geddon [SOD_DIFF]",
+   "raid/MoltenCore2/Golemagg the Incinerator [SOD_DIFF]",
+   "raid/MoltenCore2/Sulfuron Harbinger [SOD_DIFF]",
+   "raid/MoltenCore2/Majordomo Executus [SOD_DIFF]",
+   "raid/MoltenCore2/Ragnaros [SOD_DIFF]",
+   "raid/MoltenCore2/The Molten Core [SOD_DIFF]",
+   "raid/MoltenCore2/Trash [SOD_DIFF]",
+   "raid/MoltenCore2/All bosses [SOD_DIFF]",
+   "raid/Onyxia2/Onyxia [SOD_DIFF]",
+   "raid/BlackwingLair/Razorgore the Untamed [SOD_DIFF]",
+   "raid/BlackwingLair/Vaelastrasz the Corrupt [SOD_DIFF]",
+   "raid/BlackwingLair/Broodlord Lashlayer [SOD_DIFF]",
+   "raid/BlackwingLair/Firemaw [SOD_DIFF]",
+   "raid/BlackwingLair/Ebonroc [SOD_DIFF]",
+   "raid/BlackwingLair/Flamegor [SOD_DIFF]",
+   "raid/BlackwingLair/Chromaggus [SOD_DIFF]",
+   "raid/BlackwingLair/Nefarian [SOD_DIFF]",
+   "raid/BlackwingLair/Tier 2 Tokens [SOD_DIFF]",
+   "raid/BlackwingLair/Trash [SOD_DIFF]",
+   "raid/Zul'Gurub/High Priestess Jeklik [SOD_DIFF]",
+   "raid/Zul'Gurub/High Priest Venoxis [SOD_DIFF]",
+   "raid/Zul'Gurub/High Priestess Mar'li [SOD_DIFF]",
+   "raid/Zul'Gurub/Bloodlord Mandokir [SOD_DIFF]",
+   "raid/Zul'Gurub/Gri'lek [SOD_DIFF]",
+   "raid/Zul'Gurub/Hazza'rah [SOD_DIFF]",
+   "raid/Zul'Gurub/Renataki [SOD_DIFF]",
+   "raid/Zul'Gurub/Wushoolay [SOD_DIFF]",
+   "raid/Zul'Gurub/Gahz'ranka [SOD_DIFF]",
+   "raid/Zul'Gurub/High Priest Thekal [SOD_DIFF]",
+   "raid/Zul'Gurub/High Priestess Arlokk [SOD_DIFF]",
+   "raid/Zul'Gurub/Jin'do the Hexxer [SOD_DIFF]",
+   "raid/Zul'Gurub/Hakkar [SOD_DIFF]",
+   "raid/Zul'Gurub/High Priest Shared loot [SOD_DIFF]",
+   "raid/Zul'Gurub/Trash [SOD_DIFF]",
+   "raid/Zul'Gurub/Enchants [SOD_DIFF]"
+  ],
+  "Season of Discovery page left out": [
+   "raid/WorldBosses/PrinceThunderaan"
+  ],
+  "duplicate within page": [
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] 12465",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] 12466",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] 12464",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] 10797",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] 12463",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] 12243",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] 10795",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] 10796",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] 12465",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] 12466",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] 12464",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] 10797",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] 12463",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] 12243",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] 10795",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] 10796",
+   "dungeon/Scholomance/Instructor Malicia [NORMAL_DIFF] 18684",
+   "reputation/ArgentDawn/Exalted [NORMAL_DIFF] 22523",
+   "reputation/ArgentDawn/Revered [NORMAL_DIFF] 22523",
+   "reputation/ArgentDawn/Honored [NORMAL_DIFF] 22523",
+   "reputation/ArgentDawn/Friendly [NORMAL_DIFF] 22523"
+  ],
+  "empty page dropped": [
+   "dungeon/BlackfathomDeeps2/Lorgus Jett [NORMAL_DIFF]",
+   "dungeon/Gnomeregan2/The Mechanical Menagerie [NORMAL_DIFF]",
+   "dungeon/TheTempleOfAtal'Hakkar2/Festering Rotslime [NORMAL_DIFF]",
+   "dungeon/TheTempleOfAtal'Hakkar2/Atal'ai Defenders [NORMAL_DIFF]"
+  ],
+  "icon / header / marker string row": [
+   "raid/TheRuinsofAhnQiraj/General Rajaxx [NORMAL_DIFF] pos 9 INV_Box_01",
+   "raid/TheTempleofAhnQiraj/Twin Emperors [NORMAL_DIFF] pos 1 INV_Box_01",
+   "raid/TheTempleofAhnQiraj/Twin Emperors [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/TheDeadmines/Keys [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/TheDeadmines/Keys [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/BlackfathomDeeps2/Lorgus Jett [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/Gnomeregan2/The Mechanical Menagerie [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/ScarletMonasteryGraveyard/Keys [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/ScarletMonasteryGraveyard/Keys [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/ScarletMonasteryLibrary/Keys [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/ScarletMonasteryLibrary/Keys [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/ScarletMonasteryArmory/Keys [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/ScarletMonasteryArmory/Keys [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/ScarletMonasteryCathedral/Keys [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/ScarletMonasteryCathedral/Keys [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/TheTempleOfAtal'Hakkar2/Festering Rotslime [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/TheTempleOfAtal'Hakkar2/Atal'ai Defenders [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/TheTempleOfAtal'Hakkar2/Dreamscythe and Weaver [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/TheTempleOfAtal'Hakkar2/Jammal'an and Ogom [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/TheTempleOfAtal'Hakkar2/Jammal'an and Ogom [NORMAL_DIFF] pos 6 INV_Box_01",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/TheTempleOfAtal'Hakkar2/Morphaz and Hazzas [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/BlackrockDepths/Dark Coffer [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/BlackrockDepths/Dark Coffer [NORMAL_DIFF] pos 5 INV_Box_01",
+   "dungeon/BlackrockDepths/Dark Coffer [NORMAL_DIFF] pos 12 INV_Box_01",
+   "dungeon/BlackrockDepths/Dark Coffer [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/BlackrockDepths/Guzzler [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/BlackrockDepths/Guzzler [NORMAL_DIFF] pos 7 INV_Box_01",
+   "dungeon/BlackrockDepths/Guzzler [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/BlackrockDepths/Guzzler [NORMAL_DIFF] pos 22 INV_Box_01",
+   "dungeon/UpperBlackrockSpire/Goraluk Anvilcrack [NORMAL_DIFF] pos 11 INV_Box_01",
+   "dungeon/DireMaulEast/Books [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/DireMaulEast/Keys [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/DireMaulEast/Keys [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/DireMaulWest/Books [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/DireMaulWest/Keys [NORMAL_DIFF] pos 1 INV_Box_01",
+   "dungeon/DireMaulWest/Keys [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/DireMaulNorth/Stomper Kreeg [NORMAL_DIFF] pos 16 INV_Box_01",
+   "dungeon/DireMaulNorth/Guard Fengus [NORMAL_DIFF] pos 16 INV_Box_01"
+  ],
+  "row without an id": [
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 2",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 3",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 4",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 5",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 6",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 7",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 8",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 9",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 10",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 11",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 12",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 13",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 14",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 15",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 17",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 18",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 19",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 20",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 21",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 22",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 23",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 24",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 25",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 26",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 27",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 28",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 29",
+   "pvp/AlteracValley/PvP Ranks [NORMAL_DIFF] pos 30",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 2",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 3",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 4",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 5",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 6",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 7",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 8",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 9",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 10",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 11",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 12",
+   "pvp/WarsongGulch/PvP Ranks [NORMAL_DIFF] pos 13"
+  ],
+  "same created item twice on a page - second craft listed as its spell": [
+   "crafting/Alchemy/Transmutes [NORMAL_DIFF] 7076 -> -17565",
+   "crafting/Alchemy/Transmutes [NORMAL_DIFF] 7080 -> -17563",
+   "crafting/Blacksmithing/SoD Phase 6 [NORMAL_DIFF] 234288 -> -1213711",
+   "crafting/Leatherworking/SoD Phase 4 [NORMAL_DIFF] 227882 -> -461754",
+   "crafting/Leatherworking/SoD Phase 4 [NORMAL_DIFF] 227883 -> -461706"
+  ],
+  "secondary id in row ignored (kept the main id)": [
+   "crafting/Herbalism/Expert [NORMAL_DIFF] pos 2 8831 (+8153)",
+   "crafting/Herbalism/Apprentice [NORMAL_DIFF] pos 1 2450 (+2452)",
+   "crafting/Herbalism/Apprentice [NORMAL_DIFF] pos 2 785 (+2452)",
+   "reputation/ArgentDawn/Exalted [NORMAL_DIFF] pos 4 22523 (+22524)",
+   "reputation/ArgentDawn/Exalted [NORMAL_DIFF] pos 5 22523 (+22524)",
+   "reputation/ArgentDawn/Revered [NORMAL_DIFF] pos 16 22523 (+22524)",
+   "reputation/ArgentDawn/Revered [NORMAL_DIFF] pos 17 22523 (+22524)",
+   "reputation/ArgentDawn/Honored [NORMAL_DIFF] pos 9 22523 (+22524)",
+   "reputation/ArgentDawn/Honored [NORMAL_DIFF] pos 10 22523 (+22524)",
+   "reputation/ArgentDawn/Friendly [NORMAL_DIFF] pos 17 22523 (+22524)",
+   "reputation/ArgentDawn/Friendly [NORMAL_DIFF] pos 18 22523 (+22524)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 1 19491 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 2 19426 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 4 19293 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 5 19291 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 7 9249 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 8 19296 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 10 19297 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 12 19292 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 14 19298 (+19182)",
+   "events/Darkmoon/('call', 'GetFactionInfoByID', [909]) [NORMAL_DIFF] pos 15 19295 (+19182)"
+  ],
+  "set row without a known set id": [
+   "sets/TierSets/('call', 'C_Map_GetAreaInfo', [1977]) Sets pos 24",
+   "sets/TierSets/('call', 'C_Map_GetAreaInfo', [3428]) 20 Sets pos 24",
+   "sets/TierSets/('call', 'C_Map_GetAreaInfo', [3428]) 40 Sets pos 24",
+   "sets/ClassSets/PvP Ranks pos 1",
+   "sets/ClassSets/PvP Ranks pos 2",
+   "sets/ClassSets/PvP Ranks pos 3",
+   "sets/ClassSets/PvP Ranks pos 4",
+   "sets/ClassSets/PvP Ranks pos 5",
+   "sets/ClassSets/PvP Ranks pos 6",
+   "sets/ClassSets/PvP Ranks pos 7",
+   "sets/ClassSets/PvP Ranks pos 8",
+   "sets/ClassSets/PvP Ranks pos 9",
+   "sets/ClassSets/PvP Ranks pos 10",
+   "sets/ClassSets/PvP Ranks pos 11",
+   "sets/ClassSets/PvP Ranks pos 12",
+   "sets/ClassSets/PvP Ranks pos 13",
+   "sets/ClassSets/PvP Ranks pos 14",
+   "sets/ClassSets/PvP Ranks pos 15",
+   "sets/ClassSets/PvP Ranks pos 16",
+   "sets/ClassSets/PvP Ranks pos 17",
+   "sets/ClassSets/PvP Ranks pos 18",
+   "sets/ClassSets/PvP Ranks pos 19",
+   "sets/ClassSets/PvP Ranks pos 20",
+   "sets/ClassSets/PvP Ranks pos 21",
+   "sets/ClassSets/PvP Ranks pos 22",
+   "sets/ClassSets/PvP Ranks pos 23",
+   "sets/ClassSets/PvP Ranks pos 24",
+   "sets/ClassSets/PvP Ranks pos 25",
+   "sets/ClassSets/PvP Ranks pos 26",
+   "sets/ClassSets/PvP Ranks pos 27",
+   "sets/ClassSets/PvP Ranks pos 28",
+   "sets/ClassSets/PvP Ranks pos 29",
+   "sets/ClassSets/PvP Ranks pos 30"
+  ],
+  "set sub-table (not handled here)": [
+   "raid/Zul'Gurub/Zul'Gurub Sets"
+  ],
+  "set sub-table left out (closed on a TBC realm)": [
+   "sets/TierSets/Tier 3 Sets"
+  ],
+  "version-gated row (AtlasLoot:GameVersion_* call, Wrath-only)": [
+   "dungeon/ScarletMonasteryLibrary/Arcanist Doan [NORMAL_DIFF] #5"
+  ],
+  "version-gated sub-table (AtlasLoot:GameVersion_* call, Wrath-only)": [
+   "raid/MoltenCore2#14",
+   "dungeon/ShadowfangKeep#14",
+   "dungeon/ScarletMonasteryGraveyard#8",
+   "dungeon/BlackrockDepths#31",
+   "events/Darkmoon#3",
+   "events/Darkmoon#4"
+  ]
+ }
+}

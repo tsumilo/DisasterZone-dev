@@ -1722,6 +1722,12 @@ STATES = [
     ("Atlas - shopping list empty", shop_view("ns.Shop:Clear()")),
     ("Atlas - shopping list add", shop_view("ns.AtlasUI:Select('crafting', 'Tailoring', 'Bag'); "
                                             "ns.AtlasUI:HoverItem(21841)")),
+    # Classic | TBC (the last Atlas states: they end on TBC again)
+    ("Atlas - classic dungeon", opened("atlas", "ns.AtlasUI:Select('c_dungeons', 'ShadowfangKeep')")),
+    ("Atlas - classic raid", opened("atlas", "ns.AtlasUI:Select('c_raids', 'MoltenCore', 'Ragnaros')")),
+    ("Atlas - classic sets", opened("atlas", "ns.AtlasUI:Select('c_sets', 'Tier2', 'Paladin')")),
+    ("Atlas - classic search", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen'); "
+                                               "ns.AtlasUI:SetSearch('bonereaver')")),
     ("Council - Loot Log", opened("council", "ns.CouncilUI:ShowLog()")),
     ("Raids - Upcoming board", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:ShowBoard()")),
     ("Raids - Upcoming", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "

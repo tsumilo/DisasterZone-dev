@@ -253,7 +253,8 @@ def search_is_fast_over_everything_and_found_in_narrows_it():
     assert found[0][:3] == ["facet", "", "All"] and found[0][3] == n, found[:2]
     keys = [f[1] for f in found[1:]]
     assert "raids" in keys and "pvp" in keys, keys
-    assert sum(f[3] for f in found[1:]) == n
+    # (the last row: how many more match in the Classic tree, test_atlas_classic.py)
+    assert sum(f[3] for f in found[1:] if f[1] != "@era") == n
     # pick PvP: only PvP results, every one of them drawn when they fit
     pvp = [f for f in found if f[1] == "pvp"][0]
     c.eval("ns.AtlasUI:SetSearch('of the', 'pvp')")

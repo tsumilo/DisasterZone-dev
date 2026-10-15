@@ -16,6 +16,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Atlas.lua", ...) then return en
 -- One spacing grid: PAD at the page's sides, GAP between the columns, IN inside rows and cards. The item list's scroll
 -- bar sits in the page's right margin, the sources' over their right padding, the pages' takes room while they scroll.
 -- Model: Core/Atlas.lua (ns.Atlas).
+-- Classic | TBC: a switch over the sources column picks the era the Atlas browses (a level 1-57 character opens on
+-- Classic, at the dungeon for its level). Each era keeps where I was; search finds the shown era's items and says how
+-- many more the other era has ("In TBC", a click switches). Classic items can't be added to my BiS lists (those are
+-- the TBC phases'); everything else works the same.
 -- 1.4: a List + detail page in its 3-column form (UI:CreateLayout "listdetail" with a nav column): the toolbar holds
 -- the search (left) and the Show / slot filters (right); nav = the sources, list = the source's pages, detail = the
 -- items; the currency bar sits in the layout's bottom margin. While my lists are locked a notice says so (the +
@@ -66,7 +70,7 @@ local WEAPON_KIND = { [0] = "Axe", [1] = "Axe", [2] = "Bow", [3] = "Gun", [4] = 
                       [16] = "Thrown", [18] = "Crossbow", [19] = "Wand", [20] = "Fishing Pole" }
 local ARMOR_KIND = { [6] = "Shield", [7] = "Libram", [8] = "Idol", [9] = "Totem" }
 
-local panel, layout, searchBox, showDD, slotDD, srcList, pageList, itemList
+local panel, layout, searchBox, showDD, slotDD, srcList, pageList, itemList, eraSeg
 local banner, midHead, diffNormal, diffHeroic, curBar
 local state = {
     cat = nil, src = nil, page = nil, heroic = false,
@@ -75,7 +79,9 @@ local state = {
     slot = nil,          -- slot filter: nil = any, sid, or 0 = not gear
     selected = nil,      -- the item a search result jumped to (highlighted)
     facet = nil,         -- search: the category the results are narrowed to (nil = all)
+    places = {},         -- [era] = { cat, src, page, expanded, heroic }: where I was in the other era
 }
+local ERA_FACET = "@era"  -- search: the facet row that switches to the other era
 local searchCache        -- { key, entries, facets } of the last search
 local marks = {}         -- Atlas:GetMyListMarks() of the last refresh
 local pickCache = {}     -- [heroic and 2 or 1][page] = my BiS picks on that page
@@ -578,8 +584,12 @@ local function PickCount(page)
 end
 
 -- Can the + button add this item to my list (something that fits a slot, my class can use it, lists not locked)?
+local function ClassicShown()
+    return Atlas():GetEra() == "classic"
+end
+
 local function CanAdd(id)
-    if id <= 0 or listLocked then return false end
+    if id <= 0 or listLocked or ClassicShown() then return false end
     local A = Atlas()
     local targets = A:GetBiSTargets(id)
     if #targets == 0 then return false end
@@ -617,10 +627,17 @@ local function SetRowSelected(row, on)
     end
 end
 
--- "P2" .. "P5" beside a source of a later phase (what has been out from the start goes without).
+-- "P2" .. "P5" beside a source of a later phase (what has been out from the start goes without); a Classic dungeon's
+-- recommended levels ("24-32").
 local function PhaseTag(src)
+    if src and src.lv then return src.lv end
     local p = tonumber(src and src.phase)
     return (p and p > 1) and ("P" .. p) or nil
+end
+
+local function TagW(src)
+    local tag = PhaseTag(src)
+    return tag and max(TAG_W, ceil(TextWidth(tag, "small")) + 4) or 0
 end
 
 local function ClearSearch()
@@ -690,9 +707,9 @@ local function InitSourceRow(row, d)
         ns.UI:SetTextStyle(row.label, "body", "TEXT")
         row.label:SetWordWrap(true)
         row.label:SetPoint("LEFT", row, "LEFT", SRC_X, 0)
-        row.label:SetWidth(w - SRC_X - SRC_R - (PhaseTag(d.src) and TAG_W or 0))
+        row.label:SetWidth(w - SRC_X - SRC_R - TagW(d.src))
         row.label:SetText(d.src.name)
-        row.tag:SetWidth(TAG_W)
+        row.tag:SetWidth(max(TAG_W, TagW(d.src)))
         row.tag:SetText(PhaseTag(d.src) or "")
         SetRowSelected(row, not IsSearching() and state.cat == d.cat.key and state.src == d.src.key)
     end
@@ -731,8 +748,13 @@ local function InitPageRow(row, d)
         -- search: where the results are from (All, Raids, PvP, ...) with their counts
         row.label:SetText(d.name)
         row.tag:SetText(tostring(d.count))
-        SetRowSelected(row, state.facet == d.key)
+        SetRowSelected(row, d.key ~= ERA_FACET and state.facet == d.key)
+        if d.key == ERA_FACET then row.label:SetTextColor(S:Color("GOLD")) end
         row:SetScript("OnClick", function()
+            if d.key == ERA_FACET then
+                AtlasUI:SetEra(d.era)
+                return
+            end
             state.facet = d.key
             state.selected = nil
             AtlasUI:RefreshPages()
@@ -756,7 +778,7 @@ end
 local function SourceExtent(d)
     if d.type == "cat" then return ROW_CAT end
     if d.type == "shop" then return ROW_CAT end
-    local w = rowW.src - SRC_X - SRC_R - (PhaseTag(d.src) and TAG_W or 0)
+    local w = rowW.src - SRC_X - SRC_R - TagW(d.src)
     return TextWidth(d.src.name, "body") > w and ROW_TWO or ROW_SRC
 end
 
@@ -1283,7 +1305,7 @@ function ShowItemMenu(row, d)
                 end
                 if not usable then
                     root:CreateTitle("Your class can't use this")
-                elseif not locked then
+                elseif not locked and not ClassicShown() then
                     AddListMenus(root, targets, false)
                 end
                 root:CreateButton("Try on", function()
@@ -1398,6 +1420,12 @@ end
 -- screen as { file, l, r, t, b }, or nil (other sources: the banner's plain card).
 local function BannerArt(src, w, h)
     if type(src) ~= "table" then return nil end
+    if src.art and w and h and w > 0 and h > 0 then
+        -- (a 4:3 loading screen: a band across its middle, clear of the logo on top and the frame below)
+        local fh = ART_FW * (4 / 3) * (h / w)
+        local t = 0.5 - fh / 2
+        return { src.art, (1 - ART_FW) / 2, (1 + ART_FW) / 2, t, t + fh }
+    end
     if src.kind == "dungeon" then
         local R = ns.DungeonRuns
         local file, l, r, t, b
@@ -1413,6 +1441,7 @@ end
 -- "10 players", "You're Revered" (a faction: its pages are the standings). The phase is beside the source already.
 local function SourceSub(src)
     local sub = {}
+    if src.lv then sub[#sub + 1] = "Levels " .. src.lv end
     if src.size then sub[#sub + 1] = src.size .. " players" end
     if src.factionID and GetFactionInfoByID then
         local name, _, standing = GetFactionInfoByID(src.factionID)
@@ -1477,8 +1506,11 @@ function AtlasUI:RefreshPages()
     if IsSearching() then
         local res = SearchResults()
         local rows = {}
-        if res.facets[1].count > 0 then
-            for _, f in ipairs(res.facets) do rows[#rows + 1] = { type = "facet", key = f.key, name = f.name, count = f.count } end
+        -- (nothing in this era: only "In TBC" / "In Classic", when the other has some)
+        for _, f in ipairs(res.facets) do
+            if res.facets[1].count > 0 or f.key == ERA_FACET then
+                rows[#rows + 1] = { type = "facet", key = f.key, name = f.name, count = f.count, era = f.era }
+            end
         end
         diffNormal:Hide()
         diffHeroic:Hide()
@@ -1566,10 +1598,12 @@ end
 -- name, count }, ... } } (facets in category order, "All" first). Cached until the search or a filter changes.
 function SearchResults()
     local A = Atlas()
-    local key = table.concat({ state.search, ShowMode(), tostring(state.slot) }, "\0")
+    local era = A:GetEra()
+    local key = table.concat({ state.search, ShowMode(), tostring(state.slot), era }, "\0")
     if searchCache and searchCache.key == key then return searchCache end
     local entries, counts = {}, {}
-    for _, loc in ipairs(A:Search(state.search) or {}) do
+    local found, other = A:Search(state.search)
+    for _, loc in ipairs(found or {}) do
         if Passes(loc.id) then
             entries[#entries + 1] = { type = "item", id = loc.id, loc = loc }
             counts[loc.cat.key] = (counts[loc.cat.key] or 0) + 1
@@ -1579,7 +1613,13 @@ function SearchResults()
     for _, cat in ipairs(A:GetCategories()) do
         if counts[cat.key] then facets[#facets + 1] = { key = cat.key, name = cat.name, count = counts[cat.key] } end
     end
-    searchCache = { key = key, entries = entries, facets = facets }
+    -- (the other era's matches: before the filters, which judge a page at a time)
+    local otherEra = era == "classic" and "tbc" or "classic"
+    if (other or 0) > 0 then
+        facets[#facets + 1] = { key = ERA_FACET, era = otherEra, name = "In " .. A.ERA_NAMES[otherEra],
+                                count = other }
+    end
+    searchCache = { key = key, entries = entries, facets = facets, other = other or 0, otherEra = otherEra }
     return searchCache
 end
 
@@ -1633,7 +1673,7 @@ function AtlasUI:RefreshItems(resetScroll)
         for _, f in ipairs(res.facets) do
             if f.key ~= nil and f.key == state.facet then facetName = f.name end
         end
-        if not facetName then state.facet = nil end
+        if not facetName or state.facet == ERA_FACET then state.facet = nil end
         for _, e in ipairs(res.entries) do
             if state.facet == nil or e.loc.cat.key == state.facet then
                 count = count + 1
@@ -1648,9 +1688,15 @@ function AtlasUI:RefreshItems(resetScroll)
         title = facetName or "All results"
         kicker = "Search"
         sub = '"' .. state.search .. '"'
-        ItemsEmpty("No matches", Filtered()
-            and "Nothing matches with these filters. Try Show: All items, or Any slot."
-            or "No item has that name.")
+        if count == 0 and res.other > 0 then
+            ItemsEmpty("Not in " .. A.ERA_NAMES[A:GetEra()], ("%d %s in %s: pick \"In %s\" under Found in.")
+                :format(res.other, res.other == 1 and "match" or "matches", A.ERA_LONG[res.otherEra],
+                        A.ERA_NAMES[res.otherEra]))
+        else
+            ItemsEmpty("No matches", Filtered()
+                and "Nothing matches with these filters. Try Show: All items, or Any slot."
+                or "No item has that name.")
+        end
     else
         local src = state.cat and A:GetSource(state.cat, state.src)
         local page = src and A:GetPage(state.cat, state.src, state.page)
@@ -1705,6 +1751,7 @@ function AtlasUI:Refresh()
     end
     if showDD and showDD.Refresh then showDD:Refresh() end
     if slotDD and slotDD.Refresh then slotDD:Refresh() end
+    if eraSeg then eraSeg:Select(Atlas():GetEra()) end
     self:RefreshSources()
     self:RefreshPages()
     self:RefreshItems()
@@ -1714,6 +1761,12 @@ function SelectSource(catKey, srcKey, pageKey)
     local A = Atlas()
     local src = A:GetSource(catKey, srcKey)
     if not src then return end
+    -- (a place in the other era: the switch follows)
+    local era = A:EraOf(catKey)
+    if era and era ~= A:GetEra() then
+        A:SetEra(era)
+        if eraSeg then eraSeg:Select(era) end
+    end
     state.cat, state.src = catKey, srcKey
     state.expanded = catKey
     local page = pageKey and A:GetPage(catKey, srcKey, pageKey)
@@ -1779,10 +1832,15 @@ end
 
 -- Opens the Atlas tab at an item (e.g. from a chat command): its first location.
 function AtlasUI:ShowItem(itemID)
-    local locs = Atlas():GetLocations(itemID)
+    local A = Atlas()
+    local locs = A:GetLocations(itemID)
     if not locs then return false end
     if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("atlas") end
-    self:GoTo(locs[1])
+    local pick = locs[1]
+    for _, loc in ipairs(locs) do
+        if loc.cat.era == A:GetEra() then pick = loc break end
+    end
+    self:GoTo(pick)
     return true
 end
 
@@ -1802,8 +1860,21 @@ function AtlasUI:CreatePanel(parent)
     panel.layout = layout
     local bar = layout.toolbar
 
-    -- the toolbar: the search over the first two columns, the filters over the item column
-    searchBox = UI:CreateSearchBox(bar, LEFT_W + GAP + MID_W, function(text)
+    -- the toolbar: Classic | TBC over the sources (what they list), the search over the pages column, the filters
+    -- over the item column. Without the Classic data (an old client file set) the search takes both columns.
+    local A = Atlas()
+    local hasClassic = A:HasEra("classic")
+    if hasClassic then
+        eraSeg = UI:CreateSegments(bar, {
+            { key = "classic", label = A.ERA_NAMES.classic,
+              tip = "Levels 1-60: the old world's raids, dungeons, professions, factions, battlegrounds and sets." },
+            { key = "tbc", label = A.ERA_NAMES.tbc,
+              tip = "The Burning Crusade: Outland's raids, dungeons, professions, factions, PvP and sets." },
+        }, function(key) AtlasUI:SetEra(key) end, { width = LEFT_W, h = CTRL_H, selected = A:GetEra() })
+        eraSeg:SetPoint("LEFT", bar, "TOPLEFT", PAD, -UI.LAYOUT.ROW_MID)
+        panel.eraSeg = eraSeg
+    end
+    searchBox = UI:CreateSearchBox(bar, hasClassic and MID_W or (LEFT_W + GAP + MID_W), function(text)
         state.search = text or ""
         state.selected = nil
         state.facet = nil
@@ -1812,7 +1883,7 @@ function AtlasUI:CreatePanel(parent)
         AtlasUI:RefreshItems(true)
     end, "Search every item by name")
     searchBox:SetHeight(CTRL_H)
-    searchBox:SetPoint("LEFT", bar, "TOPLEFT", PAD, -UI.LAYOUT.ROW_MID)
+    searchBox:SetPoint("LEFT", bar, "TOPLEFT", PAD + (hasClassic and (LEFT_W + GAP) or 0), -UI.LAYOUT.ROW_MID)
     searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 
     slotDD = UI:CreateSleekDropdown(bar, SLOT_W, SlotOptions, function() return state.slot end, function(v)
@@ -1904,6 +1975,40 @@ function AtlasUI:CreatePanel(parent)
     end
     panel.dirty = true
     return panel
+end
+
+-- Classic | TBC: the switch's choice. Where I was in the era I leave is kept for coming back; the other opens where
+-- I last was there, else at its default (Classic: the dungeon for my level). A search stays, now over that era.
+function AtlasUI:SetEra(e)
+    local A = Atlas()
+    if not A:HasEra(e) then return end
+    local cur = A:GetEra()
+    if eraSeg then eraSeg:Select(e) end
+    if e == cur then return end
+    if state.cat and state.cat ~= SHOP then
+        state.places[cur] = { cat = state.cat, src = state.src, page = state.page, expanded = state.expanded,
+                              heroic = state.heroic }
+    end
+    A:SetEra(e)
+    state.facet = nil
+    state.selected = nil
+    local place = state.places[e]
+    if state.cat == SHOP then
+        self:RefreshSources()
+        self:RefreshPages()
+        self:RefreshItems(true)
+        return
+    end
+    if place and A:GetSource(place.cat, place.src) then
+        state.heroic = place.heroic and true or false
+        SelectSource(place.cat, place.src, place.page)
+        state.expanded = place.expanded
+        self:RefreshSources()
+    else
+        local cat, src = A:DefaultSource()
+        state.cat = nil
+        if cat then SelectSource(cat, src) end
+    end
 end
 
 -- For tests and the UI audit.

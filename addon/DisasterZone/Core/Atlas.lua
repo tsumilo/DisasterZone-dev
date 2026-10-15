@@ -8,6 +8,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Atlas.lua", ...) then return 
 -- Tree: categories { key, name, sources = { { key, name, phase?, kind, size?, instanceID? (raids), pages = { { key,
 -- name, items, heroicItems?, x? } } } } }. Item entries: positive = itemID, negative = -spellID (a craft that makes no item, e.g. an enchant),
 -- string = a section header inside a page (the Sets pages). Sources / pages of the other faction are left out.
+-- Two eras: "tbc" (the tree above) and "classic" (Data/AtlasClassic.lua: the old world's raids, dungeons, professions,
+-- factions, battlegrounds, sets and world events, for a level 1-60 character). The Atlas tab's switch picks the era
+-- GetCategories lists (Atlas:SetEra); both trees share one index, so a location knows its era (loc.cat.era) and
+-- search can say how many matches the other era has.
 local addonName, ns = ...
 
 local Atlas = ns:NewModule("Atlas")
@@ -19,7 +23,9 @@ local tconcat = table.concat
 local MIN_SEARCH = 2
 local DOT = "  ·  "
 
-local tree           -- array of categories (built lazily, rebuilt when the faction becomes known)
+local tree           -- array of categories, both eras (built lazily, rebuilt when the faction becomes known)
+local eraCats = {}   -- [era] = array of that era's categories
+local era            -- the era picked this session: "tbc" | "classic" (nil: by my level)
 local treeSide       -- the faction the tree was built for
 local byKey = {}     -- [catKey] = category, [catKey .. "\0" .. srcKey] = source
 local index          -- array of { id, cat, src, page, heroic } (first location of every id, tree order)
@@ -57,9 +63,12 @@ end
 -- Tree
 ---------------------------------------------------------------------------
 
-local function AddCategory(out, cat)
+local function AddCategory(out, cat, catEra)
     if #cat.sources == 0 then return end
+    cat.era = catEra or "tbc"
     out[#out + 1] = cat
+    local list = eraCats[cat.era]
+    list[#list + 1] = cat
     byKey[cat.key] = cat
     for _, src in ipairs(cat.sources) do
         byKey[cat.key .. "\0" .. src.key] = src
@@ -127,20 +136,23 @@ local function GroupSetsByClass(pages)
     return out
 end
 
--- Data/Atlas.lua categories, without the other faction's sources and pages.
+-- Data/Atlas.lua (and Data/AtlasClassic.lua) categories, without the other faction's sources and pages. A Classic
+-- category says its kind (its key is "c_" + the TBC one's); a Classic raid / dungeon its size, levels and art.
 local function BuildExtra(dataCat, side)
+    local kind = dataCat.kind or dataCat.key
     local cat = { key = dataCat.key, name = dataCat.name, sources = {} }
     for _, s in ipairs(dataCat.sources or {}) do
         if SideOK(s.side, side) and type(s.key) == "string" then
-            local src = { key = s.key, name = s.name or s.key, phase = tonumber(s.phase), kind = dataCat.key,
-                          side = s.side, factionID = s.factionID, pages = {} }
+            local src = { key = s.key, name = s.name or s.key, phase = tonumber(s.phase), kind = kind,
+                          side = s.side, factionID = s.factionID, size = s.size, lv = s.lv, art = s.art,
+                          pages = {} }
             for _, p in ipairs(s.pages or {}) do
                 if SideOK(p.side, side) and NonEmpty(p.items) then
                     src.pages[#src.pages + 1] = { key = p.key, name = p.name or p.key, title = p.title, items = p.items,
                                                   x = p.x, xt = p.xt, phase = tonumber(p.phase), side = p.side }
                 end
             end
-            if dataCat.key == "sets" then src.pages = GroupSetsByClass(src.pages) end
+            if kind == "sets" then src.pages = GroupSetsByClass(src.pages) end
             if #src.pages > 0 then cat.sources[#cat.sources + 1] = src end
         end
     end
@@ -151,6 +163,7 @@ local function Build()
     local side = MySide()
     if tree and treeSide == side then return tree end
     byKey, index, locations = {}, nil, nil
+    eraCats = { tbc = {}, classic = {} }
     local out = {}
     AddCategory(out, BuildRaids())
     AddCategory(out, BuildDungeons())
@@ -159,13 +172,60 @@ local function Build()
             AddCategory(out, BuildExtra(dataCat, side))
         end
     end
+    for _, dataCat in ipairs(Data().AtlasClassic or {}) do
+        if type(dataCat) == "table" and type(dataCat.key) == "string" and not byKey[dataCat.key] then
+            AddCategory(out, BuildExtra(dataCat, side), "classic")
+        end
+    end
     tree, treeSide = out, side
     return tree
 end
 
--- Array of categories (do not modify).
-function Atlas:GetCategories()
-    return Build()
+---------------------------------------------------------------------------
+-- Era (Classic | TBC)
+---------------------------------------------------------------------------
+
+Atlas.ERA_NAMES = { classic = "Classic", tbc = "TBC" }
+Atlas.ERA_LONG = { classic = "Classic", tbc = "The Burning Crusade" }
+local OUTLAND_LEVEL = 58     -- below it the old world is where my gear comes from
+
+local function MyLevel()
+    local lv = UnitLevel and tonumber(UnitLevel("player"))
+    return (lv and lv > 0) and lv or nil
+end
+
+-- The era the Atlas shows: what I picked this session, else by my level (below 58: Classic). Without the Classic
+-- data: TBC.
+function Atlas:GetEra()
+    Build()
+    if era and #eraCats[era] > 0 then return era end
+    if #eraCats.classic == 0 then return "tbc" end
+    local lv = MyLevel()
+    return (lv and lv < OUTLAND_LEVEL) and "classic" or "tbc"
+end
+
+-- nil: back to "by my level".
+function Atlas:SetEra(e)
+    if e ~= "classic" and e ~= "tbc" then e = nil end
+    era = e
+end
+
+function Atlas:HasEra(e)
+    Build()
+    return eraCats[e] ~= nil and #eraCats[e] > 0
+end
+
+-- The era of a category (or its key), nil when unknown.
+function Atlas:EraOf(cat)
+    if type(cat) ~= "table" then cat = self:GetCategory(cat) end
+    return cat and cat.era or nil
+end
+
+-- Array of the shown era's categories (do not modify); allEras: both eras' (TBC first).
+function Atlas:GetCategories(allEras)
+    local all = Build()
+    if allEras then return all end
+    return eraCats[self:GetEra()]
 end
 
 function Atlas:GetCategory(catKey)
@@ -202,9 +262,28 @@ function Atlas:HasHeroic(src)
     return false
 end
 
--- The raid of the guild's phase (the Atlas tab opens there): the first raid of that phase, else the first raid.
+-- Where the Atlas tab opens. TBC: the raid of the guild's phase (the first raid of that phase, else the first raid).
+-- Classic: the dungeon for my level (the last one whose levels start near mine), from 58 the first raid.
+local function ClassicDefault()
+    local lv = MyLevel() or 1
+    local dungeons = byKey.c_dungeons
+    if dungeons and lv < OUTLAND_LEVEL then
+        local pick
+        for _, src in ipairs(dungeons.sources) do
+            local lo = tonumber(strmatch(src.lv or "", "^(%d+)%-"))
+            if lo and lo <= lv + 2 then pick = src end
+        end
+        pick = pick or dungeons.sources[1]
+        if pick then return "c_dungeons", pick.key end
+    end
+    local cat = byKey.c_raids or eraCats.classic[1]
+    return cat and cat.key, cat and cat.sources[1] and cat.sources[1].key
+end
+
 function Atlas:DefaultSource()
-    local cats = Build()
+    Build()
+    if self:GetEra() == "classic" then return ClassicDefault() end
+    local cats = eraCats.tbc
     local raids = byKey.raids
     if not raids then
         local cat = cats[1]
@@ -233,8 +312,9 @@ end
 
 -- The shipped English name of an entry (nil when Data/Atlas.lua does not know it).
 function Atlas:GetShippedName(id)
-    local names = Data().AtlasNames
-    return names and names[tonumber(id) or 0] or nil
+    id = tonumber(id) or 0
+    local names, classic = Data().AtlasNames, Data().AtlasClassicNames
+    return (names and names[id]) or (classic and classic[id]) or nil
 end
 
 -- Display name: the client's own name when it has the item cached (or the spell), else the shipped name.
@@ -337,19 +417,33 @@ local function MatchesAll(hay, words)
     return true
 end
 
+-- An id's first location in the shown era (nil: it's only in the other era's tree).
+local function FirstInEra(list, e)
+    for _, loc in ipairs(list) do
+        if loc.cat.era == e then return loc end
+    end
+    return nil
+end
+
 -- The ids whose name contains every word of text (case-insensitive; an item number finds that item), in tree
--- order: { { id, cat, src, page, heroic, via?, viaKind? }, ... } (first location of each id; every match: the
--- caller decides how many to draw). nil for a text shorter than MIN_SEARCH characters.
+-- order: { { id, cat, src, page, heroic, via?, viaKind? }, ... } (each id's first location in the shown era; every
+-- match: the caller decides how many to draw), and how many more ids match only in the other era. nil for a text
+-- shorter than MIN_SEARCH characters.
 function Atlas:Search(text)
     text = strmatch(tostring(text or ""), "^%s*(.-)%s*$") or ""
     local number = tonumber(text)
     if not number and #text < MIN_SEARCH then return nil end
     BuildIndex()
-    local out = {}
+    local cur = self:GetEra()
+    local out, other = {}, 0
+    local function add(list)
+        local loc = FirstInEra(list, cur)
+        if loc then out[#out + 1] = loc else other = other + 1 end
+    end
     if number then
         local list = locations[number] or locations[-number]
-        if list then out[1] = list[1] end
-        return out
+        if list then add(list) end
+        return out, other
     end
     local words = Words(text)
     local localized = GetLocale and GetLocale() ~= "enUS" and GetLocale() ~= "enGB"
@@ -362,9 +456,9 @@ function Atlas:Search(text)
             local name = self:GetName(id)
             hit = name and name ~= shipped and MatchesAll(strlower(name), words)
         end
-        if hit then out[#out + 1] = loc end
+        if hit then add(locations[id]) end
     end
-    return out
+    return out, other
 end
 
 Atlas.MIN_SEARCH = MIN_SEARCH

@@ -45,6 +45,7 @@ Data\Gems.lua
 Data\SimItems.lua
 Data\SimAPL.lua
 Data\Atlas.lua
+Data\AtlasClassic.lua
 Data\Consumables.lua
 Data\Classes\Paladin.lua
 Data\Classes\Shaman.lua

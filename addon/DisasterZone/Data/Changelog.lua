@@ -18,6 +18,13 @@ ns.CHANGELOG = {
               "A whole raid can walk together: 25 at once stay smooth, only the nearest hide behind pillars.",
               "Walking and turning cost far less: the room is a touch coarser while you move, sharp when you stop.",
           } },
+          { heading = "Atlas: Classic too", area = "gear", kind = "new", open = "atlas",
+            lead = "A Classic | TBC switch over the Atlas's sources, for your level 1-60 characters.", lines = {
+              "Classic: Molten Core to Ahn'Qiraj, every old dungeon, professions, factions and sets.",
+              "Dungeons are listed in level order, each with its levels beside it.",
+              "Below level 58 the Atlas opens on Classic, at the dungeon for your level.",
+              "Each side keeps where you were; a search says how many matches the other side has.",
+          } },
           { heading = "Game posters, easier to read", area = "games", kind = "changed", open = "games",
             lead = "The Games posters say what's yours at a glance.", lines = {
               "The label over the painting sits on a dark pill, so it reads on any art.",
