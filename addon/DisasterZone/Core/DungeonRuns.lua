@@ -34,6 +34,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/DungeonRuns.lua", ...) then r
 -- Members known to run DisasterZone are remembered (db.runs[guildKey].known) so that a login asks just one of them.
 --
 -- The dungeon indices on the wire are the order of COMPLEXES below: never reorder, only append.
+--
+-- Groups (1.5): besides 5-man dungeons a run can be a raid, a group quest, PvP or anything else (Data/GroupKinds.lua).
+-- Such a run has no d / h and instead k = kind key, a = { activity, ... } (raid keys | quest ids | one PvP key | one
+-- "other" key), n = size, w = { tank, healer, dps } places; per kind lo = "roll" | "sr" | "lc" and lr = soft reserves
+-- each (raids), bo = { boss key, ... } (raids, nil = full clear), pr = rated / mr = lowest rating / fc = wants a flag
+-- carrier (PvP). On the wire DRL carries k = kind index, a = activity indices (quest ids as they are), n, w = { t, h,
+-- d } and the per-kind fields, and no d: clients from before 1.5 drop such a DRL (ParseRun wants d), so they keep
+-- seeing dungeon runs only. Dungeon runs go out exactly as before.
+--   DRP adds uk = { kind index } (the kinds I'm up for; missing = dungeons only) and rs = { raid index } (the raids I'm
+--       saved to this week); a digest entry carries them as its 8th and 9th fields.
+--   DRS: a run's roster can be left out when the digest runs out of room (pt = 1, the owner only): the receiver asks
+--       the owner for the whole run with DRR { id } (WHISPER), the owner whispers its DRL.
+-- A run bigger than a party turns my party into a raid when the party is full; the run keeps going in the raid.
 local addonName, ns = ...
 
 local Runs = ns:NewModule("DungeonRuns")
@@ -77,6 +90,10 @@ local HANDOFF_WAIT = 10            -- after passing the lead: how long the new l
 local PEER_TTL = 15 * 60           -- a profile not heard of again (and its owner offline) is forgotten
 local TICK = 20
 local NO_GUILD = "~"
+local MAX_SIZE = 40                -- the biggest group (a raid of 40)
+local MAX_ACTIVITIES = 6           -- raids / quests one group lists at most
+local RAID_LEVEL = 70
+local ROSTER_ASK_EVERY = 30        -- a roster left out of a digest is asked for at most this often per run
 
 -- Every 5-man of TBC by complex: the old LFG icon, the loading screen, the reputation behind the heroic key, and per
 -- dungeon its short name and the part of the loading screen its card shows (cx, cy = centre, as a share of the
@@ -143,6 +160,19 @@ for _, c in ipairs(COMPLEXES) do
         DUNGEON[key] = { key = key, i = #ORDER, short = d[2], name = d[2], complex = c, cx = d[3], cy = d[4],
                          phase = 1 }
     end
+end
+
+-- Groups of the other kinds (Data/GroupKinds.lua), in wire order, plus the helpers that tell kinds apart. One table:
+-- this file is close to Lua's 200 locals.
+local GK = { kinds = {}, kindIndex = {}, raids = {}, raidIndex = {}, pvp = {}, pvpIndex = {}, other = {}, otherIndex = {},
+             loot = {}, lootIndex = {} }
+do
+    local data = ns.Data and ns.Data.GroupKinds or {}
+    for i, k in ipairs(data.kinds or { "dungeon" }) do GK.kinds[i] = k; GK.kindIndex[k] = i end
+    for i, r in ipairs(data.raids or {}) do GK.raids[i] = r; GK.raidIndex[r.key] = i end
+    for i, p in ipairs(data.pvp or {}) do GK.pvp[i] = p; GK.pvpIndex[p.key] = i end
+    for i, o in ipairs(data.other or {}) do GK.other[i] = o; GK.otherIndex[o.key] = i end
+    for i, l in ipairs(data.loot or {}) do GK.loot[i] = l; GK.lootIndex[l] = i end
 end
 
 local dataBuilt = false
@@ -519,13 +549,22 @@ local function ScanSaved()
     BuildData()
     local before = {}
     for key in pairs(savedUntil) do before[key] = true end
+    for key in pairs(GK.saved) do before["raid:" .. key] = true end
     wipe(savedUntil)
+    wipe(GK.saved)
     if not (GetNumSavedInstances and GetSavedInstanceInfo) then return end
     local now = Now()
+    local IDB = ns.ItemDB
     for i = 1, tonumber(GetNumSavedInstances()) or 0 do
-        local name, _, reset, difficulty, locked, _, _, isRaid, _, difficultyName, _, _, _, instanceId =
-            GetSavedInstanceInfo(i)
+        local name, _, reset, difficulty, locked, _, _, isRaid, _, difficultyName, numEncounters, encounterProgress, _,
+            instanceId = GetSavedInstanceInfo(i)
         reset = tonumber(reset)
+        -- (1.5) a raid lockout: by the raid's instance id (the item data's raid key)
+        local raidKey = locked and isRaid and reset and reset > 0 and instanceId and IDB and IDB.ItemKeyOf
+            and IDB:ItemKeyOf(instanceId)
+        if raidKey and GK.raidIndex[raidKey] then
+            GK.saved[raidKey] = { untilT = now + reset, done = tonumber(encounterProgress), total = tonumber(numEncounters) }
+        end
         if locked and not isRaid and reset and reset > 0 then
             local heroic = difficulty == 2
                 or (type(difficultyName) == "string" and strfind(strlower(difficultyName), "heroic", 1, true) ~= nil)
@@ -544,6 +583,10 @@ local function ScanSaved()
     for key in pairs(savedUntil) do
         if not before[key] then changed = true end
         before[key] = nil
+    end
+    for key in pairs(GK.saved) do
+        if not before["raid:" .. key] then changed = true end
+        before["raid:" .. key] = nil
     end
     if (changed or next(before) ~= nil) and helloSent and SendProfile then SendProfile() end
 end
@@ -584,18 +627,239 @@ end
 -- Runs: slots, fit, blockers
 ---------------------------------------------------------------------------
 
+-- Kinds. A run without k (every run from before 1.5) is a 5-man dungeon run.
+GK.saved = {}            -- my raid lockouts: [raid key] = { untilT, done, total }
+GK.rosterAsked = {}      -- [run id] = Now() I last asked its owner for its roster
+local GENERIC_FIELDS = { "k", "a", "n", "w", "lo", "lr", "bo", "pr", "mr", "fc" }
+
+function GK.IsDungeon(run) return run.k == nil or run.k == "dungeon" end
+function GK.Kind(run) return run.k or "dungeon" end
+function GK.Size(run)
+    if GK.IsDungeon(run) then return PARTY_SIZE end
+    return tonumber(run.n) or PARTY_SIZE
+end
+-- The places per role: { tank = n, healer = n, dps = n }.
+function GK.Want(run)
+    if GK.IsDungeon(run) or type(run.w) ~= "table" then return NEED end
+    return run.w
+end
+
+-- A copy of a run's kind fields (tables copied, not shared).
+function GK.Copy(from, to)
+    for _, f in ipairs(GENERIC_FIELDS) do
+        local v = from[f]
+        if type(v) == "table" then
+            local c = {}
+            for k2, x in pairs(v) do c[k2] = x end
+            v = c
+        end
+        to[f] = v
+    end
+    return to
+end
+
+-- Is the run's activity one I know? (a dungeon of the list; raids of the list; quest ids; one PvP / other key)
+function GK.Valid(run)
+    if GK.IsDungeon(run) then return DUNGEON[run.d] ~= nil end
+    local kind = run.k
+    if not GK.kindIndex[kind] or type(run.a) ~= "table" or #run.a == 0 or #run.a > MAX_ACTIVITIES then return false end
+    if (kind == "pvp" or kind == "other") and #run.a ~= 1 then return false end
+    for _, x in ipairs(run.a) do
+        if (kind == "raid" and not GK.raidIndex[x]) or (kind == "quest" and not IsInt(x, 1))
+            or (kind == "pvp" and not GK.pvpIndex[x]) or (kind == "other" and not GK.otherIndex[x]) then
+            return false
+        end
+    end
+    return true
+end
+
+-- The run's name: "Botanica" / "Gruul's Lair + Magtheridon's Lair" / "Arena 3v3" / "Attunement".
+function GK.Name(run)
+    if GK.IsDungeon(run) then
+        local d = DUNGEON[run.d]
+        return d and d.name or tostring(run.d)
+    end
+    local parts = {}
+    for _, x in ipairs(run.a or {}) do
+        local name
+        if run.k == "raid" then
+            local raid = ns.ItemDB and ns.ItemDB.GetRaid and ns.ItemDB:GetRaid(x)
+            name = raid and raid.name
+        elseif run.k == "pvp" then
+            name = GK.pvp[GK.pvpIndex[x] or 0] and GK.pvp[GK.pvpIndex[x]].name
+        elseif run.k == "other" then
+            name = GK.other[GK.otherIndex[x] or 0] and GK.other[GK.otherIndex[x]].name
+        else
+            local GQ = ns.GroupQuests
+            name = (GQ and GQ.GetName and GQ:GetName(x)) or ("Quest " .. tostring(x))
+        end
+        parts[#parts + 1] = name or tostring(x)
+    end
+    return tconcat(parts, " + ")
+end
+
+-- The places a group of `kind` and `n` players lists by default: { tank, healer, dps }.
+function GK.DefaultWant(kind, n, key)
+    if kind == "pvp" then
+        local p = GK.pvp[GK.pvpIndex[key] or 0]
+        if p and p.mode == "arena" then return { tank = 0, healer = n >= 5 and 2 or 1, dps = n - (n >= 5 and 2 or 1) } end
+        local h = floor(n * 0.27 + 0.5)
+        return { tank = 0, healer = h, dps = n - h }
+    end
+    if n >= 40 then return { tank = 4, healer = 10, dps = n - 14 } end
+    if n >= 25 then return { tank = 3, healer = 6, dps = n - 9 } end
+    if n >= 10 then return { tank = 2, healer = 3, dps = n - 5 } end
+    if n >= 5 then return { tank = 1, healer = 1, dps = n - 2 } end
+    return { tank = n >= 3 and 1 or 0, healer = 1, dps = max(0, n - (n >= 3 and 2 or 1)) }
+end
+
+-- A group of another kind from List's options: the run's kind fields, or nil and why.
+function GK.FromOpts(opts)
+    local kind = opts.k
+    if kind == "dungeon" or not GK.kindIndex[kind] then return nil, "Pick what the group is for." end
+    local a = {}
+    for _, x in ipairs(type(opts.a) == "table" and opts.a or { opts.a }) do a[#a + 1] = x end
+    local run = { k = kind, a = a }
+    if not GK.Valid(run) then return nil, "Pick what the group is for." end
+    local n
+    if kind == "raid" then
+        n = 10
+        for _, x in ipairs(a) do n = max(n, GK.raids[GK.raidIndex[x]].size or 25) end
+    elseif kind == "pvp" then
+        n = GK.pvp[GK.pvpIndex[a[1]]].size
+    else
+        n = 5
+    end
+    if opts.n ~= nil and kind ~= "pvp" then n = tonumber(opts.n) end
+    if not IsInt(n, 2, MAX_SIZE) then return nil, "A group is 2 to " .. MAX_SIZE .. " players." end
+    local w = GK.DefaultWant(kind, n, a[1])
+    if type(opts.w) == "table" then
+        w = { tank = tonumber(opts.w.tank) or 0, healer = tonumber(opts.w.healer) or 0, dps = tonumber(opts.w.dps) or 0 }
+    end
+    if kind == "pvp" then w.tank = 0 end
+    for _, role in ipairs(ROLES) do
+        if not IsInt(w[role], 0, n) then return nil, "Places must be whole numbers." end
+    end
+    if w.tank + w.healer + w.dps > n then return nil, "More places than players." end
+    run.n, run.w = n, w
+    if kind == "raid" then
+        run.lo = GK.lootIndex[opts.lo] and opts.lo or "roll"
+        if run.lo == "sr" then run.lr = IsInt(opts.lr, 1, 3) and opts.lr or 1 end
+        if type(opts.bo) == "table" and #opts.bo > 0 then
+            run.bo = {}
+            for i, b in ipairs(opts.bo) do
+                if i <= 20 and type(b) == "string" and #b <= 48 then run.bo[#run.bo + 1] = b end
+            end
+        end
+    elseif kind == "pvp" then
+        local mode = GK.pvp[GK.pvpIndex[a[1]]].mode
+        if mode == "arena" and opts.pr then
+            run.pr = true
+            run.mr = IsInt(opts.mr, 0, 5000) and opts.mr or nil
+        end
+        if mode == "bg" and opts.fc then run.fc = true end
+    end
+    return run
+end
+
+-- The kind fields of a DRL into run: false when malformed.
+function GK.Parse(msg, run)
+    local kind = IsInt(msg.k, 2, #GK.kinds) and GK.kinds[msg.k]
+    if not kind or type(msg.a) ~= "table" or #msg.a < 1 or #msg.a > MAX_ACTIVITIES then return false end
+    local a = {}
+    for _, x in ipairs(msg.a) do
+        local v
+        if kind == "raid" then v = IsInt(x, 1, #GK.raids) and GK.raids[x].key
+        elseif kind == "quest" then v = IsInt(x, 1, 999999) and x
+        elseif kind == "pvp" then v = IsInt(x, 1, #GK.pvp) and GK.pvp[x].key
+        else v = IsInt(x, 1, #GK.other) and GK.other[x].key end
+        if not v then return false end
+        a[#a + 1] = v
+    end
+    local w = msg.w
+    if not IsInt(msg.n, 2, MAX_SIZE) or type(w) ~= "table" then return false end
+    for i = 1, 3 do
+        if not IsInt(w[i], 0, MAX_SIZE) then return false end
+    end
+    if w[1] + w[2] + w[3] > msg.n then return false end
+    run.k, run.a, run.n, run.w = kind, a, msg.n, { tank = w[1], healer = w[2], dps = w[3] }
+    if not GK.Valid(run) then return false end
+    if kind == "raid" then
+        run.lo = IsInt(msg.lo, 1, #GK.loot) and GK.loot[msg.lo] or nil
+        run.lr = IsInt(msg.lr, 1, 3) and msg.lr or nil
+        if type(msg.bo) == "table" and #msg.bo <= 20 then
+            local bo = {}
+            for _, b in ipairs(msg.bo) do
+                if type(b) == "string" and #b <= 48 then bo[#bo + 1] = b end
+            end
+            run.bo = #bo > 0 and bo or nil
+        end
+    elseif kind == "pvp" then
+        run.pr = (msg.pr == 1) or nil
+        run.mr = IsInt(msg.mr, 0, 5000) and msg.mr or nil
+        run.fc = (msg.fc == 1) or nil
+    end
+    return true
+end
+
+-- The kind fields of a run into a DRL.
+function GK.Wire(run, msg)
+    local kind = run.k
+    msg.k = GK.kindIndex[kind]
+    local a = {}
+    for _, x in ipairs(run.a or {}) do
+        if kind == "raid" then a[#a + 1] = GK.raidIndex[x]
+        elseif kind == "pvp" then a[#a + 1] = GK.pvpIndex[x]
+        elseif kind == "other" then a[#a + 1] = GK.otherIndex[x]
+        else a[#a + 1] = x end
+    end
+    local w = GK.Want(run)
+    msg.a, msg.n, msg.w = a, run.n, { w.tank or 0, w.healer or 0, w.dps or 0 }
+    msg.lo = run.lo and GK.lootIndex[run.lo] or nil
+    msg.lr, msg.bo = run.lr, run.bo
+    msg.pr, msg.mr, msg.fc = run.pr and 1 or nil, run.mr, run.fc and 1 or nil
+end
+
+-- Why I can't join a group, or nil (a dungeon: the heroic key, lockout, level); second return: the reason's kind.
+function GK.Blocker(run)
+    if GK.IsDungeon(run) then return Runs:GetBlocker(run.d, run.h) end
+    if run.k ~= "raid" then return nil end
+    local level = UnitLevel and tonumber(UnitLevel("player"))
+    if level and level > 0 and level < RAID_LEVEL then return "Needs level " .. RAID_LEVEL, "level" end
+    local saved = {}
+    for _, key in ipairs(run.a or {}) do
+        local s = GK.saved[key]
+        if not (s and s.untilT > Now()) then return nil end
+        saved[#saved + 1] = key
+    end
+    if #saved == 1 then
+        local s = GK.saved[saved[1]]
+        local raid = ns.ItemDB and ns.ItemDB.GetRaid and ns.ItemDB:GetRaid(saved[1])
+        local done = (IsInt(s.total, 1) and IsInt(s.done, 0)) and (" (" .. s.done .. " of " .. s.total .. ")") or ""
+        return "You're saved to " .. (raid and raid.name or saved[1]) .. done, "saved"
+    end
+    return "You're saved to all of them", "saved"
+end
+
+-- The kinds of groups I'm up for: { dungeon = true, raid = true, ... } (dungeons and raids unless I picked).
+function GK.MyKinds(p)
+    if type(p.kinds) == "table" and next(p.kinds) then return p.kinds end
+    return { dungeon = true, raid = true }
+end
+
 local function Expired(run, now)
     now = now or Now()
     if (run.at or 0) > 0 then return now > run.at + LATER_GRACE end
     return now > (run.c or 0) + NOW_TTL
 end
 
--- The five places of a run, tanks first: { key, role, class, you } or { empty = true, role } (the roles still open:
--- one tank, one healer, three DPS).
+-- The places of a run, tanks first: { key, role, class, you } or { empty = true, role } (the roles still open: a 5-man
+-- run wants one tank, one healer, three DPS; a group of another kind its own places, GK.Want).
 local function Slots(run)
+    local size, need = GK.Size(run), GK.Want(run)
     local filled = {}
     for i, s in ipairs(run.s or {}) do
-        if i > PARTY_SIZE then break end
+        if i > size then break end
         filled[#filled + 1] = { key = s.k, role = ROLE_INDEX[s.r] and s.r or "dps", class = ClassOf(s.k) or s.c,
                                 you = Util.IsMe(s.k) or nil, owner = (s.k == run.o) or nil }
     end
@@ -606,7 +870,7 @@ local function Slots(run)
     end)
     local count = { tank = 0, healer = 0, dps = 0 }
     for _, f in ipairs(filled) do count[f.role] = count[f.role] + 1 end
-    local free = PARTY_SIZE - #filled
+    local free = size - #filled
     local out = {}
     local function addEmpty(role, n)
         for _ = 1, n do
@@ -619,7 +883,7 @@ local function Slots(run)
         for _, f in ipairs(filled) do
             if f.role == role then out[#out + 1] = f end
         end
-        if role ~= "dps" then addEmpty(role, max(0, NEED[role] - count[role])) end
+        if role ~= "dps" then addEmpty(role, max(0, (need[role] or 0) - count[role])) end
     end
     addEmpty("dps", free)
     -- an extra tank or healer pushes the open DPS places out: keep empties after the filled ones of their role
@@ -648,9 +912,15 @@ end
 local function WireRun(run, relay)
     local s = {}
     for _, x in ipairs(run.s or {}) do s[#s + 1] = { x.k, ROLE_INDEX[x.r] or 3, x.c } end
-    local d = DUNGEON[run.d]
-    return { t = "DRL", id = run.id, d = d and d.i, h = run.h and 1 or nil, at = run.at or 0, c = run.c, no = run.no,
-             s = s, rv = run.rv, o = relay and run.o or nil, pv = run.pv }
+    local msg = { t = "DRL", id = run.id, at = run.at or 0, c = run.c, no = run.no, s = s, rv = run.rv,
+                  o = relay and run.o or nil, pv = run.pv }
+    if GK.IsDungeon(run) then
+        local d = DUNGEON[run.d]
+        msg.d, msg.h = d and d.i, run.h and 1 or nil
+    else
+        GK.Wire(run, msg)
+    end
+    return msg
 end
 
 local function MyRun()
@@ -679,8 +949,17 @@ local function ProfileMsg(q)
     for _, key in ipairs(ORDER) do
         if (savedUntil[key] or 0) > Now() then sv[#sv + 1] = DUNGEON[key].i end
     end
+    local uk, rs = {}, {}
+    local kinds = GK.MyKinds(p)
+    for i, kind in ipairs(GK.kinds) do
+        if kinds[kind] then uk[#uk + 1] = i end
+    end
+    for i, raid in ipairs(GK.raids) do
+        local s = GK.saved[raid.key]
+        if s and s.untilT > Now() then rs[#rs + 1] = i end
+    end
     local msg = { t = "DRP", r = r, u = ((p.up or 0) > Now()) and p.up or 0, nn = nn, nh = nh, ids = ids, q = q,
-                  sv = sv, g = Runs:IsGrouped() and 1 or nil }
+                  sv = sv, g = Runs:IsGrouped() and 1 or nil, uk = uk, rs = rs }
     local d = Daily()
     if d.x then
         local function index(key) return key and DUNGEON[key] and DUNGEON[key].i or nil end
@@ -716,7 +995,9 @@ local MaybePing   -- forward
 
 -- A DRL's run, or nil when malformed.
 local function ParseRun(msg, sender)
-    if type(msg.id) ~= "string" or #msg.id > 64 or not IsInt(msg.d, 1, #ORDER) then return nil end
+    -- (1.5) a group of another kind has k and no d; clients from before 1.5 stop at the d check below
+    local generic = msg.k ~= nil
+    if type(msg.id) ~= "string" or #msg.id > 64 or (not generic and not IsInt(msg.d, 1, #ORDER)) then return nil end
     if not IsInt(msg.c, 0) or not IsInt(msg.rv, 0) or (msg.at ~= nil and not IsInt(msg.at, 0)) then return nil end
     local owner = sender
     if msg.o ~= nil then
@@ -724,7 +1005,8 @@ local function ParseRun(msg, sender)
         if not owner then return nil end
     end
     local s, seen = {}, {}
-    if type(msg.s) ~= "table" or #msg.s > PARTY_SIZE then return nil end
+    local limit = generic and (IsInt(msg.n, 2, MAX_SIZE) and msg.n or 0) or PARTY_SIZE
+    if type(msg.s) ~= "table" or #msg.s > limit then return nil end
     for _, x in ipairs(msg.s) do
         local k = type(x) == "table" and type(x[1]) == "string" and Util.NormalizeName(x[1])
         local r = type(x) == "table" and IsInt(x[2], 1, 3) and ROLES[x[2]]
@@ -735,8 +1017,14 @@ local function ParseRun(msg, sender)
         s[#s + 1] = { k = k, r = r, c = c }
     end
     local pv = (type(msg.pv) == "string" and #msg.pv <= 64 and msg.pv ~= msg.id) and msg.pv or nil
-    return { id = msg.id, o = owner, d = ORDER[msg.d], h = (msg.h == 1) or nil, at = msg.at or 0, c = msg.c,
-             no = type(msg.no) == "string" and TrimNote(msg.no) or nil, s = s, rv = msg.rv, pv = pv }
+    local run = { id = msg.id, o = owner, at = msg.at or 0, c = msg.c, s = s, rv = msg.rv, pv = pv,
+                  no = type(msg.no) == "string" and TrimNote(msg.no) or nil, pt = (msg.pt == 1) or nil }
+    if generic then
+        if not GK.Parse(msg, run) then return nil end
+    else
+        run.d, run.h = ORDER[msg.d], (msg.h == 1) or nil
+    end
+    return run
 end
 
 local Renamed   -- forward
@@ -746,14 +1034,24 @@ local function StoreRun(run)
     local gone = st.gone[run.id]
     if gone and (tonumber(gone) or 0) > Now() then return false end
     local cur = st.list[run.id]
-    if cur and (cur.rv or 0) >= (run.rv or 0) then return false end
+    -- (a run whose roster a digest left out takes its whole roster at the same revision)
+    local completes = cur and cur.pt and not run.pt and (cur.rv or 0) == (run.rv or 0)
+    if cur and (cur.rv or 0) >= (run.rv or 0) and not completes then return false end
     if Expired(run) then return false end
     local fresh = cur == nil
     st.list[run.id] = run
     if run.pv then Renamed(run) end
+    if run.pt then GK.AskRoster(run) end
     Changed()
     MaybePing(run, fresh)
     return true
+end
+
+-- A run whose roster a digest left out: its owner whispers the whole run (at most every ROSTER_ASK_EVERY).
+function GK.AskRoster(run)
+    if DemoOn() or not IsOnline(run.o) or Now() - (GK.rosterAsked[run.id] or -1e9) < ROSTER_ASK_EVERY then return end
+    GK.rosterAsked[run.id] = Now()
+    Send({ t = "DRR", id = run.id }, "WHISPER", run.o)
 end
 
 local function DropRun(id, quiet)
@@ -804,7 +1102,7 @@ end
 
 -- A profile's fields (DRP, or one entry of a digest) as a peer record. sv: the heroics they are saved to, until the
 -- next daily reset (by my clock).
-local function ReadProfile(r, u, nn, nh, ids, sv, g)
+local function ReadProfile(r, u, nn, nh, ids, sv, g, uk, rs)
     local roles = {}
     if type(r) == "table" then
         for _, i in ipairs(r) do
@@ -828,8 +1126,21 @@ local function ReadProfile(r, u, nn, nh, ids, sv, g)
         end
     end
     local left = GetQuestResetTime and tonumber(GetQuestResetTime()) or 86400
+    -- (1.5) the kinds they're up for (a client from before: dungeons only) and the raids they're saved to
+    local kinds, raids = { dungeon = true }, {}
+    if type(uk) == "table" then
+        kinds = {}
+        for _, i in ipairs(uk) do
+            if IsInt(i, 1, #GK.kinds) then kinds[GK.kinds[i]] = true end
+        end
+    end
+    if type(rs) == "table" then
+        for _, i in ipairs(rs) do
+            if IsInt(i, 1, #GK.raids) then raids[GK.raids[i].key] = true end
+        end
+    end
     return { roles = roles, up = IsInt(u, 0) and u or 0, nn = set(nn), nh = set(nh), ids = idset, seen = Now(),
-             saved = set(sv), savedUntil = Now() + left, grouped = (g == 1) or nil }
+             saved = set(sv), savedUntil = Now() + left, grouped = (g == 1) or nil, kinds = kinds, raids = raids }
 end
 
 -- Today's dailies as somebody saw them: the newest sighting of the current day wins.
@@ -850,7 +1161,7 @@ local Digest   -- forward
 
 local function OnProfile(sender, msg, dist)
     if not InGuild(sender) then return end
-    local p = ReadProfile(msg.r, msg.u, msg.nn, msg.nh, msg.ids, msg.sv, msg.g)
+    local p = ReadProfile(msg.r, msg.u, msg.nn, msg.nh, msg.ids, msg.sv, msg.g, msg.uk, msg.rs)
     peers[sender] = p
     Known()[sender] = Now()
     -- the owner's own list of runs: theirs that it no longer names are gone
@@ -899,7 +1210,7 @@ local DIGEST_WIRE, DIGEST_INFLATED = 3800, 15000
 
 Digest = function()
     local mine = ProfileMsg()
-    local p = { { Me(), mine.r, mine.u, mine.nn, mine.nh, mine.sv, mine.g } }
+    local p = { { Me(), mine.r, mine.u, mine.nn, mine.nh, mine.sv, mine.g or false, mine.uk, mine.rs } }
     local keys = {}
     for key in pairs(peers) do
         if IsOnline(key) and not Util.IsMe(key) then keys[#keys + 1] = key end
@@ -917,7 +1228,14 @@ Digest = function()
             if peer.nh and peer.nh[k] then nh[#nh + 1] = DUNGEON[k].i end
             if saved[k] then sv[#sv + 1] = DUNGEON[k].i end
         end
-        p[#p + 1] = { key, r, peer.up or 0, nn, nh, sv, peer.grouped and 1 or nil }
+        local uk, rs = {}, {}
+        for i, kind in ipairs(GK.kinds) do
+            if peer.kinds and peer.kinds[kind] then uk[#uk + 1] = i end
+        end
+        for i, raid in ipairs(GK.raids) do
+            if (peer.savedUntil or 0) > Now() and peer.raids and peer.raids[raid.key] then rs[#rs + 1] = i end
+        end
+        p[#p + 1] = { key, r, peer.up or 0, nn, nh, sv, peer.grouped and 1 or false, uk, rs }
     end
     local l = {}
     local now = Now()
@@ -928,12 +1246,28 @@ Digest = function()
             l[#l + 1] = w
         end
     end
+    -- small groups first: what doesn't fit goes from the end
+    tsort(l, function(a, b)
+        if #a.s ~= #b.s then return #a.s < #b.s end
+        return a.id < b.id
+    end)
     local msg = { t = "DRS", p = p, l = l, dy = mine.dy }
     local Comm = ns.Comm
     while Comm and Comm.Fits do
         local _, wire, inflated = Comm:Fits(msg)
         if (wire or 0) <= DIGEST_WIRE and (inflated or 0) <= DIGEST_INFLATED then break end
-        if #p > 1 then p[#p] = nil elseif #l > 0 then l[#l] = nil else break end
+        -- first the biggest roster still in goes (its owner sends it on request), then profiles, then runs
+        local big
+        for _, x in ipairs(l) do
+            if not x.pt and #x.s > PARTY_SIZE and (not big or #x.s > #big.s) then big = x end
+        end
+        if big then
+            local owner = {}
+            for _, x in ipairs(big.s) do
+                if Util.NormalizeName(x[1]) == big.o then owner[1] = x end
+            end
+            big.s, big.pt = owner, 1
+        elseif #p > 1 then p[#p] = nil elseif #l > 0 then l[#l] = nil else break end
     end
     return msg
 end
@@ -956,7 +1290,7 @@ local function OnDigest(sender, msg)
         local key = type(e) == "table" and type(e[1]) == "string" and Util.NormalizeName(e[1])
         -- what a member told me themselves a moment ago beats the copy in the digest
         if key and not Util.IsMe(key) and InGuild(key) and not (peers[key] and now - (peers[key].seen or 0) < 10) then
-            peers[key] = ReadProfile(e[2], e[3], e[4], e[5], nil, e[6], e[7])
+            peers[key] = ReadProfile(e[2], e[3], e[4], e[5], nil, e[6], e[7], e[8], e[9])
             Known()[key] = now
         end
     end
@@ -993,6 +1327,16 @@ local function AskNext()
         if not asking.got then AskNext() end
     end)
     return true
+end
+
+-- (owner) Somebody got my run from a digest without its roster: the whole run, to them.
+function GK.OnRosterAsk(sender, msg, dist)
+    if dist ~= "WHISPER" or not InGuild(sender) or type(msg.id) ~= "string" then return end
+    local mine = MyRun()
+    if not mine or mine.id ~= msg.id then return end
+    local Comm = ns.Comm
+    if Comm and Comm.RateLimit and not Comm:RateLimit("DRR:" .. sender, 10) then return end
+    Send(WireRun(mine), "WHISPER", sender)
 end
 
 local function OnUnlist(sender, msg)
@@ -1032,7 +1376,7 @@ local function OnAnswer(sender, msg)
         local id = run.id
         Util.After(INVITE_FOR + 5, function()
             local cur = Asked()[id]
-            local r = Runs:GetRun(id)
+            local r = Runs:GetGroup(id)
             if cur == a and a.st == "invited" and not (r and InRun(r, Me())) and not (invite and invite.run == id) then
                 a.st = "asked"
                 Changed()
@@ -1090,8 +1434,9 @@ local function SyncMyParty()
     if DemoOn() then return end
     local run = MyRun()
     if not run then return end
-    -- a raid: my run is over; somebody else leads my group: the run goes with the lead (or ends)
-    if IsInRaid() then
+    -- a raid: my 5-man run is over (a bigger group goes on in it); somebody else leads my group: the run goes with
+    -- the lead (or ends)
+    if IsInRaid() and GK.Size(run) <= PARTY_SIZE then
         Runs:Unlist(true)
         return
     end
@@ -1146,28 +1491,41 @@ local function SyncMyParty()
     if same then return end
     run.s = s
     run.rv = (run.rv or 0) + 1
-    if #s >= PARTY_SIZE then
-        ns:Print("%s is full: taken off the board. Have fun!", DUNGEON[run.d] and DUNGEON[run.d].name or "Your run")
+    if #s >= GK.Size(run) then
+        ns:Print("%s is full: taken off the board. Have fun!", GK.Name(run))
         Runs:Unlist(true)
         return
     end
+    GK.MakeRoom(run)
     Changed()
     BroadcastRun(run)
+end
+
+-- (owner) A group bigger than a party whose party is full: my party becomes a raid. True when it converted (the
+-- next invite waits for the raid).
+function GK.MakeRoom(run)
+    if DemoOn() or GK.Size(run) <= PARTY_SIZE or IsInRaid() or not IsInGroup() then return false end
+    if (GetNumGroupMembers() or 0) < PARTY_SIZE or not UnitIsGroupLeader("player") or not ConvertToRaid then return false end
+    ConvertToRaid()
+    return true
 end
 
 ---------------------------------------------------------------------------
 -- Passing the lead: the run goes with it
 ---------------------------------------------------------------------------
 
--- My party's leader (not me), or nil.
+-- My group's leader (not me), or nil. (1.5: a raid's too: a bigger group goes on in a raid.)
 local function GroupLeader()
-    if not IsInGroup() or IsInRaid() then return nil end
-    for i = 1, PARTY_SIZE - 1 do
-        local unit = "party" .. i
+    if not IsInGroup() then return nil end
+    local raid = IsInRaid()
+    local n = raid and (tonumber(GetNumGroupMembers()) or 0) or (PARTY_SIZE - 1)
+    for i = 1, n do
+        local unit = (raid and "raid" or "party") .. i
         if UnitExists(unit) and UnitIsGroupLeader(unit) then
             local name, realm = UnitName(unit)
             if type(name) == "string" and name ~= "" and name ~= UNKNOWNOBJECT then
-                return Util.NormalizeName((type(realm) == "string" and realm ~= "") and (name .. "-" .. realm) or name)
+                local key = Util.NormalizeName((type(realm) == "string" and realm ~= "") and (name .. "-" .. realm) or name)
+                if not Util.IsMe(key) then return key end
             end
         end
     end
@@ -1242,7 +1600,10 @@ local function Adopt(old, q, gf)
         Changed()
         return mine
     end
-    if IsInRaid() or not (IsInGroup() and UnitIsGroupLeader("player")) or not InRun(old, Me()) then return nil end
+    if (IsInRaid() and GK.Size(old) <= PARTY_SIZE) or not (IsInGroup() and UnitIsGroupLeader("player"))
+        or not InRun(old, Me()) then
+        return nil
+    end
     local now = Now()
     local p = Prefs()
     local s = {}
@@ -1252,6 +1613,7 @@ local function Adopt(old, q, gf)
     end
     local run = { id = (Me() or "?") .. ":" .. now, o = Me(), d = old.d, h = old.h, at = old.at or 0, c = old.c or now,
                   no = old.no, s = s, rv = 1, pv = old.id, gf = gf and true or nil }
+    GK.Copy(old, run)
     State().list[run.id] = run
     State().gone[run.id] = nil
     DropRun(old.id, true)
@@ -1261,8 +1623,7 @@ local function Adopt(old, q, gf)
     BroadcastRun(run)
     SendProfile()
     Changed()
-    local d = DUNGEON[run.d]
-    ns:Print("You lead the run now: %s%s.", d and d.name or run.d, run.h and " (Heroic)" or "")
+    ns:Print("You lead the run now: %s%s.", GK.Name(run), run.h and " (Heroic)" or "")
     return run
 end
 
@@ -1297,9 +1658,9 @@ local function CheckLead()
         SyncMyParty()
         return
     end
-    if not IsInGroup() or IsInRaid() or not UnitIsGroupLeader("player") then return end
+    if not IsInGroup() or not UnitIsGroupLeader("player") then return end
     for _, run in pairs(State().list) do
-        if run.o ~= Me() and not Expired(run) and InRun(run, Me()) then
+        if run.o ~= Me() and not Expired(run) and InRun(run, Me()) and not (IsInRaid() and GK.Size(run) <= PARTY_SIZE) then
             local here = Util.group and Util.group[run.o]
             local left = not here and leftGroup[run.o] and now - leftGroup[run.o] < HANDOFF_WAIT and GroupInRun(run)
             if here or left then
@@ -1350,8 +1711,10 @@ MaybePing = function(run, fresh)
     if pinged[run.id] or run.o == Me() or InRun(run, Me()) then return end
     if not Runs:IsUp() or Runs:IsGrouped() then return end
     if InCombat() or Util.InPartyInstance() or Util.InRaidInstance() then return end
+    -- (1.5) only for the kinds of groups I'm up for; a roster still on its way first
+    if run.pt or not GK.MyKinds(Prefs())[GK.Kind(run)] then return end
     local role = Runs:FitsMe(run)
-    if not role or Runs:GetBlocker(run.d, run.h) then return end
+    if not role or GK.Blocker(run) then return end
     if (run.at or 0) > Now() + 3600 then return end   -- a run for tomorrow is no reason to ping now
     pinged[run.id] = true
     ns:Fire("DUNGEON_RUN_PING", run.id)
@@ -1426,9 +1789,7 @@ local function OnPartyInvite(_, name)
     Util.After(0, HideBlizzardInvite)
     local a = Asked()[run.id]
     if a and (a.st == "asked" or a.st == "invited") and Now() - (a.at or 0) <= AUTO_ACCEPT_FOR then
-        local d = DUNGEON[run.d]
-        ns:Print("Joining %s's run: %s%s.", Util.ShortName(from) or from, d and d.name or run.d,
-            run.h and " (Heroic)" or "")
+        ns:Print("Joining %s's run: %s%s.", Util.ShortName(from) or from, GK.Name(run), run.h and " (Heroic)" or "")
         AnswerInvite(true)
         return
     end
@@ -1744,7 +2105,8 @@ function Runs:GetUpForRun()
     end
     for key, peer in pairs(Peers()) do
         if (peer.up or 0) > now and not Util.IsMe(key) and not busy[key] and (DemoOn() or IsOnline(key)) then
-            out[#out + 1] = { key = key, roles = peer.roles or {}, class = ClassOf(key), grouped = peer.grouped }
+            out[#out + 1] = { key = key, roles = peer.roles or {}, class = ClassOf(key), grouped = peer.grouped,
+                              kinds = peer.kinds or { dungeon = true } }
         end
     end
     local function rank(e)
@@ -1763,18 +2125,29 @@ end
 -- Public API: runs
 ---------------------------------------------------------------------------
 
--- Every listed run (not expired), mine included: { run, ... } in no particular order.
+-- Every listed 5-man dungeon run (not expired), mine included: { run, ... } in no particular order. (Groups of the
+-- other kinds: GetGroups.)
 function Runs:GetRuns()
     local out = {}
     local now = Now()
     for _, run in pairs(State().list) do
-        if not Expired(run, now) and DUNGEON[run.d] then out[#out + 1] = run end
+        if not Expired(run, now) and GK.IsDungeon(run) and DUNGEON[run.d] then out[#out + 1] = run end
     end
     return out
 end
 
--- A run by id; a run whose lead passed is found by its old id too (share links, the Home calendar).
-function Runs:GetRun(id)
+-- (1.5) Every listed group of a kind ("dungeon" | "raid" | "quest" | "pvp" | "other"; nil = every kind).
+function Runs:GetGroups(kind)
+    local out = {}
+    local now = Now()
+    for _, run in pairs(State().list) do
+        if not Expired(run, now) and GK.Valid(run) and (kind == nil or GK.Kind(run) == kind) then out[#out + 1] = run end
+    end
+    return out
+end
+
+-- A group of any kind by id; one whose lead passed is found by its old id too (share links, the Home calendar).
+function Runs:GetGroup(id)
     for _ = 1, 5 do
         local run = type(id) == "string" and State().list[id]
         if run then return (not Expired(run)) and run or nil end
@@ -1784,7 +2157,75 @@ function Runs:GetRun(id)
     return nil
 end
 
-function Runs:GetMine() return MyRun() end
+-- A 5-man dungeon run by id (as GetGroup, for the pages that show dungeon runs only).
+function Runs:GetRun(id)
+    local run = self:GetGroup(id)
+    return (run and GK.IsDungeon(run)) and run or nil
+end
+
+-- My dungeon run (GetMyGroup: my group of any kind).
+function Runs:GetMine()
+    local run = MyRun()
+    return (run and GK.IsDungeon(run)) and run or nil
+end
+function Runs:GetMyGroup() return MyRun() end
+
+-- A group's kind, size, places per role ({ tank, healer, dps }), name, and why I can't join it (nil = I can).
+function Runs:GetKind(run) return GK.Kind(run) end
+function Runs:GetSize(run) return GK.Size(run) end
+function Runs:GetWant(run) return GK.Want(run) end
+function Runs:GetName(run) return GK.Name(run) end
+function Runs:GetGroupBlocker(run) return GK.Blocker(run) end
+
+-- The kinds of groups (wire order) and the activities of a kind: raids { key, size }, PvP { key, name, size, mode,
+-- bracket }, other { key, name }.
+function Runs:GetKinds()
+    local out = {}
+    for i, k in ipairs(GK.kinds) do out[i] = k end
+    return out
+end
+function Runs:GetActivities(kind)
+    local list = (kind == "raid" and GK.raids) or (kind == "pvp" and GK.pvp) or (kind == "other" and GK.other) or {}
+    local out = {}
+    for i, x in ipairs(list) do out[i] = x end
+    return out
+end
+
+-- The kinds of groups I'm up for ({ dungeon = true, ... }) and switching one (at least one stays on).
+function Runs:GetMyKinds()
+    local out = {}
+    for k in pairs(GK.MyKinds(Prefs())) do out[k] = true end
+    return out
+end
+function Runs:SetMyKind(kind, on)
+    if not GK.kindIndex[kind] then return false end
+    local p = Prefs()
+    local nextSet = {}
+    for k in pairs(GK.MyKinds(p)) do nextSet[k] = true end
+    nextSet[kind] = on and true or nil
+    if not next(nextSet) then return false end
+    p.kinds = nextSet
+    Changed()
+    SendProfile()
+    if on and self:IsUp() then
+        for _, run in pairs(State().list) do MaybePing(run, false) end
+    end
+    return true
+end
+
+-- My lockout for a raid (item key): until (server time), bosses done, bosses in all; nil when not saved.
+function Runs:GetRaidSaved(key)
+    local s = GK.saved[key]
+    if not s or s.untilT <= Now() then return nil end
+    return s.untilT, s.done, s.total
+end
+
+-- Is a member saved to that raid this week, as their DisasterZone told the guild?
+function Runs:IsSavedToRaid(member, key)
+    if Util.IsMe(member) then return self:GetRaidSaved(key) ~= nil end
+    local peer = Peers()[member]
+    return (peer and peer.raids and peer.raids[key] and (peer.savedUntil or 0) > Now()) and true or false
+end
 function Runs:GetSlots(run) return Slots(run) end
 function Runs:GetOpenRoles(run) return OpenRoles(run) end
 function Runs:IsInRun(run, key) return InRun(run, key or Me()) end
@@ -1866,17 +2307,38 @@ end
 -- Lists my run (replacing the one I had). opts = { d = dungeon key, h = heroic, at = server time | 0 (now),
 -- no = note, role = the role I go as, gf = list it in the Group Finder too (mine only, never sent) }. Returns the
 -- run, or nil and why.
+-- (1.5) A group of another kind: opts.k = "raid" | "quest" | "pvp" | "other" and a = { activity, ... } (raid keys,
+-- quest ids, one PvP key, one other key) instead of d / h; n = size (PvP: the bracket's / battleground's), w = { tank,
+-- healer, dps } places (default from the size), raids: lo = "roll" | "sr" | "lc", lr = soft reserves each, bo = { boss
+-- key, ... } (nil = full clear); PvP: pr = rated (arenas), mr = lowest rating, fc = wants a flag carrier (battlegrounds).
 function Runs:List(opts)
-    if type(opts) ~= "table" or not DUNGEON[opts.d] then return nil, "Pick a dungeon." end
+    if type(opts) ~= "table" then return nil, "Pick a dungeon." end
+    local gen, why
+    if opts.k ~= nil and opts.k ~= "dungeon" then
+        gen, why = GK.FromOpts(opts)
+        if not gen then return nil, why end
+    elseif not DUNGEON[opts.d] then
+        return nil, "Pick a dungeon."
+    end
     local at = tonumber(opts.at) or 0
     local now = Now()
     if at > 0 and at <= now + 60 then at = 0 end
     if at > now + AHEAD_MAX then return nil, "Runs can be listed at most a week ahead." end
-    if IsInRaid() or (IsInGroup() and not UnitIsGroupLeader("player")) then
-        return nil, "Only the party leader can list the party's run."
+    if not gen then
+        if IsInRaid() or (IsInGroup() and not UnitIsGroupLeader("player")) then
+            return nil, "Only the party leader can list the party's run."
+        end
+        local block = self:GetBlocker(opts.d, opts.h)
+        if block then return nil, block end
+    else
+        if IsInGroup() and not UnitIsGroupLeader("player") then return nil, "Only the group's leader can list it." end
+        if IsInRaid() and gen.n <= PARTY_SIZE then return nil, "A raid can't list a group of " .. gen.n .. "." end
+        if IsInGroup() and (tonumber(GetNumGroupMembers()) or 0) > gen.n then
+            return nil, "Your group is already bigger than " .. gen.n .. "."
+        end
+        local block = GK.Blocker(gen)
+        if block then return nil, block end
     end
-    local block = self:GetBlocker(opts.d, opts.h)
-    if block then return nil, block end
     local p = Prefs()
     if opts.role and ROLE_INDEX[opts.role] then p.role = opts.role end
     local old = MyRun()
@@ -1886,6 +2348,11 @@ function Runs:List(opts)
         no = TrimNote(opts.no), s = old and old.s or {}, rv = old and ((old.rv or 0) + 1) or 1,
         gf = opts.gf and true or nil,
     }
+    if gen then
+        -- (the Group Finder lists dungeon runs only, for now)
+        run.d, run.h, run.gf = nil, nil, nil
+        GK.Copy(gen, run)
+    end
     if run.no == "" then run.no = nil end
     if old and old.at == 0 and run.at > 0 then run.c = now end
     State().list[run.id] = run
@@ -1921,17 +2388,18 @@ end
 
 -- Asks the owner to join as the best open role I play. Returns ok, why.
 function Runs:Join(id)
-    local run = self:GetRun(id)
+    local run = self:GetGroup(id)
     if not run then return false, "That run is gone." end
+    if run.pt then return false, "Still getting that group's players: try again in a moment." end
     local role = self:FitsMe(run)
     if not role then return false, "No open place fits your roles." end
-    local block = self:GetBlocker(run.d, run.h)
+    local block = GK.Blocker(run)
     if block then return false, block end
     -- an invite can't reach a player in a group (my own run's party included: leading it, I'd leave it behind)
     if self:IsGrouped() then return false, "Leave your group first: an invite can't reach you while you're in one." end
     if not DemoOn() then
         if not IsOnline(run.o) then return false, "The leader is offline." end
-        local b = (#self:GetMyBiSDrops(run.d, run.h) > 0) and 1 or nil
+        local b = (GK.IsDungeon(run) and #self:GetMyBiSDrops(run.d, run.h) > 0) and 1 or nil
         if not Send({ t = "DRJ", id = id, r = ROLE_INDEX[role], b = b }, "WHISPER", run.o) then
             return false, "Could not reach the leader."
         end
@@ -1945,18 +2413,30 @@ function Runs:CancelJoin(id)
     local a = Asked()[id]
     if not a then return false end
     Asked()[id] = nil
-    local run = self:GetRun(id)
+    local run = self:GetGroup(id)
     if run and not DemoOn() then Send({ t = "DRC", id = id }, "WHISPER", run.o) end
     Changed()
     return true
 end
 
 local function CanInvite()
-    if IsInRaid() then return false end
+    -- (1.5) in a raid (a bigger group goes on in one): its leader or an assistant
+    if IsInRaid() then
+        return (UnitIsGroupLeader("player") or (UnitIsGroupAssistant and UnitIsGroupAssistant("player"))) and true or false
+    end
     return not IsInGroup() or UnitIsGroupLeader("player")
 end
 
--- Can I invite to my party (not in a group, or its leader)?
+-- The invite of a player to my group: right away, or a moment after my full party became a raid.
+local function InviteToRun(run, key)
+    if GK.MakeRoom(run) then
+        Util.After(1.5, function() Invite(key) end)
+    else
+        Invite(key)
+    end
+end
+
+-- Can I invite to my group (not in a group, or its leader; in a raid an assistant too)?
 function Runs:CanInvite() return CanInvite() end
 
 -- (owner) Invites somebody who asked; the invite goes out right away.
@@ -1974,7 +2454,7 @@ function Runs:Accept(id, key)
         ns:Print("Only the party leader can invite.")
         return false
     end
-    Invite(key)
+    InviteToRun(run, key)
     req.st = "invited"
     Send({ t = "DRA", id = id, ok = 1 }, "WHISPER", key)
     Changed()
@@ -2015,7 +2495,7 @@ function Runs:InviteFree(key)
         ns:Print("%s is in a group: an invite can't reach them.", Util.ShortName(key) or key)
         return false
     end
-    Invite(key)
+    InviteToRun(run, key)
     return true
 end
 
@@ -2030,7 +2510,7 @@ function Runs:GetChannelText()
         if n then parts[#parts + 1] = (n > 1 and (n .. " ") or "") .. ROLE_LABEL[role] end
     end
     if #parts == 0 then return nil end
-    local name = DUNGEON[run.d].name .. (run.h and " (Heroic)" or "")
+    local name = GK.Name(run) .. (run.h and " (Heroic)" or "")
     local when = (run.at or 0) > Now() and (" at " .. date("%H:%M", run.at)) or ""
     return "LFM " .. name .. when .. ": " .. tconcat(parts, ", ")
 end
@@ -2064,7 +2544,7 @@ local function Tick()
     local st = Bucket(true)
     if st then
         for id, run in pairs(st.list) do
-            local drop = Expired(run, now) or not DUNGEON[run.d]
+            local drop = Expired(run, now) or not GK.Valid(run)
             if not drop and run.o ~= Me() and (run.at or 0) <= now then
                 -- a run happening now dies with its owner going offline
                 if IsOnline(run.o) then
@@ -2078,6 +2558,9 @@ local function Tick()
         end
         for id, x in pairs(st.gone) do
             if (tonumber(x) or 0) <= now then st.gone[id] = nil end
+        end
+        for id in pairs(GK.rosterAsked) do
+            if not st.list[id] then GK.rosterAsked[id] = nil end
         end
     end
     for key, peer in pairs(peers) do
@@ -2125,6 +2608,7 @@ function Runs:OnInit()
         Comm:Register("DRC", OnCancel)
         Comm:Register("DRA", OnAnswer)
         Comm:Register("DRH", OnHandoff)
+        Comm:Register("DRR", GK.OnRosterAsk)
     end
     for _, msg in ipairs({ "MYLIST_CHANGED", "OWNED_UPDATED", "LISTS_RESET", "CONFIG_UPDATED" }) do
         ns:On(msg, RefreshNeeds)

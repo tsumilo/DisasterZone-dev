@@ -37,6 +37,7 @@ Data\Items.lua
 Data\Raids.lua
 Data\Dungeons.lua
 Data\Sources.lua
+Data\GroupKinds.lua
 Data\ItemClasses.lua
 Data\BiSLists.lua
 Data\Gems.lua
