@@ -4480,8 +4480,9 @@ local function DrawWorld()
             sp.bang:ClearAllPoints()
             sp.bang:SetPoint("BOTTOM", sp.name, "TOP", 0, -2)
             sp.bang:SetShown(npc.exclaim ~= nil)
-            local line = npc.def.says and G:IsFree() and ns.AzeroRoutine and ns.AzeroRoutine.Says(npc.def)
-            if not line and npc.def.shout and npc.act == "cry" and not npc.moving and G:IsFree() then line = npc.def.shout(G) end
+            local talking = G.pending ~= nil or G.co ~= nil        -- (bubbles wait while someone talks, not while you walk)
+            local line = npc.def.says and not talking and ns.AzeroRoutine and ns.AzeroRoutine.Says(npc.def)
+            if not line and npc.def.shout and npc.act == "cry" and not npc.moving and not talking then line = npc.def.shout(G) end
             if line then
                 if sp.say.text ~= line then
                     sp.say.text = line
