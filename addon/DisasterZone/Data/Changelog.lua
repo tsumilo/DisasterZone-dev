@@ -27,7 +27,7 @@ ns.CHANGELOG = {
               { "Wardrobe: an outfit's items show their enchant and gems in the tooltip.", fb = { 14 }, by = { "Victhar" }, k = "change" },
               "3D strategy walks: others wear their race's clothes, not a white body.",
               "Walking together: others run and turn smoothly, without jumping to and fro.",
-              "Square minimap: addon buttons, mail and queue icons sit on its edge, not on a circle inside it.",
+              "Square minimap: addon buttons, mail and queue icons sit on its edge, not on a circle.",
               "Minimap: a long zone name is cut short before the clock instead of running under it.",
               "Bank: buying a bank bag slot works again.",
               "Bags: the bag slots in the footer equip and take off bags; round ringed slots in Halo.",
