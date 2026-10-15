@@ -35,6 +35,16 @@ ns.CHANGELOG = {
               "A whole raid can walk together: 25 stay smooth, only the nearest hide behind pillars.",
               "Walking and turning cost far less: a touch coarser while you move, sharp when you stop.",
           } },
+          { heading = "Swing timer (Warriors)", area = "class", kind = "new", hi = true, ["for"] = "WARRIOR",
+            open = "settings/classtools", lead = "The swing timer's ring for Arms and Fury: both hands and your rage.", lines = {
+              "The main hand on the outer ring, the off hand on an inner ring (gone with a two-hander).",
+              "Rage as a globe in the middle; Slate, Pips and Classic show it as a third bar.",
+              "A Heroic Strike lamp where the swing lands: pulsing = queue it, gold = queued.",
+              "The gold line on your rage: queue over it. 40 rage, or 80 for Arms with a two-hander.",
+              "Next presses from WoWSims: Bloodthirst, Whirlwind, Mortal Strike, Slam after the swing.",
+              "Only what you have: known spells, your stance, Execute under 20%, Rampage when usable.",
+              "Every timer theme; Settings > Class tools > Swing timer, /dz war, and demo mode.",
+          } },
           { heading = "A new Atlas", area = "gear", kind = "changed", hi = true, open = "atlas",
             lead = "The Atlas is one wide page under a path you click: era, category, place, boss.", lines = {
               "Each part of the path is a menu: any raid by phase, any boss by its portrait.",

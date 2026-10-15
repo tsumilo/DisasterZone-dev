@@ -72,6 +72,14 @@ local DEFAULTS = {
         shot = { enabled = true, style = "bar", idle = false, scale = 1, latencyMs = 0, reactMs = 250,
                  use = { multi = true, arcane = true, kc = true }, aspects = true, viperStart = 5, viperStop = 25,
                  sound = false },
+        -- Warrior swing timer (Core/WarriorSwing.lua, UI/WarriorSwingHUD.lua): Arms and Fury. style / idle / scale /
+        -- latencyMs / sound as the swing timer's; hsLine = the Heroic Strike line in rage (0 = WoWSims': 40, two-handed
+        -- Arms 80); number = rage in numbers; ohBright = the off-hand ring brightens while Heroic Strike is queued;
+        -- use.* = the presses the planner may suggest (Hamstring weaving off, as it only pays with Sword Spec / WF)
+        war = { enabled = true, style = "bar", idle = false, scale = 1, latencyMs = 0, hsLine = 0, number = true,
+                ohBright = true, sound = false,
+                use = { bt = true, ms = true, ww = true, slam = true, exe = true, rampage = true, shout = true,
+                        brage = true, ham = false, hs = true } },
         -- Blessings (Core/Blessings.lua, UI/BlessingsBar.lua): paladins. bar "group" (party and raid) | "raid" | "off";
         -- warnMin = a blessing counts as running out this many minutes before it ends; free = anyone may assign
         -- me (Pally Power's Free Assignment); symbols = warn under this many Symbols of Kings; pets = pets count

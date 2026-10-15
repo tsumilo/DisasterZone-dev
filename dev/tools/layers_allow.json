@@ -125,6 +125,8 @@
   {"kind": "order", "from": "Core/ShoppingList.lua", "to": "Core/Professions.lua", "why": "L3->L3 Items->Guild", "syms": ["Professions"]},
   {"kind": "order", "from": "Core/Store.lua", "to": "Core/Ledger.lua", "why": "L3->L3 Gear->Loot", "syms": ["Ledger.CountSince", "Ledger.HasAward"]},
   {"kind": "order", "from": "Core/SwingTimer.lua", "to": "Core/CombatLog.lua", "why": "L3->L3 ClassTools->Combat", "syms": ["CombatLog.SetSubscribed"]},
+  {"kind": "order", "from": "Core/WarriorSwing.lua", "to": "Core/CombatLog.lua", "why": "L3->L3 ClassTools->Combat", "syms": ["CombatLog.SetSubscribed"]},
+  {"kind": "up", "from": "Core/WarriorSwing.lua", "to": "UI/EditMode.lua", "why": "L3->L5 ClassTools->EditMode (/dz war move)", "syms": ["EditMode", "EditMode.Open"]},
   {"kind": "order", "from": "Core/WornGems.lua", "to": "Core/BiS.lua", "why": "L3->L3 Items->Gear", "syms": ["BiS.GetData", "BiS.GetSpec"]},
   {"kind": "order", "from": "Core/WornGems.lua", "to": "Core/BiSExport.lua", "why": "L3->L3 Items->Gear", "syms": ["BiSExport.EquippedSpecs"]},
   {"kind": "order", "from": "Sim/BuffPresets.lua", "to": "Core/Professions.lua", "why": "L3->L3 Gear->Guild", "syms": ["Professions.GetMember"]},

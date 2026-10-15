@@ -134,6 +134,7 @@ Core\ClassKit.lua
 Core\SwingTimer.lua
 Core\SwingPractice.lua
 Core\ShotTimer.lua
+Core\WarriorSwing.lua
 Core\ClassPlanner.lua
 Core\Blessings.lua
 Core\Totems.lua
@@ -292,6 +293,7 @@ UI\RingFace.lua
 UI\SwingTimerHUD.lua
 UI\SwingPracticeUI.lua
 UI\ShotTimerHUD.lua
+UI\WarriorSwingHUD.lua
 UI\PlannerWindow.lua
 UI\BlessingsUI.lua
 UI\BarFace.lua

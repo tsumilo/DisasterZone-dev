@@ -42,6 +42,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingTimerHUD.lua", ...) then r
 --                                        lane's window brightens toward its end (the twist lands there)
 --   Lane(cur, now)                       marks { { t, strong } } (up to 4) and windows { { t0, t1 } } for the lane
 --   StepWidth(step, snap)                how long a step's lane block is (optional: the GCD)
+--   VARIANT                              optional: the face's variant (UI/RingFace.lua RF.VARIANT, "warrior"), then
+--   Extra(cur, now)                      what RingFace:PaintExtra draws every frame, and
+--   RestExtra()                          { oh (true: show the empty off-hand cycle), rage, line } while resting
 local addonName, ns = ...
 
 local UI = ns.UI
@@ -65,7 +68,7 @@ local function NewRing(D)
     local zoneWasOpen
     local lastTo, lastLanded, flashAt, shownKey, shownAt, lastExtra = nil, nil, nil, nil, 0, nil
     local swipeFrom, wasDue = nil, false   -- (the middle icon's swipe: since when this press has been the next one)
-    local rested, restIcon, restBadge = false, nil, nil   -- (Rest's look is on, for this icon and badge)
+    local rested, restIcon, restBadge, restExtra = false, nil, nil, nil   -- (Rest's look is on, for these)
 
     local function Get(path, default) return D.Get(path, default) end
     local function Practicing() return D.Practicing and D:Practicing() or false end
@@ -77,14 +80,15 @@ local function NewRing(D)
         if frame.themeKey == key then return end
         if frame.face then frame.face.root:Hide(); frame.lane:Hide() end
         if not faces[key] then
-            faces[key] = ns.RingFace:BuildFace(frame, key)
+            faces[key] = ns.RingFace:BuildFace(frame, key, D.VARIANT)
             lanes[key] = ns.RingFace:BuildLane(frame, key, { span = LANE_SPAN, back = LANE_BACK, gold = GOLD, fade = D.FADE })
         end
         local face = faces[key]
         frame.themeKey, frame.face = key, face
         frame.bar, frame.big, frame.seal, frame.small, frame.lane = face.root, face.big, face.seal, face.small, lanes[key]
         face.root:ClearAllPoints()
-        face.root:SetPoint("TOP", frame, "TOP", 0, -20)
+        -- (a face with its next press beside it, D.VARIANT: the frame has room for that on the left)
+        face.root:SetPoint("TOP", frame, "TOP", (face.geo.padL or 0) / 2, -20)
         face.root:Show()
         frame.big.cdStart, swipeFrom, wasDue, shownKey, lastTo = nil, nil, false, nil, nil
         rested = false
@@ -132,8 +136,9 @@ local function NewRing(D)
         else frame.lane:SetPoint("TOP", frame, "TOP", 0, -20) end
         frame.laneWanted = showLane
         -- (as big as what shows: Edit layout's box and its snapping go by the frame; practice keeps the room below)
-        if showLane or practicing then frame:SetSize(max(frame.lane.W, g.W) + 40, max(260, g.H + frame.lane.H + 86))
-        else frame:SetSize(g.W + 24, g.H + 44) end
+        local gw = g.W + (g.padL or 0)
+        if showLane or practicing then frame:SetSize(max(frame.lane.W, gw) + 40, max(260, g.H + frame.lane.H + 86))
+        else frame:SetSize(gw + 24, g.H + 44) end
     end
 
     -- The ring's frame (twist practice puts its parts around it).
@@ -153,10 +158,13 @@ local function NewRing(D)
     local function Rest()
         local icon = D:RestIcon()
         local badge, badgeText = D:Badge()
-        if rested and icon == restIcon and badge == restBadge then return end
-        rested, restIcon, restBadge = true, icon, badge
+        local extra = D.RestExtra and D:RestExtra()
+        local ek = extra and table.concat({ tostring(extra.oh), extra.rage or 0, extra.line or 0 }, ":") or nil
+        if rested and icon == restIcon and badge == restBadge and ek == restExtra then return end
+        rested, restIcon, restBadge, restExtra = true, icon, badge, ek
         frame.lane:Hide()
         ns.RingFace:Rest(frame.face)
+        if extra then ns.RingFace:RestExtra(frame.face, extra.oh, extra.rage, extra.line) end
         frame.big:SetScale(1)
         frame.big:Show()
         frame.big.icon:SetTexture(icon)
@@ -214,6 +222,11 @@ local function NewRing(D)
             pulse = pulse, fade = D.FADE })
         local ft = flashAt and (now - flashAt) / 0.35 or 1
         ring.flash:SetAlpha(ft < 1 and 0.6 * (1 - Ease(ft)) or 0)
+        if D.Extra then
+            local e = D:Extra(cur, now)
+            e.pulse = pulse
+            ns.RingFace:PaintExtra(frame.face, e)
+        end
 
         local badge, badgeText = D:Badge()
         frame.seal:SetShown(badge ~= nil)

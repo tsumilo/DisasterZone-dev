@@ -172,10 +172,19 @@ local PARTS = {
     { key = "classbars", label = "Class bars", tip = "The blessing and totem bars: every class tool bar shares it.",
       glyph = 60, kind = "classbar", kits = { "bless", "totems" } },
     { key = "timers", label = "Timers", tip = "The swing and shot timers: each has its own.", glyph = 59,
-      kits = { "swing", "shot" } },
+      kits = { "swing", "shot", "war" } },
 }
 local PART = {}
 for _, p in ipairs(PARTS) do PART[p.key] = p end
+-- The timer whose look the Timers part shows: my class's (the Retribution swing timer for anyone else).
+local function MyTimer()
+    local CK = ns.ClassKit
+    for _, prefix in ipairs(PART.timers.kits) do
+        local kit = CK and CK:Get(prefix)
+        if kit and kit.class == CK:MyClass() then return prefix end
+    end
+    return "swing"
+end
 local PartInfo       -- (a part's name and line: with the look pages, below)
 -- (a part with a switch of its own: combat text, off until turned on; its page is the box while it is off)
 PART.sct.master = { path = "ui.sct.on", default = false, title = "Show combat text", desc = "Off until you turn it on.",
@@ -1514,9 +1523,7 @@ function SettingsUI:PartLookName(part)
     end
     local kind = PART[part] and PART[part].kind
     if part == "timers" then
-        kind = "ring_swing"
-        local CK = ns.ClassKit
-        if CK and CK:Get("shot") and CK:MyClass() == CK:Get("shot").class then kind = "ring_shot" end
+        kind = "ring_" .. MyTimer()
     end
     local t = T and kind and T:Kind(kind) and T:Get(kind, T:Saved(kind))
     return t and t.name or "Default"
@@ -2972,11 +2979,10 @@ local function PartLook(key)
         local t = T and T:Kind(p.kind) and T:Current(p.kind)
         return t and t.key
     elseif key == "timers" then
-        local kind = "ring_swing"
-        local CK = ns.ClassKit
-        if CK and CK:Get("shot") and CK:MyClass() == CK:Get("shot").class then kind = "ring_shot" end
+        local prefix = MyTimer()
+        local kind = "ring_" .. prefix
         local t = T and T:Kind(kind) and T:Current(kind)
-        return t and t.key, kind == "ring_shot" and "shot" or "swing"
+        return t and t.key, prefix
     end
     local Look = ns.Look
     if not Look then return "blizzard" end
@@ -3320,7 +3326,7 @@ function SettingsUI:BuildPart(sec, p)
         if ns.BarFace then ns.BarFace:SettingsRow(self, sec) end
     elseif key == "timers" then
         local CK = ns.ClassKit
-        for _, prefix in ipairs({ "swing", "shot" }) do
+        for _, prefix in ipairs(PART.timers.kits) do
             local kit = CK and CK:Get(prefix)
             if kit and ns.RingFace and (CK:IsDemo() or kit.class == CK:MyClass()) then
                 ns.RingFace:SettingsRow(self, sec, prefix, kit.label)

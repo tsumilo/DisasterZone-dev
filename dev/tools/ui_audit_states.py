@@ -1448,6 +1448,33 @@ SHOT_HUD = ("__MOCK.real_geometry = true; __MOCK.ranged_speed = 2.2; "
 
 
 
+# Warrior swing timer (Core/WarriorSwing.lua, UI/WarriorSwingHUD.lua): Gina as a Fury warrior with 2.6 / 2.6 swords
+# (OH_SPEED: nil = a two-hander at 3.6), RAGE rage, the main hand %s s into its swing (the audit draws ~0.55 s later), the off hand 1.0 s in, Berserker
+# stance, nothing on cooldown, Heroic Strike queued when QUEUED.
+WAR_HUD = ("__MOCK.real_geometry = true; "
+           "local names = { [29707] = 'Heroic Strike', [25231] = 'Cleave', [30335] = 'Bloodthirst', [1680] = 'Whirlwind', "
+           "[25236] = 'Execute', [30033] = 'Rampage', [2048] = 'Battle Shout', [2687] = 'Bloodrage', [25212] = 'Hamstring', "
+           "[30330] = 'Mortal Strike', [25242] = 'Slam' }; "
+           "local old = GetSpellInfo; GetSpellInfo = function(x, ...) if names[x] then return names[x] end "
+           "for _, n in pairs(names) do if n == x then return n end end return old(x, ...) end; "
+           "__MOCK.spell_cd = __MOCK.spell_cd or {}; "
+           "for id, n in pairs(names) do __MOCK.known_spells[id] = true; __MOCK.spell_cd[n] = { 0, 0 } end; "
+           "__MOCK.spell_cd['Bloodrage'] = { GetTime(), 60 }; "
+           "__MOCK.fire('SPELLS_CHANGED'); GetSpellTexture = function() return nil end; "
+           "local oh = OH_SPEED; UnitAttackSpeed = function() return oh and 2.6 or 3.6, oh end; "
+           "GetShapeshiftForm = function() return 3 end; __MOCK.player_power = { RAGE, 100 }; "
+           "IsCurrentSpell = function(n) return QUEUED and n == 'Heroic Strike' end; "
+           "local W = ns.WarriorSwing; W.IsMine = function() return true end; W.Spec = function() return 'SPEC' end; "
+           "ns.DB:SetSetting('war.idle', true); ns.DB:SetSetting('war.style', 'STYLE'); W:Refresh(); "
+           "__MOCK.fire('UNIT_ATTACK_SPEED', 'player'); "
+           "W.OnMH(GetTime() - %s); if oh then W.OnOH(GetTime() - 1.0) end; ns.WarriorSwingHUD:Update()")
+
+def war_hud(theme, at="1.7", style="both", rage=62, oh="2.6", queued="false", spec="fury"):
+    return opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.theme', '%s'); " % theme
+                  + (WAR_HUD % at).replace("STYLE", style).replace("RAGE", str(rage)).replace("OH_SPEED", oh)
+                  .replace("QUEUED", queued).replace("SPEC", spec))
+
+
 # The Dock (UI/LookDock.lua): the game's bottom bars stood in for (containers of 45 px buttons with a Ret paladin's
 # icons, 3 stances, bags, menu), the bars part in look LOOK, then the Dock laid out.
 DOCK_ICONS = ["Spell_Holy_CrusaderStrike", "Spell_Holy_RighteousFury", "Ability_Warrior_InnerRage", "Spell_Holy_SealOfBlood",
@@ -2271,6 +2298,17 @@ STATES = [
     ("Swing timer theme - classic", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('swing.theme', 'classic'); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
     ("Shot timer theme - classic", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'classic'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer theme - pips", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'pips'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
+    ("Warrior swing timer theme - halo", war_hud("halo")),
+    ("Warrior swing timer theme - sigil", war_hud("sigil")),
+    ("Warrior swing timer theme - slate", war_hud("slate")),
+    ("Warrior swing timer theme - gilded", war_hud("gilded")),
+    ("Warrior swing timer theme - pips", war_hud("pips")),
+    ("Warrior swing timer theme - classic", war_hud("classic")),
+    ("Warrior swing timer - HS queued", war_hud("halo", at="1.9", style="bar", rage=47, queued="true")),
+    ("Warrior swing timer - hold rage", war_hud("gilded", at="0.85", style="bar", rage=24)),
+    ("Warrior swing timer - two-hander", war_hud("halo", at="-0.45", style="bar", rage=53, oh="nil", spec="arms")),
+    ("Warrior swing timer - two-hander slate", war_hud("slate", at="-0.45", style="bar", rage=53, oh="nil", spec="arms")),
+    ("Settings - Warrior swing timer", demo("ns.SettingsUI:SelectSection('war')", "settings")),
     ("Dock - flat", opened("home", DOCK_STATE.replace("LOOK", "flat"))),
     ("Dock - halo", opened("home", DOCK_STATE.replace("LOOK", "halo"))),
     ("Dock - sigil", opened("home", DOCK_STATE.replace("LOOK", "sigil"))),

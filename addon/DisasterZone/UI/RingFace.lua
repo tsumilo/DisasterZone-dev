@@ -59,6 +59,32 @@ RF.GEO = {
                 name = { 71, -34 }, lane = { 500, 40 } },
 }
 
+-- Variants of a face (BuildFace's third argument): fields over the theme's GEO. The warrior's (Core/WarriorSwing.lua,
+-- mockup dev/art/casc/warrior_mockup):
+--   oh       the off-hand cycle: the main cycle's path with these fields (R / half / y, band, N, pip)
+--   globe    { size, size with no off hand } of the rage globe in the middle (round and tile themes; square = a tank)
+--   rage     instead of a globe: { kind = "bar" | "pips", y, h, num } a third row under the swings (flat themes)
+--   lamp     { size, x, y } the Heroic Strike lamp (round / tile themes: on the main-hand landing point)
+--   padL     room the face takes left of its frame (the next press and the queue sit there): the frame grows by it
+--   queueFromBig  the queue continues left of the next press (instead of left of the ring)
+RF.VARIANT = {
+    warrior = {
+        halo = { big = { 36, -86, 0 }, queueFromBig = true, queueGap = 5, oh = { R = 45, band = 4, N = 150 },
+                 globe = { 74, 86 }, lamp = { 18, 0, 57 }, padL = 100 },
+        sigil = { big = { 36, -82, 0 }, queueFromBig = true, queueGap = 6, oh = { half = 44, band = 4, N = 140 },
+                  globe = { 78, 90 }, square = true, lamp = { 18, 0, 55 }, padL = 106 },
+        gilded = { big = { 34, -82, 0 }, queueFromBig = true, queueGap = 8, oh = { R = 43, band = 4, N = 150 },
+                   globe = { 70, 80 }, lamp = { 18, 0, 54 }, padL = 104, bigBezel = true },
+        slate = { W = 250, H = 54, x0 = -75, len = 150, y = 1, big = { 36, -101, 0 }, badge = { 17, 112, 6 },
+                  name = { 50, -7 }, queueAt = { 140, -5, 13, 16 }, oh = { y = -8, band = 4 },
+                  rage = { kind = "bar", y = -17, h = 6, num = true }, lamp = { 14, 71, 16 } },
+        pips = { H = 58, y = -13, big = { 28, -60, 14 }, badge = { 12, -47, 27 }, oh = { y = -19.5, pip = { 5, 2 } },
+                 rage = { kind = "pips", y = -26 }, lamp = { 14, 65, 14 } },
+        classic = { W = 330, H = 86, y = 4, big = { 44, -123, -6 }, badge = { 16, 131, 4 }, oh = { y = -14, band = 7 },
+                    rage = { kind = "bar", y = -29, h = 9, num = true }, lamp = { 18, 154, -22 } },
+    },
+}
+
 -- The timer themes: the class tool themes' names, with tips for a timer.
 RF.THEMES = {
     { key = "halo", name = "Halo", tip = "A ring of flat strokes around the round next press." },
@@ -117,9 +143,67 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- The face
 -- ---------------------------------------------------------------------------------------------------------------
-function RF:BuildFace(parent, key)
+-- A cycle's cells: g.N along g's path, `layer` (the main cycle ARTWORK; the off-hand's OVERLAY, over the frames
+-- drawn inside the main one). Pips are g.pip = { w, h } (back 2 px larger), default 5 x 4.
+local function Cells(ring, g, layer, sub)
+    local dots = {}
+    local pw, ph = (g.pip and g.pip[1]) or 5, (g.pip and g.pip[2]) or 4
+    for i = 1, g.N do
+        local f = (i - 0.5) / g.N
+        local d
+        if g.path == "circle" then
+            d = ring:CreateLine(nil, layer, nil, sub)
+            d:SetColorTexture(1, 1, 1, 1)
+            d:SetThickness(2 * pi * (g.R + g.band / 2) / g.N + 0.7)   -- (a little overlap: no gaps on the outer edge)
+            local x0, y0 = RF.Pos(g, f, -g.band / 2)
+            local x1, y1 = RF.Pos(g, f, g.band / 2)
+            d:SetStartPoint("CENTER", ring, x0, y0)
+            d:SetEndPoint("CENTER", ring, x1, y1)
+        elseif g.path == "pips" then
+            local back = Part(ring, layer == "ARTWORK" and "BORDER" or layer, WHITE, 0, 0, 0, 1, layer == "ARTWORK" and 0 or sub)
+            back:SetSize(pw + 2, ph + 2)
+            local x, y = RF.Pos(g, (i - 1) / g.N)
+            back:SetPoint("CENTER", ring, "CENTER", x + 3.5, y)
+            d = Part(ring, layer, WHITE, nil, nil, nil, nil, (sub or 0) + 1)
+            d:SetSize(pw, ph)
+            d:SetPoint("CENTER", back, "CENTER")
+            d.back = back
+        else
+            d = Part(ring, layer, g.game and ns.Look.SBAR or WHITE, nil, nil, nil, nil, sub)
+            local x, y = RF.Pos(g, f)
+            if g.path == "square" then
+                local cell = 8 * g.half / g.N + 0.6
+                local s = f * 8
+                local vertical = (s >= 1 and s < 3) or (s >= 5 and s < 7)
+                if vertical then d:SetSize(g.band, cell) else d:SetSize(cell, g.band) end
+            else
+                d:SetSize(g.len / g.N + 0.5, g.band)
+            end
+            d:SetPoint("CENTER", ring, "CENTER", x, y)
+        end
+        d.f = f
+        dots[i] = d
+    end
+    return dots
+end
+
+local function Merge(base, over)
+    local g = {}
+    for k, v in pairs(base) do g[k] = v end
+    for k, v in pairs(over or {}) do g[k] = v end
+    return g
+end
+
+-- variant (optional): "warrior" adds the off-hand cycle, the rage globe / bar and the Heroic Strike lamp
+-- (RF.VARIANT; painted by PaintExtra).
+function RF:BuildFace(parent, key, variant)
     local g = self.GEO[key] or self.GEO.halo
-    local face = { key = key, geo = g }
+    if variant and self.VARIANT[variant] then
+        local v = self.VARIANT[variant]
+        key = v[key] and key or "halo"
+        g = Merge(self.GEO[key], v[key])
+    end
+    local face = { key = key, geo = g, variant = variant }
     local ring = CreateFrame("Frame", nil, parent)
     ring:SetSize(g.W, g.H)
     face.root = ring
@@ -160,42 +244,7 @@ function RF:BuildFace(parent, key)
     end
 
     -- the cycle: N cells along its path, coloured by Paint
-    ring.dots = {}
-    for i = 1, g.N do
-        local f = (i - 0.5) / g.N
-        local d
-        if g.path == "circle" then
-            d = ring:CreateLine(nil, "ARTWORK")
-            d:SetColorTexture(1, 1, 1, 1)
-            d:SetThickness(2 * pi * (g.R + g.band / 2) / g.N + 0.7)   -- (a little overlap: no gaps on the outer edge)
-            local x0, y0 = RF.Pos(g, f, -g.band / 2)
-            local x1, y1 = RF.Pos(g, f, g.band / 2)
-            d:SetStartPoint("CENTER", ring, x0, y0)
-            d:SetEndPoint("CENTER", ring, x1, y1)
-        elseif g.path == "pips" then
-            local back = Part(ring, "BORDER", WHITE, 0, 0, 0, 1)
-            back:SetSize(7, 6)
-            local x, y = RF.Pos(g, (i - 1) / g.N)
-            back:SetPoint("CENTER", ring, "CENTER", x + 3.5, y)
-            d = Part(ring, "ARTWORK", WHITE)
-            d:SetSize(5, 4)
-            d:SetPoint("CENTER", back, "CENTER")
-        else
-            d = Part(ring, "ARTWORK", g.game and ns.Look.SBAR or WHITE)
-            local x, y = RF.Pos(g, f)
-            if g.path == "square" then
-                local cell = 8 * g.half / g.N + 0.6
-                local s = f * 8
-                local vertical = (s >= 1 and s < 3) or (s >= 5 and s < 7)
-                if vertical then d:SetSize(g.band, cell) else d:SetSize(cell, g.band) end
-            else
-                d:SetSize(g.len / g.N + 0.5, g.band)
-            end
-            d:SetPoint("CENTER", ring, "CENTER", x, y)
-        end
-        d.f = f
-        ring.dots[i] = d
-    end
+    ring.dots = Cells(ring, g, "ARTWORK")
     ring.head = Part(ring, "OVERLAY", SOFT, 1, 0.92, 0.66, 0.9)
     ring.head:SetBlendMode("ADD")
     local hs = g.path == "bar" and 22 or 30
@@ -220,9 +269,12 @@ function RF:BuildFace(parent, key)
         ring.edge = Part(ring, "ARTWORK", WHITE, 0.91, 0.89, 0.82, 0.25, 3)
         ring.edge:SetPoint("TOPLEFT", 8, -8); ring.edge:SetPoint("BOTTOMRIGHT", -8, 8)
     elseif key == "gilded" then
+        -- (round the next press; the warrior's round the globe)
+        local mid = g.globe and g.globe[1] or g.big[1]
         local inner = Part(ring, "ARTWORK", DISC, 0, 0, 0, 1, 2)
-        inner:SetPoint("CENTER"); inner:SetSize(g.big[1] + 10, g.big[1] + 10)
-        ring.bezel2 = Bezel(ring, "ARTWORK", g.big[1] + 8, 3)
+        inner:SetPoint("CENTER"); inner:SetSize(mid + 10, mid + 10)
+        ring.bezel2 = Bezel(ring, "ARTWORK", mid + 8, 3)
+        ring.inner = inner
     end
 
     -- the next press
@@ -345,11 +397,12 @@ function RF:BuildFace(parent, key)
             s:SetPoint("TOPLEFT", ring, "TOPLEFT", g.queueAt[1] + (i - 1) * g.queueAt[4], g.queueAt[2])
         else
             s:SetAlpha(i == 1 and 0.8 or 0.45)
-            if i == 1 then s:SetPoint("RIGHT", ring, "LEFT", -g.queueGap, 0)
+            if i == 1 then s:SetPoint("RIGHT", g.queueFromBig and big or ring, "LEFT", -g.queueGap, 0)
             else s:SetPoint("RIGHT", face.small[i - 1], "LEFT", -6, 0) end
         end
         face.small[i] = s
     end
+    if variant then RF:BuildExtra(face) end
     return face
 end
 
@@ -490,6 +543,265 @@ function RF:Rest(face)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
+-- The warrior's extras: the off-hand cycle, rage, the Heroic Strike lamp (RF.VARIANT.warrior)
+-- ---------------------------------------------------------------------------------------------------------------
+local OH_FILL, OH_BRIGHT = { 0.81, 0.76, 0.63 }, { 0.98, 0.93, 0.78 }
+local GOLDLINE = { 1, 0.84, 0.42 }
+local HS_ICON = "Interface\\Icons\\Ability_Rogue_Ambush"
+
+function RF:BuildExtra(face)
+    local ring, g = face.root, face.geo
+    local x = {}
+    face.extra = x
+    local round = g.round
+    -- the off-hand cycle (over the frames inside the main one)
+    local og = Merge(g, g.oh)
+    x.ohGeo = og
+    x.oh = Cells(ring, og, "OVERLAY", -3)
+    if face.key == "slate" then
+        x.ohShadow = Part(ring, "BACKGROUND", WHITE, 0, 0, 0, 0.8, -4)
+        x.ohShadow:SetSize(og.len + 2, og.band + 2)
+        x.ohShadow:SetPoint("CENTER", ring, "CENTER", og.x0 + og.len / 2, og.y)
+    end
+    if g.game then
+        x.ohBorder = ns.Look:GameSlice3(ring, "cast", 10, 10, "OVERLAY", 2)
+        x.ohBorder:Place(ring, g.W / 2 + g.x0 - 7, g.H / 2 - og.y - og.band - 2, g.len + 14, og.band * 2 + 4)
+    end
+
+    -- rage
+    local r = g.rage
+    if not r then
+        local D = g.globe[1]
+        local gl = CreateFrame("Frame", nil, ring)
+        gl:SetFrameLevel(ring:GetFrameLevel() + 1)
+        gl:SetPoint("CENTER", ring, "CENTER", 0, 0)
+        gl:SetSize(D, D)
+        local mask
+        if not g.square and gl.CreateMaskTexture then
+            mask = gl:CreateMaskTexture()
+            mask:SetTexture(DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            mask:SetAllPoints()
+        end
+        local function T(layer, path, sub, add)
+            local t = Part(gl, layer, path or WHITE, nil, nil, nil, nil, sub)
+            if add then t:SetBlendMode("ADD") end
+            if mask then t:AddMaskTexture(mask) end
+            return t
+        end
+        gl.back = T("BACKGROUND")
+        gl.back:SetAllPoints()
+        UI:GradientRGBA(gl.back, "VERTICAL", 0.03, 0.01, 0.01, 1, 0.1, 0.035, 0.03, 1)
+        gl.liq = T("BORDER")
+        UI:GradientRGBA(gl.liq, "VERTICAL", 0.34, 0.03, 0.02, 1, 0.70, 0.09, 0.06, 1)
+        gl.spare = T("BORDER", nil, 1)
+        UI:GradientRGBA(gl.spare, "VERTICAL", 0.86, 0.20, 0.08, 1, 1, 0.42, 0.2, 1)
+        gl.surf = T("ARTWORK", SOFT, 0, true)
+        gl.surf:SetVertexColor(1, 0.62, 0.45, 0.7)
+        gl.line = T("ARTWORK", WHITE, 2)
+        gl.line:SetHeight(1)
+        gl.shine = T("OVERLAY", SOFT, 0, true)
+        gl.shine:SetVertexColor(1, 1, 1, 0.28)
+        gl.shine:SetSize(D * 0.6, D * 0.38)
+        gl.shine:SetPoint("CENTER", gl, "CENTER", -D * 0.14, D * 0.27)
+        gl.num = UI:Text(gl, "emph", { 1, 0.95, 0.84 }, { font = NARROW, shadow = true, justify = "CENTER" })
+        gl.num:SetPoint("CENTER", 0, 0)
+        x.globe, x.D = gl, D
+    elseif r.kind == "bar" then
+        local b = CreateFrame("Frame", nil, ring)
+        b:SetFrameLevel(ring:GetFrameLevel() + 1)
+        b:SetSize(g.len, r.h)
+        b:SetPoint("CENTER", ring, "CENTER", g.x0 + g.len / 2, r.y)
+        b.track = Part(b, "BACKGROUND", WHITE, 0.16, 0.07, 0.06, 0.9)
+        b.track:SetAllPoints()
+        b.fill = Part(b, "BORDER", g.game and ns.Look.SBAR or WHITE, 0.66, 0.09, 0.06, 1)
+        b.fill:SetPoint("TOPLEFT"); b.fill:SetPoint("BOTTOMLEFT")
+        b.spare = Part(b, "BORDER", g.game and ns.Look.SBAR or WHITE, 1, 0.36, 0.16, 1, 1)
+        b.spare:SetPoint("TOP"); b.spare:SetPoint("BOTTOM")
+        b.line = Part(b, "ARTWORK", WHITE)
+        b.line:SetSize(1, r.h + 4)
+        if face.key == "slate" then
+            local sh = Part(ring, "BACKGROUND", WHITE, 0, 0, 0, 0.8, -4)
+            sh:SetSize(g.len + 2, r.h + 2)
+            sh:SetPoint("CENTER", b, "CENTER")
+        end
+        if g.game then
+            b.border = ns.Look:GameSlice3(b, "cast", 10, 10, "OVERLAY", 2)
+            b.border:Place(b, -7, -(r.h / 2 + 2), g.len + 14, r.h * 2 + 4)
+            b.num = UI:Text(b, "small", { 1, 1, 1 }, { font = NARROW, shadow = true, justify = "CENTER" })
+            b.num:SetPoint("CENTER", 0, 0)
+        elseif r.num then
+            -- (beside the bar: on the face, not the bar)
+            b.num = UI:Text(ring, "small", { 1, 0.54, 0.36 }, { font = NARROW, shadow = true, justify = "RIGHT" })
+            b.num:SetPoint("LEFT", b, "RIGHT", 3, 0)
+            b.num:SetWidth(22)
+        end
+        b.W = g.len
+        x.bar = b
+    else
+        local pg = Merge(g, { y = r.y })
+        x.pips = Cells(ring, pg, "ARTWORK", 2)
+        x.pipLine = Part(ring, "OVERLAY", WHITE)
+        x.pipLine:SetSize(1, 10)
+        x.pipGeo = pg
+    end
+
+    -- the Heroic Strike lamp
+    local l = g.lamp
+    local s = l[1]
+    local lf = CreateFrame("Frame", nil, ring)
+    lf:SetSize(s, s)
+    lf:SetPoint("CENTER", ring, "CENTER", l[2], l[3])
+    lf:SetFrameLevel(ring:GetFrameLevel() + 6)
+    lf.glow = Part(lf, "BACKGROUND", SOFT, 1, 0.56, 0.2, 0)
+    lf.glow:SetBlendMode("ADD")
+    lf.glow:SetPoint("CENTER"); lf.glow:SetSize(s * 2.8, s * 2.8)
+    lf.edge = Part(lf, "BORDER", round and DISC or WHITE, 0, 0, 0, 1)
+    lf.edge:SetPoint("CENTER"); lf.edge:SetSize(s + 4, s + 4)
+    lf.back = Part(lf, "BORDER", round and DISC or WHITE, 0, 0, 0, 1, 1)
+    lf.back:SetPoint("CENTER"); lf.back:SetSize(s + 2, s + 2)
+    lf.icon = Part(lf, "ARTWORK", HS_ICON)
+    lf.icon:SetAllPoints()
+    lf.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    if round then Round(lf, lf.icon) end
+    lf:Hide()
+    x.lamp = lf
+
+    -- (gilded: the next press, now beside the ring, gets its own bezel)
+    if g.bigBezel then
+        local bb = CreateFrame("Frame", nil, ring)
+        bb:SetFrameLevel(face.big:GetFrameLevel() - 1)
+        bb:SetPoint("CENTER", face.big, "CENTER")
+        bb:SetSize(g.big[1] + 8, g.big[1] + 8)
+        local d = Part(bb, "BACKGROUND", DISC, 0, 0, 0, 1)
+        d:SetAllPoints()
+        Bezel(bb, "BORDER", g.big[1] + 6)
+    end
+end
+
+-- e = { oh = { frac, bright } (nil: no off hand), rage = { v, line } (0..1), num (the rage in numbers or nil),
+--       lamp = "queue" | "queued" | "hold" | nil, lampIcon, pulse }
+function RF:PaintExtra(face, e)
+    local x = face.extra
+    if not x then return end
+    local g = face.geo
+    local has = e.oh ~= nil
+    if x.ohShown ~= has then
+        x.ohShown = has
+        for _, d in ipairs(x.oh) do
+            d:SetShown(has)
+            if d.back then d.back:SetShown(has) end
+        end
+        if x.ohShadow then x.ohShadow:SetShown(has) end
+        if x.ohBorder then x.ohBorder:Show(has) end
+        -- a bigger globe with no off-hand ring round it
+        if x.globe then
+            local D = has and g.globe[1] or g.globe[2]
+            x.D = D
+            x.globe:SetSize(D, D)
+            x.globe.shine:SetSize(D * 0.6, D * 0.38)
+            x.globe.shine:SetPoint("CENTER", x.globe, "CENTER", -D * 0.14, D * 0.27)
+            local ring = face.root
+            if ring.inner then
+                ring.inner:SetSize(D + 10, D + 10)
+                ring.bezel2:SetSize(D + 8, D + 8)
+            end
+        end
+    end
+    if has then
+        local frac = e.oh[1]
+        local c = e.oh[2] and OH_BRIGHT or OH_FILL
+        for _, d in ipairs(x.oh) do
+            if d.f <= frac then d:SetVertexColor(c[1], c[2], c[3], 1) else d:SetVertexColor(0.13, 0.13, 0.14, 1) end
+        end
+    end
+
+    local v, line = e.rage and e.rage[1] or 0, e.rage and e.rage[2] or 1
+    v, line = max(0, min(1, v)), max(0, min(1, line))
+    local over = v > line
+    local lc = over and 1 or 0.6
+    if x.globe then
+        local gl, D = x.globe, x.D
+        local h = D * v
+        gl.liq:SetShown(h >= 0.5)
+        gl.liq:ClearAllPoints()
+        gl.liq:SetPoint("BOTTOMLEFT"); gl.liq:SetPoint("BOTTOMRIGHT")
+        gl.liq:SetHeight(max(0.5, min(h, D * line)))
+        gl.spare:SetShown(over)
+        if over then
+            gl.spare:ClearAllPoints()
+            gl.spare:SetPoint("BOTTOMLEFT", gl, "BOTTOMLEFT", 0, D * line)
+            gl.spare:SetPoint("BOTTOMRIGHT", gl, "BOTTOMRIGHT", 0, D * line)
+            gl.spare:SetHeight(max(0.5, h - D * line))
+        end
+        gl.surf:SetShown(h >= 2)
+        gl.surf:ClearAllPoints()
+        gl.surf:SetSize(D * 1.1, D * 0.16)
+        gl.surf:SetPoint("CENTER", gl, "BOTTOM", 0, h)
+        gl.line:ClearAllPoints()
+        gl.line:SetPoint("BOTTOMLEFT", gl, "BOTTOMLEFT", 0, D * line)
+        gl.line:SetPoint("BOTTOMRIGHT", gl, "BOTTOMRIGHT", 0, D * line)
+        gl.line:SetVertexColor(GOLDLINE[1], GOLDLINE[2], GOLDLINE[3], lc)
+        gl.num:SetText(e.num and tostring(e.num) or "")
+    elseif x.bar then
+        local b = x.bar
+        local W = b.W
+        b.fill:SetShown(v > 0.004)
+        b.fill:SetWidth(max(0.5, W * min(v, line)))
+        b.spare:SetShown(over)
+        if over then
+            b.spare:ClearAllPoints()
+            b.spare:SetPoint("TOPLEFT", b, "TOPLEFT", W * line, 0)
+            b.spare:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", W * line, 0)
+            b.spare:SetWidth(max(0.5, W * (v - line)))
+        end
+        b.line:ClearAllPoints()
+        b.line:SetPoint("CENTER", b, "LEFT", W * line, 0)
+        b.line:SetVertexColor(GOLDLINE[1], GOLDLINE[2], GOLDLINE[3], lc)
+        if b.num then b.num:SetText(e.num and tostring(e.num) or "") end
+    elseif x.pips then
+        for _, d in ipairs(x.pips) do
+            if d.f > v then d:SetVertexColor(0.16, 0.08, 0.07, 1)
+            elseif d.f >= line then d:SetVertexColor(1, 0.36, 0.16, 1)
+            else d:SetVertexColor(0.66, 0.09, 0.06, 1) end
+        end
+        local pg = x.pipGeo
+        local lx = RF.Pos(pg, line)
+        x.pipLine:ClearAllPoints()
+        x.pipLine:SetPoint("CENTER", face.root, "CENTER", lx - 0.75, pg.y)
+        x.pipLine:SetVertexColor(GOLDLINE[1], GOLDLINE[2], GOLDLINE[3], lc)
+    end
+
+    local lf, st = x.lamp, e.lamp
+    lf:SetShown(st ~= nil)
+    if st then
+        local pulse = e.pulse or 0.5
+        lf.icon:SetTexture(e.lampIcon or HS_ICON)
+        if st == "queue" then
+            lf.edge:SetVertexColor(1, 0.56, 0.2, 1)
+            lf.glow:SetVertexColor(1, 0.56, 0.2, 1)
+            lf.glow:SetAlpha(0.35 + 0.45 * pulse)
+            lf.icon:SetDesaturated(false); lf.icon:SetAlpha(1)
+        elseif st == "queued" then
+            local gd = S.C.GOLD
+            lf.edge:SetVertexColor(gd[1], gd[2], gd[3], 1)
+            lf.glow:SetVertexColor(gd[1], gd[2], gd[3], 1)
+            lf.glow:SetAlpha(0.4)
+            lf.icon:SetDesaturated(false); lf.icon:SetAlpha(1)
+        else
+            lf.edge:SetVertexColor(0, 0, 0, 1)
+            lf.glow:SetAlpha(0)
+            lf.icon:SetDesaturated(true); lf.icon:SetAlpha(0.5)
+        end
+    end
+end
+
+-- Resting: the off-hand cycle empty, rage as it is (it fades out of combat), the lamp off.
+function RF:RestExtra(face, oh, rage, line)
+    if not face.extra then return end
+    self:PaintExtra(face, { oh = oh and { 0, false } or nil, rage = { rage or 0, line or 0.4 } })
+end
+
+-- ---------------------------------------------------------------------------------------------------------------
 -- Which theme a timer wears; the pickers
 -- ---------------------------------------------------------------------------------------------------------------
 local function KindOf(prefix) return "ring_" .. prefix end
@@ -517,21 +829,27 @@ local SAMPLE = {
     shot = { big = "Interface\\Icons\\Ability_Hunter_SteadyShot", badge = "Interface\\Icons\\Spell_Nature_RavenForm",
              small = { "Interface\\Icons\\Ability_ImpalingBolt", "Interface\\Icons\\Ability_Hunter_SteadyShot" },
              p = { frac = 0.22, z0 = 0.06, z1 = 0.62, s0 = 0.84, hot = true, inZone = true, pulse = 0.5, fade = true } },
+    war = { big = "Interface\\Icons\\Spell_Nature_BloodLust", badge = "Interface\\Icons\\Ability_Warrior_Rampage",
+            small = { "Interface\\Icons\\Ability_Whirlwind", "Interface\\Icons\\Ability_Warrior_BattleShout" },
+            name = "Bloodthirst", variant = "warrior",
+            p = { frac = 0.84, z0 = 0.8, z1 = 0.95, s0 = 0.95, hot = true, inZone = true, pulse = 0.5 },
+            e = { oh = { 0.38, false }, rage = { 0.62, 0.4 }, num = 62, lamp = "queue", pulse = 0.5 } },
 }
 -- A face at the mockup's moment (the window open, the next press due) in parent: face, and the room it takes (its
 -- size and, for faces whose queue sits outside their left, the queue's width).
 local function SampleFace(parent, key, prefix)
     local sm = SAMPLE[prefix] or SAMPLE.swing
-    local face = RF:BuildFace(parent, key)
+    local face = RF:BuildFace(parent, key, sm.variant)
     local g = face.geo
     face.big.icon:SetTexture(sm.big)
     face.seal.icon:SetTexture(sm.badge)
     for i, s2 in ipairs(face.small) do
         if sm.small[i] then s2.icon:SetTexture(sm.small[i]); s2:Show() else s2:Hide() end
     end
-    face.big.name:SetText(face.big.showName and (prefix == "shot" and "Steady Shot" or "Seal of Blood") or "")
+    face.big.name:SetText(face.big.showName and (sm.name or (prefix == "shot" and "Steady Shot" or "Seal of Blood")) or "")
     RF:Paint(face, sm.p)
-    return face, g.W, g.H, g.queue == "left" and 56 or 0
+    if sm.e then RF:PaintExtra(face, sm.e) end
+    return face, g.W, g.H, g.padL or (g.queue == "left" and 56 or 0)
 end
 
 -- (Settings > Interface > Looks > Timers: the part's tile and stage) root, w, h, the queue's width
