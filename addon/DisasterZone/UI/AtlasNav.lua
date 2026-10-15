@@ -821,10 +821,8 @@ function Nav:Create(atlasPanel, toolbar, box)
     LayoutRight()
 end
 
-function Nav:SetSearching(on)
-    on = on and true or false
-    if on == searching then return end
-    searching = on
+-- (search mode follows the search text alone: Update reads it; kept for callers)
+function Nav:SetSearching()
     self:Update()
 end
 
@@ -835,8 +833,9 @@ function Nav:Update()
         UpdateBag()
         return
     end
-    if searching or AUI():IsSearching() then
-        searching = true
+    -- search mode is "there is a search": a field that only has the focus, or a result opened, keeps the path
+    searching = AUI():IsSearching() and true or false
+    if searching then
         LayoutCrumbs({ Nav.BackItem() })
     else
         LayoutCrumbs(Items())

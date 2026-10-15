@@ -233,6 +233,19 @@ def back_from_a_search():
     c.eval("ns.AtlasUI:SetSearch('gladiator')")
     c.eval("T_atlas().searchBox:GetScript('OnEscapePressed')(T_atlas().searchBox)")
     assert c.eval("return ns.AtlasUI:IsSearching()") is False and HARBINGER in item_ids(c)
+    # opening a result (a boss's item): the whole path comes back, the item stays picked
+    c.eval("ns.AtlasUI:SetSearch('gorehowl')")
+    c.eval("T_atlas().searchBox:SetFocus()")
+    assert c.eval("return ns.AtlasUI:SearchKey('enter')") is True
+    w.tick(0.5)
+    crumbs = [x[0] for x in c.eval_py("return ns.AtlasNav:GetCrumbs()")]
+    assert crumbs[0] == "TBC" and "Karazhan" in crumbs and crumbs[-1] == "Prince Malchezaar", crumbs
+    assert not any(x.startswith("‹") for x in crumbs), crumbs
+    assert c.eval("return ns.AtlasUI:GetState().selected") == 28773, c.eval("return ns.AtlasUI:GetState().selected")
+    # a focused but empty field keeps the path too
+    c.eval("T_atlas().searchBox:SetFocus()")
+    c.eval("ns.AtlasNav:Update()")
+    assert c.eval_py("return ns.AtlasNav:GetCrumbs()")[0][0] == "TBC"
     no_errors(w)
 
 

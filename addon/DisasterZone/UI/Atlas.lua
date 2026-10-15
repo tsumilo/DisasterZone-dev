@@ -2904,10 +2904,6 @@ local function SetupSearchKeys(eb)
         ClearSearch()
         AtlasUI:RefreshItems(true)
     end)
-    eb:HookScript("OnEditFocusGained", function() if Nav() then Nav():SetSearching(true) end end)
-    eb:HookScript("OnEditFocusLost", function()
-        if Nav() and not IsSearching() then Nav():SetSearching(false) end
-    end)
 end
 
 ---------------------------------------------------------------------------
@@ -2968,12 +2964,14 @@ function AtlasUI:CreatePanel(parent)
     LoadRecent()
 
     searchBox = UI:CreateSearchBox(bar, 150, function(text)
+        -- (the field's own echo of a change made here, e.g. a result opened: nothing new)
+        if (text or "") == state.search then return end
         state.search = text or ""
         state.selected = nil
         state.facet = nil
         state.showSrc = nil
         state.cursor = 1
-        if Nav() then Nav():SetSearching(IsSearching() or (searchBox and searchBox:HasFocus())) end
+        if Nav() then Nav():SetSearching() end
         AtlasUI:RefreshItems(true)
     end, "Search  (Ctrl+F)")
     searchBox:SetHeight(CTRL_H)
