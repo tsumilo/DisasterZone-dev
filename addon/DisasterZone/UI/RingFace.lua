@@ -580,27 +580,27 @@ local function PlaceGlass(gl, D)
     end
 end
 
--- The Heroic Strike markers at height y (from the globe's bottom), one on each side of the rim, their tips just inside
--- the glass. lit = rage is over the line: full gold with a glow; under it they dim.
+-- The Heroic Strike markers at height y (from the globe's bottom): one on each side, inside the glass with its back on
+-- the rim (clipped to the glass, so nothing reaches the off-hand ring round it). lit = rage is over the line: full gold
+-- with a glow; under it they dim.
 local function PlaceNotches(gl, D, y, lit)
     local cy = y - D / 2
     local half
     if gl.square then half = D / 2
     else half = math.sqrt(max(0, (D / 2) ^ 2 - cy * cy)) end
     if gl.art then
-        -- (the pointer's tip is at 0.88 of its texture's width, its body 0.04 .. 0.88)
-        local w = max(11, D * 0.17)
-        local inset = max(2, D * 0.04)
+        -- (the pointer's body is 0.04 .. 0.88 of its texture's width: its back 0.46 of it from the middle)
+        local w = max(10, D * 0.15)
         for side = 1, 2 do
             local s = side == 1 and -1 or 1
             local n = gl.notch[side]
-            local cx = s * (half - inset + 0.38 * w)
+            local cx = s * (half - 0.46 * w)
             n.tex:ClearAllPoints()
             n.tex:SetSize(w, w)
             n.tex:SetPoint("CENTER", gl, "CENTER", cx, cy)
             n.glow:ClearAllPoints()
             n.glow:SetSize(w * 2.2, w * 1.5)
-            n.glow:SetPoint("CENTER", gl, "CENTER", cx - s * 0.15 * w, cy)
+            n.glow:SetPoint("CENTER", gl, "CENTER", cx, cy)
             if lit then
                 n.tex:SetVertexColor(1, 1, 1, 1)
                 n.glow:SetAlpha(0.55)
@@ -710,9 +710,11 @@ function RF:BuildExtra(face)
         gl.notch = {}
         if art then
             for i = 1, 2 do
-                local glow = Part(gl, "OVERLAY", SOFT, 1, 0.78, 0.35, 0, 2)
-                glow:SetBlendMode("ADD")
-                local t = Part(gl, "OVERLAY", NOTCH, nil, nil, nil, nil, 3)
+                -- (masked like the liquid: they belong to the glass)
+                local glow = T("OVERLAY", SOFT, 2, true)
+                glow:SetVertexColor(1, 0.78, 0.35, 1)
+                glow:SetAlpha(0)
+                local t = T("OVERLAY", NOTCH, 3)
                 if i == 2 then t:SetTexCoord(1, 0, 0, 1) end          -- (the right one points left)
                 gl.notch[i] = { tex = t, glow = glow }
             end
