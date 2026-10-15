@@ -129,7 +129,7 @@ def the_helpers_fill_in_the_teams():
 
 
 @case
-def raid_icons_go_in_as_parts_or_into_the_words():
+def raid_icons_are_parts_as_many_as_you_like():
     w, c = guild()
     gina = c["Gina"]
     say(gina, "LF healers")
@@ -141,14 +141,14 @@ def raid_icons_go_in_as_parts_or_into_the_words():
     star = gina.eval("return ns.RecruitMessage:GetParts()[2].id")
     gina.eval("ns.RecruitMessage:SetPart(..., { m = 2 })", star)
     assert compose(gina)[0] == "LF healers {rt2} {rt8}", compose(gina)
-    # the page: with the words picked, a click puts the icon in at the cursor
+    # the page: each click adds one more, after the picked part (the new one is picked)
     gina.slash("/dz recruit")
     w.tick(0.5)
     gina.eval("ns.RecruitUI:GetState().part = ...; ns.RecruitUI:SetView('message')", first)
     w.tick(0.5)
-    gina.eval("local w = ns.RecruitUI:GetPanel().message.w; w.wordsCursor = 2")
-    gina.eval("ns.RecruitUI._H.IconClick(8)")
-    assert compose(gina)[0] == "LF {rt8} healers {rt2} {rt8}", compose(gina)
+    gina.eval("ns.RecruitUI._H.IconClick(8); ns.RecruitUI._H.IconClick(8)")
+    assert compose(gina)[0] == "LF healers {rt8} {rt8} {rt2} {rt8}", compose(gina)
+    assert gina.eval("return #ns.RecruitMessage:GetParts()") == 5
     # the preview draws them; {star} written by hand too
     shown = gina.eval("return ns.RecruitMessage:Render('{rt8} {Star} {nope}')")
     assert shown.count("UI-RaidTargetingIcon_8") == 1 and "UI-RaidTargetingIcon_1" in shown and "{nope}" in shown, shown
