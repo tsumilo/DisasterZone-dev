@@ -185,6 +185,19 @@ Maps.town = {
           script = function(G)
               G:Say("Billy Maclure: When I grow up I'm gonna tame a dragon whelp! Or a murloc! Mrgllglgl!")
           end },
+        -- Lee Brown fishes the pond from dawn and teaches Fishing; evenings at the inn.
+        { id = "leebrown", name = "Lee Brown", role = "profession", x = 34, y = 14, sprite = "bald", tint = { 0.7, 0.85, 0.75 },
+          face = "left",      -- Fishing
+          day = {
+              { "00:00", inside = "post", label = "Asleep at the inn" },
+              { "06:00", path = { { 8, 22 }, { 8, 23 }, { 29, 23 }, { 29, 16 }, { 33, 16 }, { 33, 15 }, { 34, 15 }, { 34, 14 } },
+                face = "left", act = "fish", label = "Fishing the pond", walk = "Off to the pond" },
+              { "19:30", path = { { 34, 14 }, { 34, 15 }, { 33, 15 }, { 33, 16 }, { 29, 16 }, { 29, 23 }, { 8, 23 }, { 8, 22 } },
+                enter = "post", label = "Telling fish stories at the inn", walk = "Heading to the inn" },
+          },
+          says = { { "06:40", "Morning's the best bite." }, { "13:00", "Look, ripples! A school's come in." },
+                   { "19:10", "One more cast..." } },
+          script = function(G) G:FishingTrainer("lee") end },
         -- Guard Thomas walks the roads at night with a lantern.
         { id = "nightguard", name = "Guard Thomas", x = 17, y = 23, sprite = "bald", tint = { 0.62, 0.7, 0.95 }, face = "down",
           lantern = true,

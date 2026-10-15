@@ -3,7 +3,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Sound.lua", ...) th
 -- files every client has; a file a client lacks simply stays silent).
 -- Music plays only while the game is on screen - StopMusic() hands the zone music back - and each map picks its
 -- track (def.music; day and night where the zone has both). Battles, the title screen and the arena have their own.
--- The CONTROLS page turns music and sounds off (DisasterZoneDB.games.azeromon.music / .sfx = false).
+-- The CONTROLS page turns music, sounds and ambience off (DisasterZoneDB.games.azeromon.music / .sfx / .ambience).
+-- Ambience (below): the zone's day / night loop, rain, and sources by distance (water, fish, the smithy, the inn).
 local addonName, ns = ...
 
 local S = ns:NewModule("AzeroSound")
@@ -53,6 +54,7 @@ S.SFX = {
     cure = 569632,                                                       -- nullifypoison
     equip = 567560,                                                      -- pickupmetalsmall
     buy = 567428, sell = 567413,                                         -- lootcoinsmall / lootcoinlarge
+    fishcast = 569807, fishbite = 569816, fishreel = 569808,             -- tradeskills fishcast / fishbite / fishreelin
     herb = 567552, ore = 567564,                                         -- pickupherb / pickuprocks_ore01
     alchemy = 565598, smith = 567569,                                    -- ak_alchemyset01 / putdownlargemetal
     skillup = 567516, learn = 567400,                                    -- iquestupdate / iquestactivate
@@ -176,5 +178,201 @@ function S:OnInit()
     end
 end
 
+---------------------------------------------------------------------------
+-- Ambience: the world's own sound, in layers (the CONTROLS page's "Ambience", G:Data().ambience = false: off)
+--   bed      the zone's day or night loop (birds by day, crickets and owls by night), or the room's (the inn's
+--            murmur, crowded once a few people are in)
+--   rain     over the bed while it rains (Amb.Raining in UI.lua sets G.raining)
+--   sources  loops that start within a radius and fade out past it: still water by the shore, a school of fish,
+--            the smithy while Argus works it, the inn's crowd at the door when it's full
+--   one-shots that come more often the nearer you are: the anvil's ring, an owl at night
+-- Played on the game's Ambience channel (its volume slider applies). Each loop is restarted as it ends: LEN holds
+-- every file's length, measured from the installed client's files (Ogg granule / rate).
+---------------------------------------------------------------------------
+
+-- id -> seconds
+S.LEN = {
+    [539131] = 60, [539108] = 60,                    -- zoneambience forestnormalday / night (Elwynn)
+    [539006] = 60, [539121] = 30,                    -- westfallday / night
+    [539098] = 59.44, [538996] = 59.54,              -- forestscaryday / night (Duskwood)
+    [539097] = 60, [539092] = 60,                    -- jungleday / night (Stranglethorn)
+    [539048] = 56.84, [539125] = 56.94,              -- beachday / night (Booty Bay)
+    [539047] = 60, [538994] = 60,                    -- foresthighday / night (Redridge)
+    [539024] = 56.47, [539061] = 56.47,              -- canyondesertday / night (the Searing Gorge)
+    [539073] = 56.94, [539077] = 56.94,              -- volcanicday / night (the Burning Steppes, the mountain)
+    [539071] = 56.94,                                -- deadmines
+    [537422] = 60, [537423] = 55.9,                  -- wmoambience tavern / taverncrowded
+    [538983] = 20, [538981] = 30,                    -- weather rainlightloop / rainmediumloop
+    [538973] = 10.12,                                -- water river_lakestilla
+    [566808] = 5.19,                                 -- doodad tradeskill_fishschool_01standvar2
+    [537332] = 59.54,                                -- wmoambience blacksmith
+}
+-- the bed for each map theme (UI.lua Amb.MOODS keys), day and night
+S.BEDS = {
+    elwynn = { day = 539131, night = 539108 },
+    westfall = { day = 539006, night = 539121 },
+    duskwood = { day = 539098, night = 538996 },
+    jungle = { day = 539097, night = 539092 },
+    arena = { day = 539097, night = 539092 },
+    beach = { day = 539048, night = 539125 },
+    redridge = { day = 539047, night = 538994 },
+    gorge = { day = 539024, night = 539061 },
+    steppes = { day = 539073, night = 539077 },
+    blackrock = { day = 539073, night = 539077 },
+    mine = { day = 539071, night = 539071 },
+}
+S.MAP_BED = { bootybay = "beach" }          -- maps whose bed isn't their theme's
+S.TAVERN, S.TAVERN_CROWDED = 537422, 537423
+S.CROWD = 3                                 -- people inside before the inn sounds crowded
+S.RAIN = 538981
+S.SOURCES = {
+    water = { id = 538973, radius = 3 },    -- still water, from the nearest shore tile
+    school = { id = 566808, radius = 3 },   -- a school of fish (Fishing.lua)
+    smithy = { id = 537332, radius = 5 },   -- a forge or anvil, while someone is smithing at it
+    inn = { id = 537423, radius = 4 },      -- the door of a room with S.CROWD or more people in it
+}
+-- one-shots: id(s), and the gap in seconds near (distance 0) and far (at radius)
+S.SHOTS = {
+    anvil = { ids = { 569814, 569822, 569799 }, radius = 7, near = 1.8, far = 6 },     -- blacksmithcrafting a/b/c
+    owl = { ids = { 557971 }, near = 25, far = 60 },                                    -- owlpreaggro, night woods
+}
+S.OWL_THEMES = { elwynn = true, duskwood = true, redridge = true }
+S.FADE = 1500                               -- ms a loop takes to fade when it stops
+S.TICK = 0.25                               -- seconds between ambience updates
+
+function S:AmbienceOn() return G:Data().ambience ~= false end
+
+local playing = {}          -- key -> { id, handle, at }
+local shotAt = {}
+local tickAcc = 0
+S.trace = nil               -- tests: a list that gets { "play" | "stop", key, id }
+
+local function Clock() return GetTime and GetTime() or 0 end
+
+local function Start(key, id)
+    if not PlaySoundFile then return end
+    local ok, willPlay, handle = pcall(PlaySoundFile, id, "Ambience")
+    playing[key] = { id = id, handle = ok and willPlay and handle or nil, at = Clock() }
+    if S.trace then S.trace[#S.trace + 1] = { "play", key, id } end
+end
+
+local function Halt(key, fade)
+    local p = playing[key]
+    if not p then return end
+    if p.handle and StopSound then pcall(StopSound, p.handle, fade or S.FADE) end
+    playing[key] = nil
+    if S.trace then S.trace[#S.trace + 1] = { "stop", key, p.id } end
+end
+
+-- The tile distance (Chebyshev) from the player to the nearest of `tiles` ({ x, y } lists), or nil.
+local function Nearest(s, tiles)
+    local best
+    for _, t in ipairs(tiles) do
+        local d = math.max(math.abs(t.x - s.x), math.abs(t.y - s.y))
+        if not best or d < best then best = d end
+    end
+    return best
+end
+
+-- What should be heard right now: key -> id loops, and the one-shots with their distance.
+function S:AmbienceWants()
+    local wants, shots = {}, {}
+    local m, s = G.map, G.save
+    if not (G.started and m and s) then return wants, shots end
+    local night = G.IsNight and G:IsNight()
+    local Routine, Fish = ns.AzeroRoutine, ns.AzeroFish
+    -- the bed
+    if m.def.outdoor then
+        local bed = S.BEDS[S.MAP_BED[m.id] or m.def.theme or "elwynn"]
+        if bed then wants.bed = night and bed.night or bed.day end
+        if G.raining then wants.rain = S.RAIN end
+    elseif m.def.music == "tavern" then
+        local n = Routine and Routine.InsideCount(m.id) or 0
+        wants.bed = n >= S.CROWD and S.TAVERN_CROWDED or S.TAVERN
+    elseif m.def.music == "mine" or m.def.cave then
+        wants.bed = S.BEDS.mine.day
+    end
+    if not m.def.outdoor then return wants, shots end
+    -- water and fish
+    if Fish and Fish.WaterOf(m) then
+        local d = Nearest(s, Fish.Shore(m))
+        if d and d <= S.SOURCES.water.radius then wants.water = S.SOURCES.water.id end
+        local sc = Fish.School(m)
+        if sc and Nearest(s, { sc }) <= S.SOURCES.school.radius then wants.school = S.SOURCES.school.id end
+    end
+    -- the smithy: someone at work by a forge or anvil
+    for _, n in ipairs(G.npcs or {}) do
+        if n.act == "smith" and not n.hidden then
+            local d = Nearest(s, { n })
+            if d <= S.SOURCES.smithy.radius then wants.smithy = S.SOURCES.smithy.id end
+            if d <= S.SHOTS.anvil.radius then shots.anvil = d end
+        end
+    end
+    -- a full room's door
+    if Routine then
+        for _, st in ipairs(m.def.stamps or {}) do
+            if st.inside and Routine.InsideCount(st.inside) >= S.CROWD then
+                local doors = {}
+                for _, wp in pairs(m.warp) do
+                    if wp.map == st.inside then doors[#doors + 1] = { x = wp.x, y = wp.y } end
+                end
+                local d = Nearest(s, doors)
+                if d and d <= S.SOURCES.inn.radius then wants.inn = S.SOURCES.inn.id end
+            end
+        end
+    end
+    if night and S.OWL_THEMES[m.def.theme or "elwynn"] and not G.raining then shots.owl = 0 end
+    return wants, shots
+end
+
+-- Called every frame by the UI (any time: with the game hidden or in a battle it stops everything).
+function S:UpdateAmbience(dt, active)
+    tickAcc = tickAcc + (dt or 0)
+    if tickAcc < S.TICK then return end
+    tickAcc = 0
+    local wants, shots = {}, {}
+    if active and self:AmbienceOn() then wants, shots = self:AmbienceWants() end
+    local now = Clock()
+    for key, p in pairs(playing) do
+        if wants[key] ~= p.id then Halt(key, key == "bed" and 3000 or S.FADE) end
+    end
+    for key, id in pairs(wants) do
+        local p = playing[key]
+        if not p then
+            Start(key, id)
+        elseif now - p.at >= (S.LEN[id] or 30) - 0.1 then
+            Start(key, id)                  -- the file is ending: the next pass starts as it stops
+        end
+    end
+    for key, d in pairs(shots) do
+        local def = S.SHOTS[key]
+        local gap = def.near + (def.far - def.near) * math.min(1, d / (def.radius or 1))
+        if not shotAt[key] then
+            shotAt[key] = now - gap * 0.5   -- (the first comes a little after arriving)
+        elseif now - shotAt[key] >= gap then
+            shotAt[key] = now
+            local id = def.ids[math.random(#def.ids)]
+            if PlaySoundFile then pcall(PlaySoundFile, id, "Ambience") end
+            if S.trace then S.trace[#S.trace + 1] = { "shot", key, id } end
+        end
+    end
+    for key in pairs(shotAt) do if not shots[key] then shotAt[key] = nil end end
+end
+
+function S:StopAmbience()
+    for key in pairs(playing) do Halt(key) end
+    shotAt = {}
+end
+
+function S:Playing()
+    local out = {}
+    for k, p in pairs(playing) do out[k] = p.id end
+    return out
+end
+
 -- For tests
-S._Reset = function() current, currentKey = nil, nil lastAt, warned = {}, false end
+S._Reset = function()
+    current, currentKey = nil, nil
+    lastAt, warned = {}, false
+    playing, shotAt, tickAcc = {}, {}, 0
+end

@@ -348,6 +348,7 @@ Games\Azeromon\GuildBoard.lua
 Games\Azeromon\Bounties.lua
 Games\Azeromon\Trade.lua
 Games\Azeromon\Crafting.lua
+Games\Azeromon\Fishing.lua
 Games\Azeromon\Hideout.lua
 Games\Azeromon\Changelog.lua
 Games\Azeromon\Sound.lua

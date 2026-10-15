@@ -1730,6 +1730,14 @@ function OpenStartMenu()
                     return
                 end
                 if def.use == "material" then Message("It's a crafting material. See PROFESSIONS.") return end
+                if def.use == "tool" or def.use == "junk" then Message(def.useText) return end
+                if def.use == "lure" then
+                    Message(ns.AzeroFish:UseLure(id), function()
+                        PopMenu(bagMenu)
+                        R.bagDesc:Hide()
+                    end)
+                    return
+                end
                 if def.use == "boost" then Message("Drink it in battle: it raises the stat of the beast fighting.") return end
                 if def.use == "evolve" then                    -- an evolution item: the scene plays as a script
                     OpenParty("item", function(idx, partyMenu)
@@ -2514,7 +2522,7 @@ local function OpenActionMenu()
                     UI:BattleAct({ kind = "item", item = id, target = target })
                 end
                 if def.use == "charm" or def.use == "gear" or def.use == "flask" or def.use == "material"
-                    or def.use == "evolve" then
+                    or def.use == "evolve" or def.use == "tool" or def.use == "junk" or def.use == "lure" then
                     Message("Now is not the time to use that!")
                 elseif def.use == "boost" then
                     local st = b.ally.stages[def.stat] or 0
@@ -3468,6 +3476,7 @@ function Amb.Mood(m, g, px, py, period)
     R.mist:Hide()
     R.shafts:Hide()
     Amb.raining = false
+    G.raining = false
     if g and g.indoor then
         R.mood:Hide()
         R.vignette:SetShown(Amb.modOK ~= false and Overlay(R.vignette, MEDIA .. "Ground\\vignette", "MOD"))
@@ -3481,6 +3490,7 @@ function Amb.Mood(m, g, px, py, period)
         return
     end
     Amb.raining = Amb.Raining(m, mood)
+    G.raining = Amb.raining                     -- (Sound.lua's rain layer)
     local tr, tg, tb = mood.tint[1], mood.tint[2], mood.tint[3]
     if Amb.raining then tr, tg, tb = tr * 0.84, tg * 0.88, tb * 0.94 end
     R.mood:SetColorTexture(tr, tg, tb, 1)
@@ -3927,6 +3937,58 @@ function Amb.Acts(m, px, py)
     end
 end
 
+-- Fishing (Fishing.lua): ripples over today's school of fish, and the player's line and bobber while it is out -
+-- bobbing, then pulled under with a splash ring and a "!" over it when a fish bites.
+function Amb.Fishing(m, g, px, py)
+    local F = ns.AzeroFish
+    if not (F and m.water) then return end
+    local now = GetTime and GetTime() or 0
+    local calm = G:Data().calm
+    local sc = F.School(m)
+    if sc and g and not calm then                      -- (a map without a baked ground has no ambient)
+        for k = 0, 1 do                                   -- two rings growing out of the school, one after the other
+            local age = (now * 0.55 + k * 0.5) % 1
+            local r = 2 + age * 6
+            local a = 0.55 * (1 - age)
+            local cx, cy = sc.x * 16 + 8, sc.y * 16 + 8
+            for i = 0, 11 do
+                local ang = i / 12 * math.pi * 2
+                Amb.Pix(px, py, cx + math.cos(ang) * r, cy + math.sin(ang) * r * 0.55, 1, 1, 0.86, 0.95, 1, a)
+            end
+        end
+        if floor(now * 1.3) % 3 == 0 then                 -- now and then a fish breaks the surface
+            Amb.Pix(px, py, sc.x * 16 + 6 + (floor(now) % 5), sc.y * 16 + 6 - ((now * 1.3) % 1) * 3, 2, 1, 0.76, 0.84, 0.9, 0.8)
+        end
+    end
+    local p = G.pending
+    if not (p and p.kind == "fish") then return end
+    local s = G.save
+    local d = G.DIRS[s.face] or G.DIRS.down
+    local hx, hy = s.x * 16 + 8 + d[1] * 5, s.y * 16 + 6 + (d[2] < 0 and -4 or 0)     -- the pole's tip
+    local bx, by = p.x * 16 + 7, p.y * 16 + 8
+    local under = p.biting
+    local bob = under and 2 or ((math.sin(now * 3.2) > 0.6) and 1 or 0)
+    for k = 1, 15 do                                      -- the line, sagging toward the water
+        local f = k / 16
+        Amb.Pix(px, py, hx + (bx - hx) * f, hy + (by - hy) * f + math.sin(f * math.pi) * 4, 1, 1, 0.94, 0.94, 0.9, 0.75)
+    end
+    if not under then
+        Amb.Pix(px, py, bx, by + bob, 3, 2, 0.91, 0.25, 0.17, 1)            -- red top
+        Amb.Pix(px, py, bx, by + 2 + bob, 3, 1, 0.96, 0.96, 0.9, 1)         -- white belly
+    else
+        local age = (p.t - p.bite) / p.window
+        local r = 2 + age * 5
+        for i = 0, 9 do                                   -- the splash ring where it went under
+            local ang = i / 10 * math.pi * 2
+            Amb.Pix(px, py, bx + 1 + math.cos(ang) * r, by + 2 + math.sin(ang) * r * 0.55, 1, 1, 1, 1, 1, 0.8 * (1 - age))
+        end
+        Amb.Pix(px, py, bx + 1, by - 13, 2, 6, 1, 0.84, 0.2, 1, "OVERLAY", 6)   -- the "!"
+        Amb.Pix(px, py, bx + 1, by - 5, 2, 2, 1, 0.84, 0.2, 1, "OVERLAY", 6)
+        Amb.Pix(px, py, bx, by - 14, 4, 8, 0.1, 0.06, 0.02, 0.9, "OVERLAY", 5)
+        Amb.Pix(px, py, bx, by - 6, 4, 4, 0.1, 0.06, 0.02, 0.9, "OVERLAY", 5)
+    end
+end
+
 function Amb.Draw(m, g, px, py)
     local period = G:Period()
     Amb.Water(m, g, px, py)
@@ -3942,6 +4004,7 @@ function Amb.Draw(m, g, px, py)
     Amb.Glints(m, g, px, py)
     Amb.Steps(m, px, py)
     if g then Amb.Acts(m, px, py) end      -- (maps without a baked ground have no ambient at all)
+    Amb.Fishing(m, g, px, py)
     Amb.Mood(m, g, px, py, period)
     local dark = Amb.Night(m, g, px, py)
     Amb.Hall(m, g, px, py, period, dark)
@@ -4500,6 +4563,7 @@ KH.KEY_HINTS = {
     netwait = { { "B", "Cancel", "cancel" } },
     watch = { { "A", "Next", "next" }, { "B", "Stop watching", "stopwatch" } },
     evolve = { { "B", "Stop it evolving", "stopevo" } },
+    fish = { { "A", "Hook it (when it dips)", "hook" }, { "B", "Reel in", "reel" } },
 }
 KH.keyState = { ctx = false, since = 0, input = 0 }
 
@@ -4516,6 +4580,7 @@ function KH.KeyContext()
         if p.kind == "text" then return "text" end
         if p.kind == "netwait" then return "netwait" end
         if p.kind == "evolve" then return "evolve" end
+        if p.kind == "fish" then return "fish" end
         return nil
     end
     return "world"
@@ -4977,6 +5042,11 @@ function KH.OpenControls()
         menu.items[idx].right = onOff("sfx")
         UI:RefreshMenu(menu)
     end }
+    items[#items + 1] = { text = "Ambience", right = onOff("ambience"), onSelect = function(idx, menu)
+        G:Data().ambience = G:Data().ambience == false
+        menu.items[idx].right = onOff("ambience")
+        UI:RefreshMenu(menu)
+    end }
     items[#items + 1] = { text = "Show the key hints again", onSelect = function(idx, menu)
         G:Data().keys = {}
         R.keyStrip.sig = nil
@@ -5094,6 +5164,8 @@ local function HandleKey(key)
             G:Advance("cancel")
         elseif p.kind == "evolve" and key == "B" then
             G:Advance("cancel")
+        elseif p.kind == "fish" then
+            ns.AzeroFish:Key(G, p, key)
         end
         return
     end
@@ -5232,6 +5304,7 @@ local function OnUpdate(self, elapsed)
     FitScenes(elapsed)
     KH.UpdateKeyStrip()
     Scr.UpdateMusic()
+    ns.AzeroSound:UpdateAmbience(elapsed, G.started and not R.title:IsShown() and not BT.battle)
     if R.title:IsShown() then KH.TickTitle(elapsed) end
     if R.title:IsShown() or not G.started then
         ns.AzeroNet:SetActive(false)
@@ -5856,13 +5929,15 @@ function UI:CreatePanel(parent)
     end
     root:SetScript("OnSizeChanged", function(self, w, h) FitScreen(w, h) end)
     UI._Fit = function(w, h) FitScreen(w, h) return screen:GetScale() end
-    root:SetScript("OnHide", function() SetFocus(false, true) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop() end)
+    root:SetScript("OnHide", function() SetFocus(false, true) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop()
+        ns.AzeroSound:StopAmbience() end)
 
     root.OnGameShown = function()
         FitScreen()
         if not G.started then ShowTitle() end
     end
-    root.OnGameHidden = function() SetFocus(false, true) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop() end
+    root.OnGameHidden = function() SetFocus(false, true) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop()
+        ns.AzeroSound:StopAmbience() end
     SetFocus(false)
     ShowTitle()
     return root

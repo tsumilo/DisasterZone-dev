@@ -398,10 +398,12 @@ function C:SkillUp(prof, req)
     return skill + 1
 end
 
--- The professions the player knows, in menu order.
+-- The main professions the player knows, in menu order (a secondary one, Fishing, doesn't count toward the two).
 function C.Known()
     local out = {}
-    for _, id in ipairs(D.professionOrder) do if C.Skill(id) then out[#out + 1] = id end end
+    for _, id in ipairs(D.professionOrder) do
+        if C.Skill(id) and not D.professions[id].secondary then out[#out + 1] = id end
+    end
     return out
 end
 
@@ -410,7 +412,7 @@ function C:Learn(prof)
     local p = D.professions[prof]
     if not p then return false, "?" end
     if C.Skill(prof) then return false, "You already know " .. p.name .. "." end
-    if #C.Known() >= D.MAX_PROFESSIONS then
+    if not p.secondary and #C.Known() >= D.MAX_PROFESSIONS then
         return false, "You can only know two professions. Forget one first."
     end
     if G.save.money < D.PROFESSION_FEE then return false, "You can't afford the training (" .. D.Money(D.PROFESSION_FEE) .. ")." end

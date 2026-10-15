@@ -6,6 +6,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.28", date = "15 October 2026", title = "Gone fishing",
+      lines = {
+          "New: Fishing, a trade on top of your two. Lee Brown teaches it.",
+          "Buy a pole from Brog, face water, press Space when it dips.",
+          "Each zone's water has its own fish; some bite back.",
+          "Ripples mark a school of fish: faster, better bites.",
+          "Feed fish to your beasts. Water beasts love them.",
+          "Old Man Heming on Booty Bay's docks teaches Expert.",
+          "The world has sound: birds by day, crickets at night.",
+          "Hear the pond, the rain, the smithy and the busy inn.",
+          "CONTROLS has an Ambience switch.",
+          "The inn's windows glow brighter as it fills up.",
+      } },
     { version = "0.27", date = "15 October 2026", title = "A bigger Goldshire",
       lines = {
           "Goldshire grows: a market square with a well.",

@@ -1278,6 +1278,10 @@ function G:PressA()
         self:Run(obj.script)
         return
     end
+    if m.water[k] and ns.AzeroFish then             -- water: cast a line (Fishing.lua)
+        self:Run(function(g) ns.AzeroFish:Cast(g, x, y) end)
+        return
+    end
     -- a herb underfoot
     local here = m.node and m.node[m.key(s.x, s.y)]
     if here and here.kind == "herb" and ns.AzeroCraft and ns.AzeroCraft:NodeState(m.id, here) then
@@ -1299,6 +1303,7 @@ function G:InteractHint()
     end
     local obj = m.object[k]
     if obj and obj.hint then return obj.hint, x, y end
+    if m.water[k] and ns.AzeroFish and ns.AzeroFish.WaterOf(m) then return ns.AzeroFish.Hint(), x, y end
     local peer = ns.AzeroNet and ns.AzeroNet:PeerAt(m.id, x, y)
     if peer and peer.status == "pvp" and not self:NpcAt(x, y) then return "Watch the battle", x, y end
     local here = m.node and m.node[m.key(s.x, s.y)]
@@ -1378,6 +1383,8 @@ function G:Update(dt)
     if p and (p.kind == "wait" or p.kind == "evolve") then
         p.t = p.t - dt
         if p.t <= 0 then self:Advance() end
+    elseif p and p.kind == "fish" then
+        ns.AzeroFish:Tick(self, p, dt)
     end
 
     if self.moving then
@@ -1410,6 +1417,8 @@ end
 
 -- Direction press / release from the UI.
 function G:SetDir(dir)
+    local p = self.pending
+    if dir and p and p.kind == "fish" and dir ~= self.input.dir then ns.AzeroFish:Key(self, p, "dir") end   -- walking off reels in
     if dir ~= self.input.dir then
         self.input.dir = dir
         self.input.held = 0
@@ -1430,9 +1439,15 @@ function G:UseItemOutside(item, idx)
         if mon.hp <= 0 or mon.hp >= M.MaxHP(mon) then self:Sfx("error") return "It won't have any effect." end
         self:Sfx("heal")
         local before = mon.hp
-        mon.hp = math.min(M.MaxHP(mon), mon.hp + def.heal)
+        local amount, loves = def.heal, false
+        if def.fish and ns.AzeroFish then amount, loves = ns.AzeroFish.FeedAmount(def, mon) end
+        mon.hp = math.min(M.MaxHP(mon), mon.hp + amount)
         bag[item] = bag[item] - 1
         if bag[item] <= 0 then bag[item] = nil end
+        if def.fish then
+            return string.format("%s %s the %s. HP restored by %d.", M.Name(mon), loves and "gobbles up" or "eats",
+                def.name, mon.hp - before)
+        end
         return string.format("%s's HP was restored by %d points.", M.Name(mon), mon.hp - before)
     elseif def.use == "rejuv" then
         if mon.hp <= 0 or (mon.hp >= M.MaxHP(mon) and not mon.status) then self:Sfx("error") return "It won't have any effect." end

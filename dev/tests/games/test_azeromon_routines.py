@@ -90,7 +90,7 @@ def the_inn_fills_up_in_the_evening_and_the_cottage_at_night():
       end
       return { noon = inside('post', 12), evening = inside('post', 22), cottage = inside('cottage', 23) }""")
     assert r["noon"] == ["lamplighter", "nightguard"], r                      # Old Tom and Thomas sleep by day
-    assert r["evening"] == ["argus", "guard", "lamplighter", "mallory", "pell", "wenna"], r
+    assert r["evening"] == ["argus", "guard", "lamplighter", "leebrown", "mallory", "pell", "wenna"], r
     assert r["cottage"] == ["farmer", "kid"], r
     no_errors(w)
 
@@ -263,7 +263,7 @@ def the_inn_and_cottage_know_how_many_are_home():
     r = c.eval_py("""local R = ns.AzeroRoutine
       return { R.InsideCount('post', 12 * 60), R.InsideCount('post', 22 * 60), R.InsideCount('cottage', 23 * 60),
                R.InsideCount('cottage', 12 * 60) }""")
-    assert r == [2, 6, 2, 0], r
+    assert r == [2, 7, 2, 0], r
     no_errors(w)
 
 

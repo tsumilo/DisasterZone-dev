@@ -333,7 +333,7 @@ def the_professions_page_and_a_forge_through_the_ui():
     key(w, c, "START", "down", "down", "down", "down", "down", "down", "down", "A")
     assert title(c) == "PROFESSIONS", title(c)
     L = c.eval_py("return ns.AzeroUI._MenuLayout()")
-    assert L["n"] == 4 and -L["y"] + L["h"] <= L["SH"] - L["desc"], L
+    assert L["n"] == 5 and -L["y"] + L["h"] <= L["SH"] - L["desc"], L
     key(w, c, "down", "down", "A")                                # Mining
     assert title(c) == "MINING  12 / 100", title(c)
     assert "Copper Ore 2/1" in c.eval("return ns.AzeroUI._DescText()") and "Needs a forge." in c.eval("return ns.AzeroUI._DescText()")

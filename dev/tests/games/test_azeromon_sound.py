@@ -169,5 +169,97 @@ def every_sound_effect_is_a_file_id_and_game_events_make_sounds():
     no_errors(w)
 
 
+def ambience(c):
+    return c.eval_py("return ns.AzeroSound:Playing()") or {}
+
+
+def at(w, c, where, hour=12):
+    c.eval("ns.Azero.clockHour = %r ns.Azero:EnterMap(%s, true)" % (hour, where))
+    w.tick(0.6)
+
+
+@case
+def the_zone_bed_follows_day_night_and_rain():
+    w, c = game()
+    enter(w, c)
+    at(w, c, "'town', 10, 10, 'down'")
+    assert ambience(c).get("bed") == 539131, ambience(c)            # Elwynn by day: birds
+    c.eval("ns.Azero.clockHour = 23")
+    w.tick(0.6)
+    assert ambience(c).get("bed") == 539108, ambience(c)            # by night: crickets
+    c.eval("ns.Azero.raining = true ns.AzeroSound:UpdateAmbience(1, true)")
+    assert ambience(c).get("rain") == 538981, ambience(c)
+    at(w, c, "'bootybay', 12, 12, 'down'")
+    assert ambience(c).get("bed") == 539048, ambience(c)            # the beach
+    at(w, c, "'post', 4, 5, 'up'", hour=12)
+    assert ambience(c).get("bed") == 537422, ambience(c)            # a quiet inn at noon
+    at(w, c, "'post', 4, 5, 'up'", hour=20)
+    assert ambience(c).get("bed") == 537423, ambience(c)            # crowded at supper
+    no_errors(w)
+
+
+@case
+def sources_start_near_and_fade_away():
+    w, c = game()
+    enter(w, c)
+    c.eval("ns.AzeroSound.trace = {}")
+    at(w, c, "'town', 28, 14, 'right'")
+    assert ambience(c).get("water") == 538973, ambience(c)
+    at(w, c, "'town', 20, 22, 'right'")                              # three tiles from Argus at the anvil
+    a = ambience(c)
+    assert a.get("smithy") == 537332 and "water" not in a, a
+    trace = c.eval_py("return ns.AzeroSound.trace")
+    assert ["stop", "water", 538973] in trace, trace
+    for _ in range(12):
+        w.tick(0.5)
+    shots = [t for t in c.eval_py("return ns.AzeroSound.trace") if t[0] == "shot" and t[1] == "anvil"]
+    assert len(shots) >= 2, shots                                    # the anvil rings every ~3 s this close
+    at(w, c, "'town', 20, 22, 'right'", hour=23)                     # Argus is at the inn: the smithy is quiet
+    assert "smithy" not in ambience(c), ambience(c)
+    # the school of fish: stand next to it
+    spot = c.eval_py("""local m, s = ns.Azero.map, ns.AzeroFish.School(ns.Azero.map)
+      for dir, d in pairs(ns.Azero.DIRS) do
+        local x, y = s.x - d[1], s.y - d[2]
+        if not m.water[m.key(x, y)] and not m.solid[m.key(x, y)] then return { x, y } end
+      end""")
+    at(w, c, "'town', %d, %d, 'down'" % tuple(spot))
+    assert ambience(c).get("school") == 566808, ambience(c)
+    no_errors(w)
+
+
+@case
+def loops_restart_as_they_end_and_ambience_switches_off():
+    w, c = game()
+    enter(w, c)
+    c.eval("ns.AzeroSound.trace = {}")
+    at(w, c, "'town', 10, 10, 'down'")
+    for _ in range(62):
+        w.tick(1)
+    plays = [t for t in c.eval_py("return ns.AzeroSound.trace") if t[0] == "play" and t[1] == "bed"]
+    assert len(plays) == 2, plays                                    # 60 s of Elwynn: once more after a minute
+    c.eval("ns.Azero:Data().ambience = false")
+    w.tick(0.6)
+    assert ambience(c) == {}, ambience(c)
+    c.eval("ns.Azero:Data().ambience = nil")
+    w.tick(0.6)
+    assert ambience(c).get("bed"), ambience(c)
+    c.eval("ns.AzeroUI._Root():Hide()")
+    assert ambience(c) == {}, ambience(c)
+    no_errors(w)
+
+
+@case
+def every_ambience_file_has_a_length():
+    w, c = game()
+    missing = c.eval_py("""local S, o = ns.AzeroSound, {}
+      local function need(id) if not S.LEN[id] then o[#o + 1] = id end end
+      for _, b in pairs(S.BEDS) do need(b.day) need(b.night) end
+      for _, s in pairs(S.SOURCES) do need(s.id) end
+      need(S.TAVERN) need(S.TAVERN_CROWDED) need(S.RAIN)
+      return o""") or []
+    assert missing == [], missing
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

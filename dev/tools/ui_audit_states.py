@@ -1902,6 +1902,8 @@ STATES = [
     # daily routines (Routine.lua): the market at noon, the lamplighter's round at dusk, the night patrol, the inn
     ("Games - Azeromon Goldshire market noon", azero_at("town", 19, 19, "ns.Azero.clockHour = 12 ns.Azero:EnterMap('town', 19, 19, 'down', true)")),
     ("Games - Azeromon Goldshire dusk lamps", azero_at("town", 17, 15, "ns.Azero.clockHour = 18 + 1.5 / 60 ns.Azero:EnterMap('town', 17, 15, 'down', true)")),
+    ("Games - Azeromon fishing line out", azero_at("town", 28, 14, "ns.Azero.save.prof = { fishing = 1 } ns.Azero.save.bag.fishingpole = 1 ns.Azero:EnterMap('town', 28, 14, 'right', true) ns.AzeroFish.rng = function(a) return 60 end ns.Azero:PressA()")),
+    ("Games - Azeromon fishing bite", azero_at("town", 28, 14, "ns.Azero.save.prof = { fishing = 1 } ns.Azero.save.bag.fishingpole = 1 ns.Azero:EnterMap('town', 28, 14, 'right', true) ns.AzeroFish.rng = function(a) return 60 end ns.Azero:PressA() ns.Azero.pending.t = 6.3 ns.Azero.pending.biting = true")),
     ("Games - Azeromon Goldshire night patrol", azero_at("town", 17, 12, "ns.Azero.clockHour = 23.2 ns.Azero:EnterMap('town', 17, 12, 'down', true)")),
     ("Games - Azeromon Goldshire square", azero_at("town", 18, 12, "ns.Azero.clockHour = 12 ns.Azero:EnterMap('town', 18, 12, 'down', true)")),
     ("Games - Azeromon Goldshire inn at night", azero_at("town", 9, 24, "ns.Azero.clockHour = 22 ns.Azero:EnterMap('town', 9, 24, 'down', true)")),

@@ -660,6 +660,9 @@ Maps.bootybay = {
                   G:Say("Skipper Zinkle: The isle isn't going anywhere.")
               end
           end },
+        { id = "heming", name = "Old Man Heming", role = "profession", x = 10, y = 18, sprite = "bald",
+          tint = { 0.85, 0.82, 0.72 }, face = "down",       -- Expert Fishing
+          script = function(G) G:FishingTrainer("heming") end },
         { id = "dockhand", name = "Dockhand", x = 14, y = 18, sprite = "hero", tint = { 0.7, 0.75, 0.6 }, face = "left",
           script = function(G)
               if G:Flag("badge_blackwater") then
