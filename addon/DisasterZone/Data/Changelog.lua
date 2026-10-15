@@ -6,10 +6,34 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.4.6", date = "15 October 2026", title = "Fixes",
+    { version = "1.4.6", date = "15 October 2026", title = "Azeromon: Blackrock",
       sections = {
+          { heading = "Azeromon: Blackrock", area = "games", kind = "new", hi = true, open = "games",
+            lead = "A new region north of Darkshire, from Redridge to Blackrock Mountain.", lines = {
+              "Lakeshire, Stonewatch Keep, the Burning Steppes, the Searing Gorge and the Imperial Seat.",
+              "36 new beasts, 12 new moves, badges 6 and 7; Nefarius is your rival, twice.",
+              "Tame Magmadar once in the Molten Core; a Dark Iron Bar evolves a Harvest Watcher.",
+              "Professions go to 175, Dark Iron needs the Black Forge; beasts drop materials.",
+              "A painted world map with mist over places you haven't found yet.",
+              "A new pixel font, cream windows and a sun or moon for the time of day.",
+          } },
+          { heading = "Gems for the hit cap", area = "gear", kind = "changed",
+            lead = "Suggested gems now know whether your gear is hit capped.", lines = {
+              "Under the cap, Suggest adds hit gems where they cost least, up to the cap.",
+              "Already capped: no hit gems. Your meta gem stays active either way.",
+              "Counts your gear, enchants, talents, race and the Gear sim's buffs (dps specs it covers).",
+          } },
           { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
               { "Wardrobe: an outfit's items show their enchant and gems in the tooltip.", fb = { 14 }, by = { "Victhar" }, k = "change" },
+              "3D strategy walks: others wear their race's clothes, not a white body.",
+              "Walking together: others run and turn smoothly, without jumping to and fro.",
+              "Square minimap: addon buttons, mail and queue icons sit on its edge, not on a circle inside it.",
+              "Minimap: a long zone name is cut short before the clock instead of running under it.",
+              "Bank: buying a bank bag slot works again.",
+              "Bags: the bag slots in the footer equip and take off bags; round ringed slots in Halo.",
+              "Bars: the game's latency bar is hidden while a look is on.",
+              "Cast bars: learning a recipe shows the recipe's icon, not the game's placeholder face.",
+              "Azeromon: a move's info window shows again in the fight menu.",
           } },
       } },
     { version = "1.4.5", date = "14 October 2026", title = "Discord for everyone",

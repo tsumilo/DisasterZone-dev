@@ -365,7 +365,7 @@ def opened(key, lua=None):
     return fn
 
 
-def azero_battle(map_id, x, y, foe):
+def azero_battle(map_id, x, y, foe, then=None):
     """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN)"""
     def fn(w, c):
         g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New('murkling', 12, ns.Azero.rng) }")(w, c)
@@ -384,6 +384,8 @@ def azero_battle(map_id, x, y, foe):
             if st.get("battle") and st.get("actionOpen"):
                 break
             g.eval("ns.AzeroUI._HandleKey('A')")
+        if then:
+            g.eval(then)
         w.tick(0.6)
         g.eval("ns.AzeroUI._Focus(true)")                 # no "paused" veil over the picture
         return g
@@ -403,6 +405,22 @@ def azero_at(map_id, x, y, lua=None):
         if lua:
             g.eval(lua)
         w.tick(0.3)
+        return g
+    return fn
+
+
+def azero_menu(hour):
+    """Azeromon's start menu over Goldshire at `hour` (the money box: money, badges, realm clock + sky icon)"""
+    def fn(w, c):
+        g = azero_at("town", 12, 11, "ns.AzeroUI.tipsOff = true")(w, c)
+        for _ in range(6):                                 # a tip from before tipsOff: read it away
+            st = g.eval_py("return ns.AzeroUI._State()")
+            if not st.get("msg") and not st.get("text") and not st.get("stack"):
+                break
+            g.eval("ns.AzeroUI._HandleKey('%s')" % ('B' if st.get("stack") else 'A'))
+            w.tick(0.6)
+        g.eval("ns.Azero.clockHour = %d ns.AzeroUI._HandleKey('START') ns.AzeroUI._Focus(true)" % hour)
+        w.tick(0.2)
         return g
     return fn
 
@@ -1867,16 +1885,31 @@ STATES = [
     # (Azeromon's poster on the side: a still of its film, no painting behind it)
     ("Games - Azeromon poster side", opened("games", "ns.GamesUI:ShowFront('chess') ns.GamesUI:PauseAnim(true)")),
     # the overworld on maps with a baked ground (gen_azeromon_ground.py): Goldshire's square, Route 1's meadows
+    ("Games - Azeromon world map", azero_at("town", 12, 11, "local g = ns.Azero g.save.visited = {} for id in pairs(ns.AzeroMaps) do g.save.visited[id] = true end ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
+    # the painted world map (gen_azeromon_worldmap.py): a new game under mist, by night, a place being revealed
+    ("Games - Azeromon world map new game", azero_at("route1", 11, 20, "ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
+    ("Games - Azeromon world map night", azero_at("sentinel", 5, 9, "ns.Azero.clockHour = 23 ns.Azero:EnterMap('westfall', 5, 5, 'down', true) ns.Azero:EnterMap('sentinel', 5, 9, 'down', true) ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
+    ("Games - Azeromon world map reveal", azero_at("route1", 11, 20, "ns.AzeroWorld:Open() ns.AzeroUI._HandleKey('B') ns.Azero:EnterMap('forestedge', 5, 5, 'down', true) ns.AzeroUI._HandleKey('START') ns.AzeroWorld:Open() ns.AzeroWorld.frame.clock = ns.AzeroWorld.frame.clock + 1.1 ns.AzeroWorld:Animate(0) ns.AzeroUI._Focus(true)")),
     ("Games - Azeromon Goldshire", azero_at("town", 12, 11)),
     ("Games - Azeromon Goldshire edge", azero_at("town", 2, 8)),
+    ("Games - Azeromon start menu night", azero_menu(1)),
+    ("Games - Azeromon start menu dawn", azero_menu(6)),
+    ("Games - Azeromon start menu midday", azero_menu(12)),
+    ("Games - Azeromon start menu dusk", azero_menu(19)),
     ("Games - Azeromon Goldshire north road", azero_at("town", 10, 1)),
     ("Games - Azeromon Goldshire night", azero_at("town", 13, 10, "ns.Azero.clockHour = 23")),
     ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),
     ("Games - Azeromon home", azero_at("home", 4, 5)),
     ("Games - Azeromon battle", azero_battle("route1", 11, 20, "kobling")),
+    ("Games - Azeromon fight menu", azero_battle("route1", 11, 20, "kobling", "ns.AzeroUI._HandleKey('A')")),
     ("Games - Azeromon inn evening", azero_at("post", 4, 5, "ns.Azero.clockHour = 21")),
     ("Games - Azeromon Route 1", azero_at("route1", 6, 9)),
     ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),
+    # Blackrock (0.25): Lakeshire by day, the Steppes' ash and lava, the mountain's cavern, Thorium Point
+    ("Games - Azeromon Lakeshire", azero_at("lakeshire", 12, 10, "ns.Azero.clockHour = 12")),
+    ("Games - Azeromon Burning Steppes", azero_at("steppes", 20, 13, "ns.Azero.clockHour = 12")),
+    ("Games - Azeromon Blackrock Mountain", azero_at("brm", 18, 13, "ns.Azero.clockHour = 12")),
+    ("Games - Azeromon Searing Gorge", azero_at("gorge", 12, 7, "ns.Azero.clockHour = 12")),
     # the Guild Hall: by day from the dais steps (wings shut, nothing killed); at night in Karazhan's wing with
     # Karazhan, Gruul and Magtheridon cleared; down the nave by the rotunda
     ("Games - Azeromon Guild Hall", azero_at("hideout", 17, 8)),

@@ -29,7 +29,7 @@ local function Pool()
     pool = {}
     for _, id in ipairs(D.dexOrder) do
         local sp = D.species[id]
-        if not sp.boss and not sp.rare then pool[#pool + 1] = id end
+        if not sp.boss and not sp.rare and not sp.legendary then pool[#pool + 1] = id end
     end
     return pool
 end

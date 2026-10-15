@@ -17,13 +17,15 @@ local HX, HY = 6.5, 4                     -- player's screen tile (half a tile i
 local SW, SH = TILE * VW, TILE * VH
 local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\Azeromon\\"
 local ATLAS, CHARS, PLATFORM = MEDIA .. "atlas", MEDIA .. "chars", MEDIA .. "platform"
--- Pixel Operator by Jayvee Enaguas (CC0). Falls back to the game font if the file is missing (needs a restart).
-local FONT = MEDIA .. "fonts\\PixelOperator.ttf"
-local FONT_BOLD = MEDIA .. "fonts\\PixelOperator-Bold.ttf"
+-- Pixelify Sans (SIL OFL 1.1, static Medium / SemiBold cuts of the variable font). Falls back to the game font if
+-- the file is missing (new files need a client restart). It runs ~25% larger than the old Pixel Operator at the same
+-- size, so its sizes run about 0.9 of the old ones (Font: size x 1.25 instead of x 1.4).
+local FONT = MEDIA .. "fonts\\PixelifySans-Medium.ttf"
+local FONT_BOLD = MEDIA .. "fonts\\PixelifySans-SemiBold.ttf"
 local FONT_FALLBACK = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 local TEXT_SPEED = 55                     -- characters per second
 local BOX_H = 112
-local INK = { 0.25, 0.25, 0.29 }          -- GBA text colour
+local INK = { 0.165, 0.18, 0.21 }         -- text colour (dark slate, no drop shadow)
 local INK_SHADOW = { 0.84, 0.84, 0.86 }
 
 local floor, max, min = math.floor, math.max, math.min
@@ -87,17 +89,17 @@ local function Rot(t, r)
     if t.SetRotation then pcall(t.SetRotation, t, r) end
 end
 
--- size is the old design size; the pixel font runs small, so it is scaled up ~1.4x.
+-- size is the old design size; drawn at 1.25x in the pixel font.
 local measureFs                  -- a hidden font string, to measure text (TextWidth)
 local function Font(parent, size, layer, bold)
     local fs = parent:CreateFontString(nil, layer or "OVERLAY")
-    local px = floor((size or 16) * 1.4 + 0.5)
+    local px = floor((size or 16) * 1.25 + 0.5)
     if not fs:SetFont(bold and FONT_BOLD or FONT, px, "") then fs:SetFont(FONT_FALLBACK, size or 16, "") end
     fs:SetJustifyH("LEFT")
     fs:SetJustifyV("TOP")
     fs:SetTextColor(INK[1], INK[2], INK[3])
-    fs:SetShadowColor(INK_SHADOW[1], INK_SHADOW[2], INK_SHADOW[3], 1)
-    fs:SetShadowOffset(2, -2)
+    fs:SetShadowColor(INK_SHADOW[1], INK_SHADOW[2], INK_SHADOW[3], 0)
+    fs:SetShadowOffset(0, 0)
     return fs
 end
 
@@ -108,7 +110,7 @@ local function TextWidth(str, size)
         measureFs:Hide()
     end
     if measureFs then
-        local px = floor((size or 16) * 1.4 + 0.5)
+        local px = floor((size or 16) * 1.25 + 0.5)
         if not measureFs:SetFont(FONT, px, "") then measureFs:SetFont(FONT_FALLBACK, size or 16, "") end
         measureFs:SetText(str)
         local ok, w = pcall(measureFs.GetStringWidth, measureFs)
@@ -130,15 +132,15 @@ local function Rounded(f, inset, cut, r, g, b, sub, layer)
     return h, v
 end
 
--- The FireRed / Emerald window: dark outline, a pale blue ring, a white inside.
+-- The window: a near-black edge, a slate-blue frame, a pale blue inner ring, a warm cream inside.
 local function Box(parent, w, h, level)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(w, h)
     if level then f:SetFrameLevel(level) end
-    Rounded(f, 0, 4, 0.27, 0.29, 0.37, 0)
-    Rounded(f, 2, 3, 0.56, 0.74, 0.86, 1)
-    Rounded(f, 5, 2, 0.35, 0.50, 0.62, 2)
-    Rounded(f, 6, 2, 0.99, 0.99, 0.97, 3)
+    Rounded(f, 0, 4, 0.04, 0.05, 0.07, 0)
+    Rounded(f, 2, 3, 0.24, 0.35, 0.53, 1)
+    Rounded(f, 5, 2, 0.66, 0.77, 0.90, 2)
+    Rounded(f, 7, 1, 0.97, 0.96, 0.93, 3)
     f:EnableMouse(true)
     f:SetScript("OnMouseDown", function(_, button)          -- a right-click anywhere on a window: back
         if button == "RightButton" and UI.Press then UI.Press("B") end
@@ -174,7 +176,7 @@ local function Pill(parent, w, h, size)
     f:SetSize(w or 56, h or 16)
     f.bg1, f.bg2 = Rounded(f, 0, 2, 0.5, 0.5, 0.5, 0, "ARTWORK")
     f.fs = f:CreateFontString(nil, "OVERLAY")
-    if not f.fs:SetFont(FONT_BOLD, size or 15, "") then f.fs:SetFont(FONT_FALLBACK, 10, "") end
+    if not f.fs:SetFont(FONT_BOLD, floor((size or 15) * 0.82 + 0.5), "") then f.fs:SetFont(FONT_FALLBACK, 10, "") end
     f.fs:SetPoint("CENTER", 0, 1)
     f.fs:SetTextColor(1, 1, 1)
     f.fs:SetShadowColor(0, 0, 0, 0.45)
@@ -1601,7 +1603,7 @@ function Scr.OpenRecipes(prof, onClose)
         end
     end
     menu = PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 32, level = 70, desc = true,
-        title = string.format("%s  %d / %d", p.name:upper(), C.Skill(prof) or 0, D.SKILL_MAX),
+        title = string.format("%s  %d / %d", p.name:upper(), C.Skill(prof) or 0, C.Cap(prof)),
         onCancel = function(m)
             PopMenu(m)
             R.bagDesc:Hide()
@@ -1620,8 +1622,8 @@ function Scr.OpenProfessions()
         local p = D.professions[id]
         local skill = C.Skill(id)
         items[#items + 1] = { text = p.name, icon = p.icon, prof = id,
-            right = skill and string.format("%d / %d", skill, D.SKILL_MAX) or "not learned",
-            bar = skill and skill / D.SKILL_MAX or nil, disabled = not skill,
+            right = skill and string.format("%d / %d", skill, C.Cap(id)) or "not learned",
+            bar = skill and skill / C.Cap(id) or nil, disabled = not skill,
             onSelect = function()
                 if p.gather and id ~= "mining" then
                     Message(p.howto)
@@ -1729,6 +1731,20 @@ function OpenStartMenu()
                 end
                 if def.use == "material" then Message("It's a crafting material. See PROFESSIONS.") return end
                 if def.use == "boost" then Message("Drink it in battle: it raises the stat of the beast fighting.") return end
+                if def.use == "evolve" then                    -- an evolution item: the scene plays as a script
+                    OpenParty("item", function(idx, partyMenu)
+                        if partyMenu then PopMenu(partyMenu) end
+                        if not idx then return end
+                        if not M.ItemEvolution(G.save.party[idx], id) then
+                            Message("It won't have any effect.")
+                            return
+                        end
+                        CloseAllMenus()
+                        R.bagDesc:Hide()
+                        G:Run(function(g) g:UseEvolveItem(idx, id) end)
+                    end)
+                    return
+                end
                 if def.use == "gear" or def.use == "flask" then
                     OpenParty(def.use == "gear" and "equip" or "item", function(idx, partyMenu)
                         if partyMenu then PopMenu(partyMenu) end
@@ -1821,10 +1837,10 @@ function Scr.OpenSell()
         end })
 end
 
-local function OpenShop(keeper)
+local function OpenShop(keeper, stock)
     ns.AzeroSound:Play("shop")
     local items = {}
-    for _, id in ipairs(D.shopStock) do
+    for _, id in ipairs(D.ShopStock(stock)) do
         local def = D.items[id]
         items[#items + 1] = { text = def.name, right = D.Money(def.price), icon = def.icon, item = id,
             onSelect = function(_, menu)
@@ -2447,6 +2463,11 @@ local function OpenFightMenu()
         end,
         onMove = function(i, menu)
             local mv = menu.items[i].move
+            -- the battle text box stays up (UpdateText shows it every frame) and spans the whole bottom: keep
+            -- the info window over it and the move list, whatever level the screen sits at
+            local lvl = max(R.textbox:GetFrameLevel(), menu.frame:GetFrameLevel()) + 5
+            info:SetFrameLevel(lvl)
+            info.type:SetFrameLevel(lvl + 1)
             info:Show()
             if mv then
                 local md = D.moves[mv.id]
@@ -2492,7 +2513,8 @@ local function OpenActionMenu()
                     R.bagDesc:Hide()
                     UI:BattleAct({ kind = "item", item = id, target = target })
                 end
-                if def.use == "charm" or def.use == "gear" or def.use == "flask" or def.use == "material" then
+                if def.use == "charm" or def.use == "gear" or def.use == "flask" or def.use == "material"
+                    or def.use == "evolve" then
                     Message("Now is not the time to use that!")
                 elseif def.use == "boost" then
                     local st = b.ally.stages[def.stat] or 0
@@ -2610,7 +2632,7 @@ local function BattleScene()
     local art = ns.AzeroBattleArt
     if not art then return nil end
     local def = G.map and G.map.def
-    local sc = def and art.scenes[def.theme or ""]
+    local sc = def and (art.scenes[G.map.id] or art.scenes[def.theme or ""])     -- (a map's own scene: the Molten Core)
     if not sc then sc = (def and not def.outdoor) and art.indoor or art.outdoor end
     return sc
 end
@@ -2642,7 +2664,7 @@ local function StartBattleView(b)
     ApplyBattleTheme(G.map and G.map.def.theme)
     R.battleSkyAlpha = ApplySky(R.battleSky, G.map and G.map.def.outdoor, 0.75, G.map and G.map.def.gloom)
     local foeSp = b.foe and b.foe.mon and D.species[b.foe.mon.sp]
-    if b.wild and foeSp and foeSp.rare and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
+    if b.wild and foeSp and (foeSp.rare or foeSp.legendary) and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
     ns.AzeroSound:Play("encounter")
     -- the battle takes the keys: overworld menus still open (a guildmate's challenge accepted over the start
     -- menu) close, and so do their boxes
@@ -2668,6 +2690,7 @@ end
 local function EndBattleView()
     BT.battle, BT.actionOpen = nil, nil
     R.battle:Hide()
+    R.moveInfo:Hide()                        -- (on the screen, not the battle layer)
     world:Show()
     CloseAllMenus()
     ClearText()
@@ -2954,12 +2977,20 @@ Amb.MOODS = {
     jungle = { tint = { 0.92, 1, 0.94 }, motes = { 0.9, 1, 0.7 }, shafts = true, fireflies = true, rain = true },
     mine = { tint = { 0.94, 0.88, 0.82 }, motes = { 0.8, 0.74, 0.62 }, duskMotes = { 0.8, 0.74, 0.62 } },
     arena = { tint = { 1, 0.94, 0.84 }, motes = { 0.96, 0.86, 0.66 }, duskMotes = { 1, 0.78, 0.44 } },
+    -- Blackrock: Redridge's warm autumn with falling leaves (their colours), the Steppes' red-ash grade with ash
+    -- falling and embers rising off the lava, the Gorge's warm dust, the mountain's caves with embers
+    redridge = { tint = { 1, 0.93, 0.84 }, motes = { 1, 0.86, 0.6 }, duskMotes = { 1, 0.74, 0.42 }, rain = true,
+                 leaves = { { 0.86, 0.42, 0.16 }, { 0.74, 0.24, 0.12 }, { 0.94, 0.66, 0.22 } } },
+    steppes = { tint = { 1, 0.84, 0.76 }, ash = true, embers = true },
+    gorge = { tint = { 1, 0.9, 0.78 }, motes = { 0.96, 0.74, 0.5 }, duskMotes = { 1, 0.66, 0.36 }, embers = true },
+    blackrock = { tint = { 1, 0.88, 0.8 }, embers = true, motes = { 0.7, 0.5, 0.4 }, duskMotes = { 0.7, 0.5, 0.4 } },
 }
 Amb.GLINT = { elwynn = { 0.82, 0.92, 1 }, westfall = { 0.84, 0.94, 1 }, duskwood = { 0.5, 0.6, 0.76 },
-              jungle = { 0.7, 0.96, 0.96 }, mine = { 0.36, 0.46, 0.56 }, arena = { 0.84, 0.94, 1 } }
+              jungle = { 0.7, 0.96, 0.96 }, mine = { 0.36, 0.46, 0.56 }, arena = { 0.84, 0.94, 1 },
+              redridge = { 0.84, 0.92, 1 }, steppes = { 1, 0.86, 0.5 }, gorge = { 1, 0.86, 0.5 }, blackrock = { 1, 0.86, 0.5 } }
 Amb.parts = {}        -- footstep dust and leaves: { kind, x, y, t0, seed } in map pixels
 Amb.GLOW = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
-Amb.CHIMNEY_KINDS = { house = true, darkhouse = true, farmhouse = true, stonehouse = true }
+Amb.CHIMNEY_KINDS = { house = true, darkhouse = true, farmhouse = true, stonehouse = true, rrhouse = true }
 Amb.CRITTERS = {                -- butterfly wing colours and the flock's colours, per map theme
     elwynn = { wings = { { 1, 1, 1 }, { 0.96, 0.89, 0.48 }, { 0.62, 0.83, 1 } }, flies = 4,
                bird = { 0.17, 0.16, 0.19 }, bird2 = { 0.17, 0.16, 0.19 } },
@@ -2970,6 +3001,10 @@ Amb.CRITTERS = {                -- butterfly wing colours and the flock's colour
     westfall = { wings = { { 0.96, 0.89, 0.48 }, { 1, 1, 1 } }, flies = 3, bird = { 0.12, 0.1, 0.12 },
                  bird2 = { 0.12, 0.1, 0.12 } },
     arena = { wings = {}, flies = 0, bird = { 0.3, 0.24, 0.2 }, bird2 = { 0.3, 0.24, 0.2 } },     -- vultures
+    redridge = { wings = { { 0.96, 0.62, 0.26 }, { 1, 1, 1 } }, flies = 3, bird = { 0.14, 0.12, 0.12 },
+                 bird2 = { 0.14, 0.12, 0.12 } },
+    steppes = { wings = {}, flies = 0, bird = { 0.1, 0.08, 0.08 }, bird2 = { 0.1, 0.08, 0.08 } },          -- crows in the ash
+    gorge = { wings = {}, flies = 0, bird = { 0.3, 0.22, 0.18 }, bird2 = { 0.3, 0.22, 0.18 } },           -- buzzards
 }
 
 function Amb.Water(m, g, px, py)
@@ -3389,7 +3424,48 @@ function Amb.Mood(m, g, px, py, period)
             local life = H + 40
             local y = ((((k * 0.37) % 1) * life + now * (6 + (k % 5))) % life) - 20
             local x = ((k * 0.618) % 1) * W + math.sin(now * 1.4 + k) * 6
-            Amb.Pix(px, py, x, y, 2, 1, k % 3 > 0 and 0.71 or 0.54, k % 3 > 0 and 0.42 or 0.29, 0.2, 1, "ARTWORK", 6)
+            local lc = type(mood.leaves) == "table" and mood.leaves[k % #mood.leaves + 1]
+            if lc then
+                Amb.Pix(px, py, x, y, 2, 1, lc[1], lc[2], lc[3], 1, "ARTWORK", 6)
+            else
+                Amb.Pix(px, py, x, y, 2, 1, k % 3 > 0 and 0.71 or 0.54, k % 3 > 0 and 0.42 or 0.29, 0.2, 1, "ARTWORK", 6)
+            end
+        end
+    end
+    -- ash drifting down over the Burning Steppes (screen-anchored, like the rain, but slow)
+    if mood.ash then
+        local VWp, VHp = VW * 16, VH * 16
+        for k = 0, 27 do
+            local fall = VHp + 8
+            local y = (((k * 0.7548) % 1) * fall + now * (5 + (k % 4))) % fall - 4
+            local x = (((k * 0.5698) % 1) * (VWp + 20) + math.sin(now * 0.9 + k) * 5 + y * 0.2) % (VWp + 20) - 10
+            local gr = (k % 3 == 0) and 0.36 or 0.62
+            Amb.Pix(px, py, ox + x, oy + y, 1, 1, gr, gr * 0.94, gr * 0.9, 0.8, "OVERLAY", 2)
+        end
+    end
+    -- embers rising off the lava (m.lava: its lava tiles, gathered once), or anywhere in a cave without lava
+    if mood.embers then
+        if not m.lava then
+            m.lava = {}
+            for k in pairs(m.water) do m.lava[#m.lava + 1] = k end
+            table.sort(m.lava)
+        end
+        local n = #m.lava
+        for k = 0, 23 do
+            local t = now * 0.35 + k * 0.37
+            local age, cyc = t % 1, floor(t)
+            local tx, ty
+            if n > 0 then
+                local key = m.lava[(cyc * 7919 + k * 104729) % n + 1]
+                tx, ty = key % m.w, floor(key / m.w)
+            else
+                tx, ty = (cyc * 31 + k * 17) % m.w, (cyc * 13 + k * 29) % m.h
+            end
+            local x = tx * 16 + 4 + (k * 5) % 9 + math.sin(t * 9 + k) * 2
+            local y = ty * 16 + 10 - age * 38
+            if x > ox - 16 and x < ox + VW * 16 + 16 and y > oy - 16 and y < oy + VH * 16 + 16 then
+                Amb.Pix(px, py, x, y, 1, 1, 1, 0.55 + 0.3 * (1 - age), 0.2, 1 - age * 0.8, "OVERLAY", 6)
+            end
         end
     end
     -- fireflies at dusk and night (Stranglethorn)
@@ -3470,7 +3546,7 @@ function Amb.Steps(m, px, py)
         if not G:Data().calm then
             local ch = m.def.rows[mv.fromY + 1] and m.def.rows[mv.fromY + 1]:sub(mv.fromX + 1, mv.fromX + 1) or "."
             local kind = (ch == "\"" or ch == ";") and "leaf" or ((ch == "=" or ch == "s" or (m.def.theme == "mine")
-                or (m.def.theme == "arena")) and "dust") or nil
+                or (m.def.theme == "arena") or (m.def.theme == "gorge") or (m.def.theme == "blackrock")) and "dust") or nil
             local running = mv.dur < (G.STEP_TIME or 0.25) * 0.8
             if kind then
                 for k = 1, running and 2 or 1 do
@@ -3849,11 +3925,11 @@ local function Sprite(i)
         s.bang:SetTextColor(0.9, 0.2, 0.2)
         -- the name plate: the name over a WoW-style <title>, both over the head
         s.title = world:CreateFontString(nil, "OVERLAY")
-        if not s.title:SetFont(FONT_BOLD, 11, "OUTLINE") then s.title:SetFont(FONT_FALLBACK, 8, "OUTLINE") end
+        if not s.title:SetFont(FONT_BOLD, 9, "OUTLINE") then s.title:SetFont(FONT_FALLBACK, 8, "OUTLINE") end
         s.title:SetTextColor(0.88, 0.86, 0.66)
         s.title:SetPoint("BOTTOM", s, "TOP", 0, 1)
         s.name = world:CreateFontString(nil, "OVERLAY")
-        if not s.name:SetFont(FONT_BOLD, 13, "OUTLINE") then s.name:SetFont(FONT_FALLBACK, 9, "OUTLINE") end
+        if not s.name:SetFont(FONT_BOLD, 11, "OUTLINE") then s.name:SetFont(FONT_FALLBACK, 9, "OUTLINE") end
         s.name:SetTextColor(1, 0.98, 0.9)
         sprites[i] = s
     end
@@ -3871,7 +3947,7 @@ local function PeerSprite(i)
         s.shadow = Shadow()
         s.shadow:SetPoint("TOPLEFT", s, "TOPLEFT")
         s.label = world:CreateFontString(nil, "OVERLAY")
-        if not s.label:SetFont(FONT_BOLD, 14, "OUTLINE") then s.label:SetFont(FONT_FALLBACK, 10, "OUTLINE") end
+        if not s.label:SetFont(FONT_BOLD, 11, "OUTLINE") then s.label:SetFont(FONT_FALLBACK, 10, "OUTLINE") end
         s.label:SetPoint("BOTTOM", s, "TOP", 0, -2)
         -- "battling..." over a guildmate who is busy (Net: the peer's status)
         s.bubble = Box(world, 100, 26, world:GetFrameLevel() + 15)
@@ -4154,7 +4230,7 @@ local function SyncPending()
         StartBattleView(p.battle)
     elseif p.kind == "shop" then
         ClearText()
-        OpenShop(p.keeper)
+        OpenShop(p.keeper, p.stock)
     elseif p.kind == "relearn" then
         ClearText()
         Scr.OpenRelearn()
@@ -4241,14 +4317,14 @@ local function ShowTitle()
             start()
         end
     end }
-    items[#items + 1] = { text = "WHAT'S NEW", right = KH.ChangelogUnseen() and "new" or nil,
+    items[#items + 1] = { text = "WHAT'S NEW", right = KH.ChangelogUnseen() and "•" or nil,      -- (a dot: unread)
         rightColor = { 0.85, 0.55, 0.05 }, onSelect = function(idx, menu)
             KH.OpenChangelog()
             menu.items[idx].right = nil
             UI:RefreshMenu(menu)
         end }
     items[#items + 1] = { text = "CONTROLS", onSelect = function() KH.OpenControls() end }
-    PushMenu(items, { w = min(SW - 24, #items * 182), cols = #items, anchor = { "BOTTOM", screen, "BOTTOM", 0, 26 }, rowH = 32,
+    PushMenu(items, { w = min(SW - 24, #items * 200), cols = #items, anchor = { "BOTTOM", screen, "BOTTOM", 0, 26 }, rowH = 32,
         level = 60, onCancel = function() end })
 end
 
@@ -4916,6 +4992,91 @@ local function OnKeyUp(self, key)
 end
 
 ---------------------------------------------------------------------------
+-- Sky icon: the realm clock's sun or moon, drawn as an 11x11 grid of coloured squares
+---------------------------------------------------------------------------
+
+local SKY_N, SKY_PX = 11, 2
+local SKY_INK = {
+    Y = { 1.00, 0.84, 0.24 }, W = { 1.00, 0.97, 0.72 }, O = { 0.96, 0.55, 0.14 }, R = { 0.82, 0.28, 0.20 },
+    P = { 0.92, 0.45, 0.50 }, H = { 0.36, 0.43, 0.62 }, M = { 0.80, 0.83, 0.92 }, S = { 0.60, 0.64, 0.78 },
+    E = { 0.33, 0.37, 0.55 }, K = { 0.88, 0.66, 0.18 },
+}
+-- one stage per stretch of the day: { from hour, name, rows }; rows read top to bottom, "." is empty. Every shape
+-- has a dark rim (O / R round a sun, E round a moon): the panel behind is cream, pale fills alone vanish on it.
+local SKY_STAGES = {
+    { 0, "Night (full moon)", {
+        "K..........", "....EEE....", "..EEMMMEE..", "..EMSMMME..", ".EMMMMMSME.", ".EMMMMMMME.",
+        ".EMSSMMMME.", "..EMMMMSE..", "..EEMMMEE..", "....EEE...K", "..........." } },
+    { 3, "Night (setting moon)", {
+        ".K.........", "....EEE....", "....EMMEE..", "......EMME.", ".......EME.", ".K.....EME.",
+        ".......EME.", "......EMME.", "....EMMEE..", "....EEE....", "..........." } },
+    { 5, "Dawn", {
+        "...........", "...........", ".....P.....", ".P.......P.", "....OOO....", "...OYYYO...",
+        "..OYWYYYO..", ".OYYYYYYYO.", "HHHHHHHHHHH", "...OO.OOO..", ".H...HH...." } },
+    { 7, "Morning", {
+        ".....O.....", "...........", "....OOO....", "...OWYYO...", "..OWYYYYO..", "O.OYYYYYO.O",
+        "..OYYYYYO..", "...OYYYO...", "....OOO....", "...........", ".....O....." } },
+    { 10, "Midday", {
+        ".....O.....", ".O.......O.", "....OOO....", "...OWYYO...", "..OWYYYYO..", "OOOYYYYYOOO",
+        "..OYYYYYO..", "...OYYYO...", "....OOO....", ".O.......O.", ".....O....." } },
+    { 15, "Afternoon", {
+        "...........", ".R.......R.", "....RRR....", "...RYYOR...", "..RYYYOOR..", "..RYYOOOR..",
+        "..ROOOOOR..", "...ROOOR...", "....RRR....", ".R.......R.", "..........." } },
+    { 18, "Dusk", {
+        "...........", "...........", "...........", "...........", "...........", "....RRR....",
+        "..RROOORR..", ".ROOOYOOOR.", "HHHHHHHHHHH", "..RR.HH.RR.", "....R..R..." } },
+    { 21, "Night (rising moon)", {
+        ".........K.", "....EEE....", "..EEMME....", ".EMME......", ".EME.......", ".EME.....K.",
+        ".EME.......", ".EMME......", "..EEMME....", "....EEE....", "..........." } },
+}
+
+function Scr.BuildSkyIcon(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(SKY_N * SKY_PX, SKY_N * SKY_PX)
+    f.px = {}
+    for i = 1, SKY_N * SKY_N do
+        local t = Tex(f, "OVERLAY")
+        t:SetSize(SKY_PX, SKY_PX)
+        t:SetPoint("TOPLEFT", ((i - 1) % SKY_N) * SKY_PX, -floor((i - 1) / SKY_N) * SKY_PX)
+        t:Hide()
+        f.px[i] = t
+    end
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", function(self)
+        if not (self.stage and GameTooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.stage[2], 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    f:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    f:SetScript("OnMouseDown", function(_, button)
+        if button == "RightButton" and UI.Press then UI.Press("B") end
+    end)
+    return f
+end
+
+function Scr.SetSkyIcon(f, hour)
+    local stage = SKY_STAGES[1]
+    for _, s in ipairs(SKY_STAGES) do
+        if hour >= s[1] then stage = s end
+    end
+    if f.stage == stage then return end
+    f.stage = stage
+    for r = 1, SKY_N do
+        local row = stage[3][r]
+        for c = 1, SKY_N do
+            local t, ink = f.px[(r - 1) * SKY_N + c], SKY_INK[row:sub(c, c)]
+            if ink then
+                t:SetColorTexture(ink[1], ink[2], ink[3], 1)
+                t:Show()
+            else
+                t:Hide()
+            end
+        end
+    end
+end
+
+---------------------------------------------------------------------------
 -- Frame update
 ---------------------------------------------------------------------------
 
@@ -4965,8 +5126,9 @@ local function OnUpdate(self, elapsed)
             or (cls:sub(1, 1) .. cls:sub(2):lower()))
         R.money.perk:SetText(p and string.format("%s: %s", className, p.name) or "")
         if cc then R.money.perk:SetTextColor(cc.r * 0.8, cc.g * 0.8, cc.b * 0.8) end
-        R.money.fs:SetText(string.format("Money: %s\nBadges: %d\nRealm time %02d:%02d (%s)", D.Money(G.save.money),
-            G:BadgeCount(), math.floor(hr), math.floor((hr % 1) * 60), G:Period()))
+        R.money.fs:SetText(string.format("Money: %s\nBadges: %d", D.Money(G.save.money), G:BadgeCount()))
+        R.money.time:SetText(string.format("Realm time %02d:%02d", math.floor(hr), math.floor((hr % 1) * 60)))
+        Scr.SetSkyIcon(R.money.sky, hr)
         if #stack == 0 then R.money:Hide() end
     end
     if R.bagDesc:IsShown() and #stack == 0 then R.bagDesc:Hide() end
@@ -5084,7 +5246,7 @@ local function BuildBattle()
         tag:SetPoint("TOPLEFT", 16, -57)
         Rounded(tag, 0, 2, 0.30, 0.30, 0.34, 0, "ARTWORK")
         local hpl = tag:CreateFontString(nil, "OVERLAY")
-        if not hpl:SetFont(FONT_BOLD, 14, "") then hpl:SetFont(FONT_FALLBACK, 9, "") end
+        if not hpl:SetFont(FONT_BOLD, 11, "") then hpl:SetFont(FONT_FALLBACK, 9, "") end
         hpl:SetPoint("CENTER", 0, 1)
         hpl:SetText("HP")
         hpl:SetTextColor(0.98, 0.72, 0.18)
@@ -5110,7 +5272,8 @@ local function BuildBattle()
     R.net:SetTexture("Interface\\Icons\\Ability_Hunter_BeastTaming")
     R.net:Hide()
 
-    R.moveInfo = Box(b, 170, BOX_H, 75)
+    -- on the screen like the menus and text box, not the battle layer (that one is scaled past the stage and clips)
+    R.moveInfo = Box(screen, 170, BOX_H, 75)
     R.moveInfo:SetPoint("BOTTOMRIGHT", screen, "BOTTOMRIGHT", 0, 0)
     R.moveInfo.pp = Font(R.moveInfo, 15, nil, true)
     R.moveInfo.pp:SetPoint("TOPLEFT", 18, -14)
@@ -5204,9 +5367,14 @@ function UI:CreatePanel(parent)
     R.money:SetPoint("TOPLEFT", 8, -8)
     R.money.fs = Font(R.money, 15)
     R.money.fs:SetPoint("TOPLEFT", 16, -14)
+    -- the realm clock, with a pixel sun or moon for the time of day after it (Scr.SetSkyIcon)
+    R.money.time = Font(R.money, 15)
+    R.money.time:SetPoint("TOPLEFT", R.money.fs, "BOTTOMLEFT", 0, 0)
+    R.money.sky = Scr.BuildSkyIcon(R.money)
+    R.money.sky:SetPoint("LEFT", R.money.time, "RIGHT", 6, 1)
     -- the class perk: one line in the class colour, the whole story on hover
     R.money.perk = Font(R.money, 15)
-    R.money.perk:SetPoint("TOPLEFT", R.money.fs, "BOTTOMLEFT", 0, -2)
+    R.money.perk:SetPoint("TOPLEFT", R.money.time, "BOTTOMLEFT", 0, -2)
     R.money:SetScript("OnEnter", function(self)
         local p = G:PerkInfo()
         if not (p and GameTooltip) then return end
@@ -5454,18 +5622,18 @@ function UI:CreatePanel(parent)
     glow:SetPoint("CENTER", logo, "CENTER", 0, 8)
     local rb = TA.ribbon
     local sub = front:CreateFontString(nil, "OVERLAY")
-    if not sub:SetFont(FONT_BOLD, 16, "") then sub:SetFont(FONT_FALLBACK, 13, "") end
+    if not sub:SetFont(FONT_BOLD, 13, "") then sub:SetFont(FONT_FALLBACK, 13, "") end
     sub:SetText("TAME THE BEASTS OF AZEROTH")
     sub:SetTextColor(1, 0.93, 0.78)
     sub:SetPoint("CENTER", logo, "TOPLEFT", (rb[1] + rb[3] / 2) * TA.scale, -(rb[2] + (rb[4] - 3) / 2) * TA.scale + 1)
     R.titleLogo, R.titleGlow = logo, glow
     local credit = front:CreateFontString(nil, "OVERLAY")
-    credit:SetFont(FONT, 10, "")
+    credit:SetFont(FONT, 8, "")
     credit:SetTextColor(0.62, 0.66, 0.76, 0.85)
     credit:SetPoint("BOTTOM", 0, 6)
-    credit:SetText("Pixel art: Tiny 16 by Lanea Zimmerman (Sharm), CC-BY  |  Tiles: Red_Voxel, CC-BY-SA  |  Font: Pixel Operator (CC0)")
+    credit:SetText("Pixel art: Tiny 16 by Lanea Zimmerman (Sharm), CC-BY  |  Tiles: Red_Voxel, CC-BY-SA  |  Font: Pixelify Sans (OFL)")
     local ver = front:CreateFontString(nil, "OVERLAY")
-    ver:SetFont(FONT, 12, "")
+    ver:SetFont(FONT, 10, "")
     ver:SetTextColor(0.78, 0.82, 0.92, 0.8)
     ver:SetPoint("TOPRIGHT", -10, -8)
     local latest = ns.AzeroChangelog and ns.AzeroChangelog[1]
@@ -5474,23 +5642,23 @@ function UI:CreatePanel(parent)
 
     -- focus overlay
     focusOverlay = CreateFrame("Button", nil, root)
-    focusOverlay:SetAllPoints(screen)
+    focusOverlay:SetAllPoints(root)                                -- (the whole stage, not the fitted screen)
     focusOverlay:SetFrameLevel(screen:GetFrameLevel() + 120)
     local dim = Tex(focusOverlay, "BACKGROUND")
     dim:SetAllPoints()
     dim:SetColorTexture(0, 0, 0, 0.55)
     local fl = focusOverlay:CreateFontString(nil, "OVERLAY")
-    fl:SetFont(FONT, 20, "OUTLINE")
+    fl:SetFont(FONT, 16, "OUTLINE")
     fl:SetText("PAUSED")
     fl:SetTextColor(1, 0.9, 0.5)
     fl:SetPoint("CENTER")
     local fl2 = focusOverlay:CreateFontString(nil, "OVERLAY")
-    fl2:SetFont(FONT, 12, "OUTLINE")
+    fl2:SetFont(FONT, 10, "OUTLINE")
     fl2:SetText("Click to play. The game takes the keyboard while it is active; Esc pauses it, Esc again closes DisasterZone.")
     fl2:SetPoint("TOP", fl, "BOTTOM", 0, -8)
     -- what keeps running while paused (a PvP turn timer, a trade): KH.PauseNote, set every frame while paused
     R.pauseNote = focusOverlay:CreateFontString(nil, "OVERLAY")
-    R.pauseNote:SetFont(FONT, 12, "OUTLINE")
+    R.pauseNote:SetFont(FONT, 10, "OUTLINE")
     R.pauseNote:SetTextColor(1, 0.72, 0.45)
     R.pauseNote:SetPoint("TOP", fl2, "BOTTOM", 0, -6)
     R.pauseNote:SetText("")
@@ -5535,6 +5703,7 @@ function UI:CreatePanel(parent)
             world:SetScale(k)
             R.battle:SetScale(k)
             R.title:SetScale(k)
+            if ns.AzeroWorld.frame then ns.AzeroWorld:Fit(w / (fit * k), h / (fit * k), k) end
         end
         KH.PlaceKeyStrip(h)
     end

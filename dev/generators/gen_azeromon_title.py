@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "addon", "DisasterZone"))
 MEDIA = os.path.join(ROOT, "Media", "Azeromon")
-FONT = os.path.join(MEDIA, "fonts", "PixelOperator-Bold.ttf")
+FONT = os.path.join(os.path.dirname(__file__), "..", "art", "fonts", "PixelOperator-Bold.ttf")   # the logo keeps its 16 px grid font (CC0)
 
 TEXT = "AZEROMON"
 SIZE = 32                    # a multiple of the font's 16 px grid: clean doubled pixels

@@ -49,7 +49,8 @@ local function Clock() return (GetServerTime and GetServerTime()) or (time and t
 function GB.CompletableIds()
     local out = {}
     for _, id in ipairs(D.dexOrder) do
-        if not D.species[id].rare and not D.species[id].boss then out[#out + 1] = id end
+        local s = D.species[id]
+        if not s.rare and not s.boss and not s.legendary then out[#out + 1] = id end
     end
     return out
 end

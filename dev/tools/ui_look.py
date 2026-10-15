@@ -449,6 +449,45 @@ def font(px, narrow=False):
     return _fonts[key]
 
 
+def addon_ttf(path):
+    """an addon font file named by SetFont (Interface\\AddOns\\DisasterZone\\...ttf) -> its path on disk, else None"""
+    if not path or not str(path).lower().endswith(".ttf"):
+        return None
+    p = str(path).replace("\\", "/")
+    m = re.match(r"(?i)interface/addons/disasterzone/(.+)", p)
+    if not m:
+        return None
+    root = os.environ.get("DISASTERZONE_ADDON_DIR") or os.path.join(os.path.dirname(__file__), "..", "..", "addon", "DisasterZone")
+    f = os.path.join(root, m.group(1))
+    return f if os.path.isfile(f) else None
+
+
+class _TTFMetrics:
+    """ui_audit's text helpers, measured with an addon font file instead of the Friz estimate"""
+
+    def __init__(self, A, path):
+        self._A, self._path = A, path
+
+    def __getattr__(self, name):
+        return getattr(self._A, name)
+
+    def _f(self, size):
+        key = (self._path, "m", size)
+        if key not in _fonts:
+            _fonts[key] = ImageFont.truetype(self._path, max(6, int(round(size * 8))))
+        return _fonts[key]
+
+    def text_width(self, s, size, narrow=False):
+        return self._f(size).getlength(s.replace("\x01", "")) / 8
+
+    def fit_prefix(self, s, size, width, narrow=False):
+        ell = self.text_width("...", size)
+        for i in range(len(s), -1, -1):
+            if self.text_width(s[:i], size) + ell <= width:
+                return s[:i]
+        return ""
+
+
 TOKEN = re.compile(r"\|c([0-9a-fA-F]{8})|\|r|\|T([^|]*)\|t|\|A([^|]*)\|a|\|H[^|]*\|h|\|h|\|n")
 
 
@@ -702,6 +741,10 @@ def _draw_text(img, r, lk, rc, clip_px, lay, A, box):
     k = lay.scale(r["seq"])
     px = size * k * S
     fnt = font(int(round(px)), narrow)
+    ttf = addon_ttf(r.get("font"))
+    if ttf:                     # the addon's own font file (Azeromon's pixel font): drawn and measured with it
+        fnt = ImageFont.truetype(ttf, max(6, int(round(px))))
+        A = _TTFMetrics(A, ttf)
     base, a0 = fs_color(r, lk)
     alpha = a0 * float(1 if lk.get("a") is None else lk.get("a"))
     ink = A.drawn_text_rect(lay, r, rc)

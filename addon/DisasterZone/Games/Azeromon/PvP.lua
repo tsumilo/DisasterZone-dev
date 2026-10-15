@@ -168,7 +168,9 @@ function P.Fingerprint()
     for _, slot in ipairs(D.gearSlots or {}) do out[#out + 1] = tostring(slot.id) end
     for _, id in ipairs(SortedKeys(D.items, function(it) return it.use == "gear" end)) do
         out[#out + 1] = id
-        Flat({ D.items[id].slot or false, D.items[id].bonus or false }, out)
+        local it = D.items[id]
+        Flat({ it.slot or false, it.bonus or false, it.resist or false, it.typePower or false, it.regen or false,
+               it.stun or false }, out)
     end
     local str = table.concat(out)
     local h = 5381

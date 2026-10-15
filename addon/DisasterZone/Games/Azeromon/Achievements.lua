@@ -64,7 +64,10 @@ A.HAUNTS = { "morladim", "morbentfel", "stalvan" }
 local WESTFALL = { "coyote", "fleshripper", "rustgolem", "dustdevil", "crawler", "coastrunner" }
 local STV = { "tigercub", "pantherkit", "raptorling", "gorilla", "crystalspine", "rivercroc", "trollscout", "snapjaw",
               "zombie" }
-A.ELWYNN, A.WESTFALL, A.STV = ELWYNN, WESTFALL, STV
+-- Blackrock's wild first forms (Redridge to the Searing Gorge)
+local BLACKROCK = { "blackwhelp", "mongrel", "rrmystic", "condor", "spitter", "firegut", "scaldingdrake", "firetail",
+                    "burningimp", "glassweb", "blazing", "magma", "temperedgolem", "firewalker" }
+A.ELWYNN, A.WESTFALL, A.STV, A.BLACKROCK = ELWYNN, WESTFALL, STV, BLACKROCK
 
 local function MaxLevel(g)
     local best = 0
@@ -104,6 +107,10 @@ local ACHIEVEMENTS = {
       desc = "Tame every wild beast of Stranglethorn Vale.",
       on = { "tame", "load" }, test = function(g) return A.TamedOf(g, STV) == #STV end,
       progress = function(g) return A.TamedOf(g, STV), #STV end },
+    { id = "blackrock", name = "Blackrock Naturalist", points = 25, icon = "INV_Misc_Head_Dragon_Black",
+      desc = "Tame every wild beast from Redridge to the Searing Gorge.",
+      on = { "tame", "load" }, test = function(g) return A.TamedOf(g, BLACKROCK) == #BLACKROCK end,
+      progress = function(g) return A.TamedOf(g, BLACKROCK), #BLACKROCK end },
 
     -- professions
     { id = "gather1", name = "Gatherer", points = 10, icon = "INV_Misc_Flower_02",
@@ -200,6 +207,18 @@ local ACHIEVEMENTS = {
     { id = "blackwater", name = "Blackwater Raider", points = 25, icon = "INV_Misc_Bandana_01",
       desc = "Earn the Blackwater Seal.",
       on = { "badge", "load" }, test = function(g) return g:Flag("badge_blackwater") and true or false end },
+    { id = "stonewatch", name = "Redridge Liberated", points = 25, icon = "INV_Banner_03",
+      desc = "Defeat Gath'Ilzogg and earn the Stonewatch Seal.",
+      on = { "badge", "load" }, test = function(g) return g:Flag("badge_stonewatch") and true or false end },
+    { id = "darkiron", name = "The Emperor Falls", points = 25, icon = "INV_Hammer_19",
+      desc = "Defeat Emperor Dagran Thaurissan and earn the Dark Iron Signet.",
+      on = { "badge", "load" }, test = function(g) return g:Flag("badge_darkiron") and true or false end },
+    { id = "magmadar", name = "Hound of Ragnaros", points = 50, icon = "INV_Misc_Head_Dragon_Bronze",
+      desc = "Tame Magmadar in the Molten Core.",
+      on = { "tame", "legendary", "load" }, test = function(g, e)
+          if e and e.how == "caught" and e.mon and e.mon.sp == "magmadar" then return true end
+          return g:Flag("caught_magmadar") and true or false
+      end },
 
     -- story and trainers
     { id = "rival", name = "Sibling Rivalry", points = 10, icon = "Ability_DualWield",

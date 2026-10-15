@@ -101,6 +101,7 @@ local function Build()
         if self.t < 1 then return end
         self.t = 0
         MM:Clock()
+        MM:KeepIconsSquare()
         local mode = Look():Opt("minimap", "buttons", "edge")
         if mode == "hover" or mode == "drawer" then MM:Buttons() end
     end)
@@ -246,7 +247,9 @@ local function Take(b, d)
 end
 
 local function GiveBack()
+    local any = false
     for b, was in pairs(taken) do
+        any = true
         taken[b] = nil
         b:SetParent(was.parent or _G.Minimap)
         if was.drag then b:SetScript("OnDragStart", was.drag) end
@@ -257,6 +260,89 @@ local function GiveBack()
         for _, p in ipairs(was.points) do pcall(b.SetPoint, b, unpack(p)) end
         laying = false
     end
+    return any
+end
+
+-- The icons round the map follow its shape. The button libraries ask GetMinimapShape: ours answers while the look is
+-- on (over another addon's, e.g. Leatrix Plus's "ROUND") and they are told to place their icons again. The game's own
+-- icons (mail, the queue eyes) keep their angle from the centre and move onto the square's edge.
+local GAME_ICONS = { "MiniMapMailFrame", "MiniMapBattlefieldFrame", "LFGMinimapFrame", "MiniMapLFGFrame",
+    "QueueStatusMinimapButton" }
+local moved = {}          -- moved[name] = the points it had before it went onto the square's edge
+local prevShape           -- the GetMinimapShape there before ours
+
+local function Shaped()
+    if ns.Look and ns.Look:IsOn("minimap") then return (MM.shape == "square") and "SQUARE" or "ROUND" end
+    return prevShape and prevShape() or "ROUND"
+end
+
+-- True when ours had to (re)take the answer.
+local function ClaimShape()
+    local f = _G.GetMinimapShape
+    if f == Shaped then return false end
+    prevShape = f
+    _G.GetMinimapShape = Shaped
+    return true
+end
+
+local function RefreshLibIcons()
+    local lib = LibStub and LibStub("LibDBIcon-1.0", true)
+    if not (lib and lib.objects and lib.Refresh) then return end
+    for name, b in pairs(lib.objects) do
+        if not taken[b] then pcall(lib.Refresh, lib, name) end
+    end
+end
+
+local function SnapGameIcons(square)
+    local map = _G.Minimap
+    if not map then return end
+    for _, name in ipairs(GAME_ICONS) do
+        local b = _G[name]
+        local locked = b and b.IsProtected and b:IsProtected() and InCombatLockdown and InCombatLockdown()
+        if b and b.GetCenter and not locked then
+            if square then
+                local bx, by = b:GetCenter()
+                local mx, my = map:GetCenter()
+                if bx and mx then
+                    local bs, ms = b:GetEffectiveScale(), map:GetEffectiveScale()
+                    local dx, dy = (bx * bs - mx * ms) / ms, (by * bs - my * ms) / ms
+                    local hw, hh = (map:GetWidth() or 140) / 2, (map:GetHeight() or 140) / 2
+                    local m = math.max(math.abs(dx) / hw, math.abs(dy) / hh)
+                    if m > 0.05 and math.abs(m - 1) > 0.01 then
+                        if not moved[name] then
+                            local pts = {}
+                            for i = 1, (b:GetNumPoints() or 0) do pts[i] = { b:GetPoint(i) } end
+                            moved[name] = pts
+                        end
+                        b:ClearAllPoints()
+                        b:SetPoint("CENTER", map, "CENTER", dx / m * ms / bs, dy / m * ms / bs)
+                    end
+                end
+            elseif moved[name] then
+                b:ClearAllPoints()
+                for _, p in ipairs(moved[name]) do pcall(b.SetPoint, b, unpack(p)) end
+                moved[name] = nil
+            end
+        end
+    end
+end
+
+-- After the shape changed (or the look went off): every icon placed for it.
+function MM:PlaceIcons(off)
+    if off then
+        if _G.GetMinimapShape == Shaped then _G.GetMinimapShape = prevShape end
+    else
+        ClaimShape()
+    end
+    RefreshLibIcons()
+    SnapGameIcons(not off and MM.shape == "square")
+end
+
+-- Each second while square: another addon may take GetMinimapShape after us, and the game re-anchors its icons.
+function MM:KeepIconsSquare()
+    if MM.shape ~= "square" then return end
+    if ClaimShape() then RefreshLibIcons() end
+    SnapGameIcons(true)
 end
 
 -- The addon buttons: on the edge as they are, in the drawer (a grid under the ··· knob while it's open), or on
@@ -278,7 +364,7 @@ function MM:Buttons()
         self:ShowDrawer(skin.open and true or false)
         return
     end
-    GiveBack()
+    if GiveBack() then RefreshLibIcons() end     -- (back on the edge for the map's shape)
     skin.open = false
     if skin.drawer then skin.drawer.isOpen = false; skin.drawer:Hide() end
     local show = mode == "edge" or (mode == "hover" and map:IsMouseOver())
@@ -303,6 +389,7 @@ function MM:ApplyClassic(s, look)
     if cl and cl.ZoneTextButton then cl.ZoneTextButton:SetAlpha(1) end
     if map.SetMaskTexture then pcall(map.SetMaskTexture, map, ROUND_MASK) end
     MM.shape = "round"
+    self:PlaceIcons()
     s.ring:Hide(); s.ringIn:Hide(); s.edge:Paint(nil); s.inner:Paint(nil)
     s.head:Hide(); s.headLine:Hide(); s.plaque:Hide(); s.stud:Hide(); s.clockBg:Hide()
     -- the knob: a minimap button (the tracking border's ring round a dark disc, the dots in gold) on the ring's free
@@ -356,6 +443,7 @@ function MM:Apply()
     local shape = Shape(look)
     if map.SetMaskTexture then pcall(map.SetMaskTexture, map, shape == "round" and ROUND_MASK or SQUARE_MASK) end
     MM.shape = shape
+    self:PlaceIcons()
     local k = look.key
     local round = shape == "round"
     -- edges / rings
@@ -379,31 +467,39 @@ function MM:Apply()
         elseif k == "gilded" then s.edge:Paint({ 0, 0, 0, 1 }); s.inner:Paint(look.rim)
         else s.edge:Paint({ 0, 0, 0, 1 }); s.inner:Paint({ 1, 1, 1, 0.08 }) end
     end
-    -- the zone and the clock, per look
+    -- the zone and the clock, per look (a long zone name stops short of the clock, cut with "...")
     s.head:Hide(); s.headLine:Hide(); s.plaque:Hide(); s.stud:Hide(); s.clockBg:Hide()
     s.zone:ClearAllPoints(); s.clock:ClearAllPoints(); s.sub:ClearAllPoints()
     UI:SetTextSize(s.zone, (k == "sigil" or k == "halo") and "caps" or "body")
+    s.zone:SetJustifyH((k == "halo" or k == "gilded") and "CENTER" or "LEFT")
+    s.sub:SetJustifyH("LEFT")
+    local mapW = map:GetWidth() or 140
     if k == "flat" then
         s.head:ClearAllPoints()
         s.head:SetPoint("TOPLEFT", map, "BOTTOMLEFT", -1, -1)
         s.head:SetPoint("TOPRIGHT", map, "BOTTOMRIGHT", 1, -1)
         s.head:SetHeight(20)
         L.Color(s.head, { 0.039, 0.039, 0.051, 0.66 })
-        s.zone:SetPoint("LEFT", s.head, "LEFT", 6, 0)
         s.clock:SetPoint("RIGHT", s.head, "RIGHT", -6, 0)
+        s.zone:SetPoint("LEFT", s.head, "LEFT", 6, 0)
+        s.zone:SetPoint("RIGHT", s.clock, "LEFT", -6, 0)
     elseif k == "sigil" then
         s.head:ClearAllPoints()
         s.head:SetPoint("BOTTOMLEFT", map, "TOPLEFT", -1, 2)
         s.head:SetPoint("BOTTOMRIGHT", map, "TOPRIGHT", 1, 2)
         s.head:SetHeight(18)
         L.Gradient(s.head, look.head.bottom, look.head.top)
-        s.zone:SetPoint("LEFT", s.head, "LEFT", 6, 0)
         s.clock:SetPoint("RIGHT", s.head, "RIGHT", -6, 0)
+        s.zone:SetPoint("LEFT", s.head, "LEFT", 6, 0)
+        s.zone:SetPoint("RIGHT", s.clock, "LEFT", -6, 0)
     elseif k == "slate" then
-        s.zone:SetPoint("TOPLEFT", map, "TOPLEFT", 6, -5)
-        s.sub:SetPoint("TOPLEFT", s.zone, "BOTTOMLEFT", 0, -1)
         s.clock:SetPoint("TOPRIGHT", map, "TOPRIGHT", -6, -5)
+        s.zone:SetPoint("TOPLEFT", map, "TOPLEFT", 6, -5)
+        s.zone:SetPoint("RIGHT", s.clock, "LEFT", -6, 0)
+        s.sub:SetPoint("TOPLEFT", s.zone, "BOTTOMLEFT", 0, -1)
+        s.sub:SetPoint("RIGHT", map, "RIGHT", -6, 0)
     elseif k == "halo" then
+        s.zone:SetWidth(mapW + 20)
         s.zone:SetPoint("BOTTOM", map, "TOP", 0, 6)
         s.clock:SetPoint("TOP", map, "BOTTOM", 0, -2)
         s.clockBg:ClearAllPoints()
@@ -413,10 +509,11 @@ function MM:Apply()
     else -- gilded
         s.plaque:ClearAllPoints()
         s.plaque:SetPoint("TOP", map, "BOTTOM", 0, -6)
-        s.plaque:SetSize(math.max(100, (map:GetWidth() or 140) - 40), 18)
+        s.plaque:SetSize(math.max(100, mapW - 40), 18)
         s.plaque.panel:Apply(look)
         L.Gradient(s.plaque.panel.bg, look.head.bottom, look.head.top)
         s.plaque:Show()
+        s.zone:SetWidth(math.max(100, mapW - 40) - 12)
         s.zone:SetPoint("CENTER", s.plaque, "CENTER", 0, 0)
         s.clock:SetPoint("TOP", s.plaque, "BOTTOM", 0, -2)
         s.stud:ClearAllPoints()
@@ -432,24 +529,20 @@ function MM:Apply()
     self:Buttons()
 end
 
--- What the minimap button libraries ask: square looks are square.
-local function Shaped()
-    if ns.Look and ns.Look:IsOn("minimap") then return (MM.shape == "square") and "SQUARE" or "ROUND" end
-    return "ROUND"
-end
-
 function MM:OnLogin()
     local L = Look()
     L:SetApplied("minimap", L:Key("minimap"))
-    if L:IsOn("minimap") and not _G.GetMinimapShape then _G.GetMinimapShape = Shaped end
     self:Apply()
+    -- (icons other addons register late, and the button library's own first placing, come after ours)
+    if C_Timer and C_Timer.After then
+        C_Timer.After(3, function() if Look():IsOn("minimap") and MM.shape == "square" then MM:PlaceIcons() end end)
+    end
     for _, e in ipairs({ "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD" }) do
         ns:RegisterEvent(e, function() MM:Zone() end)
     end
     ns:On("UI_LOOK_CHANGED", function(part)
         if part ~= "minimap" then return end
         if Look():IsOn("minimap") then
-            if not _G.GetMinimapShape then _G.GetMinimapShape = Shaped end
             MM:Apply()
         else
             MM:Off()
@@ -476,6 +569,7 @@ function MM:Off()
     GiveBack()
     if skin then skin:Hide(); skin.ring:Hide(); skin.ringIn:Hide(); if skin.drawer then skin.drawer:Hide() end end
     MM.shape = "round"
+    MM:PlaceIcons(true)
     if map then
         for _, ch in ipairs({ map:GetChildren() }) do
             local n = ch:GetName() or ""

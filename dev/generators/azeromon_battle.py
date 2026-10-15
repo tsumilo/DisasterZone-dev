@@ -34,9 +34,30 @@ SCENES = {
                   near=(150, 120, 86), nearHi=(176, 146, 106), ground="sand1", ground2="sand2", rim=(150, 116, 70),
                   haze=(236, 224, 200), clouds=True, layer="arena"),
     "room": dict(ground=None, rim=(78, 48, 32), layer="room"),
+    # Blackrock (0.25; the approved mockup's scenes.py): the atlas' own ground tiles re-ramped to the zone's colours
+    "redridge": dict(bk=True, sky=[(100, 160, 214), (140, 186, 224), (190, 210, 222), (226, 222, 204)], haze=(214, 200, 180),
+                     tile="grass1", tile2="wgrass1", ramp=((126, 110, 50), (186, 160, 70)), ramp2=((150, 100, 44), (210, 150, 70)),
+                     rim=(110, 66, 40), feature="pools", water=(70, 120, 150),
+                     decor=[("flower", (230, 120, 40), (255, 220, 120)), ("tuft",), ("flower", (200, 60, 40), (250, 200, 100))],
+                     cl=((252, 250, 244), (222, 220, 214))),
+    "steppes": dict(bk=True, sky=[(40, 26, 26), (80, 40, 30), (140, 66, 36), (200, 104, 50)], haze=(120, 76, 60),
+                    tile="mfloor1", tile2="mfloor2", ramp=((44, 40, 40), (94, 86, 80)), rim=(40, 30, 28), feature="lava",
+                    decor=[("ember",), ("pebble", (90, 84, 80)), ("bone",)]),
+    "gorge": dict(bk=True, sky=[(150, 110, 90), (190, 140, 100), (220, 170, 120), (236, 200, 150)], haze=(220, 170, 130),
+                  tile="sand1", tile2="mfloor1", ramp=((150, 84, 46), (214, 140, 76)), ramp2=((120, 70, 44), (180, 110, 64)),
+                  rim=(110, 60, 36), decor=[("pebble", (170, 110, 70)), ("pebble", (90, 70, 60))]),
+    "molten": dict(bk=True, cave=True, wall=(84, 34, 24), haze=(120, 50, 30), tile="mfloor1", tile2="mfloor2",
+                   ramp=((60, 30, 24), (140, 80, 56)), rim=(60, 26, 20), feature="lava",
+                   decor=[("ember",), ("ember",), ("pebble", (110, 70, 60))]),
+    "depths": dict(bk=True, cave=True, wall=(50, 40, 40), haze=(70, 44, 36), tile="mfloor1", tile2="mfloor2",
+                   ramp=((46, 38, 38), (100, 82, 74)), rim=(40, 30, 28), feature="lava",
+                   decor=[("ember",), ("pebble", (90, 80, 74))]),
 }
+# map theme -> scene; a map id here overrides its theme (the Molten Core is a blackrock cave with its own scene).
+# Ground.lua's AzeroBattleArt.scenes carries both (UI.lua looks the map id up first).
 SCENE_OF = {"room": "room", None: "elwynn", "elwynn": "elwynn", "westfall": "westfall", "duskwood": "duskwood", "jungle": "jungle",
-            "mine": "mine", "arena": "arena", "hall": "room"}
+            "mine": "mine", "arena": "arena", "hall": "room", "redridge": "redridge", "steppes": "steppes", "gorge": "gorge",
+            "blackrock": "depths", "moltencore": "molten"}
 
 
 def _vn(x, y, s):
@@ -209,8 +230,10 @@ def _platform(img, cx, cy, rx, ry, top_col, rim, seed):
 
 
 def scene(theme, atlas, interiors=None):
-    """the battle backdrop for a map theme -> (Ht, W, 3) uint8"""
-    key = SCENE_OF.get(theme, "elwynn")
+    """the battle backdrop for a map theme (or a scene's own name) -> (Ht, W, 3) uint8"""
+    key = SCENE_OF.get(theme, theme if theme in SCENES else "elwynn")
+    if SCENES[key].get("bk"):
+        return _bk_scene(key, atlas)
     sc = dict(SCENES[key], name=key)
     img = np.zeros((Ht, W, 3))
     seed = len(key) * 7
@@ -272,3 +295,198 @@ def scene(theme, atlas, interiors=None):
 
 
 THEMES = sorted(set(SCENE_OF.values()))
+
+
+# ------------------------------------------------------------------------------------ Blackrock's scenes (0.25)
+# Ported from the approved mockup (dev/art/casc/zone_mockup/scenes.py): ridges, autumn trees, a dark peak, lava
+# falls in the caves, the ground as the atlas' tiles re-ramped to two colours, lava cracks or pools, embers.
+
+def _mix(a, b, k):
+    return tuple(a[i] * (1 - k) + b[i] * k for i in range(3))
+
+
+def _ramp_tile(atlas, name, lo, hi):
+    t = atlas.tile(name)[..., :3]
+    L = t.mean(2)
+    lo_, hi_ = np.percentile(L, 3), np.percentile(L, 97)
+    L = np.clip((L - lo_) / max(1, hi_ - lo_), 0, 1) * 0.8 + 0.1
+    return np.array(lo)[None, None, :] * (1 - L[..., None]) + np.array(hi)[None, None, :] * L[..., None]
+
+
+def _ridge(img, base_y, col, hi, seed, kind, amp=10, scale=20):
+    for x in range(W):
+        if kind == "crags":
+            top = base_y - 4 - int(amp * _vn(x / scale, 0, seed) + amp * 0.5 * abs(math.sin(x * 0.37 + seed)) * _vn(x / 5, 2, seed))
+        else:                                  # mesas
+            v = _vn(x / scale, 0, seed)
+            top = base_y - (amp if v > 0.5 else int(amp * 0.25 + 2 * _vn(x / 4, 1, seed)))
+        for y in range(max(0, top), base_y + 1):
+            c = col
+            if y < top + 2 and H(x, y, seed) < 0.6:
+                c = hi
+            if kind == "mesas" and (x * 3 + y) % 9 == 0 and y > top + 2:
+                c = _mix(col, (0, 0, 0), 0.15)
+            img[y, x] = c
+
+
+def _trees(img, base_y, col, hi, seed, kind="round", step=7):
+    for x in range(W):
+        if kind == "round":
+            top = base_y - 9 - int(6 * _vn(x / step, 0, seed) + 3 * _vn(x / 2.5, 1, seed))
+        else:
+            ph = (x + int(H(x // 9, 0, seed) * 4)) % 9
+            top = base_y - 6 - int(10 * _vn(x / 9, 0, seed)) - (4 - abs(ph - 4)) * 2
+        for y in range(max(0, top), base_y + 1):
+            img[y, x] = hi if (y < top + 2 and H(x, y, seed) < 0.5) else col
+
+
+def _glow(img, cx, cy, r, col, k=0.6):
+    for y in range(max(0, cy - r), min(Ht, cy + r)):
+        for x in range(max(0, cx - r), min(W, cx + r)):
+            d = math.hypot(x - cx, (y - cy) * 1.3) / r
+            if d < 1:
+                img[y, x] = img[y, x] * (1 - k * (1 - d)) + np.array(col) * k * (1 - d)
+
+
+def _peak(img, cx, base_y, h, col, hi):
+    for y in range(base_y - h, base_y + 1):
+        hw = int((y - (base_y - h)) * 1.6 + 2 * _vn(y / 3, 0, 4))
+        for x in range(cx - hw, cx + hw):
+            if 0 <= x < W:
+                img[y, x] = hi if x < cx else col
+
+
+def _mist(img, y0, y1, col, k0=0.35, seed=8):
+    for y in range(y0, y1):
+        for x in range(W):
+            mid = (y0 + y1) / 2
+            k = (1 - abs(y - mid) / ((y1 - y0) / 2)) * k0 * (0.6 + 0.4 * _vn(x / 20, y / 6, seed))
+            if k > 0 and ((x + y) % 2 == 0 or k > 0.2):
+                img[y, x] = img[y, x] * (1 - k) + np.array(col) * k
+
+
+def _bk_ground(img, atlas, sc, top, seed):
+    g1 = _ramp_tile(atlas, sc["tile"], *sc["ramp"])
+    g2 = _ramp_tile(atlas, sc.get("tile2", sc["tile"]), *sc.get("ramp2", sc["ramp"]))
+    for y in range(top, Ht):
+        for x in range(W):
+            b = min(1.0, max(0.0, (_vn(x / 34, y / 12, seed + 11) - 0.5) * 4 + 0.5))
+            c = g1[y % 16, x % 16] * (1 - b) + g2[(y + 5) % 16, (x + 7) % 16] * b
+            v = 0.6 * _vn(x / 40, y / 22, seed + 3) + 0.4 * _vn(x / 13, y / 8, seed + 4)
+            if v < 0.36:
+                c = c * 0.88
+            elif v > 0.66:
+                c = c * 1.05 + 6
+            c = c * (1 - 0.12 * (y - top) / (Ht - top))
+            k = max(0.0, 1 - (y - top) / 34) * 0.45
+            img[y, x] = c * (1 - k) + np.array(sc["haze"]) * k
+    f = sc.get("feature")
+    if f == "pools":
+        for i in range(5):
+            cx, cy = int(H(i, 7, seed) * W), top + 10 + int(H(i, 8, seed) * (Ht - top - 14))
+            rx, ry = 10 + int(H(i, 9, seed) * 16), 3 + int(H(i, 10, seed) * 3)
+            for y in range(cy - ry, cy + ry + 1):
+                for x in range(cx - rx, cx + rx + 1):
+                    if 0 <= x < W and top < y < Ht:
+                        d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+                        if d < 0.85 + 0.3 * _vn(x / 4, y / 2, i):
+                            c = np.array(sc["water"]) * (0.9 + 0.2 * _vn(x / 6, y, i))
+                            if (x + y * 3) % 17 == 0:
+                                c = c + 40
+                            img[y, x] = c
+                        elif d < 1.15 and H(x, y, i) < 0.4:
+                            img[y, x] = img[y, x] * 0.75
+    if f == "lava":
+        col = (255, 128, 36)
+        for i in range(6):
+            x, y = H(i, 3, seed) * W, top + 8 + H(i, 4, seed) * (Ht - top - 12)
+            ang = (H(i, 6, seed) - 0.5) * 0.6
+            n = 26 + int(H(i, 5, seed) * 30)
+            for k in range(n):
+                ang += (H(i, k, 1) - 0.5) * 0.9
+                x += math.cos(ang) * 1.4
+                y += math.sin(ang) * 0.5
+                xi, yi = int(x), int(y)
+                wdt = 2 if 4 < k < n - 6 else 1
+                for dy in range(wdt):
+                    if 0 <= xi < W and top < yi + dy < Ht:
+                        img[yi + dy, xi] = col
+                if 0 <= xi < W and top < yi - 1 < Ht:
+                    img[yi - 1, xi] = _mix(img[yi - 1, xi], (255, 190, 90), 0.5)
+            _glow(img, int(x), int(y), 10, (255, 90, 20), 0.35)
+
+
+def _bk_decor(img, sc, top, seed):
+    kinds = sc.get("decor", [])
+    for i in range(80):
+        x = int(H(i, 1, seed) * W)
+        y = top + 6 + int(H(i, 2, seed) * (Ht - top - 8))
+        kd = kinds[i % len(kinds)]
+        if kd[0] == "flower":
+            for dx, dy in ((0, -1), (-1, 0), (1, 0), (0, 1)):
+                if 0 <= x + dx < W and top < y + dy < Ht:
+                    img[y + dy, x + dx] = kd[1]
+            img[y, x] = kd[2]
+        elif kd[0] == "tuft":
+            for dx, h in ((-1, 2), (0, 3), (1, 2)):
+                for k in range(h):
+                    if 0 <= x + dx < W and top < y - k < Ht:
+                        img[y - k, x + dx] = img[y - k, x + dx] * 0.7
+        elif kd[0] == "pebble":
+            img[y, x] = kd[1]
+            if x + 1 < W and y + 1 < Ht:
+                img[y + 1, x + 1] = _mix(kd[1], (0, 0, 0), 0.45)
+        elif kd[0] == "bone":
+            for dx in range(-1, 2):
+                if 0 <= x + dx < W:
+                    img[y, x + dx] = (226, 220, 200)
+        elif kd[0] == "ember":
+            img[y, x] = (255, 170, 60)
+
+
+def _bk_scene(key, atlas):
+    sc = SCENES[key]
+    seed = sum(map(ord, key))
+    img = np.zeros((Ht, W, 3))
+    if sc.get("cave"):
+        for y in range(HORIZON):
+            for x in range(W):
+                img[y, x] = np.array(sc["wall"]) * (0.7 + _vn(x / 6, y / 4, 5) * 0.5)
+        for cx in ((20, 112, 204) if key != "molten" else (10, 60, 112, 164, 214)):     # lava falls
+            for y in range(4, HORIZON):
+                for dx in range(-2, 3):
+                    v = 0.7 + 0.3 * math.sin(y * 0.8 + dx)
+                    if 0 <= cx + dx < W:
+                        img[y, cx + dx] = (255 * v, 120 * v, 30 * v)
+            _glow(img, cx, HORIZON - 6, 28, (255, 90, 20), 0.7)
+        for cx in (66, 158):                                              # chains
+            for y in range(0, 34):
+                if y % 3:
+                    img[y, cx] = (30, 26, 26)
+                    img[y, cx + 1] = (70, 60, 58)
+    else:
+        _sky(img, sc["sky"], 0, HORIZON)
+        if "cl" in sc:
+            for i, (cx, cy, w, h) in enumerate(((40, 12, 20, 6), (150, 20, 28, 7), (206, 8, 14, 4))):
+                _cloud(img, cx, cy, w, h, seed + i, hi=sc["cl"][0], lo=sc["cl"][1])
+    if key == "redridge":
+        _ridge(img, HORIZON - 8, (130, 140, 170), (156, 164, 190), seed, "crags", amp=24, scale=18)
+        _trees(img, HORIZON - 2, (176, 84, 40), (220, 130, 50), seed, "round")
+        _trees(img, HORIZON + 1, (140, 60, 34), (196, 100, 40), seed + 9, "pines")
+    elif key == "steppes":
+        _glow(img, 112, HORIZON, 120, (255, 90, 30), 0.35)
+        _peak(img, 70, HORIZON - 2, 50, (30, 26, 28), (44, 38, 40))
+        _ridge(img, HORIZON, (40, 34, 34), (60, 50, 48), seed, "crags", amp=16, scale=12)
+        for i in range(40):
+            img[int(H(i, 2, 7) * HORIZON), int(H(i, 1, 7) * W)] = (255, 170, 70)
+        _mist(img, HORIZON - 8, HORIZON + 8, (110, 80, 70), 0.35)
+    elif key == "gorge":
+        _ridge(img, HORIZON - 4, (190, 120, 80), (214, 150, 100), seed, "mesas", amp=34, scale=26)
+        _ridge(img, HORIZON, (150, 84, 50), (180, 110, 70), seed + 5, "mesas", amp=18, scale=14)
+    _bk_ground(img, atlas, sc, HORIZON, seed)
+    _bk_decor(img, sc, HORIZON, seed)
+    t1 = _ramp_tile(atlas, sc["tile"], *sc["ramp"]).reshape(-1, 3).mean(0)
+    top_col = tuple(min(255, v * 1.08 + 8) for v in t1)
+    for cx, cy, rx, ry in (FOE, ALLY):
+        _platform(img, cx, cy, rx, ry, top_col, sc["rim"], seed)
+    return np.clip(np.round(img), 0, 255).astype(np.uint8)

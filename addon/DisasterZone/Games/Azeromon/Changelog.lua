@@ -6,6 +6,33 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.26", date = "15 October 2026", title = "Blackrock",
+      lines = {
+          "New region north of Darkshire: Redridge to Blackrock.",
+          "Lakeshire, Lake Everstill, Stonewatch Keep, the Steppes.",
+          "Blackrock Mountain, the Searing Gorge, the Imperial Seat.",
+          "36 new beasts, 12 new moves, badges 6 and 7.",
+          "Lord Victor Nefarius is your rival, twice.",
+          "Magmadar waits in the Molten Core: tame it once.",
+          "A Dark Iron Bar evolves a Harvest Watcher.",
+          "Professions go to 175; Dark Iron needs the Black Forge.",
+          "Beasts can drop crafting materials when you win.",
+          "Gryphons to Lakeshire, Morgan's Vigil, Thorium Point.",
+          "New text font and cream window style.",
+          "START menu: a sun or moon shows the time of day.",
+          "The world map fills the whole screen like the world.",
+      } },
+    { version = "0.25", date = "15 October 2026", title = "A painted world map",
+      lines = {
+          "The world map is repainted: coasts, fields and forests.",
+          "Waves, clouds, chimney smoke and gryphons move on it.",
+          "The map follows the time of day: lamps light at night.",
+          "Mist hides places you haven't found; ? marks a way in.",
+          "A new place lifts its mist the next time you look.",
+          "A card shows each place: beasts, trainers, badge, shops.",
+          "The map and the pause screen now fill the whole window.",
+          "The menu clock shows a pixel sun or moon for the hour.",
+      } },
     { version = "0.24", date = "14 October 2026", title = "The Grand Guild Hall",
       lines = {
           "The Guild Hall is rebuilt: a cathedral under the inn.",
@@ -17,6 +44,7 @@ ns.AzeroChangelog = {
           "Sunwell's light fills the throne once the plateau falls.",
           "Coloured sun by day; moonlight and fire at night.",
           "Champions stand in stone on lit pedestals.",
+          "Fight menu: the move's PP, type and power show again.",
       } },
     { version = "0.23", date = "14 October 2026", title = "Every zone, alive",
       lines = {

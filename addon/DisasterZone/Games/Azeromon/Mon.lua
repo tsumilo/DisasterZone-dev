@@ -31,6 +31,30 @@ function M.Bonus(mon, stat)
     return m
 end
 
+-- The product of every gear piece's and the flask's `field`[type] (resist = damage taken from that type,
+-- typePower = damage dealt with it). 1 when nothing has it.
+function M.TypeMult(mon, field, t)
+    local m = 1
+    if type(mon.gear) == "table" then
+        for _, slot in ipairs(D.gearSlots or {}) do        -- (the fixed order: the same rounding on every client)
+            local g = mon.gear[slot.id] and D.items[mon.gear[slot.id]]
+            if g and g[field] and g[field][t] then m = m * g[field][t] end
+        end
+    end
+    local f = mon.flask and D.items[mon.flask.id]
+    if f and f[field] and f[field][t] then m = m * f[field][t] end
+    return m
+end
+
+-- The first worn gear piece (in slot order) with `field` set: its value and the item.
+function M.GearValue(mon, field)
+    if type(mon.gear) ~= "table" then return nil end
+    for _, slot in ipairs(D.gearSlots or {}) do
+        local g = mon.gear[slot.id] and D.items[mon.gear[slot.id]]
+        if g and g[field] then return g[field], g end
+    end
+end
+
 function M.Stat(mon, stat)
     local s = D.species[mon.sp]
     local i
@@ -122,6 +146,35 @@ function M.EvolutionTarget(mon)
     if evo and evo.trade and mon.tradeEvo == evo.into then return evo.into end
 end
 
+-- Species a creature evolves into when `item` is used on it from the bag (or nil).
+function M.ItemEvolution(mon, item)
+    local evo = D.species[mon.sp].evolveItem
+    if evo and evo.item == item then return evo.into end
+end
+
+-- Every species that evolves straight into `sp` (by level, trade or item), sorted: a form can have several
+-- (a Heavy War Golem comes from a Tempered War Golem or a Harvest Watcher).
+function M.PrevForms(sp)
+    local out = {}
+    for id, s in pairs(D.species) do
+        if (s.evolve and s.evolve.into == sp) or (s.evolveItem and s.evolveItem.into == sp) then out[#out + 1] = id end
+    end
+    table.sort(out)
+    return out
+end
+
+-- `sp` and every earlier form of it, nearest first (each once).
+function M.Lineage(sp)
+    local out, seen, i = { sp }, { [sp] = true }, 1
+    while out[i] and i < 32 do
+        for _, prev in ipairs(M.PrevForms(out[i])) do
+            if not seen[prev] then seen[prev] = true out[#out + 1] = prev end
+        end
+        i = i + 1
+    end
+    return out
+end
+
 -- Species a creature evolves into when it is traded (or nil).
 function M.TradeEvolution(mon)
     local evo = D.species[mon.sp].evolve
@@ -146,18 +199,13 @@ function M.ExpProgress(mon)
     return max(0, min(1, (mon.exp - a) / (b - a)))
 end
 
--- Every move a beast of `sp` at `lvl` can know: its own list and its earlier forms' (the pet trainer's rule).
+-- Every move a beast of `sp` at `lvl` can know: its own list and every earlier form's (the pet trainer's rule).
 function M.LegalMoves(sp, lvl)
-    local legal, cur, guard = {}, sp, 0
-    while cur and guard < 8 do
+    local legal = {}
+    for _, cur in ipairs(M.Lineage(sp)) do
         for _, e in ipairs(D.species[cur].learn or {}) do
             if e[1] <= lvl then legal[e[2]] = true end
         end
-        local prev
-        for id, s in pairs(D.species) do
-            if s.evolve and s.evolve.into == cur then prev = id break end
-        end
-        cur, guard = prev, guard + 1
     end
     return legal
 end

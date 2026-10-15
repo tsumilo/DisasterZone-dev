@@ -186,6 +186,14 @@ def cast_bars_show_a_cast_with_latency_and_a_lock():
     assert c.eval("return ns.LookCast:Bar('player').name:GetText()") == "Interrupted"
     w.tick(1.5)
     assert c.eval("return ns.LookCast:Bar('player'):IsShown()") is False
+    # the game's placeholder icon (learning a recipe): the recipe just used, else a book; never the laughing face
+    c.eval("local f = ns.LookCast:Bar('player'); ns.LookCast:Start(f, { name = 'Learning', icon = 136235, dur = 1, done = 0.1 })")
+    assert c.eval("return ns.LookCast:Bar('player').icon.path") == "Interface\\Icons\\INV_Misc_Book_09"
+    c.eval("__MOCK.set_bags({ { 0, 1, 21877, 1 } }); C_Container.UseContainerItem(0, 1)")
+    c.eval("local f = ns.LookCast:Bar('player'); ns.LookCast:Start(f, { name = 'Learning', icon = 136235, dur = 1, done = 0.1 })")
+    assert c.eval("return ns.LookCast:Bar('player').icon.path") == c.eval(
+        "return C_Container.GetContainerItemInfo(0, 1).iconFileID")
+    assert c.eval("return ns.LookCast.CastIcon(132340, 'player')") == 132340
     w.assert_no_errors()
 
 
@@ -258,6 +266,43 @@ def the_minimap_goes_square_and_says_so():
     assert c.eval("return GetMinimapShape()") == "ROUND"
     c.eval("ns.DB:SetSetting('ui.minimap.shape', 'square')")
     assert c.eval("return GetMinimapShape()") == "SQUARE"
+    w.assert_no_errors()
+
+
+@case
+def square_looks_put_the_icons_on_the_square_edge():
+    w, c = with_look("flat")
+    # another addon answering "ROUND" after us (Leatrix Plus) is answered over within a second
+    c.eval("GetMinimapShape = function() return 'ROUND' end")
+    w.tick(1.2)
+    assert c.eval("return GetMinimapShape()") == "SQUARE"
+    # the game's mail icon on the round ring (up and right) goes onto the square's edge, same angle
+    c.eval("""local m = CreateFrame('Button', 'MiniMapMailFrame', Minimap); m:SetSize(32, 32)
+              m:SetPoint('CENTER', Minimap, 'CENTER', 74, 30)
+              Minimap.GetCenter = function() return 500, 500 end
+              m.GetCenter = function(self) local _, _, _, x, y = self:GetPoint(1) return 500 + x, 500 + y end""")
+    w.tick(1.2)
+    dx, dy = c.eval_py("local _, rel, _, x, y = MiniMapMailFrame:GetPoint(1); return { x, y }")
+    hw = c.eval("return Minimap:GetWidth() / 2")
+    assert abs(dx - hw) < 0.5 and abs(dy / dx - 30 / 74) < 0.01, (dx, dy, hw)
+    # a round look puts it back
+    c.eval("ns.DB:SetSetting('ui.minimap.look', 'gilded')")
+    assert c.eval("local p, r, rp, x, y = MiniMapMailFrame:GetPoint(1); return x") == 74
+    w.assert_no_errors()
+
+
+@case
+def a_long_zone_name_stops_short_of_the_clock():
+    w, c = with_look("flat")
+    c.eval("GetMinimapZoneText = function() return 'Ring of Observance and a very long name besides' end; "
+           "ns.LookMinimap:Zone()")
+    # the name is held between the strip's left and the clock's left: cut there, never under it
+    ok = c.eval_py("local s = DisasterZoneMinimapSkin; local zone, clock "
+                   "for _, r in ipairs({ s.texts:GetRegions() }) do local t = r.GetText and r:GetText() or '' "
+                   "if t:find('Ring') then zone = r elseif t:find(':') then clock = r end end "
+                   "local p, rel, rp, x = zone:GetPointByName('RIGHT') "
+                   "return { rel == clock, rp, x, zone:CanWordWrap() }")
+    assert ok == [True, "LEFT", -6, False], ok
     w.assert_no_errors()
 
 
