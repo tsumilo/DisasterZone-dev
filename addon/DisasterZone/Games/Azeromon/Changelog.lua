@@ -16,6 +16,7 @@ ns.AzeroChangelog = {
           "Goldshire's people greet you by name for what you've done.",
           "Brog knows your usual; Lee Brown remembers your best fish.",
           "The crier sums up each raid night instead of every boss.",
+          "Speech bubbles stay up while you walk.",
       } },
     { version = "0.33", date = "15 October 2026", title = "The guild's chronicle",
       lines = {
