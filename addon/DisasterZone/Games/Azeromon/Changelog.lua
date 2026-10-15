@@ -18,9 +18,7 @@ ns.AzeroChangelog = {
           "Professions go to 175; Dark Iron needs the Black Forge.",
           "Beasts can drop crafting materials when you win.",
           "Gryphons to Lakeshire, Morgan's Vigil, Thorium Point.",
-          "New text font and cream window style.",
-          "START menu: a sun or moon shows the time of day.",
-          "The world map fills the whole screen like the world.",
+          "New font, cream windows, a sun or moon clock on START.",
       } },
     { version = "0.25", date = "15 October 2026", title = "A painted world map",
       lines = {
@@ -30,6 +28,7 @@ ns.AzeroChangelog = {
           "Mist hides places you haven't found; ? marks a way in.",
           "A new place lifts its mist the next time you look.",
           "A card shows each place: beasts, trainers, badge, shops.",
+          "The world map fills the whole screen like the world.",
           "The map and the pause screen now fill the whole window.",
           "The menu clock shows a pixel sun or moon for the hour.",
       } },
