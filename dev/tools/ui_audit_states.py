@@ -2304,6 +2304,12 @@ STATES = [
     ("Warrior swing timer theme - gilded", war_hud("gilded")),
     ("Warrior swing timer theme - pips", war_hud("pips")),
     ("Warrior swing timer theme - classic", war_hud("classic")),
+    # (a second frame: the rage in motion, bubbles and the swaying surface)
+    ("Warrior swing timer - rage moving", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.theme', 'gilded'); "
+        + (WAR_HUD % "1.7").replace("STYLE", "bar").replace("RAGE", "70").replace("OH_SPEED", "2.6")
+        .replace("QUEUED", "false").replace("SPEC", "fury")
+        + "; local f = DisasterZoneWarriorSwing; f:SetScript('OnUpdate', nil); ns.WarriorSwingHUD:Update(); "
+          "f.face.extra.slosh = 0.6; ns.WarriorSwingHUD:Update()")),
     ("Warrior swing timer - HS queued", war_hud("halo", at="1.9", style="bar", rage=47, queued="true")),
     ("Warrior swing timer - hold rage", war_hud("gilded", at="0.85", style="bar", rage=24)),
     ("Warrior swing timer - two-hander", war_hud("halo", at="-0.45", style="bar", rage=53, oh="nil", spec="arms")),

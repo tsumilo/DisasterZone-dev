@@ -79,7 +79,8 @@ function D:Extra(cur, now)
     end
     return { oh = oh, rage = { snap.rage / 100, snap.line / 100 },
              num = ST.Get("number", true) and floor(snap.rage + 0.5) or nil,
-             lamp = cur.lamp, lampIcon = ST.ICONS[snap.queued == "cleave" and "cleave" or "hs"] }
+             lamp = cur.lamp, lampIcon = ST.ICONS[snap.queued == "cleave" and "cleave" or "hs"],
+             still = not ST.Get("motion", true) }
 end
 
 function D:RestExtra()
@@ -127,6 +128,8 @@ if ns.ClassKit then ns.ClassKit:Extend("war", { iconPath = "Interface\\Icons\\Ab
         "Auto uses WoWSims' line: 40 rage for Fury and dual-wield Arms, 80 for Arms with a two-hander. Raise it if "
             .. "you run out of rage for Bloodthirst or Mortal Strike.")
     S:SwitchSetting(sec, "Rage number", "Your rage in numbers on the globe or bar.", "war.number", true)
+    S:SwitchSetting(sec, "Moving rage", "The globe's rage sways, sloshes when it changes and bubbles; "
+        .. "bars slide to the new value. Off: it just shows the level.", "war.motion", true)
     S:SwitchSetting(sec, "Brighter off hand", "The off-hand ring brightens while Heroic Strike is queued "
         .. "(the queue lifts the dual-wield miss penalty).", "war.ohBright", true)
     S:SwitchSetting(sec, "Whirlwind", "In Berserker stance. On in WoWSims' rotation.", "war.use.ww", true)

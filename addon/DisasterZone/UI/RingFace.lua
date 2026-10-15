@@ -549,6 +549,27 @@ local OH_FILL, OH_BRIGHT = { 0.81, 0.76, 0.63 }, { 0.98, 0.93, 0.78 }
 local GOLDLINE = { 1, 0.84, 0.42 }
 local HS_ICON = "Interface\\Icons\\Ability_Rogue_Ambush"
 
+-- The globe's rim light: a short arc of strokes round its upper left, brightest in the middle (a tank: two edges).
+local function PlaceRim(gl, D)
+    local n = #gl.rim
+    if gl.square then
+        local a, b = gl.rim[1], gl.rim[2]
+        a:SetStartPoint("TOPLEFT", gl, 2, -2); a:SetEndPoint("TOPLEFT", gl, D * 0.55, -2)
+        b:SetStartPoint("TOPLEFT", gl, 2, -2); b:SetEndPoint("TOPLEFT", gl, 2, -D * 0.45)
+        a:SetVertexColor(1, 1, 1, 0.22); b:SetVertexColor(1, 1, 1, 0.16)
+        return
+    end
+    local r = D / 2 - 2.2
+    local a0, a1 = math.rad(105), math.rad(170)
+    for i = 1, n do
+        local t0, t1 = a0 + (a1 - a0) * (i - 1) / n, a0 + (a1 - a0) * i / n
+        local l = gl.rim[i]
+        l:SetStartPoint("CENTER", gl, r * cos(t0), r * sin(t0))
+        l:SetEndPoint("CENTER", gl, r * cos(t1), r * sin(t1))
+        l:SetVertexColor(1, 1, 1, 0.08 + 0.22 * sin(pi * (i - 0.5) / n))
+    end
+end
+
 function RF:BuildExtra(face)
     local ring, g = face.root, face.geo
     local x = {}
@@ -597,12 +618,28 @@ function RF:BuildExtra(face)
         UI:GradientRGBA(gl.spare, "VERTICAL", 0.86, 0.20, 0.08, 1, 1, 0.42, 0.2, 1)
         gl.surf = T("ARTWORK", SOFT, 0, true)
         gl.surf:SetVertexColor(1, 0.62, 0.45, 0.7)
+        gl.surf2 = T("ARTWORK", SOFT, 1, true)
+        gl.surf2:SetVertexColor(1, 0.78, 0.6, 0.45)
+        -- (bubbles rising through the rage, PaintExtra moves them)
+        gl.bubbles = {}
+        for i = 1, 4 do
+            local b = T("ARTWORK", SOFT, 1, true)
+            b:SetVertexColor(1, 0.7, 0.5, 0)
+            gl.bubbles[i] = b
+        end
         gl.line = T("ARTWORK", WHITE, 2)
         gl.line:SetHeight(1)
-        gl.shine = T("OVERLAY", SOFT, 0, true)
-        gl.shine:SetVertexColor(1, 1, 1, 0.28)
-        gl.shine:SetSize(D * 0.6, D * 0.38)
-        gl.shine:SetPoint("CENTER", gl, "CENTER", -D * 0.14, D * 0.27)
+        -- the glass: a thin light along its upper-left rim (a soft blob in the middle read as something floating
+        -- over the rage)
+        gl.rim = {}
+        for i = 1, (g.square and 2 or 9) do
+            local l = gl:CreateLine(nil, "OVERLAY")
+            l:SetColorTexture(1, 1, 1, 1)
+            l:SetThickness(1.4)
+            gl.rim[i] = l
+        end
+        gl.square = g.square
+        PlaceRim(gl, D)
         gl.num = UI:Text(gl, "emph", { 1, 0.95, 0.84 }, { font = NARROW, shadow = true, justify = "CENTER" })
         gl.num:SetPoint("CENTER", 0, 0)
         x.globe, x.D = gl, D
@@ -679,7 +716,9 @@ function RF:BuildExtra(face)
 end
 
 -- e = { oh = { frac, bright } (nil: no off hand), rage = { v, line } (0..1), num (the rage in numbers or nil),
---       lamp = "queue" | "queued" | "hold" | nil, lampIcon, pulse }
+--       lamp = "queue" | "queued" | "hold" | nil, lampIcon, pulse, still (no motion: drawn at rest, or turned off) }
+-- Rage moves: the level eases toward it, the globe's surface sways and sloshes after a change, bubbles rise and the
+-- rage over the line pulses softly (a few anchors a frame; drawn still at rest).
 function RF:PaintExtra(face, e)
     local x = face.extra
     if not x then return end
@@ -698,8 +737,7 @@ function RF:PaintExtra(face, e)
             local D = has and g.globe[1] or g.globe[2]
             x.D = D
             x.globe:SetSize(D, D)
-            x.globe.shine:SetSize(D * 0.6, D * 0.38)
-            x.globe.shine:SetPoint("CENTER", x.globe, "CENTER", -D * 0.14, D * 0.27)
+            PlaceRim(x.globe, D)
             local ring = face.root
             if ring.inner then
                 ring.inner:SetSize(D + 10, D + 10)
@@ -717,6 +755,20 @@ function RF:PaintExtra(face, e)
 
     local v, line = e.rage and e.rage[1] or 0, e.rage and e.rage[2] or 1
     v, line = max(0, min(1, v)), max(0, min(1, line))
+    -- (the level eases toward the rage, a change sloshes the surface; still: drawn at rest, no motion)
+    local now = GetTime()
+    local dt = x.at and max(0, min(0.25, now - x.at)) or 0
+    x.at = now
+    local still = e.still or not x.lv
+    if still then
+        x.lv, x.slosh = v, 0
+    else
+        local before = x.lv
+        x.lv = x.lv + (v - x.lv) * (1 - math.exp(-dt * 7))
+        local moved = dt > 0 and math.abs(x.lv - before) / dt or 0
+        x.slosh = max((x.slosh or 0) * math.exp(-dt * 1.4), min(1, moved * 1.5))
+    end
+    v = x.lv
     local over = v > line
     local lc = over and 1 or 0.6
     if x.globe then
@@ -733,10 +785,39 @@ function RF:PaintExtra(face, e)
             gl.spare:SetPoint("BOTTOMRIGHT", gl, "BOTTOMRIGHT", 0, D * line)
             gl.spare:SetHeight(max(0.5, h - D * line))
         end
+        -- the surface: two glows just under the liquid's top, swaying against each other and bobbing (more after a
+        -- change: never above it); bubbles rising
+        local sl = still and 0 or (x.slosh or 0)
+        local sway = still and 0 or math.sin(now * 1.7) * D * (0.07 + 0.18 * sl)
+        local bob = still and 0 or math.sin(now * 2.6) * (0.6 + 2.5 * sl)
+        local live = h >= 2 and h <= D - 1
         gl.surf:SetShown(h >= 2)
         gl.surf:ClearAllPoints()
-        gl.surf:SetSize(D * 1.1, D * 0.16)
-        gl.surf:SetPoint("CENTER", gl, "BOTTOM", 0, h)
+        gl.surf:SetSize(D * 1.1, D * 0.12)
+        gl.surf:SetPoint("TOP", gl, "BOTTOM", sway, h - math.abs(bob))
+        gl.surf2:SetShown(live and not still)
+        if live and not still then
+            gl.surf2:ClearAllPoints()
+            gl.surf2:SetSize(D * 0.55, D * 0.07)
+            gl.surf2:SetPoint("TOP", gl, "BOTTOM", -sway * 1.4, h - 1 - math.abs(bob) * 0.7)
+        end
+        local bs = max(2, D * 0.07)
+        for i, b in ipairs(gl.bubbles) do
+            if still or h < 8 then
+                b:Hide()
+            else
+                local period = 1.9 + 0.37 * i
+                local f = ((now + i * 0.71) % period) / period
+                local y = 2 + f * (h - 4)
+                local bx = (i - 2.5) * D * 0.17 + math.sin(now * 3 + i * 1.3) * D * 0.03
+                b:ClearAllPoints()
+                b:SetSize(bs * (0.7 + 0.3 * f), bs * (0.7 + 0.3 * f))
+                b:SetPoint("CENTER", gl, "BOTTOM", bx, y)
+                b:SetAlpha(0.55 * math.sin(f * math.pi))
+                b:Show()
+            end
+        end
+        gl.spare:SetAlpha(still and 1 or 0.86 + 0.14 * math.sin(now * 4))
         gl.line:ClearAllPoints()
         gl.line:SetPoint("BOTTOMLEFT", gl, "BOTTOMLEFT", 0, D * line)
         gl.line:SetPoint("BOTTOMRIGHT", gl, "BOTTOMRIGHT", 0, D * line)
@@ -798,7 +879,7 @@ end
 -- Resting: the off-hand cycle empty, rage as it is (it fades out of combat), the lamp off.
 function RF:RestExtra(face, oh, rage, line)
     if not face.extra then return end
-    self:PaintExtra(face, { oh = oh and { 0, false } or nil, rage = { rage or 0, line or 0.4 } })
+    self:PaintExtra(face, { oh = oh and { 0, false } or nil, rage = { rage or 0, line or 0.4 }, still = true })
 end
 
 -- ---------------------------------------------------------------------------------------------------------------

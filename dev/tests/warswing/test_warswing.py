@@ -184,6 +184,39 @@ for theme in ("halo", "sigil", "slate", "gilded", "pips", "classic"):
     assert r == {"oh": 0, "grew": True}, (theme, r)
 assert war.eval("return DisasterZoneWarriorSwing:IsShown()") is True
 
+# the rage moves: a jump from 20 to 80 rage eases in (not there on the next frame, there after a second), the globe's
+# bubbles rise while it moves; war.motion off draws the level still (no bubbles, no easing)
+war.eval("ns.DB:SetSetting('war.theme', 'halo')")
+r = war.eval_py("""
+    local W = ns.WarriorSwing
+    W.OnMH(GetTime()); W.OnOH(GetTime() - 1)
+    __MOCK.player_power = { 20, 100 }
+    W:MarkDirty(); ns.WarriorSwingHUD:Update()
+    __MOCK.player_power = { 80, 100 }
+    W:MarkDirty(); ns.WarriorSwingHUD:Update()
+    local x = DisasterZoneWarriorSwing.face.extra
+    return { lv = x.lv }
+""")
+assert 0.19 <= r["lv"] < 0.5, r
+w.tick(0.1)
+w.tick(1.0)
+r = war.eval_py("""
+    local W = ns.WarriorSwing
+    W.OnMH(GetTime()); W:MarkDirty(); ns.WarriorSwingHUD:Update()
+    local x = DisasterZoneWarriorSwing.face.extra
+    local bubbles = 0
+    for _, b in ipairs(x.globe.bubbles) do if b:IsShown() then bubbles = bubbles + 1 end end
+    ns.DB:SetSetting('war.motion', false)
+    __MOCK.player_power = { 30, 100 }
+    W:MarkDirty(); ns.WarriorSwingHUD:Update()
+    local still = 0
+    for _, b in ipairs(x.globe.bubbles) do if b:IsShown() then still = still + 1 end end
+    local lvStill = x.lv
+    ns.DB:SetSetting('war.motion', true)
+    return { lv = x.lv, bubbles = bubbles, still = still, lvStill = lvStill }
+""")
+assert r["bubbles"] == 4 and r["still"] == 0 and abs(r["lvStill"] - 0.3) < 0.001, r
+
 # resting: the ring empty, no lamp
 r = war.eval_py("""
     local W = ns.WarriorSwing
