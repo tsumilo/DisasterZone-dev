@@ -937,8 +937,126 @@ local function QuickKeybindPlaceFix()
     end
 end
 
+---------------------------------------------------------------------------
+-- New ranks onto the bars: a new rank learned (a trainer, a talent, a book) takes the place of the rank that was the
+-- best one known until now, on every bar and page (stances, forms); a lower rank kept for down-ranking stays where
+-- it is. Out of combat (the bars can't change in it) and with nothing on the cursor; ranks learned together go on
+-- as one, the best of them. Setting actionbars.upgradeRanks (on by default). Every bar, the part on or off.
+---------------------------------------------------------------------------
+local MAX_ACTION_SLOT = 180
+local pendingRanks, rankTimer = {}, nil
+
+local function SpellRank(id)
+    local sub = GetSpellSubtext and GetSpellSubtext(id)
+    return sub and tonumber(sub:match("(%d+)%s*$")) or nil
+end
+
+local function SpellName(id)
+    if C_Spell and C_Spell.GetSpellName then return C_Spell.GetSpellName(id) end
+    return GetSpellInfo and (GetSpellInfo(id)) or nil
+end
+
+-- name -> { [rank] = true } of the spellbook's ranks of these names
+local function KnownRanks(names)
+    local out = {}
+    if not (GetNumSpellTabs and GetSpellTabInfo and GetSpellBookItemName) then return out end
+    for t = 1, GetNumSpellTabs() do
+        local _, _, offset, n = GetSpellTabInfo(t)
+        for i = (offset or 0) + 1, (offset or 0) + (n or 0) do
+            local name, sub = GetSpellBookItemName(i, BOOKTYPE_SPELL or "spell")
+            if name and names[name] then
+                local r = sub and tonumber(sub:match("(%d+)%s*$"))
+                if r then out[name] = out[name] or {}; out[name][r] = true end
+            end
+        end
+    end
+    return out
+end
+
+-- The learned spells' ranks onto the bars. Returns how many slots changed (nil: not now, tried again later).
+function Bars:UpgradeRanks(learned)
+    if InCombatLockdown and InCombatLockdown() then return nil end
+    if GetCursorInfo and GetCursorInfo() then return nil end
+    if not (GetActionInfo and PickupSpell and PlaceAction) then return 0 end
+    -- per name: the best rank learned now and the lowest (ranks learned together)
+    local by = {}
+    for id in pairs(learned) do
+        local name, r = SpellName(id), SpellRank(id)
+        if name and r then
+            local e = by[name]
+            if not e then by[name] = { id = id, top = r, low = r }
+            else
+                if r > e.top then e.id, e.top = id, r end
+                if r < e.low then e.low = r end
+            end
+        end
+    end
+    if not next(by) then return 0 end
+    local known = KnownRanks(by)
+    for name, e in pairs(by) do
+        -- the best rank known before these (the spellbook's; its own ranks may be hidden: then any lower one)
+        local prev
+        for r in pairs(known[name] or {}) do
+            if r < e.low and (not prev or r > prev) then prev = r end
+        end
+        e.from = prev or 0
+    end
+    local n = 0
+    for slot = 1, MAX_ACTION_SLOT do
+        local kind, id = GetActionInfo(slot)
+        if kind == "spell" and id then
+            local name = SpellName(id)
+            local e = name and by[name]
+            local r = e and id ~= e.id and SpellRank(id)
+            if r and r < e.top and r >= e.from then
+                ClearCursor()
+                PickupSpell(e.id)
+                if GetCursorInfo() then
+                    PlaceAction(slot)
+                    ClearCursor()
+                    n = n + 1
+                end
+            end
+        end
+    end
+    return n
+end
+
+local function FlushRanks(tries)
+    rankTimer = nil
+    if not next(pendingRanks) then return end
+    local n = Bars:UpgradeRanks(pendingRanks)
+    if n == nil then
+        -- in combat: when it ends; something on the cursor: a moment later (a while at most)
+        if InCombatLockdown and InCombatLockdown() then Bars.ranksAfterCombat = true return end
+        if (tries or 0) < 30 and C_Timer then
+            rankTimer = true
+            C_Timer.After(1, function() FlushRanks((tries or 0) + 1) end)
+        end
+        return
+    end
+    for k in pairs(pendingRanks) do pendingRanks[k] = nil end
+end
+
+local function WatchRanks()
+    ns:RegisterEvent("LEARNED_SPELL_IN_TAB", function(_, spellID)
+        local v = ns.DB and ns.DB:GetSetting("actionbars.upgradeRanks")
+        if v == false or type(spellID) ~= "number" then return end
+        pendingRanks[spellID] = true
+        -- (a trainer's "learn all" comes as many events: gathered, then done once)
+        if not rankTimer and C_Timer then
+            rankTimer = true
+            C_Timer.After(0.5, function() FlushRanks(0) end)
+        end
+    end)
+    ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+        if Bars.ranksAfterCombat then Bars.ranksAfterCombat = nil; FlushRanks(0) end
+    end)
+end
+
 function Bars:OnLogin()
     QuickKeybindPlaceFix()
+    WatchRanks()
     local L = Look()
     L:SetApplied("bars", L:Key("bars"))
     self:Restyle()

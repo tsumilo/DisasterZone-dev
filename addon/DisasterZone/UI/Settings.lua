@@ -2840,6 +2840,11 @@ local PART_OPTS = {
             { value = "numbers", text = "Number" } } },
         { "range", "Out of range", "", "icon", { { value = "icon", text = "Red icon" }, { value = "key", text = "Red key bind" } } },
         { "xp", "Experience bar", "Your experience and the reputation you watch, in the look.", true },
+        -- (whatever look the bars wear: an account setting, o.path)
+        { "ranks", "New ranks onto the bars", "A new rank you learn takes the place of the old one on your bars.", true,
+          path = "actionbars.upgradeRanks",
+          tip = "Only the rank that was your best moves up: a lower rank you keep for down-ranking stays. Macros "
+              .. "are left alone. In combat it waits until the fight ends." },
     },
     bags = {
         { "layout", "Layout", "How the window lays out your items. Only the view changes: items stay in their slots.",

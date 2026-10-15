@@ -77,6 +77,13 @@ ns.CHANGELOG = {
               { "Repairs come from your own gold, never the guild bank; chat says what it cost.", fb = { 21 }, by = { "Vicnado" }, k = "idea" },
               "Works with the game's own bags too.",
           } },
+          { heading = "New ranks onto your bars", area = "look", kind = "new", open = "settings/looks",
+            lead = "Learn a new rank and it takes the old one's place on your action bars.", lines = {
+              "Every bar and page, stance and form bars too; macros are left alone.",
+              "Only your best rank moves up: a lower rank kept for down-ranking stays.",
+              "In combat it waits for the fight to end.",
+              "On by default: Settings > Looks > Action bars, New ranks onto the bars.",
+          } },
           { heading = "Key binds", area = "look", kind = "new", hi = true, open = "settings/layout",
             lead = "Point at any action button and press a key: its key, right there.", lines = {
               "Every button shows its key as a small cap; the one under the mouse lights up and listens.",
