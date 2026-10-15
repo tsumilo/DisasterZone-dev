@@ -839,7 +839,7 @@ function Chess:OnInit()
     ns.Games:Register(GAME_ID, {
         name = "Karazhan Chess",
         desc = "Chess on Medivh's own board in the Gamesman's Hall: play the Echo of Medivh (he cheats, if you let him) or a guild member, a move whenever you are both on.",
-        tagline = "Medivh's own board. Play his echo, or a guildmate a move at a time.",
+        tagline = "Play Medivh's echo, or a guildmate.",
         icon = "Interface\\Icons\\INV_Misc_Ogrepinata",
         order = 25,
         create = function(parent) return ns.ChessUI and ns.ChessUI:CreatePanel(parent) end,

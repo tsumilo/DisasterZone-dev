@@ -642,7 +642,7 @@ function T:OnInit()
     ns.Games:Register(T.GAME_ID, {
         name = "Raid Trainer",
         desc = "Practice the boss in its own room, in 3D, before the pull. WASD to move, Tab to target, number keys to cast.",
-        tagline = "Practise the boss in its own room, in 3D, before the pull.",
+        tagline = "Practise each boss in 3D before the pull.",
         icon = "Interface\\Icons\\Spell_Shadow_DeathPact",
         order = 15,
         create = function(parent) return ns.TrainerUI:CreatePanel(parent) end,

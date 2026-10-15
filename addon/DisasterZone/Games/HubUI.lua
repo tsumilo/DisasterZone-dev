@@ -19,6 +19,7 @@ local FRONT_W, SIDE_W, SIDE_K = 300, 196, 0.88     -- poster widths; a side post
 local SIDE_DIM = 0.55                              -- the dark over a side poster
 local TURN_TIME, OPEN_TIME, BACK_TIME = 0.32, 0.58, 0.52
 local OPEN_DARK = 0.72                              -- how dark the painting gets as it becomes the game's backdrop
+local KICK_H, PLATE_H = 21, 40                      -- the kicker's pill; the row of numbers on a front poster
 local BASE = { 0.086, 0.086, 0.102 }               -- the posters' ground (#16161a)
 local BASE_A1, BASE_A0 = { BASE[1], BASE[2], BASE[3], 1 }, { BASE[1], BASE[2], BASE[3], 0 }
 local WHITE = { 1, 1, 1 }                           -- (titles and names over the art: the client's white)
@@ -90,7 +91,9 @@ local function Clock(sec)
 end
 
 ---------------------------------------------------------------------------
--- What each poster says (kicker over the art, the stat, who plays): real data only, nothing when there is none
+-- What each poster says: kicker (+ kickValue) on its chip, plates (up to three numbers with labels) or one stat
+-- line, hero (the side poster's number; plates[1] by default), line (instead of the tagline), who plays (faces, foot),
+-- cta (the word at the foot's right). Real data only, nothing when there is none.
 ---------------------------------------------------------------------------
 
 -- The next raid this member can see: its view (or nil).
@@ -155,6 +158,15 @@ end
 
 local INFO = {}
 
+-- A number on a poster: { v = value, l = label (lower case; drawn in small capitals), gold = the one that matters now }.
+local function Plate(v, label, gold) return { v = tostring(v), l = label, gold = gold } end
+local function Plural(n, one, many) return n == 1 and one or many end
+local function Ordinal(n)
+    local t = n % 100
+    local suf = (t >= 11 and t <= 13) and "th" or ({ "st", "nd", "rd" })[n % 10] or "th"
+    return n .. suf
+end
+
 -- Bingo: LIVE while a game runs (then the raid's own loading screen), else the next raid.
 INFO.bingo = function()
     local B, out = ns.Bingo, { art = "kara" }
@@ -164,27 +176,39 @@ INFO.bingo = function()
         out.live = true
         local key, name = InstanceHere()
         out.art = key or out.art
-        out.kicker = name and ("LIVE   \194\183   " .. name:upper()) or "LIVE"
-        local lines, marked = B:GetScore(ns.Util.PlayerKey())
-        local need = BingoState().away
+        out.kicker, out.kickValue = "LIVE", name and name:upper() or nil
+        local me = ns.Util.PlayerKey()
+        local lines, marked = B:GetScore(me)
+        local st = BingoState()
+        out.plates = {}
         if lines > 0 then
-            out.stat = string.format("|cffffd100%d %s|r  \194\183  %d squares", lines, lines == 1 and "line" or "lines", marked)
-        elseif need > 0 then
-            out.stat = string.format("|cffffd100%d %s|r from a line", need, need == 1 and "square" or "squares")
-        else
-            out.stat = string.format("%d squares marked", marked)
+            out.plates[1] = Plate(lines, Plural(lines, "line", "lines"), true)
+        elseif st.away > 0 then
+            out.plates[1] = Plate(st.away, "from a line", true)
         end
+        out.plates[#out.plates + 1] = Plate(marked, Plural(marked, "square", "squares"))
         local race = B:GetRace()
         out.faces = {}
-        for i = 1, #race do out.faces[i] = race[i].key end
+        for i = 1, #race do
+            out.faces[i] = race[i].key
+            if race[i].key == me and #race > 1 then out.plates[#out.plates + 1] = Plate(Ordinal(i), "in the race") end
+        end
+        -- the square that would finish a line, by name
+        if lines == 0 and st.away == 1 and st.card then
+            for cell in pairs(st.need) do
+                local sq = ns.BingoSquares and ns.BingoSquares:Get(st.card[cell])
+                if sq and sq.title then out.line = "For a line: " .. sq.title .. "." break end
+            end
+        end
         out.foot = string.format("%d playing", #race)
+        out.cta = "Join"
         return out
     end
     local v = NextRaid()
     if v then
         local first = ns.RaidPlan:GetRaidInstances(v)[1]
         if first and LoadScreen(first) then out.art = first end
-        out.kicker = "NEXT RAID   \194\183   " .. (date("%a ", v.t) .. tonumber(date("%d", v.t))):upper()
+        out.kicker, out.kickValue = "NEXT RAID", (date("%a ", v.t) .. tonumber(date("%d", v.t))):upper()
     else
         out.kicker = "RAID NIGHT"
     end
@@ -193,14 +217,15 @@ INFO.bingo = function()
     local bingos = type(row) == "table" and tonumber(row.bingos) or 0
     local points = type(row) == "table" and tonumber(row.points) or 0
     if bingos > 0 or points > 0 then
-        out.stat = string.format("Season |cffffffff%d|r points  \194\183  |cffffffff%d|r bingo%s", points, bingos,
-            bingos == 1 and "" or "s")
+        out.plates = { Plate(bingos, Plural(bingos, "bingo", "bingos")), Plate(points, "season pts") }
+        out.hero = Plate(bingos, Plural(bingos, "bingo this season", "bingos this season"))
     elseif data.best then
-        out.stat = string.format("Best card |cffffffff%d|r squares", data.best)
+        out.plates = { Plate(data.best, "best card") }
     else
-        out.stat = "|cff8a8a8aNot played yet|r"
+        out.stat = "Not played yet"
     end
-    out.foot = "|cff8a8a8aStarts with the raid|r"
+    out.foot = "Starts with the raid"
+    out.cta = "Open"
     return out
 end
 
@@ -220,10 +245,10 @@ INFO.trainer = function()
     local last = T and T:GetEncounter(data.last)
     if last and last.id == "teron" then out.art = "bt" end
     if tries > 0 then
-        out.stat = string.format("|cffffffff%d|r %s  \194\183  |cffffffff%d|r %s", clears, clears == 1 and "clear" or "clears",
-            tries, tries == 1 and "try" or "tries")
+        out.plates = { Plate(clears, Plural(clears, "clear", "clears")), Plate(tries, Plural(tries, "try", "tries")),
+            Plate(floor(clears * 100 / tries + 0.5) .. "%", "clear rate") }
     else
-        out.stat = "|cff8a8a8aNot played yet|r"
+        out.stat = "Not played yet"
     end
     return out
 end
@@ -240,9 +265,12 @@ INFO.azeromon = function()
             if type(s.flags) == "table" and s.flags["badge_" .. id] then badges = badges + 1 end
         end
         for _ in pairs(type(s.caught) == "table" and s.caught or {}) do tamed = tamed + 1 end
-        out.stat = string.format("Badges |cffffffff%d of %d|r  \194\183  |cffffffff%d|r tamed", badges, total, tamed)
+        out.plates = { Plate(badges .. "/" .. total, Plural(total, "badge", "badges")), Plate(tamed, "tamed") }
+        out.hero = Plate(badges .. " of " .. total, "badges")
     else
-        out.stat = "|cff8a8a8aNot started yet|r"
+        out.stat = "Not started yet"
+        out.line = "Your first beast waits in the tall grass of Northshire."
+        out.cta = "Start"
     end
     local Net = ns.AzeroNet
     local keys = Net and Net.PlayingKeys and Net:PlayingKeys() or {}
@@ -254,9 +282,9 @@ INFO.azeromon = function()
     return out
 end
 
--- Karazhan Chess: games waiting for your move, else your guild rating or your record against Medivh.
+-- Karazhan Chess: games waiting for your move, your guild rating, else your record against Medivh.
 INFO.chess = function()
-    local out = { kicker = "THE GAMESMAN'S HALL", art = "kara" }
+    local out = { kicker = "THE GAMESMAN'S HALL", art = "kara", plates = {} }
     local C = ns.Chess
     local data = Saved("chess")
     local waiting = C and C:MyTurnCount() or 0
@@ -265,10 +293,10 @@ INFO.chess = function()
         if type(g) == "table" and g.status ~= "over" then open = open + 1 end
     end
     local mine = C and C:MyRating()
-    if waiting > 0 then
-        out.stat = string.format("|cffc9a2ffYour move|r in |cffffffff%d|r %s", waiting, waiting == 1 and "game" or "games")
-    elseif mine then
-        out.stat = string.format("Guild rating |cffffffff%d|r  \194\183  %d-%d-%d", mine.rating, mine.w, mine.l, mine.d)
+    if waiting > 0 then out.plates[1] = Plate(waiting, "your move", true) end
+    if mine then
+        out.plates[#out.plates + 1] = Plate(mine.rating, "rating")
+        out.plates[#out.plates + 1] = Plate(string.format("%d-%d-%d", mine.w, mine.l, mine.d), "w-l-d")
     else
         local w, n = 0, 0
         for _, s in pairs(type(data.stats) == "table" and data.stats or {}) do
@@ -277,37 +305,37 @@ INFO.chess = function()
                 n = n + (tonumber(s.w) or 0) + (tonumber(s.l) or 0) + (tonumber(s.d) or 0)
             end
         end
-        out.stat = n > 0 and string.format("Beat Medivh |cffffffff%d|r of %d", w, n) or "|cff8a8a8aNot played yet|r"
+        if n > 0 then out.plates[#out.plates + 1] = Plate(w .. "/" .. n, "beat Medivh") end
     end
-    if open > 0 then out.foot = string.format("%d %s open", open, open == 1 and "game" or "games") end
+    if #out.plates == 0 then out.plates, out.stat = nil, "Not played yet" end
+    if open > 0 then out.foot = string.format("%d %s open", open, Plural(open, "game", "games")) end
     return out
 end
 
--- The Binding of Illidan: your wins and fastest, else the deepest floor; the items you have found.
+-- The Binding of Illidan: your wins and fastest (and the items found), else the deepest floor.
 INFO.illidan = function()
     local out = { kicker = "ROGUELIKE", art = "bt" }
     local data = Saved("illidan")
     local G = ns.BoIGame
+    local n, all = 0, 0
+    if G then n, all = G:ItemCount() end
     if (tonumber(data.wins) or 0) > 0 and G then
-        out.stat = string.format("|cffffffff%d|r %s  \194\183  fastest |cffffffff%s|r", data.wins, data.wins == 1 and "win" or "wins",
-            G.Clock(tonumber(data.fastest) or 0))
+        out.plates = { Plate(data.wins, Plural(data.wins, "win", "wins")), Plate(G.Clock(tonumber(data.fastest) or 0), "fastest") }
+        if n > 0 then out.plates[3] = Plate(n .. "/" .. all, "items") end
     elseif (tonumber(data.best) or 0) > 0 then
         local f = ns.BoIData.FLOORS[data.best]
-        out.stat = string.format("Deepest |cffffffff%s|r", f and f.name or ("floor " .. data.best))
+        out.stat = "Deepest: " .. (f and f.name or ("floor " .. data.best))     -- (a name, not a number: one line)
     else
-        out.stat = "|cff8a8a8aNot played yet|r"
+        out.stat = "Not played yet"
     end
-    if G then
-        local n, all = G:ItemCount()
-        if n > 0 then out.foot = string.format("%d of %d items found", n, all) end
-    end
+    if n > 0 and not out.plates then out.foot = string.format("%d of %d items found", n, all) end
     -- today's dungeon: who played it, and the best of the day
     local B = ns.BoIBoard
     local list = B and B:Board() or {}
     if #list > 0 then
         out.faces = {}
         for i = 1, #list do out.faces[i] = list[i].key end
-        out.foot = string.format("Today: %d played  \194\183  %s %s", #list, list[1].name, B:ResultText(list[1].e))
+        out.foot = string.format("Today %d played  \194\183  %s %s", #list, list[1].name, B:ResultText(list[1].e))
     end
     return out
 end
@@ -319,7 +347,8 @@ local function Info(id)
         if ok and type(out) == "table" then return out end
     end
     local data = Saved(id)
-    return { stat = data.best and ("Best |cffffffff" .. data.best .. "|r") or "|cff8a8a8aNot played yet|r" }
+    if data.best then return { plates = { Plate(data.best, "best") } } end
+    return { stat = "Not played yet" }
 end
 
 ---------------------------------------------------------------------------
@@ -329,10 +358,14 @@ end
 local COVERS = {}
 
 -- Bingo: your card. Your dauber on the marked squares, gold edges on complete lines and on a line one square away
--- (its missing square pulses), the square that just filled glows.
+-- (its missing square pulses), the square that just filled glows. Between raids the last card stays, faded, with
+-- its lines under it; without one, a line says when the next is dealt.
 COVERS.bingo = function(parent)
     local c = CreateFrame("Frame", nil, parent)
     c.cells = {}
+    c.lab = UI:Text(c, 8.5)
+    c.lab:SetPoint("TOP", c, "BOTTOM", 0, -9)
+    c.lab:SetTextColor(0.72, 0.65, 0.42)
     for i = 1, 25 do
         local cell = CreateFrame("Frame", nil, c)
         cell.bg = cell:CreateTexture(nil, "BACKGROUND")
@@ -350,7 +383,7 @@ COVERS.bingo = function(parent)
     end
     c.clock = 0
     function c:Layout(w, h)
-        local size = floor(min(w - 40, h - 16, 180))
+        local size = floor(min(w - 40, h - 34, 180))      -- (room for the line under it)
         if size < 40 then size = 40 end
         local gap = 3
         local cs = (size - 4 * gap) / 5
@@ -372,6 +405,16 @@ COVERS.bingo = function(parent)
         local dauber = tonumber(Saved("bingo").dauber) or 1
         if dauber < 1 or dauber > 8 then dauber = 1 end
         self.need, self.fresh = st.need, st.fresh
+        local live = ns.Bingo and ns.Bingo:IsActive()
+        if live then
+            self.lab:SetText("")
+        elseif st.card then
+            local lines = ns.Bingo:GetScore(ns.Util.PlayerKey())
+            self.lab:SetText("LAST CARD   \194\183   " .. lines .. (lines == 1 and " LINE" or " LINES"))
+        else
+            self.lab:SetText("A NEW CARD AT THE FIRST PULL")
+        end
+        for _, cell in ipairs(self.cells) do cell:SetAlpha(live and 1 or (st.card and 0.62 or 0.5)) end
         for i, cell in ipairs(self.cells) do
             if i == 13 then
                 cell.mark:SetTexture(MEDIA .. "Launcher\\seal")
@@ -732,17 +775,31 @@ COVERS.trainer = function(parent)
         ch.time = UI:Text(ch, 11.5, WHITE)
         ch.time:SetJustifyH("RIGHT")
         ch.time:SetPoint("RIGHT", -10, 0)
-        ch.name:SetPoint("RIGHT", ch.time, "LEFT", -8, 0)
+        ch.last = UI:Text(ch, 8)                   -- (LAST: the boss you practised last)
+        ch.last:SetPoint("RIGHT", ch.time, "LEFT", -10, 0)
+        ch.last:SetText("LAST")
+        ch.bar = ch:CreateTexture(nil, "ARTWORK")
+        ch.bar:SetPoint("TOPLEFT")
+        ch.bar:SetPoint("BOTTOMLEFT")
+        ch.bar:SetWidth(2)
+        ch.name:SetPoint("RIGHT", ch.last, "LEFT", -8, 0)
         c.chips[i] = ch
         return ch
     end
+    -- the rows' header: what the times are
+    c.head = UI:Text(c, 8.5)
+    c.head:SetText("BEST CLEAR")
+    c.head:SetTextColor(0.61, 0.73, 0.74)
     function c:Layout(w, h)
-        self:SetSize(w - 32, max(60, h - 64))     -- (the chips end above the title)
+        self:SetSize(w - 32, max(60, h - 52))     -- (the rows end just above the title)
         for i, ch in ipairs(self.chips) do
             ch:ClearAllPoints()
             ch:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 0, (#self.shown - i) * 32)
             ch:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", 0, (#self.shown - i) * 32)
         end
+        self.head:ClearAllPoints()
+        if self.shown[1] then self.head:SetPoint("BOTTOMLEFT", self.shown[1], "TOPLEFT", 2, 6) end
+        self.head:SetShown(self.shown[1] ~= nil)
     end
     function c:Refresh()
         local T = ns.Trainer
@@ -764,13 +821,17 @@ COVERS.trainer = function(parent)
             ch.name:SetTextColor(on and 1 or 0.81, on and 1 or 0.81, on and 1 or 0.81)
             ch.time:SetText(best and Clock(best) or "|cff8a8a8anot cleared|r")
             ch.dot:SetVertexColor(a[1], a[2], a[3], on and 1 or 0.35)
-            ns.UI:SetEdgeColor(ch, a[1], a[2], a[3], on and 0.55 or 0.18)
+            ch.last:SetTextColor(a[1], a[2], a[3])
+            ch.last:SetShown(on)
+            ch.bar:SetColorTexture(a[1], a[2], a[3], 1)
+            ch.bar:SetShown(on)
+            ns.UI:SetEdgeColor(ch, a[1], a[2], a[3], on and 0.5 or 0.16)
             ch:Show()
             self.shown[i] = ch
         end
         for i = #self.shown + 1, #self.chips do self.chips[i]:Hide() end
         local w, h = self:GetSize()
-        if w and w > 0 then self:Layout(w + 32, h + 64) end
+        if w and w > 0 then self:Layout(w + 32, h + 52) end
     end
     return c
 end
@@ -839,36 +900,101 @@ local function SetFaces(p, keys)
     else
         p.footText:SetPoint("LEFT", p.foot, "LEFT", 0, 0)
     end
-    p.footText:SetPoint("RIGHT", p.foot, "RIGHT", 0, 0)   -- (long lines cut with "..." inside the poster)
+    p.footText:SetPoint("RIGHT", p.cta, "LEFT", -10, 0)   -- (long lines cut with "..." before PLAY)
 end
 
--- A side poster: the title and the stat only, smaller. A front poster without a "who plays" line keeps its stat at
--- the bottom.
+-- A side poster: the title and its one number, smaller. A front poster: title, line, rule, the numbers, who plays
+-- and PLAY.
 local function SetSideLook(p, side)
-    local key = (side and "s" or "f") .. (p.hasFoot and "1" or "0")
-    if p.side == side and p.lookKey == key then return end
-    p.side, p.lookKey = side, key
+    if p.side == side then return end
+    p.side = side
     p.title:ClearAllPoints()
-    p.stat:ClearAllPoints()
-    if side or not p.hasFoot then
-        p.stat:SetPoint("BOTTOMLEFT", p.over, "BOTTOMLEFT", 16, 16)
-        p.stat:SetPoint("BOTTOMRIGHT", p.over, "BOTTOMRIGHT", -16, 16)
-    else
-        p.stat:SetPoint("BOTTOMLEFT", p.foot, "TOPLEFT", 0, 12)
-        p.stat:SetPoint("BOTTOMRIGHT", p.foot, "TOPRIGHT", 0, 12)
-    end
     if side then
-        p.title:SetPoint("BOTTOMLEFT", p.stat, "TOPLEFT", 0, 6)
-        p.title:SetPoint("BOTTOMRIGHT", p.stat, "TOPRIGHT", 0, 6)
+        p.title:SetPoint("BOTTOMLEFT", p.heroV, "TOPLEFT", 0, 5)
+        p.title:SetWidth(SIDE_W - 28)
         p.title:SetFont(p.titleFont, ns.Style.FONT.page, p.titleFlags)
     else
-        p.title:SetPoint("BOTTOMLEFT", p.desc, "TOPLEFT", 0, 7)
-        p.title:SetPoint("BOTTOMRIGHT", p.desc, "TOPRIGHT", 0, 7)
+        p.title:SetPoint("BOTTOMLEFT", p.desc, "TOPLEFT", 0, 4)
+        p.title:SetWidth(FRONT_W - 32)
         p.title:SetFont(p.titleFont, ns.Style:Size(26), p.titleFlags)   -- (a poster's display title)
     end
     p.desc:SetShown(not side)
     p.rule:SetShown(not side)
-    p.foot:SetShown(not side and p.hasFoot)
+    p.plateRow:SetShown(not side)
+    p.foot:SetShown(not side)
+    p.heroV:SetShown(side)
+    p.heroL:SetShown(side)
+end
+
+-- The numbers on a front poster (info.plates), else its one line (info.stat).
+local function SetPlates(p, plates)
+    local n = plates and min(3, #plates) or 0
+    local cw = (FRONT_W - 32) / max(1, n)
+    for k, c in ipairs(p.plates) do
+        local d = k <= n and plates[k]
+        if d then
+            c.v:SetText(d.v)
+            if d.gold then c.v:SetTextColor(ns.Style:Color("GOLD")) else c.v:SetTextColor(1, 1, 1) end
+            c.l:SetText((d.l or ""):upper())
+            local x = (k - 1) * cw + (k > 1 and 12 or 0)
+            c.v:ClearAllPoints()
+            c.v:SetPoint("TOPLEFT", p.plateRow, "TOPLEFT", x, -1)
+            c.sep:ClearAllPoints()
+            c.sep:SetPoint("TOPLEFT", p.plateRow, "TOPLEFT", (k - 1) * cw, 0)
+            c.sep:SetPoint("BOTTOMLEFT", p.plateRow, "TOPLEFT", (k - 1) * cw, -PLATE_H + 4)
+        end
+        c.v:SetShown(d and true or false)
+        c.l:SetShown(d and true or false)
+        c.sep:SetShown(d and k > 1 or false)
+    end
+    p.stat:SetShown(n == 0)
+end
+
+-- A side poster's number: info.hero, else the first plate, else the stat line on its own.
+local function SetHero(p, info)
+    local h = info.hero or (info.plates and info.plates[1])
+    p.heroL:ClearAllPoints()
+    if h then
+        p.heroV:SetText(h.v)
+        p.heroL:SetText(h.l or "")
+        p.heroL:SetPoint("BOTTOMLEFT", p.heroV, "BOTTOMRIGHT", 6, 1)
+    else
+        p.heroV:SetText(" ")
+        p.heroL:SetText(info.stat or "")
+        p.heroL:SetPoint("BOTTOMLEFT", p.heroV, "BOTTOMLEFT", 0, 1)
+    end
+end
+
+-- A poster's summary as text: "53 clears  ·  97 tries  ·  55% clear rate", or its stat line (tests, tooltips).
+local function Summary(info)
+    if not info.plates then return info.stat or "" end
+    local o = {}
+    for i, d in ipairs(info.plates) do o[i] = d.v .. " " .. (d.l or "") end
+    return table.concat(o, "  \194\183  ")
+end
+
+-- The kicker's pill: the dot (red and glowing while live, else the game's colour), the label, a value after a hairline.
+local function SetKicker(p, info)
+    local a = Accent(p.id)
+    p.kicker:SetText(info.kicker or "")
+    local v = info.kickValue
+    p.kickValue:SetText(v or "")
+    p.kickSep:SetShown(v ~= nil)
+    p.kickValue:SetShown(v ~= nil)
+    if info.live then
+        p.dot:SetVertexColor(1, 0.29, 0.24)
+        p.dotGlow:SetVertexColor(1, 0.29, 0.24)
+        p.kicker:SetTextColor(1, 0.69, 0.66)
+    else
+        p.dot:SetVertexColor(a[1], a[2], a[3])
+        p.dotGlow:SetVertexColor(a[1], a[2], a[3])
+        p.dotGlow:SetAlpha(0.45)
+        p.kicker:SetTextColor(0.81, 0.8, 0.78)
+    end
+    local w = 9 + 5 + 7 + (p.kicker:GetStringWidth() or 0) + 10
+    if v then w = w + 7 + 1 + 7 + (p.kickValue:GetStringWidth() or 0) - 1 end
+    p.kick:SetWidth(floor(w + 0.5))
+    p.kick:SetShown((info.kicker or "") ~= "")
 end
 
 -- The sheen: a light band crossing the poster once (two ADD gradient halves, cut at the poster's edges by hand).
@@ -917,6 +1043,9 @@ local function PaintEdge(p)
         ns.UI:SetEdgeColor(p.top, 1, 1, 1, p.hover and 0.14 or 0.07)
     end
     p.dim:SetAlpha(p.off == 0 and 0 or (p.hover and SIDE_DIM * 0.6 or SIDE_DIM))
+    local k = hot and 1 or 0.72
+    p.cta:SetTextColor(a[1], a[2], a[3], k)
+    p.ctaArrow:SetVertexColor(a[1], a[2], a[3], k)
 end
 
 local OpenGame, Turn
@@ -962,22 +1091,30 @@ local function CreatePoster(i, def)
     p.lowShade:SetPoint("BOTTOMRIGHT", p.artFrame, "BOTTOMRIGHT", 1, -2)
     UI:Gradient(p.lowShade, "VERTICAL", BASE_A1, BASE_A0)
 
-    p.kicker = UI:Text(p.over, 9.5)
-    p.kicker:SetPoint("TOPLEFT", 16, -15)
-    p.kicker:SetTextColor(0.84, 0.84, 0.84)
-    p.dot = p.over:CreateTexture(nil, "OVERLAY")
+    -- the kicker: a dark glass pill (it reads on any painting) with the game's dot, the label, then a white value
+    p.kick = CreateFrame("Frame", nil, p.over)
+    p.kick:SetHeight(KICK_H)
+    p.kick:SetPoint("TOPLEFT", 12, -13)
+    UI:AddPillShape(p.kick, KICK_H)
+    p.kick:SetPillColors({ 0.04, 0.043, 0.051, 0.68 }, { 1, 1, 1, 0.1 })
+    p.dot = p.kick:CreateTexture(nil, "OVERLAY")
     p.dot:SetTexture(CIRCLE)
-    p.dot:SetSize(7, 7)
-    p.dot:SetVertexColor(1, 0.29, 0.24)
-    p.dot:SetPoint("TOPLEFT", 16, -16)
-    p.dot:Hide()
-    p.dotGlow = p.over:CreateTexture(nil, "ARTWORK")
+    p.dot:SetSize(5, 5)
+    p.dot:SetPoint("LEFT", 9, 0)
+    p.dotGlow = p.kick:CreateTexture(nil, "ARTWORK")
     p.dotGlow:SetTexture(RADIAL)
     p.dotGlow:SetBlendMode("ADD")
-    p.dotGlow:SetVertexColor(1, 0.29, 0.24)
     p.dotGlow:SetPoint("CENTER", p.dot, "CENTER")
-    p.dotGlow:SetSize(22, 22)
-    p.dotGlow:Hide()
+    p.dotGlow:SetSize(18, 18)
+    p.kicker = UI:Text(p.kick, 9)
+    p.kicker:SetPoint("LEFT", p.dot, "RIGHT", 7, 0)
+    p.kicker:SetTextColor(0.81, 0.8, 0.78)
+    p.kickSep = p.kick:CreateTexture(nil, "ARTWORK")
+    p.kickSep:SetColorTexture(1, 1, 1, 0.18)
+    p.kickSep:SetSize(1, 9)
+    p.kickSep:SetPoint("LEFT", p.kicker, "RIGHT", 7, 0)
+    p.kickValue = UI:Text(p.kick, 9, WHITE)
+    p.kickValue:SetPoint("LEFT", p.kickSep, "RIGHT", 7, 0)
 
     -- the words (title, line, stat, who plays) on their own frame: it fades while a poster turns between front and
     -- side, so the switch of size happens unseen
@@ -1011,29 +1148,62 @@ local function CreatePoster(i, def)
     p.more = UI:Text(p.foot, 10.5)
     p.more:SetPoint("LEFT", p.faces[4], "RIGHT", 8, 0)
     p.more:SetTextColor(ns.Style:Color("SUB"))
+    local a = Accent(def.id)
+    -- PLAY at the foot's right, in the game's colour (brighter on hover)
+    p.ctaArrow = p.foot:CreateTexture(nil, "ARTWORK")
+    ns.UI:SetChevron(p.ctaArrow, true)         -- (the addon's thin chevron, pointing right)
+    p.ctaArrow:SetSize(10, 10)
+    p.ctaArrow:SetPoint("RIGHT", 0, 0)
+    p.cta = UI:Text(p.foot, 10.5)
+    p.cta:SetPoint("RIGHT", p.ctaArrow, "LEFT", -5, 0)
     p.footText = UI:Text(p.foot, 11)
     p.footText:SetTextColor(0.81, 0.81, 0.81)
     p.footText:SetJustifyH("LEFT")
     p.footText:SetWordWrap(false)
 
-    p.stat = UI:Text(p.words, 12)
-    p.stat:SetTextColor(0.74, 0.74, 0.74)
+    -- the numbers: up to three plates (a big white value over a small capitals label), hairlines between them; a
+    -- poster without numbers shows one quiet line (p.stat) in their place. Fixed width: nothing re-flows as it grows.
+    p.plateRow = CreateFrame("Frame", nil, p.words)
+    p.plateRow:SetSize(FRONT_W - 32, PLATE_H)
+    p.plateRow:SetPoint("BOTTOMLEFT", p.foot, "TOPLEFT", 0, 12)
+    p.plates = {}
+    for k = 1, 3 do
+        local c = {}
+        c.v = UI:Text(p.plateRow, 19, WHITE)
+        c.l = UI:Text(p.plateRow, 8.5)
+        c.l:SetTextColor(0.47, 0.46, 0.44)
+        c.l:SetPoint("TOPLEFT", c.v, "BOTTOMLEFT", 0, -4)
+        c.sep = p.plateRow:CreateTexture(nil, "ARTWORK")
+        c.sep:SetColorTexture(1, 1, 1, 0.09)
+        c.sep:SetWidth(1)
+        p.plates[k] = c
+    end
+    p.stat = UI:Text(p.plateRow, 12)
+    p.stat:SetPoint("LEFT", 0, 0)
+    p.stat:SetTextColor(0.54, 0.54, 0.54)
     p.rule = p.words:CreateTexture(nil, "ARTWORK")
     p.rule:SetHeight(1)
-    p.rule:SetPoint("BOTTOMLEFT", p.stat, "TOPLEFT", 0, 12)
-    p.rule:SetPoint("BOTTOMRIGHT", p.stat, "TOPRIGHT", 0, 12)
-    local a = Accent(def.id)
+    p.rule:SetPoint("BOTTOMLEFT", p.plateRow, "TOPLEFT", 0, 11)
+    p.rule:SetPoint("BOTTOMRIGHT", p.plateRow, "TOPRIGHT", 0, 11)
     UI:Gradient(p.rule, "HORIZONTAL", { a[1], a[2], a[3], 0.6 }, { a[1], a[2], a[3], 0 })
     p.desc = UI:Text(p.words, 11)
     p.desc:SetWordWrap(true)
     p.desc:SetJustifyV("BOTTOM")
     p.desc:SetSpacing(3)
-    p.desc:SetTextColor(0.65, 0.65, 0.65)
+    p.desc:SetTextColor(0.66, 0.65, 0.63)
     p.desc:SetPoint("BOTTOMLEFT", p.rule, "TOPLEFT", 0, 13)
     p.desc:SetWidth(FRONT_W - 32)          -- (fixed: it never re-wraps while the poster grows)
     p.title = UI:Text(p.words, 26, WHITE)          -- (26: a display size, left as it is)
+    p.title:SetWordWrap(true)                      -- (a long name takes two lines, never "...")
+    p.title:SetJustifyH("LEFT")
     local font, _, flags = p.title:GetFont()
     p.titleFont, p.titleFlags = font, flags
+    -- a side poster's one number: the value, then its label
+    p.heroV = UI:Text(p.words, 16, WHITE)
+    p.heroV:SetPoint("BOTTOMLEFT", p.words, "BOTTOMLEFT", 14, 16)
+    p.heroL = UI:Text(p.words, 11)
+    p.heroL:SetTextColor(0.66, 0.65, 0.63)
+    p.heroL:SetPoint("BOTTOMLEFT", p.heroV, "BOTTOMRIGHT", 6, 1)
 
     -- the live cover
     local make = COVERS[def.id]
@@ -1100,16 +1270,15 @@ local function FillPoster(p)
     p.info = info
     p.live = info.live
     p.title:SetText(p.def.name)
-    p.desc:SetText(p.def.tagline or p.def.desc or "")
-    p.kicker:SetText(info.kicker or "")
-    p.kicker:ClearAllPoints()
-    p.kicker:SetPoint("TOPLEFT", info.live and 31 or 16, -15)
-    p.dot:SetShown(info.live and true or false)
-    p.dotGlow:SetShown(info.live and true or false)
+    p.desc:SetText(info.line or p.def.tagline or p.def.desc or "")
+    SetKicker(p, info)
     p.stat:SetText(info.stat or "")
+    SetPlates(p, info.plates)
+    SetHero(p, info)
+    p.summary = Summary(info)
+    p.cta:SetText((info.cta or "Play"):upper())
     p.footText:SetText(info.foot or "")
     SetFaces(p, info.faces)
-    p.hasFoot = (info.foot or "") ~= ""
     SetSideLook(p, p.side or false)
     if p.id ~= "azeromon" then
         local key = info.art or "kara"

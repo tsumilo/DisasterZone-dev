@@ -521,10 +521,10 @@ def the_hub_has_a_chess_poster_with_what_waits_for_you():
     assert "chess" in ids, ids
     c.eval("local g = ns.Chess:NewAIGame(1, 'magus', true)")
     stat = c.eval("for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'chess' then "
-                  "ns.GamesUI:ShowFront('chess') return p.stat:GetText() end end")
+                  "ns.GamesUI:ShowFront('chess') return p.summary end end")
     w.tick(0.5)
-    stat = c.eval("for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'chess' then return p.stat:GetText() end end")
-    assert stat and "Your move" in stat, stat
+    stat = c.eval("for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'chess' then return p.summary end end")
+    assert stat and "your move" in stat, stat
     no_errors(w)
 
 

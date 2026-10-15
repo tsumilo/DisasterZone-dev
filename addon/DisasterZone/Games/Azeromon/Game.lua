@@ -1619,7 +1619,7 @@ function G:OnInit()
     ns.Games:Register(G.GAME_ID, {
         name = "Azeromon",
         desc = "Tame, train and battle the beasts of Elwynn Forest, Pokemon style. Arrow keys / WASD to move, Space to interact.",
-        tagline = "Tame, train and battle the beasts of Elwynn Forest.",
+        tagline = "Tame and battle the beasts of Elwynn.",
         icon = "Interface\\Icons\\Ability_Hunter_BeastTaming",
         order = 20,
         create = function(parent) return ns.AzeroUI:CreatePanel(parent) end,

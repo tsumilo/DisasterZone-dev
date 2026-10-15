@@ -34,6 +34,11 @@ def poster(c, gid, field):
     return c.eval("for _, p in ipairs(%s) do if p.id == ... then return p.%s:GetText() end end" % (POSTERS, field), gid)
 
 
+def summary(c, gid):
+    """The poster's numbers as text ("53 clears  ·  97 tries ..."), or its one stat line."""
+    return c.eval("for _, p in ipairs(%s) do if p.id == ... then return p.summary end end" % POSTERS, gid)
+
+
 def settle(c, s=0.6):
     c.world.tick(s)
     assert c.eval("return ns.GamesUI:IsAnimating()") is False
@@ -209,7 +214,8 @@ def a_running_bingo_game_comes_first_and_says_how_close_you_are():
     hub(c)
     assert front(c) == "bingo"
     assert strip_codes(poster(c, "bingo", "kicker")).startswith("LIVE")
-    assert strip_codes(poster(c, "bingo", "stat")) == "1 square from a line"
+    assert summary(c, "bingo").startswith("1 from a line"), summary(c, "bingo")
+    assert poster(c, "bingo", "cta") == "JOIN"
     assert strip_codes(poster(c, "bingo", "footText")) == "1 playing"
     # the missing square of that diagonal is the one marked as needed; the stamps are my dauber
     need = c.eval_py("for _, p in ipairs(%s) do if p.id == 'bingo' then local o = {} "
@@ -234,14 +240,14 @@ def poster_stats_come_from_each_games_saved_data():
            "local n = 0 for id in pairs(ns.AzeroData.badges) do n = n + 1 if n <= 2 then s.flags['badge_' .. id] = true end end "
            "ns.Games:GetData('azeromon').save = s")
     hub(c)
-    assert strip_codes(poster(c, "trainer", "stat")) == "1 clear  ·  5 tries"
+    assert summary(c, "trainer") == "1 clear  ·  5 tries  ·  20% clear rate", summary(c, "trainer")
     chips = c.eval_py("for _, p in ipairs(%s) do if p.id == 'trainer' then local o = {} "
                       "for i, ch in ipairs(p.cover.shown) do o[i] = { ch.name:GetText(), ch.time:GetText() } end "
                       "return o end end" % POSTERS)
     assert [ch[0] for ch in chips] == ["Lady Vashj", "Teron Gorefiend"], chips
     assert chips[0][1] == "4:31" and strip_codes(chips[1][1]) == "not cleared", chips
     total = c.eval("local n = 0 for _ in pairs(ns.AzeroData.badges) do n = n + 1 end return n")
-    assert strip_codes(poster(c, "azeromon", "stat")) == "Badges 2 of %d  ·  2 tamed" % total
+    assert summary(c, "azeromon") == "2/%d badges  ·  2 tamed" % total, summary(c, "azeromon")
     no_errors(w)
 
 

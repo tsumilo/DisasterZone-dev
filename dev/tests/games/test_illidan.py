@@ -582,7 +582,7 @@ def a_finished_run_is_recorded_and_the_poster_shows_it():
     assert "Gorefiend" in out["line"], out
     c.eval("ns.MainFrame:Open('games')")
     w.tick(0.5)
-    stat = c.eval("for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'illidan' then return p.stat:GetText() end end")
+    stat = c.eval("for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'illidan' then return p.summary end end")
     assert stat and "Gorefiend" in stat, stat
 
 

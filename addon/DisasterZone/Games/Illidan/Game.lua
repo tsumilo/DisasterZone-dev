@@ -78,7 +78,7 @@ function G:OnInit()
     ns.Games:Register(GAME_ID, {
         name = "The Binding of Illidan",
         desc = "A roguelike through the Black Temple: one room at a time, your class's bolts as tears, items that stack, and raid bosses that fight with their raid mechanics. A new dungeon every run.",
-        tagline = "Five floors of the Black Temple, raid bosses that fight like the raid. New dungeon every run.",
+        tagline = "Five floors of the Black Temple, new every run.",
         icon = "Interface\\Icons\\Spell_Shadow_Metamorphosis",
         order = 30,
         create = function(parent) return ns.BoIUI and ns.BoIUI:CreatePanel(parent) end,
