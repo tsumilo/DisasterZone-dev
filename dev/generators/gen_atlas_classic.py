@@ -154,6 +154,8 @@ SET_ORDER = ["Tier0", "Tier05", "Tier1", "Tier2", "Tier25", "ZulGurub", "AQ20", 
 # Recommended levels where AtlasLoot gives Season of Discovery's (no GetForVersion): the original instances'
 LV_FIX = {"BlackfathomDeeps": "24-32", "Gnomeregan": "29-38", "SunkenTemple": "45-55"}
 
+# Craft spells from here on are Season of Discovery's (Classic / TBC crafts are far below)
+SOD_SPELLS = 100000
 # Pages of Season of Discovery bosses that also carry a normal list
 SKIP_PAGES = {("WorldBosses", "PrinceThunderaan")}
 
@@ -474,21 +476,21 @@ def main():
                         ids.setdefault(e, f"{cat['key']}/{src['key']}/{pg['key']}")
     names, unnamed, name_src = {}, [], Counter()
     for i, where in ids.items():
+        # only what a TBC client has: an item in Questie's TBC item DB (AtlasLoot's Classic tables carry Season of
+        # Discovery ids among the normal rows, named by their row comments), a craft spell from before SoD's ids
         if i < 0:
-            nm = ctx.spell_names.get(-i)
+            nm = ctx.spell_names.get(-i) if -i < SOD_SPELLS else None
             how = "crafting row comment"
         else:
             nm = (Q.get(i) or {}).get("name")
             how = "Questie TBC item DB"
-            if not nm:
-                nm, how = ctx.comment_names.get(i), "AtlasLoot row comment"
         if nm:
             names[i] = nm
             if i not in have:
                 name_src[how] += 1
         else:
             unnamed.append({"id": i, "where": where})
-    # an id nobody can name isn't on a TBC client (Season of Discovery rows): out of the tree
+    # an id the TBC client doesn't have (Season of Discovery rows): out of the tree
     bad = {u["id"] for u in unnamed}
     for cat in tree:
         for src in cat["sources"]:

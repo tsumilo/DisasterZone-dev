@@ -432,12 +432,6 @@
    "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
   },
   {
-   "id": 13460,
-   "name": "Flask of Unyielding Sorrow",
-   "spell": 17519,
-   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
-  },
-  {
    "id": 14529,
    "name": "Runecloth Bandage",
    "spell": 18608,
@@ -501,12 +495,6 @@
    "id": 16040,
    "name": "Arcane Bomb",
    "spell": 19821,
-   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
-  },
-  {
-   "id": 16082,
-   "name": "Artisan Fishing - The Way of the Lure",
-   "spell": 18248,
    "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
   },
   {
@@ -838,35 +826,20 @@
    "id": 24102,
    "name": "Manual of Eviscerate IX",
    "reason": "not in Recipe.lua (CLASSIC/BCC)"
-  },
-  {
-   "id": 217398,
-   "name": "Recipe: Lesser Arcane Elixir",
-   "reason": "not in Recipe.lua (CLASSIC/BCC)"
-  },
-  {
-   "id": 233802,
-   "name": "Pattern: Glowing Chitin Armor Kit",
-   "reason": "not in Recipe.lua (CLASSIC/BCC)"
-  },
-  {
-   "id": 233803,
-   "name": "Pattern: Sharpened Chitin Armor Kit",
-   "reason": "not in Recipe.lua (CLASSIC/BCC)"
   }
  ],
  "output": "C:\\Users\\emilo\\CDLoot-dev\\addon\\DisasterZone\\Data\\AtlasClassic.lua",
- "bytes": 531665,
+ "bytes": 489648,
  "validation_errors": [],
  "counts": {
   "c_raids sources": 7,
   "c_raids items": 1138,
   "c_dungeons sources": 25,
-  "c_dungeons items": 1882,
+  "c_dungeons items": 1870,
   "c_crafting sources": 12,
-  "c_crafting items": 1598,
+  "c_crafting items": 1310,
   "c_reputation sources": 9,
-  "c_reputation items": 243,
+  "c_reputation items": 155,
   "c_pvp sources": 7,
   "c_pvp items": 462,
   "c_events sources": 6,
@@ -874,13 +847,1528 @@
   "c_sets sources": 10,
   "c_sets items": 871
  },
- "names_written": 4601,
+ "names_written": 4223,
  "name_sources": {
   "Questie TBC item DB": 4096,
-  "AtlasLoot row comment": 357,
-  "crafting row comment": 148
+  "crafting row comment": 127
  },
  "ids_without_names_dropped": [
+  {
+   "id": 228466,
+   "where": "c_dungeons/DireMaulEast/Books"
+  },
+  {
+   "id": 228464,
+   "where": "c_dungeons/DireMaulEast/Books"
+  },
+  {
+   "id": 228467,
+   "where": "c_dungeons/DireMaulEast/Books"
+  },
+  {
+   "id": 228465,
+   "where": "c_dungeons/DireMaulEast/Books"
+  },
+  {
+   "id": 210708,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 213372,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 215162,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 217398,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 222952,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 221024,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 221313,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 232611,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 233977,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 233967,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 233968,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 233969,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 233964,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 233962,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 233965,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 233966,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 13460,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 241650,
+   "where": "c_crafting/Alchemy/SoDPhase18"
+  },
+  {
+   "id": 238288,
+   "where": "c_crafting/Blacksmithing/SoDPhase8"
+  },
+  {
+   "id": 238289,
+   "where": "c_crafting/Blacksmithing/SoDPhase8"
+  },
+  {
+   "id": 238290,
+   "where": "c_crafting/Blacksmithing/SoDPhase8"
+  },
+  {
+   "id": 238291,
+   "where": "c_crafting/Blacksmithing/SoDPhase8"
+  },
+  {
+   "id": 238292,
+   "where": "c_crafting/Blacksmithing/SoDPhase8"
+  },
+  {
+   "id": 238293,
+   "where": "c_crafting/Blacksmithing/SoDPhase8"
+  },
+  {
+   "id": 238294,
+   "where": "c_crafting/Blacksmithing/SoDPhase8"
+  },
+  {
+   "id": 238295,
+   "where": "c_crafting/Blacksmithing/SoDPhase8"
+  },
+  {
+   "id": 234319,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234288,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": -1213711,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234292,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234321,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234460,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233795,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233793,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233492,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234487,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 235040,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234086,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234459,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233490,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233801,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233796,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234428,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233491,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233798,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 233797,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 234004,
+   "where": "c_crafting/Blacksmithing/SoDPhase6"
+  },
+  {
+   "id": 227870,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227872,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227876,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227885,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227871,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227884,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227880,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227881,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 228230,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227857,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227887,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227850,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227845,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227684,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 227886,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 228125,
+   "where": "c_crafting/Blacksmithing/SoDPhase4"
+  },
+  {
+   "id": 210794,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 211845,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 210773,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 213376,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 215167,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 215161,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 220738,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 220740,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 220739,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 217275,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 217279,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 217277,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 217273,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 217285,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 217283,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": 217281,
+   "where": "c_crafting/Blacksmithing/SoDPhase13"
+  },
+  {
+   "id": -1232172,
+   "where": "c_crafting/Enchanting/SoDPhase8"
+  },
+  {
+   "id": -1231128,
+   "where": "c_crafting/Enchanting/SoDPhase8"
+  },
+  {
+   "id": -1231164,
+   "where": "c_crafting/Enchanting/SoDPhase8"
+  },
+  {
+   "id": -1231139,
+   "where": "c_crafting/Enchanting/SoDPhase8"
+  },
+  {
+   "id": -1219580,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": -1220624,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": -1219587,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": -1219586,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": -1220623,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": -1219577,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": -1219579,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": -1219578,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": -1219581,
+   "where": "c_crafting/Enchanting/SoDPhase7"
+  },
+  {
+   "id": 233990,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 233991,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 233992,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 233993,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 233994,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234000,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234001,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234002,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234477,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234476,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234475,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234479,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234480,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234478,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234469,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234474,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 234468,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 233996,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 233995,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": -1213616,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": -1213622,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": -1213626,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": -1217189,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": -1217203,
+   "where": "c_crafting/Enchanting/SoDPhase6"
+  },
+  {
+   "id": 211848,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 215138,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 215129,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 217308,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 221028,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 220792,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 228979,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 228981,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 228982,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 217287,
+   "where": "c_crafting/Enchanting/SoDPhase15"
+  },
+  {
+   "id": 238737,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 238734,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 238735,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 238736,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 237023,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 238781,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 238786,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 238787,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 238788,
+   "where": "c_crafting/Engineering/SoDPhase8"
+  },
+  {
+   "id": 210147,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 213383,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 211427,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 215168,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 215127,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 215115,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 213390,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 221025,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 221027,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 221026,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 227849,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 233984,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 233985,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 233986,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 234005,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 234434,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 233988,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 235529,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 233987,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 236871,
+   "where": "c_crafting/Engineering/SoDPhase17"
+  },
+  {
+   "id": 238264,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 238265,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 238266,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 238267,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 238268,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 238269,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 238270,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 238271,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 239148,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 239147,
+   "where": "c_crafting/Tailoring/SoDPhase8"
+  },
+  {
+   "id": 227860,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 227861,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 227863,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 227864,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 228476,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 234009,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 234312,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 234315,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 234317,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 233826,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 233833,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 233837,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 234485,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 234484,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 233958,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 233959,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 233960,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 233956,
+   "where": "c_crafting/Tailoring/SoDPhase46"
+  },
+  {
+   "id": 210795,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 210781,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 215366,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 215365,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 213379,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 215111,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 220749,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 220751,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 220750,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217259,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217261,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217247,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217246,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217253,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217255,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217245,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217250,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217248,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217256,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217257,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 217252,
+   "where": "c_crafting/Tailoring/SoDPhase13"
+  },
+  {
+   "id": 238272,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238273,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238274,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238275,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238276,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238277,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238278,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238279,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238925,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238280,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238281,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238282,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238283,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238284,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238285,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238286,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238287,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 238926,
+   "where": "c_crafting/Leatherworking/SoDPhase8"
+  },
+  {
+   "id": 234294,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234302,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234306,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234296,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234298,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234304,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234310,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234308,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234324,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 233804,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 233808,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 233813,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 234482,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 233802,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 233803,
+   "where": "c_crafting/Leatherworking/SoDPhase6"
+  },
+  {
+   "id": 227882,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227883,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227869,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227873,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227874,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227875,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227877,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227878,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227879,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": -461754,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": -461706,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227852,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227854,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227848,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227847,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227866,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227867,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227868,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227853,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 227851,
+   "where": "c_crafting/Leatherworking/SoDPhase4"
+  },
+  {
+   "id": 211502,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 211423,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 213369,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 215166,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 215114,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 215381,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 215382,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 217265,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 217263,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 217267,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 217268,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 217270,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 220747,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 220742,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 220744,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 220748,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 220745,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 220743,
+   "where": "c_crafting/Leatherworking/SoDPhase13"
+  },
+  {
+   "id": 234003,
+   "where": "c_crafting/Mining/Smelting"
+  },
+  {
+   "id": 234012,
+   "where": "c_crafting/Herbalism/Artisan"
+  },
+  {
+   "id": 232436,
+   "where": "c_crafting/Cooking/SoDPhase18"
+  },
+  {
+   "id": 232438,
+   "where": "c_crafting/Cooking/SoDPhase18"
+  },
+  {
+   "id": 238641,
+   "where": "c_crafting/Cooking/SoDPhase18"
+  },
+  {
+   "id": 238642,
+   "where": "c_crafting/Cooking/SoDPhase18"
+  },
+  {
+   "id": 232433,
+   "where": "c_crafting/FirstAid/FirstAid"
+  },
+  {
+   "id": 16082,
+   "where": "c_crafting/Fishing/Fishing"
+  },
+  {
+   "id": 217347,
+   "where": "c_crafting/RoguePoisons/SoD"
+  },
+  {
+   "id": 217346,
+   "where": "c_crafting/RoguePoisons/SoD"
+  },
+  {
+   "id": 217345,
+   "where": "c_crafting/RoguePoisons/SoD"
+  },
+  {
+   "id": 226374,
+   "where": "c_crafting/RoguePoisons/SoD"
+  },
+  {
+   "id": 234444,
+   "where": "c_crafting/RoguePoisons/SoD"
+  },
+  {
+   "id": 227888,
+   "where": "c_reputation/ArgentDawn/Revered"
+  },
+  {
+   "id": 227818,
+   "where": "c_reputation/ArgentDawn/Revered"
+  },
+  {
+   "id": 227817,
+   "where": "c_reputation/ArgentDawn/Revered"
+  },
+  {
+   "id": 227859,
+   "where": "c_reputation/ArgentDawn/Revered"
+  },
+  {
+   "id": 227819,
+   "where": "c_reputation/ArgentDawn/Revered"
+  },
+  {
+   "id": 227816,
+   "where": "c_reputation/ArgentDawn/Honored"
+  },
+  {
+   "id": 227815,
+   "where": "c_reputation/ArgentDawn/Honored"
+  },
+  {
+   "id": 227814,
+   "where": "c_reputation/ArgentDawn/Honored"
+  },
+  {
+   "id": 227808,
+   "where": "c_reputation/Timbermaw/Revered"
+  },
+  {
+   "id": 227809,
+   "where": "c_reputation/Timbermaw/Revered"
+  },
+  {
+   "id": 227810,
+   "where": "c_reputation/Timbermaw/Revered"
+  },
+  {
+   "id": 227807,
+   "where": "c_reputation/Timbermaw/Honored"
+  },
+  {
+   "id": 227805,
+   "where": "c_reputation/Timbermaw/Honored"
+  },
+  {
+   "id": 228190,
+   "where": "c_reputation/Timbermaw/Honored"
+  },
+  {
+   "id": 227804,
+   "where": "c_reputation/Timbermaw/Friendly"
+  },
+  {
+   "id": 227803,
+   "where": "c_reputation/Timbermaw/Friendly"
+  },
+  {
+   "id": 227862,
+   "where": "c_reputation/Timbermaw/Friendly"
+  },
+  {
+   "id": 227842,
+   "where": "c_reputation/ThoriumBrotherhood/Exalted"
+  },
+  {
+   "id": 227840,
+   "where": "c_reputation/ThoriumBrotherhood/Exalted"
+  },
+  {
+   "id": 228929,
+   "where": "c_reputation/ThoriumBrotherhood/Exalted"
+  },
+  {
+   "id": 228924,
+   "where": "c_reputation/ThoriumBrotherhood/Exalted"
+  },
+  {
+   "id": 228927,
+   "where": "c_reputation/ThoriumBrotherhood/Exalted"
+  },
+  {
+   "id": 228926,
+   "where": "c_reputation/ThoriumBrotherhood/Exalted"
+  },
+  {
+   "id": 228925,
+   "where": "c_reputation/ThoriumBrotherhood/Exalted"
+  },
+  {
+   "id": 228928,
+   "where": "c_reputation/ThoriumBrotherhood/Exalted"
+  },
+  {
+   "id": 227839,
+   "where": "c_reputation/ThoriumBrotherhood/Revered"
+  },
+  {
+   "id": 227837,
+   "where": "c_reputation/ThoriumBrotherhood/Revered"
+  },
+  {
+   "id": 227834,
+   "where": "c_reputation/ThoriumBrotherhood/Revered"
+  },
+  {
+   "id": 227838,
+   "where": "c_reputation/ThoriumBrotherhood/Revered"
+  },
+  {
+   "id": 227835,
+   "where": "c_reputation/ThoriumBrotherhood/Revered"
+  },
+  {
+   "id": 227836,
+   "where": "c_reputation/ThoriumBrotherhood/Revered"
+  },
+  {
+   "id": 227832,
+   "where": "c_reputation/ThoriumBrotherhood/Revered"
+  },
+  {
+   "id": 227833,
+   "where": "c_reputation/ThoriumBrotherhood/Revered"
+  },
+  {
+   "id": 227830,
+   "where": "c_reputation/ThoriumBrotherhood/Honored"
+  },
+  {
+   "id": 227831,
+   "where": "c_reputation/ThoriumBrotherhood/Honored"
+  },
+  {
+   "id": 227828,
+   "where": "c_reputation/ThoriumBrotherhood/Honored"
+  },
+  {
+   "id": 227827,
+   "where": "c_reputation/ThoriumBrotherhood/Honored"
+  },
+  {
+   "id": 227829,
+   "where": "c_reputation/ThoriumBrotherhood/Honored"
+  },
+  {
+   "id": 227824,
+   "where": "c_reputation/ThoriumBrotherhood/Honored"
+  },
+  {
+   "id": 227826,
+   "where": "c_reputation/ThoriumBrotherhood/Honored"
+  },
+  {
+   "id": 227825,
+   "where": "c_reputation/ThoriumBrotherhood/Honored"
+  },
+  {
+   "id": 227823,
+   "where": "c_reputation/ThoriumBrotherhood/Friendly"
+  },
+  {
+   "id": 227821,
+   "where": "c_reputation/ThoriumBrotherhood/Friendly"
+  },
+  {
+   "id": 227822,
+   "where": "c_reputation/ThoriumBrotherhood/Friendly"
+  },
+  {
+   "id": 227820,
+   "where": "c_reputation/ThoriumBrotherhood/Friendly"
+  },
+  {
+   "id": 234034,
+   "where": "c_reputation/BroodOfNozdormu/Exalted"
+  },
+  {
+   "id": 234202,
+   "where": "c_reputation/BroodOfNozdormu/Exalted"
+  },
+  {
+   "id": 234032,
+   "where": "c_reputation/BroodOfNozdormu/Exalted"
+  },
+  {
+   "id": 234436,
+   "where": "c_reputation/BroodOfNozdormu/Exalted"
+  },
+  {
+   "id": 234035,
+   "where": "c_reputation/BroodOfNozdormu/Exalted"
+  },
+  {
+   "id": 234964,
+   "where": "c_reputation/BroodOfNozdormu/Exalted"
+  },
+  {
+   "id": 234033,
+   "where": "c_reputation/BroodOfNozdormu/Exalted"
+  },
+  {
+   "id": 234030,
+   "where": "c_reputation/BroodOfNozdormu/Revered"
+  },
+  {
+   "id": 234201,
+   "where": "c_reputation/BroodOfNozdormu/Revered"
+  },
+  {
+   "id": 234028,
+   "where": "c_reputation/BroodOfNozdormu/Revered"
+  },
+  {
+   "id": 234437,
+   "where": "c_reputation/BroodOfNozdormu/Revered"
+  },
+  {
+   "id": 234031,
+   "where": "c_reputation/BroodOfNozdormu/Revered"
+  },
+  {
+   "id": 234965,
+   "where": "c_reputation/BroodOfNozdormu/Revered"
+  },
+  {
+   "id": 234029,
+   "where": "c_reputation/BroodOfNozdormu/Revered"
+  },
+  {
+   "id": 234026,
+   "where": "c_reputation/BroodOfNozdormu/Honored"
+  },
+  {
+   "id": 234200,
+   "where": "c_reputation/BroodOfNozdormu/Honored"
+  },
+  {
+   "id": 234024,
+   "where": "c_reputation/BroodOfNozdormu/Honored"
+  },
+  {
+   "id": 234438,
+   "where": "c_reputation/BroodOfNozdormu/Honored"
+  },
+  {
+   "id": 234027,
+   "where": "c_reputation/BroodOfNozdormu/Honored"
+  },
+  {
+   "id": 234966,
+   "where": "c_reputation/BroodOfNozdormu/Honored"
+  },
+  {
+   "id": 234025,
+   "where": "c_reputation/BroodOfNozdormu/Honored"
+  },
+  {
+   "id": 234021,
+   "where": "c_reputation/BroodOfNozdormu/Friendly"
+  },
+  {
+   "id": 234199,
+   "where": "c_reputation/BroodOfNozdormu/Friendly"
+  },
+  {
+   "id": 234020,
+   "where": "c_reputation/BroodOfNozdormu/Friendly"
+  },
+  {
+   "id": 234439,
+   "where": "c_reputation/BroodOfNozdormu/Friendly"
+  },
+  {
+   "id": 234022,
+   "where": "c_reputation/BroodOfNozdormu/Friendly"
+  },
+  {
+   "id": 234967,
+   "where": "c_reputation/BroodOfNozdormu/Friendly"
+  },
+  {
+   "id": 234023,
+   "where": "c_reputation/BroodOfNozdormu/Friendly"
+  },
+  {
+   "id": 234017,
+   "where": "c_reputation/BroodOfNozdormu/Neutral"
+  },
+  {
+   "id": 234198,
+   "where": "c_reputation/BroodOfNozdormu/Neutral"
+  },
+  {
+   "id": 234016,
+   "where": "c_reputation/BroodOfNozdormu/Neutral"
+  },
+  {
+   "id": 234440,
+   "where": "c_reputation/BroodOfNozdormu/Neutral"
+  },
+  {
+   "id": 234018,
+   "where": "c_reputation/BroodOfNozdormu/Neutral"
+  },
+  {
+   "id": 234968,
+   "where": "c_reputation/BroodOfNozdormu/Neutral"
+  },
+  {
+   "id": 234019,
+   "where": "c_reputation/BroodOfNozdormu/Neutral"
+  },
+  {
+   "id": 227915,
+   "where": "c_reputation/HydraxianWaterlords/Exalted"
+  },
+  {
+   "id": 227927,
+   "where": "c_reputation/HydraxianWaterlords/Exalted"
+  },
+  {
+   "id": 22687,
+   "where": "c_reputation/HydraxianWaterlords/Revered"
+  },
+  {
+   "id": 22698,
+   "where": "c_reputation/HydraxianWaterlords/Revered"
+  },
+  {
+   "id": 22705,
+   "where": "c_reputation/HydraxianWaterlords/Revered"
+  },
+  {
+   "id": 22695,
+   "where": "c_reputation/HydraxianWaterlords/Revered"
+  },
+  {
+   "id": 227926,
+   "where": "c_reputation/HydraxianWaterlords/Honored"
+  },
   {
    "id": 136782,
    "where": "c_pvp/AlteracValley/PvPRanks"
@@ -894,7 +2382,7 @@
    "where": "c_sets/World/221"
   }
  ],
- "recipes_added": 229,
+ "recipes_added": 224,
  "skipped_counts": {
   "Season of Discovery list left out": 284,
   "Season of Discovery page left out": 1,

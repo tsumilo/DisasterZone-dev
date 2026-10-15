@@ -2769,10 +2769,6 @@ ns.Data.AtlasClassic = {
           18334, -- Libram of Protection
           18332, -- Libram of Rapidity
           11733, -- Libram of Constitution
-          228466, -- The Arcanist's Cookbook
-          228464, -- Garona: A Study on Stealth and Treachery
-          228467, -- The Light and How to Swing It
-          228465, -- Codex of Defense
           11736, -- Libram of Resilience
           11732, -- Libram of Rumination
           11734, -- Libram of Tenacity
@@ -3016,10 +3012,6 @@ ns.Data.AtlasClassic = {
           18334, -- Libram of Protection
           18332, -- Libram of Rapidity
           11733, -- Libram of Constitution
-          228466, -- The Arcanist's Cookbook
-          228464, -- Garona: A Study on Stealth and Treachery
-          228467, -- The Light and How to Swing It
-          228465, -- Codex of Defense
           11736, -- Libram of Resilience
           11732, -- Libram of Rumination
           11734, -- Libram of Tenacity
@@ -3193,10 +3185,6 @@ ns.Data.AtlasClassic = {
           18334, -- Libram of Protection
           18332, -- Libram of Rapidity
           11733, -- Libram of Constitution
-          228466, -- The Arcanist's Cookbook
-          228464, -- Garona: A Study on Stealth and Treachery
-          228467, -- The Light and How to Swing It
-          228465, -- Codex of Defense
           11736, -- Libram of Resilience
           11732, -- Libram of Rumination
           11734, -- Libram of Tenacity
@@ -3814,30 +3802,6 @@ ns.Data.AtlasClassic = {
   }},
   { key = "c_crafting", name = "Crafting", kind = "crafting", sources = {
     { key = "Alchemy", name = "Alchemy", pages = {
-      { key = "SoDPhase18", name = "SoD Phase 1-8", items = {
-          210708, -- Elixir of Coalesced Regret
-          213372, -- Insulating Gniodine
-          215162, -- Mildly Irradiated Rejuvenation Potion
-          217398, -- Recipe: Lesser Arcane Elixir
-          222952, -- Flask of Restless Dreams
-          221024, -- Flask of Everlasting Nightmares
-          221313, -- Flask of Nightmarish Mojo
-          232611, -- Magnificent Trollshine
-          233977, -- Elixir of Alacrity
-          233967, -- Elixir of the Honey Badger
-          233968, -- Elixir of the Mage-Lord
-          233969, -- Elixir of the Ironside
-          233964, -- Flask of Ancient Knowledge
-          233962, -- Flask of Madness
-          233965, -- Flask of the Old Gods
-          233966, -- Flask of Unyielding Sorrow
-          13460, -- Flask of Unyielding Sorrow
-          241650, -- Major Discolored Healing Potion
-      }, x = {
-          [1] = "Skill 90", [2] = "Skill 200", [3] = "Skill 225", [4] = "Skill 190", [5] = "Skill 250", [6] = "Skill 250",
-          [7] = "Skill 250", [8] = "Skill 300", [9] = "Skill 300", [10] = "Skill 300", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 300", [14] = "Skill 300", [15] = "Skill 300", [16] = "Skill 300", [17] = "Skill 290", [18] = "Skill 270",
-      } },
       { key = "Flasks", name = "Flasks", items = {
           13510,
           13511,
@@ -4002,91 +3966,6 @@ ns.Data.AtlasClassic = {
       } },
     }},
     { key = "Blacksmithing", name = "Blacksmithing", pages = {
-      { key = "SoDPhase8", name = "SoD Phase 8", items = {
-          238288, -- Scarlet Soldier's Helmet
-          238289, -- Scarlet Soldier's Spaulders
-          238290, -- Scarlet Soldier's Chestplate
-          238291, -- Scarlet Soldier's Protectors
-          238292, -- Scarlet Soldier's Grips
-          238293, -- Scarlet Soldier's Waistguard
-          238294, -- Scarlet Soldier's Legplates
-          238295, -- Scarlet Soldier's Stompers
-      }, x = {
-          [1] = "Skill 280", [2] = "Skill 280", [3] = "Skill 280", [4] = "Skill 250", [5] = "Skill 260", [6] = "Skill 250",
-          [7] = "Skill 270", [8] = "Skill 260",
-      } },
-      { key = "SoDPhase6", name = "SoD Phase 6", items = {
-          234319, -- Heavy Obsidian Belt
-          234288, -- Ironvine Belt
-          -1213711, -- Ironvine Gloves
-          234292, -- Ironvine Breastplate
-          234321, -- Light Obsidian Belt
-          234460, -- Obsidian Mail Tunic
-          233795, -- Razorspike Headcage
-          233793, -- Razorspike Shoulderplate
-          233492, -- Razorspike Battleplate
-          234487, -- Dreamscale Visor
-          235040, -- Thick Obsidian Breastplate
-          234086, -- Black Grasp of the Destroyer
-          234459, -- Jagged Obsidian Shield
-          233490, -- Obsidian Champion
-          233801, -- Obsidian Defender
-          233796, -- Obsidian Destroyer
-          234428, -- Obsidian Heartseeker
-          233491, -- Obsidian Reaver
-          233798, -- Obsidian Sageblade
-          233797, -- Obsidian Stormhammer
-          234004, -- Obsidian Grinding Stone
-      }, x = {
-          [1] = "Skill 300", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 300", [5] = "Skill 300", [6] = "Skill 300",
-          [7] = "Skill 300", [8] = "Skill 300", [9] = "Skill 300", [10] = "Skill 300", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 300", [14] = "Skill 300", [15] = "Skill 300", [16] = "Skill 300", [17] = "Skill 300", [18] = "Skill 300",
-          [19] = "Skill 300", [20] = "Skill 300", [21] = "Skill 300",
-      } },
-      { key = "SoDPhase4", name = "SoD Phase 4", items = {
-          227870, -- Tempest Gauntlets
-          227872, -- Warcrest of the Great Chief
-          227876, -- Invincible Mail
-          227885, -- Stronger-hold Gauntlets
-          227871, -- Tempered Dark Iron Plate 227871
-          227884, -- Deadly Heartseeker
-          227880, -- Finely-Enchanted Battlehammer
-          227881, -- Tranquility
-          228230, -- Refined Hammer of the Titans
-          227857, -- Desecration
-          227887, -- Hardened Frostguard
-          227850, -- Sageblade of the Archmagus
-          227845, -- Refined Arcanite Reaper
-          227684, -- Sulfuron Hammer
-          227886, -- Skyrider's Masterwork Stormhammer
-          228125, -- Refined Arcanite Champion
-      }, x = {
-          [1] = "Skill 295", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 300", [5] = "Skill 300", [6] = "Skill 300",
-          [7] = "Skill 280", [8] = "Skill 285", [9] = "Skill 300", [10] = "Skill 290", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 300", [14] = "Skill 300", [15] = "Skill 300", [16] = "Skill 300",
-      } },
-      { key = "SoDPhase13", name = "SoD Phase 1-3", items = {
-          210794, -- Shifting Silver Breastplate
-          211845, -- Blackfathom Sharpening Stone
-          210773, -- Mantle of the Second War
-          213376, -- Low-Background Truesilver Plates
-          215167, -- Reflective Truesilver Braincage
-          215161, -- Tempered Interference-Negating Helmet
-          220738, -- Shoulderplates of Dread
-          220740, -- Fearmonger's Shoulderguards
-          220739, -- Baleful Pauldrons
-          217275, -- Golden Scale Boots
-          217279, -- Golden Scale Coif
-          217277, -- Golden Scale Cuirass
-          217273, -- Golden Scale Gauntlets
-          217285, -- Golden Scale Leggings
-          217283, -- Golden Scale Shoulders
-          217281, -- Moonsteel Broadsword
-      }, x = {
-          [1] = "Skill 100", [2] = "Skill 100", [3] = "Skill 150", [4] = "Skill 200", [5] = "Skill 225", [6] = "Skill 225",
-          [7] = "Skill 250", [8] = "Skill 250", [9] = "Skill 250", [10] = "Skill 200", [11] = "Skill 190", [12] = "Skill 195",
-          [13] = "Skill 205", [14] = "Skill 170", [15] = "Skill 175", [16] = "Skill 180",
-      } },
       { key = "WeaponsDaggers", name = "Weapons - Daggers", items = {
           19166, -- Black Amnesty
           12783, -- Heartseeker
@@ -4449,74 +4328,6 @@ ns.Data.AtlasClassic = {
       } },
     }},
     { key = "Enchanting", name = "Enchanting", pages = {
-      { key = "SoDPhase8", name = "SoD Phase 8", items = {
-          -1232172, -- Enchant 2H Weapon - Grand Inquisitor
-          -1231128, -- Enchant Weapon - Grand Crusader
-          -1231164, -- Enchant Weapon - Grand Sorcerer
-          -1231139, -- Enchant 2H Weapon - Grand Arcanist
-      }, x = {
-          [1] = "Skill 280", [2] = "Skill 280", [3] = "Skill 280", [4] = "Skill 280",
-      } },
-      { key = "SoDPhase7", name = "SoD Phase 7", items = {
-          -1219580, -- Enchant 2H Weapon - Spellblasting
-          -1220624, -- Enchant Bracer - Greater Spellpower
-          -1219587, -- Enchant Cloak - Agility
-          -1219586, -- Enchant Gloves - Superior Strength
-          -1220623, -- Enchant Shield - Critical Strike
-          -1219577, -- Enchant Off-Hand - Superior Intellect
-          -1219579, -- Enchant Off-Hand - Wisdom
-          -1219578, -- Enchant Off-Hand - Excellent Spirit
-          -1219581, -- Enchant Shield - Excellent Stamina
-      }, x = {
-          [1] = "Skill 300", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 300", [5] = "Skill 300", [6] = "Skill 300",
-          [7] = "Skill 300", [8] = "Skill 300", [9] = "Skill 300",
-      } },
-      { key = "SoDPhase6", name = "SoD Phase 6", items = {
-          233990, -- Speedstone
-          233991, -- Tear of the Dreamer
-          233992, -- Lodestone of Retaliation
-          233993, -- Enchanted Stopwatch
-          233994, -- Ruby-Encrusted Broach
-          234000, -- Enchanted Prayer Tome
-          234001, -- Enchanted Totem
-          234002, -- Enchanted Mushroom
-          234477, -- Libram of Righteousness
-          234476, -- Libram of Sanctity
-          234475, -- Libram of the Exorcist
-          234479, -- Totem of Flowing Magma
-          234480, -- Totem of Pyroclastic Thunder
-          234478, -- Totem of Thunderous Strikes
-          234469, -- Idol of Feline Ferocity
-          234474, -- Idol of Sidereal Wrath
-          234468, -- Idol of Ursin Power
-          233996, -- Enchanted Repellent
-          233995, -- Scroll: Wrath of the Swarm
-          -1213616, -- Living Stats
-          -1213622, -- Enchant Gloves - Holy Power
-          -1213626, -- Enchant Gloves - Arcane Power
-          -1217189, -- Enchant Bracer - Spell Power
-          -1217203, -- Enchant Bracer - Agility
-      }, x = {
-          [1] = "Skill 300", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 300", [5] = "Skill 300", [6] = "Skill 300",
-          [7] = "Skill 300", [8] = "Skill 300", [9] = "Skill 300", [10] = "Skill 300", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 300", [14] = "Skill 300", [15] = "Skill 300", [16] = "Skill 300", [17] = "Skill 300", [18] = "Skill 300",
-          [19] = "Skill 300", [20] = "Skill 300", [21] = "Skill 300", [22] = "Skill 300", [23] = "Skill 300", [24] = "Skill 300",
-      } },
-      { key = "SoDPhase15", name = "SoD Phase 1-5", items = {
-          211848, -- Brilliant Mana Oil / 310
-          215138, -- Enchant Chest - Retricutioner
-          215129, -- Enchant Weapon - Dismantle
-          217308, -- Sigil of Innovation
-          221028, -- Sigil of Living Dreams
-          220792, -- Scroll of Spatial Mending
-          228979, -- Sigil of Flowing Waters
-          228981, -- Conductive Shield Coating
-          228982, -- Law of Nature
-          217287, -- Greater Mystic Wand
-      }, x = {
-          [1] = "Skill 100", [2] = "Skill 225", [3] = "Skill 225", [4] = "Skill 225", [5] = "Skill 250", [6] = "Skill 120",
-          [7] = "Skill 290", [8] = "Skill 275", [9] = "Skill 300", [10] = "Skill 175",
-      } },
       { key = "Oil", name = "Oil", items = {
           20748, -- Brilliant Mana Oil
           20749, -- Brilliant Wizard Oil
@@ -4732,47 +4543,6 @@ ns.Data.AtlasClassic = {
       } },
     }},
     { key = "Engineering", name = "Engineering", pages = {
-      { key = "SoDPhase8", name = "SoD Phase 8", items = {
-          238737, -- Tinkerbox
-          238734, -- Tinkerbox: Teleport
-          238735, -- Tinkerbox: Nitro Boosts
-          238736, -- Tinkerbox: Magnetic Displacement
-          237023, -- Pup-Up Shrub
-          238781, -- Semisafe Transporter: New Avalon
-          238786, -- Tinker: Teleport
-          238787, -- Tinker: Nitro Boosts
-          238788, -- Tinker: Magnetic Displacement
-      }, x = {
-          [1] = "Skill 250", [2] = "Skill 260", [3] = "Skill 260", [4] = "Skill 260", [5] = "Skill 260", [6] = "Skill 300",
-          [7] = "Skill 260", [8] = "Skill 260", [9] = "Skill 260",
-      } },
-      { key = "SoDPhase17", name = "SoD Phase 1-7", items = {
-          210147, -- Shredder Autosalvage Unit
-          213383, -- Polished Truesilver Gears
-          211427, -- Soul Vessel
-          215168, -- Ez-Thro Radiation Bomb
-          215127, -- High-Yield Radiation Bomb
-          215115, -- Hyperconductive Goldwrap
-          213390, -- Whirling Truesilver Gearwall
-          221025, -- Void-Powered Invoker's Vambraces
-          221027, -- Void-Powered Protector's Vambraces
-          221026, -- Void-Powered Slayer's Vambraces
-          227849, -- Fiery Core Sharpshooter Rifle
-          233984, -- Arcane Megabomb
-          233985, -- The Fumigator
-          233986, -- Obsidian Bomb
-          234005, -- Obsidian Blasting Powder
-          234434, -- Obsidian Shotgun
-          233988, -- Tuned Force Reactive Disk
-          235529, -- Obsidian Scope
-          233987, -- G00 DV-1B3 Generator
-          236871, -- Creepy Censor Sensors
-      }, x = {
-          [1] = "Skill 135", [2] = "Skill 200", [3] = "Skill 205", [4] = "Skill 225", [5] = "Skill 225", [6] = "Skill 225",
-          [7] = "Skill 225", [8] = "Skill 250", [9] = "Skill 250", [10] = "Skill 250", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 300", [14] = "Skill 300", [15] = "Skill 300", [16] = "Skill 300", [17] = "Skill 300", [18] = "Skill 300",
-          [19] = "Skill 300", [20] = "Skill 300",
-      } },
       { key = "Armor", name = "Armor", items = {
           18168,
           10721, -- Gnomish Harm Prevention Belt
@@ -4999,73 +4769,6 @@ ns.Data.AtlasClassic = {
       } },
     }},
     { key = "Tailoring", name = "Tailoring", pages = {
-      { key = "SoDPhase8", name = "SoD Phase 8", items = {
-          238264, -- Scarlet Augur's Hood
-          238265, -- Scarlet Augur's Mantle
-          238266, -- Scarlet Augur's Vestaments
-          238267, -- Scarlet Augur's Cuffs
-          238268, -- Scarlet Augur's Mitts
-          238269, -- Scarlet Augur's Strap
-          238270, -- Scarlet Augur's Leggings
-          238271, -- Scarlet Augur's Soles
-          239148, -- Crimson Dawnwoven Bag
-          239147, -- Crusader's Knapsack
-      }, x = {
-          [1] = "Skill 280", [2] = "Skill 280", [3] = "Skill 280", [4] = "Skill 250", [5] = "Skill 260", [6] = "Skill 250",
-          [7] = "Skill 270", [8] = "Skill 260", [9] = "Skill 290", [10] = "Skill 250",
-      } },
-      { key = "SoDPhase46", name = "SoD Phase 4-6", items = {
-          227860, -- Incandescent Mooncloth Vest
-          227861, -- Incandescent Mooncloth Robe
-          227863, -- Incandescent Mooncloth Circlet
-          227864, -- Incandescent Mooncloth Leggings
-          228476, -- Embroidered Belt of the Archmage
-          234009, -- Bolt of Qiraji Silk
-          234312, -- Sylvan Shoulders
-          234315, -- Sylvan Crown
-          234317, -- Sylvan Vest
-          233826, -- Vampiric Cowl
-          233833, -- Vampiric Shawl
-          233837, -- Vampiric Robe
-          234485, -- Dreamscale Mitts
-          234484, -- Dreamscale Bracers
-          233958, -- Qiraji Silk Cape
-          233959, -- Qiraji Silk Cloak
-          233960, -- Qiraji Silk Drape
-          233956, -- Qiraji Silk Scarf
-      }, x = {
-          [1] = "Skill 300", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 290", [5] = "Skill 300", [6] = "Skill 300",
-          [7] = "Skill 300", [8] = "Skill 300", [9] = "Skill 300", [10] = "Skill 300", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 300", [14] = "Skill 300", [15] = "Skill 300", [16] = "Skill 300", [17] = "Skill 300", [18] = "Skill 300",
-      } },
-      { key = "SoDPhase13", name = "SoD Phase 1-3", items = {
-          210795, -- Extraplanar Spidersilk Boots
-          210781, -- Phoenix Bindings
-          215366, -- Invoker's Cord
-          215365, -- Invoker's Mantle
-          213379, -- Hyperconductive Arcano-Filament
-          215111, -- Gneuro-Linked Arcano-Filament Monocle
-          220749, -- Invoker's Cord
-          220751, -- Invoker's Cord
-          220750, -- Invoker's Cord
-          217259, -- Big Voodoo Mask
-          217261, -- Big Voodoo Robe
-          217247, -- Black Mageweave Leggings
-          217246, -- Black Mageweave Vest
-          217253, -- Boots of the Enchanter
-          217255, -- Crimson Silk Belt
-          217245, -- Crimson Silk Robe
-          217250, -- Crimson Silk Shoulders
-          217248, -- Earthen Silk Belt
-          217256, -- Earthen Vest
-          217257, -- Enchanter's Cowl
-          217252, -- Long Silken Cloak
-      }, x = {
-          [1] = "Skill 150", [2] = "Skill 125", [3] = "Skill 150", [4] = "Skill 150", [5] = "Skill 200", [6] = "Skill 225",
-          [7] = "Skill 250", [8] = "Skill 250", [9] = "Skill 250", [10] = "Skill 220", [11] = "Skill 215", [12] = "Skill 205",
-          [13] = "Skill 205", [14] = "Skill 175", [15] = "Skill 175", [16] = "Skill 205", [17] = "Skill 190", [18] = "Skill 195",
-          [19] = "Skill 170", [20] = "Skill 165", [21] = "Skill 185",
-      } },
       { key = "ArmorCloak", name = "Armor - Cloak", items = {
           22658, -- Glacial Cloak
           22660, -- Gaea's Embrace
@@ -5370,102 +5073,6 @@ ns.Data.AtlasClassic = {
       } },
     }},
     { key = "Leatherworking", name = "Leatherworking", pages = {
-      { key = "SoDPhase8", name = "SoD Phase 8", items = {
-          238272, -- Scarlet Infiltrator's Bandana
-          238273, -- Scarlet Infiltrator's Shoulderpads
-          238274, -- Scarlet Infiltrator's Vest
-          238275, -- Scarlet Infiltrator's Bracers
-          238276, -- Scarlet Infiltrator's Gloves
-          238277, -- Scarlet Infiltrator's Belt
-          238278, -- Scarlet Infiltrator's Trousers
-          238279, -- Scarlet Infiltrator's Shoes
-          238925, -- Scarlet Quiver
-          238280, -- Scarlet Huntsman's Coif
-          238281, -- Scarlet Huntsman's Pauldrons
-          238282, -- Scarlet Huntsman's Chain
-          238283, -- Scarlet Huntsman's Wristguards
-          238284, -- Scarlet Huntsman's Handguards
-          238285, -- Scarlet Huntsman's Clasp
-          238286, -- Scarlet Huntsman's Legguards
-          238287, -- Scarlet Huntsman's Boots
-          238926, -- Scarlet Ammo Pouch
-      }, x = {
-          [1] = "Skill 280", [2] = "Skill 280", [3] = "Skill 280", [4] = "Skill 250", [5] = "Skill 260", [6] = "Skill 250",
-          [7] = "Skill 270", [8] = "Skill 260", [9] = "Skill 275", [10] = "Skill 280", [11] = "Skill 280", [12] = "Skill 280",
-          [13] = "Skill 250", [14] = "Skill 260", [15] = "Skill 250", [16] = "Skill 270", [17] = "Skill 260", [18] = "Skill 275",
-      } },
-      { key = "SoDPhase6", name = "SoD Phase 6", items = {
-          234294, -- Sandstalker Bracers
-          234302, -- Spitfire Gauntlets
-          234306, -- Bramblewood Belt
-          234296, -- Sandstalker Gauntlets
-          234298, -- Sandstalker Breastplate
-          234304, -- Spitfire Breastplate
-          234310, -- Bramblewood Helm
-          234308, -- Bramblewood Boots
-          234324, -- Dreamscale Breastplate
-          233804, -- Razorbramble Shoulderpads
-          233808, -- Razorbramble Cowl
-          233813, -- Razorbramble Leathers
-          234482, -- Dreamscale Kilt
-          233802, -- Pattern: Glowing Chitin Armor Kit
-          233803, -- Pattern: Sharpened Chitin Armor Kit
-      }, x = {
-          [1] = "Skill 300", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 300", [5] = "Skill 300", [6] = "Skill 300",
-          [7] = "Skill 300", [8] = "Skill 300", [9] = "Skill 300", [10] = "Skill 300", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 300", [14] = "Skill 300", [15] = "Skill 300",
-      } },
-      { key = "SoDPhase4", name = "SoD Phase 4", items = {
-          227882, -- Girdle of Arcane Insight
-          227883, -- Swift Flight Vambraces
-          227869, -- Brilliant Chromatic Cloak 227869
-          227873, -- Honed Blue Dragonscale Shoulders 227873
-          227874, -- Honed Blue Dragonscale Leggings
-          227875, -- Honed Blue Dragonscale Breastplate
-          227877, -- Living Green Dragonscale Leggings
-          227878, -- Living Green Dragonscale Gauntlets
-          227879, -- Living Green Dragonscale Breastplate
-          -461754, -- Girdle of Arcane Insight
-          -461706, -- Swift Flight Vambraces
-          227852, -- Hardened Black Dragonscale Leggings
-          227854, -- Mastercrafted Shifting Cloak
-          227848, -- Devilcore Gauntlets
-          227847, -- Devilcore Leggings
-          227866, -- Masterwork Volcanic Shoulders
-          227867, -- Masterwork Volcanic Leggings
-          227868, -- Masterwork Volcanic Breastplate
-          227853, -- Hardened Black Dragonscale Shoulders
-          227851, -- Hardened Black Dragonscale Breastplate
-      }, x = {
-          [1] = "Skill 300", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 295", [5] = "Skill 300", [6] = "Skill 285",
-          [7] = "Skill 270", [8] = "Skill 270", [9] = "Skill 260", [10] = "Skill 300", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 300", [14] = "Skill 290", [15] = "Skill 300", [16] = "Skill 300", [17] = "Skill 270", [18] = "Skill 285",
-          [19] = "Skill 305", [20] = "Skill 290",
-      } },
-      { key = "SoDPhase13", name = "SoD Phase 1-3", items = {
-          211502, -- Void-Touched Leather Gauntlets
-          211423, -- Void-Touched Leather Gloves
-          213369, -- Faintly Glowing Leather
-          215166, -- Glowing Gneuro-Linked Cowl
-          215114, -- Glowing Hyperconductive Scale Coif
-          215381, -- Gneuro-Conductive Channeler's Hood
-          215382, -- Rad-Resistant Scale Hood
-          217265, -- Guardian Belt
-          217263, -- Guardian Leather Bracers
-          217267, -- Guardian Pants
-          217268, -- Turtle Scale Breastplate
-          217270, -- Turtle Scale Gloves
-          220747, -- Paranoia Mantle
-          220742, -- Shrieking Spaulders
-          220744, -- Wailing Chain Mantle
-          220748, -- Shoulderpads of Obsession
-          220745, -- Membrane of Dark Neurosis
-          220743, -- Cacophonous Chain Shoulderguards
-      }, x = {
-          [1] = "Skill 100", [2] = "Skill 100", [3] = "Skill 200", [4] = "Skill 225", [5] = "Skill 225", [6] = "Skill 225",
-          [7] = "Skill 225", [8] = "Skill 170", [9] = "Skill 195", [10] = "Skill 160", [11] = "Skill 210", [12] = "Skill 205",
-          [13] = "Skill 250", [14] = "Skill 250", [15] = "Skill 250", [16] = "Skill 250", [17] = "Skill 250", [18] = "Skill 250",
-      } },
       { key = "ArmorCloak", name = "Armor - Cloak", items = {
           18510, -- Hide of the Wild
           18511, -- Shifting Cloak
@@ -5818,11 +5425,9 @@ ns.Data.AtlasClassic = {
           2841,
           3576,
           2840,
-          234003, -- Obsidian-Infused Thorium Bar
       }, x = {
           [1] = "Skill 350", [2] = "Skill 250", [3] = "Skill 230", [4] = "Skill 300", [5] = "Skill 175", [6] = "Skill 155",
           [7] = "Skill 165", [8] = "Skill 125", [9] = "Skill 75", [10] = "Skill 65", [11] = "Skill 65", [12] = "Skill 25",
-          [13] = "Skill 300",
       } },
     }},
     { key = "Herbalism", name = "Herbalism", pages = {
@@ -5836,7 +5441,6 @@ ns.Data.AtlasClassic = {
           8845,
           8839,
           8838,
-          234012, -- Hive Thistle
           13468,
           19727, -- Blood Scythe
           19726,
@@ -5867,14 +5471,6 @@ ns.Data.AtlasClassic = {
       } },
     }},
     { key = "Cooking", name = "Cooking", pages = {
-      { key = "SoDPhase18", name = "SoD Phase 1-8", items = {
-          232436, -- Darkclaw Bisque
-          232438, -- Smoked Redgill
-          238641, -- Smoked Redgill
-          238642, -- Grand Lobster Banquet
-      }, x = {
-          [1] = "Skill 300", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 300",
-      } },
       { key = "Stamina", name = "Stamina", items = {
           21023, -- Dirge's Kickin' Chimaerok Chops
           13934, -- Mightfish Steak
@@ -6019,14 +5615,13 @@ ns.Data.AtlasClassic = {
           3530, -- Wool Bandage
           2581, -- Heavy Linen Bandage
           1251, -- Linen Bandage
-          232433, -- Dense Runecloth Bandage / 300
           19440, -- Powerful Anti-Venom
           6453, -- Strong Anti-Venom
           6452, -- Anti-Venom
       }, x = {
           [1] = "Skill 290", [2] = "Skill 260", [3] = "Skill 240", [4] = "Skill 210", [5] = "Skill 180", [6] = "Skill 150",
-          [7] = "Skill 115", [8] = "Skill 80", [9] = "Skill 40", [10] = "Skill 1", [11] = "Skill 300", [12] = "Skill 300",
-          [13] = "Skill 130", [14] = "Skill 80",
+          [7] = "Skill 115", [8] = "Skill 80", [9] = "Skill 40", [10] = "Skill 1", [11] = "Skill 300", [12] = "Skill 130",
+          [13] = "Skill 80",
       } },
     }},
     { key = "Fishing", name = "Fishing", pages = {
@@ -6037,7 +5632,6 @@ ns.Data.AtlasClassic = {
           6811,
           6530,
           19971,
-          16082,
           16083,
       } },
       { key = "FishingPole", name = "Fishing Pole", items = {
@@ -6073,15 +5667,6 @@ ns.Data.AtlasClassic = {
       } },
     }},
     { key = "RoguePoisons", name = "Rogue Poisons", pages = {
-      { key = "SoD", name = "SoD", items = {
-          217347, -- Atrophic Poison
-          217346, -- Numbing Poison
-          217345, -- Sebacious Poison
-          226374, -- Occult Poison I
-          234444, -- Occult Poison II
-      }, x = {
-          [1] = "Skill 300", [2] = "Skill 300", [3] = "Skill 300", [4] = "Skill 300", [5] = "Skill 300",
-      } },
       { key = "Poisons", name = "Poisons", items = {
           8928,
           8927,
@@ -6131,11 +5716,6 @@ ns.Data.AtlasClassic = {
           18172, -- Nature Mantle of the Dawn
           18173, -- Shadow Mantle of the Dawn
           22523, -- Insignia of the Dawn
-          227888, -- Argent Elite Shoulders
-          227818, -- Glowing Mantle of the Dawn
-          227817, -- Radiant Gloves of the Dawn
-          227859, -- Shimmering Dawnbringer Shoulders
-          227819, -- Blessed Flame Mantle of the Dawn
       } },
       { key = "Honored", name = "Honored", items = {
           19216, -- Pattern: Argent Boots
@@ -6145,9 +5725,6 @@ ns.Data.AtlasClassic = {
           19446, -- Formula: Enchant Bracer - Mana Regeneration
           13482, -- Recipe: Transmute Air to Fire
           22523, -- Insignia of the Dawn
-          227816, -- Argent Elite Boots
-          227815, -- Fine Dawn Treaders
-          227814, -- Radiant Girdle of the Dawn
       } },
       { key = "Friendly", name = "Friendly", items = {
           13724, -- Enriched Manna Biscuit
@@ -6162,9 +5739,6 @@ ns.Data.AtlasClassic = {
           19218, -- Pattern: Mantle of the Timbermaw
           19327, -- Pattern: Timbermaw Brawlers
           19204, -- Plans: Heavy Timbermaw Boots
-          227808, -- Rugged Mantle of the Timbermaw
-          227809, -- Studded Timbermaw Brawlers
-          227810, -- Dense Timbermaw Boots
       } },
       { key = "Honored", name = "Honored", items = {
           16768, -- Furbolg Medicine Pouch
@@ -6173,18 +5747,12 @@ ns.Data.AtlasClassic = {
           19326, -- Pattern: Might of the Timbermaw
           19215, -- Pattern: Wisdom of the Timbermaw
           19445, -- Formula: Enchant Weapon - Agility
-          227807, -- Dense Timbermaw Belt
-          227805, -- Ferocity of the Timbermaw
-          228190, -- Knowledge of the Timbermaw
       } },
       { key = "Friendly", name = "Friendly", items = {
           15754, -- Pattern: Warbear Woolies
           15742, -- Pattern: Warbear Harness
           13484, -- Recipe: Transmute Earth to Water
           22392, -- Formula: Enchant 2H Weapon - Agility
-          227804, -- Dire Warbear Woolies
-          227803, -- Dire Warbear Harness
-          227862, -- Incandescent Mooncloth Boots
       } },
     }},
     { key = "ThoriumBrotherhood", name = "Thorium Brotherhood", factionID = 59, pages = {
@@ -6193,14 +5761,6 @@ ns.Data.AtlasClassic = {
           19211, -- Plans: Blackguard
           19212, -- Plans: Nightfall
           20040, -- Plans: Dark Iron Boots
-          227842, -- Ebon Fist
-          227840, -- Implacable Blackguard
-          228929, -- Tempered Dark Iron Boots
-          228924, -- Tempered Dark Iron Boots
-          228927, -- Tempered Dark Iron Boots
-          228926, -- Tempered Dark Iron Boots
-          228925, -- Tempered Dark Iron Boots
-          228928, -- Tempered Dark Iron Boots
       } },
       { key = "Revered", name = "Revered", items = {
           19220, -- Pattern: Flarecore Leggings
@@ -6213,14 +5773,6 @@ ns.Data.AtlasClassic = {
           19208, -- Plans: Black Amnesty
           19209, -- Plans: Blackfury
           19449, -- Formula: Enchant Weapon - Mighty Intellect
-          227839, -- Fine Flarecore Leggings
-          227837, -- Thick Corehound Belt
-          227834, -- Molten Chain Shoulders
-          227838, -- Shining Chromatic Gauntlets
-          227835, -- Tempered Dark Iron Gauntlets
-          227836, -- Tempered Dark Iron Leggings
-          227832, -- Tempered Black Amnesty
-          227833, -- Glaive of Obsidian Fury
       } },
       { key = "Honored", name = "Honored", items = {
           17017, -- Pattern: Flarecore Mantle
@@ -6232,14 +5784,6 @@ ns.Data.AtlasClassic = {
           17059, -- Plans: Dark Iron Reaver
           17060, -- Plans: Dark Iron Destroyer
           19448, -- Formula: Enchant Weapon - Mighty Spirit
-          227830, -- Fine Flarecore Mantle
-          227831, -- Fine Flarecore Robe
-          227828, -- Lavawalker Belt
-          227827, -- Molten Chain Girdle
-          227829, -- Hardened Black Dragonscale Boots
-          227824, -- Tempered Dark Iron Helm
-          227826, -- Dark Iron Flame Reaver
-          227825, -- Molten Dark Iron Destroyer
       } },
       { key = "Friendly", name = "Friendly", items = {
           17018, -- Pattern: Flarecore Gloves
@@ -6248,10 +5792,6 @@ ns.Data.AtlasClassic = {
           17051, -- Plans: Dark Iron Bracers
           20761, -- Recipe: Transmute Elemental Fire
           19444, -- Formula: Enchant Weapon - Strength
-          227823, -- Fine Flarecore Gloves
-          227821, -- Flamekissed Molten Helm
-          227822, -- Thick Corehound Boots
-          227820, -- Tempered Dark Iron Bracers
       } },
     }},
     { key = "CenarionCircle", name = "Cenarion Circle", factionID = 609, pages = {
@@ -6345,79 +5885,34 @@ ns.Data.AtlasClassic = {
           21210, -- Signet Ring of the Bronze Dragonflight
           21205, -- Signet Ring of the Bronze Dragonflight
           21200, -- Signet Ring of the Bronze Dragonflight
-          234034, -- Signet Ring of the Bronze Dragonflight / 80
-          234202, -- Signet Ring of the Bronze Dragonflight / 80
-          234032, -- Signet Ring of the Bronze Dragonflight / 80
-          234436, -- Signet Ring of the Bronze Dragonflight / 80
-          234035, -- Signet Ring of the Bronze Dragonflight / 80
-          234964, -- Signet Ring of the Bronze Dragonflight / 80
-          234033, -- Signet Ring of the Bronze Dragonflight / 80
       } },
       { key = "Revered", name = "Revered", items = {
           21209, -- Signet Ring of the Bronze Dragonflight
           21204, -- Signet Ring of the Bronze Dragonflight
           21199, -- Signet Ring of the Bronze Dragonflight
-          234030, -- Signet Ring of the Bronze Dragonflight / 75
-          234201, -- Signet Ring of the Bronze Dragonflight / 75
-          234028, -- Signet Ring of the Bronze Dragonflight / 75
-          234437, -- Signet Ring of the Bronze Dragonflight / 75
-          234031, -- Signet Ring of the Bronze Dragonflight / 75
-          234965, -- Signet Ring of the Bronze Dragonflight / 75
-          234029, -- Signet Ring of the Bronze Dragonflight / 75
       } },
       { key = "Honored", name = "Honored", items = {
           21208, -- Signet Ring of the Bronze Dragonflight
           21203, -- Signet Ring of the Bronze Dragonflight
           21198, -- Signet Ring of the Bronze Dragonflight
-          234026, -- Signet Ring of the Bronze Dragonflight / 70
-          234200, -- Signet Ring of the Bronze Dragonflight / 70
-          234024, -- Signet Ring of the Bronze Dragonflight / 70
-          234438, -- Signet Ring of the Bronze Dragonflight / 70
-          234027, -- Signet Ring of the Bronze Dragonflight / 70
-          234966, -- Signet Ring of the Bronze Dragonflight / 70
-          234025, -- Signet Ring of the Bronze Dragonflight / 70
       } },
       { key = "Friendly", name = "Friendly", items = {
           21207, -- Signet Ring of the Bronze Dragonflight
           21202, -- Signet Ring of the Bronze Dragonflight
           21197, -- Signet Ring of the Bronze Dragonflight
-          234021, -- Signet Ring of the Bronze Dragonflight / 65
-          234199, -- Signet Ring of the Bronze Dragonflight / 65
-          234020, -- Signet Ring of the Bronze Dragonflight / 65
-          234439, -- Signet Ring of the Bronze Dragonflight / 65
-          234022, -- Signet Ring of the Bronze Dragonflight / 65
-          234967, -- Signet Ring of the Bronze Dragonflight / 65
-          234023, -- Signet Ring of the Bronze Dragonflight / 65
       } },
       { key = "Neutral", name = "Neutral", items = {
           21206, -- Signet Ring of the Bronze Dragonflight
           21201, -- Signet Ring of the Bronze Dragonflight
           21196, -- Signet Ring of the Bronze Dragonflight
-          234017, -- Signet Ring of the Bronze Dragonflight / 60
-          234198, -- Signet Ring of the Bronze Dragonflight / 60
-          234016, -- Signet Ring of the Bronze Dragonflight / 60
-          234440, -- Signet Ring of the Bronze Dragonflight / 60
-          234018, -- Signet Ring of the Bronze Dragonflight / 60
-          234968, -- Signet Ring of the Bronze Dragonflight / 60
-          234019, -- Signet Ring of the Bronze Dragonflight / 60
       } },
     }},
     { key = "HydraxianWaterlords", name = "Hydraxian Waterlords", factionID = 749, pages = {
-      { key = "Exalted", name = "Exalted", items = {
-          227915, -- Duke's Domain
-          227927, -- Oath of the Sea
-      } },
       { key = "Revered", name = "Revered", items = {
-          22687, -- Pattern: Glacial Wrists
-          22698, -- Pattern: Icy Scale Bracers
-          22705, -- Plans: Icebane Bracers
-          22695, -- Pattern: Polar Bracers
           22754, -- Eternal Quintessence
-          228979, -- Sigil of Flowing Waters
       } },
       { key = "Honored", name = "Honored", items = {
           17333, -- Aqual Quintessence
-          227926, -- Hydraxian Coronation
       } },
     }},
     { key = "BloodsailBuccaneers", name = "Bloodsail Buccaneers", factionID = 87, pages = {
@@ -8355,27 +7850,6 @@ ns.Data.AtlasClassic = {
 }
 
 ns.Data.AtlasClassicNames = {
-  [-1232172] = "Enchant 2H Weapon - Grand Inquisitor",
-  [-1231164] = "Enchant Weapon - Grand Sorcerer",
-  [-1231139] = "Enchant 2H Weapon - Grand Arcanist",
-  [-1231128] = "Enchant Weapon - Grand Crusader",
-  [-1220624] = "Enchant Bracer - Greater Spellpower",
-  [-1220623] = "Enchant Shield - Critical Strike",
-  [-1219587] = "Enchant Cloak - Agility",
-  [-1219586] = "Enchant Gloves - Superior Strength",
-  [-1219581] = "Enchant Shield - Excellent Stamina",
-  [-1219580] = "Enchant 2H Weapon - Spellblasting",
-  [-1219579] = "Enchant Off-Hand - Wisdom",
-  [-1219578] = "Enchant Off-Hand - Excellent Spirit",
-  [-1219577] = "Enchant Off-Hand - Superior Intellect",
-  [-1217203] = "Enchant Bracer - Agility",
-  [-1217189] = "Enchant Bracer - Spell Power",
-  [-1213711] = "Ironvine Gloves",
-  [-1213626] = "Enchant Gloves - Arcane Power",
-  [-1213622] = "Enchant Gloves - Holy Power",
-  [-1213616] = "Living Stats",
-  [-461754] = "Girdle of Arcane Insight",
-  [-461706] = "Swift Flight Vambraces",
   [-27837] = "Enchant 2H Weapon - Agility / 310",
   [-25079] = "Enchant Gloves - Healing Power / 320",
   [-25078] = "Enchant Gloves - Fire Power / 320",
@@ -9865,7 +9339,6 @@ ns.Data.AtlasClassicNames = {
   [13456] = "Greater Frost Protection Potion",
   [13457] = "Greater Fire Protection Potion",
   [13459] = "Greater Shadow Protection Potion",
-  [13460] = "Flask of Unyielding Sorrow",
   [13461] = "Greater Arcane Protection Potion",
   [13462] = "Purification Potion",
   [13482] = "Recipe: Transmute Air to Fire",
@@ -12406,10 +11879,6 @@ ns.Data.AtlasClassicNames = {
   [22673] = "Outrider's Chain Leggings",
   [22676] = "Outrider's Mail Leggings",
   [22683] = "Pattern: Gaea's Embrace",
-  [22687] = "Pattern: Glacial Wrists",
-  [22695] = "Pattern: Polar Bracers",
-  [22698] = "Pattern: Icy Scale Bracers",
-  [22705] = "Plans: Icebane Bracers",
   [22711] = "Cloak of the Hakkari Worshippers",
   [22712] = "Might of the Tribe",
   [22713] = "Zulian Scepter of Rites",
@@ -12604,358 +12073,6 @@ ns.Data.AtlasClassicNames = {
   [23570] = "Jom Gabbar",
   [24101] = "Book of Ferocious Bite V",
   [24102] = "Manual of Eviscerate IX",
-  [210147] = "Shredder Autosalvage Unit",
-  [210708] = "Elixir of Coalesced Regret",
-  [210773] = "Mantle of the Second War",
-  [210781] = "Phoenix Bindings",
-  [210794] = "Shifting Silver Breastplate",
-  [210795] = "Extraplanar Spidersilk Boots",
-  [211423] = "Void-Touched Leather Gloves",
-  [211427] = "Soul Vessel",
-  [211502] = "Void-Touched Leather Gauntlets",
-  [211845] = "Blackfathom Sharpening Stone",
-  [211848] = "Brilliant Mana Oil / 310",
-  [213369] = "Faintly Glowing Leather",
-  [213372] = "Insulating Gniodine",
-  [213376] = "Low-Background Truesilver Plates",
-  [213379] = "Hyperconductive Arcano-Filament",
-  [213383] = "Polished Truesilver Gears",
-  [213390] = "Whirling Truesilver Gearwall",
-  [215111] = "Gneuro-Linked Arcano-Filament Monocle",
-  [215114] = "Glowing Hyperconductive Scale Coif",
-  [215115] = "Hyperconductive Goldwrap",
-  [215127] = "High-Yield Radiation Bomb",
-  [215129] = "Enchant Weapon - Dismantle",
-  [215138] = "Enchant Chest - Retricutioner",
-  [215161] = "Tempered Interference-Negating Helmet",
-  [215162] = "Mildly Irradiated Rejuvenation Potion",
-  [215166] = "Glowing Gneuro-Linked Cowl",
-  [215167] = "Reflective Truesilver Braincage",
-  [215168] = "Ez-Thro Radiation Bomb",
-  [215365] = "Invoker's Mantle",
-  [215366] = "Invoker's Cord",
-  [215381] = "Gneuro-Conductive Channeler's Hood",
-  [215382] = "Rad-Resistant Scale Hood",
-  [217245] = "Crimson Silk Robe",
-  [217246] = "Black Mageweave Vest",
-  [217247] = "Black Mageweave Leggings",
-  [217248] = "Earthen Silk Belt",
-  [217250] = "Crimson Silk Shoulders",
-  [217252] = "Long Silken Cloak",
-  [217253] = "Boots of the Enchanter",
-  [217255] = "Crimson Silk Belt",
-  [217256] = "Earthen Vest",
-  [217257] = "Enchanter's Cowl",
-  [217259] = "Big Voodoo Mask",
-  [217261] = "Big Voodoo Robe",
-  [217263] = "Guardian Leather Bracers",
-  [217265] = "Guardian Belt",
-  [217267] = "Guardian Pants",
-  [217268] = "Turtle Scale Breastplate",
-  [217270] = "Turtle Scale Gloves",
-  [217273] = "Golden Scale Gauntlets",
-  [217275] = "Golden Scale Boots",
-  [217277] = "Golden Scale Cuirass",
-  [217279] = "Golden Scale Coif",
-  [217281] = "Moonsteel Broadsword",
-  [217283] = "Golden Scale Shoulders",
-  [217285] = "Golden Scale Leggings",
-  [217287] = "Greater Mystic Wand",
-  [217308] = "Sigil of Innovation",
-  [217345] = "Sebacious Poison",
-  [217346] = "Numbing Poison",
-  [217347] = "Atrophic Poison",
-  [217398] = "Recipe: Lesser Arcane Elixir",
-  [220738] = "Shoulderplates of Dread",
-  [220739] = "Baleful Pauldrons",
-  [220740] = "Fearmonger's Shoulderguards",
-  [220742] = "Shrieking Spaulders",
-  [220743] = "Cacophonous Chain Shoulderguards",
-  [220744] = "Wailing Chain Mantle",
-  [220745] = "Membrane of Dark Neurosis",
-  [220747] = "Paranoia Mantle",
-  [220748] = "Shoulderpads of Obsession",
-  [220749] = "Invoker's Cord",
-  [220750] = "Invoker's Cord",
-  [220751] = "Invoker's Cord",
-  [220792] = "Scroll of Spatial Mending",
-  [221024] = "Flask of Everlasting Nightmares",
-  [221025] = "Void-Powered Invoker's Vambraces",
-  [221026] = "Void-Powered Slayer's Vambraces",
-  [221027] = "Void-Powered Protector's Vambraces",
-  [221028] = "Sigil of Living Dreams",
-  [221313] = "Flask of Nightmarish Mojo",
-  [222952] = "Flask of Restless Dreams",
-  [226374] = "Occult Poison I",
-  [227684] = "Sulfuron Hammer",
-  [227803] = "Dire Warbear Harness",
-  [227804] = "Dire Warbear Woolies",
-  [227805] = "Ferocity of the Timbermaw",
-  [227807] = "Dense Timbermaw Belt",
-  [227808] = "Rugged Mantle of the Timbermaw",
-  [227809] = "Studded Timbermaw Brawlers",
-  [227810] = "Dense Timbermaw Boots",
-  [227814] = "Radiant Girdle of the Dawn",
-  [227815] = "Fine Dawn Treaders",
-  [227816] = "Argent Elite Boots",
-  [227817] = "Radiant Gloves of the Dawn",
-  [227818] = "Glowing Mantle of the Dawn",
-  [227819] = "Blessed Flame Mantle of the Dawn",
-  [227820] = "Tempered Dark Iron Bracers",
-  [227821] = "Flamekissed Molten Helm",
-  [227822] = "Thick Corehound Boots",
-  [227823] = "Fine Flarecore Gloves",
-  [227824] = "Tempered Dark Iron Helm",
-  [227825] = "Molten Dark Iron Destroyer",
-  [227826] = "Dark Iron Flame Reaver",
-  [227827] = "Molten Chain Girdle",
-  [227828] = "Lavawalker Belt",
-  [227829] = "Hardened Black Dragonscale Boots",
-  [227830] = "Fine Flarecore Mantle",
-  [227831] = "Fine Flarecore Robe",
-  [227832] = "Tempered Black Amnesty",
-  [227833] = "Glaive of Obsidian Fury",
-  [227834] = "Molten Chain Shoulders",
-  [227835] = "Tempered Dark Iron Gauntlets",
-  [227836] = "Tempered Dark Iron Leggings",
-  [227837] = "Thick Corehound Belt",
-  [227838] = "Shining Chromatic Gauntlets",
-  [227839] = "Fine Flarecore Leggings",
-  [227840] = "Implacable Blackguard",
-  [227842] = "Ebon Fist",
-  [227845] = "Refined Arcanite Reaper",
-  [227847] = "Devilcore Leggings",
-  [227848] = "Devilcore Gauntlets",
-  [227849] = "Fiery Core Sharpshooter Rifle",
-  [227850] = "Sageblade of the Archmagus",
-  [227851] = "Hardened Black Dragonscale Breastplate",
-  [227852] = "Hardened Black Dragonscale Leggings",
-  [227853] = "Hardened Black Dragonscale Shoulders",
-  [227854] = "Mastercrafted Shifting Cloak",
-  [227857] = "Desecration",
-  [227859] = "Shimmering Dawnbringer Shoulders",
-  [227860] = "Incandescent Mooncloth Vest",
-  [227861] = "Incandescent Mooncloth Robe",
-  [227862] = "Incandescent Mooncloth Boots",
-  [227863] = "Incandescent Mooncloth Circlet",
-  [227864] = "Incandescent Mooncloth Leggings",
-  [227866] = "Masterwork Volcanic Shoulders",
-  [227867] = "Masterwork Volcanic Leggings",
-  [227868] = "Masterwork Volcanic Breastplate",
-  [227869] = "Brilliant Chromatic Cloak 227869",
-  [227870] = "Tempest Gauntlets",
-  [227871] = "Tempered Dark Iron Plate 227871",
-  [227872] = "Warcrest of the Great Chief",
-  [227873] = "Honed Blue Dragonscale Shoulders 227873",
-  [227874] = "Honed Blue Dragonscale Leggings",
-  [227875] = "Honed Blue Dragonscale Breastplate",
-  [227876] = "Invincible Mail",
-  [227877] = "Living Green Dragonscale Leggings",
-  [227878] = "Living Green Dragonscale Gauntlets",
-  [227879] = "Living Green Dragonscale Breastplate",
-  [227880] = "Finely-Enchanted Battlehammer",
-  [227881] = "Tranquility",
-  [227882] = "Girdle of Arcane Insight",
-  [227883] = "Swift Flight Vambraces",
-  [227884] = "Deadly Heartseeker",
-  [227885] = "Stronger-hold Gauntlets",
-  [227886] = "Skyrider's Masterwork Stormhammer",
-  [227887] = "Hardened Frostguard",
-  [227888] = "Argent Elite Shoulders",
-  [227915] = "Duke's Domain",
-  [227926] = "Hydraxian Coronation",
-  [227927] = "Oath of the Sea",
-  [228125] = "Refined Arcanite Champion",
-  [228190] = "Knowledge of the Timbermaw",
-  [228230] = "Refined Hammer of the Titans",
-  [228464] = "Garona: A Study on Stealth and Treachery",
-  [228465] = "Codex of Defense",
-  [228466] = "The Arcanist's Cookbook",
-  [228467] = "The Light and How to Swing It",
-  [228476] = "Embroidered Belt of the Archmage",
-  [228924] = "Tempered Dark Iron Boots",
-  [228925] = "Tempered Dark Iron Boots",
-  [228926] = "Tempered Dark Iron Boots",
-  [228927] = "Tempered Dark Iron Boots",
-  [228928] = "Tempered Dark Iron Boots",
-  [228929] = "Tempered Dark Iron Boots",
-  [228979] = "Sigil of Flowing Waters",
-  [228981] = "Conductive Shield Coating",
-  [228982] = "Law of Nature",
-  [232433] = "Dense Runecloth Bandage / 300",
-  [232436] = "Darkclaw Bisque",
-  [232438] = "Smoked Redgill",
-  [232611] = "Magnificent Trollshine",
-  [233490] = "Obsidian Champion",
-  [233491] = "Obsidian Reaver",
-  [233492] = "Razorspike Battleplate",
-  [233793] = "Razorspike Shoulderplate",
-  [233795] = "Razorspike Headcage",
-  [233796] = "Obsidian Destroyer",
-  [233797] = "Obsidian Stormhammer",
-  [233798] = "Obsidian Sageblade",
-  [233801] = "Obsidian Defender",
-  [233802] = "Pattern: Glowing Chitin Armor Kit",
-  [233803] = "Pattern: Sharpened Chitin Armor Kit",
-  [233804] = "Razorbramble Shoulderpads",
-  [233808] = "Razorbramble Cowl",
-  [233813] = "Razorbramble Leathers",
-  [233826] = "Vampiric Cowl",
-  [233833] = "Vampiric Shawl",
-  [233837] = "Vampiric Robe",
-  [233956] = "Qiraji Silk Scarf",
-  [233958] = "Qiraji Silk Cape",
-  [233959] = "Qiraji Silk Cloak",
-  [233960] = "Qiraji Silk Drape",
-  [233962] = "Flask of Madness",
-  [233964] = "Flask of Ancient Knowledge",
-  [233965] = "Flask of the Old Gods",
-  [233966] = "Flask of Unyielding Sorrow",
-  [233967] = "Elixir of the Honey Badger",
-  [233968] = "Elixir of the Mage-Lord",
-  [233969] = "Elixir of the Ironside",
-  [233977] = "Elixir of Alacrity",
-  [233984] = "Arcane Megabomb",
-  [233985] = "The Fumigator",
-  [233986] = "Obsidian Bomb",
-  [233987] = "G00 DV-1B3 Generator",
-  [233988] = "Tuned Force Reactive Disk",
-  [233990] = "Speedstone",
-  [233991] = "Tear of the Dreamer",
-  [233992] = "Lodestone of Retaliation",
-  [233993] = "Enchanted Stopwatch",
-  [233994] = "Ruby-Encrusted Broach",
-  [233995] = "Scroll: Wrath of the Swarm",
-  [233996] = "Enchanted Repellent",
-  [234000] = "Enchanted Prayer Tome",
-  [234001] = "Enchanted Totem",
-  [234002] = "Enchanted Mushroom",
-  [234003] = "Obsidian-Infused Thorium Bar",
-  [234004] = "Obsidian Grinding Stone",
-  [234005] = "Obsidian Blasting Powder",
-  [234009] = "Bolt of Qiraji Silk",
-  [234012] = "Hive Thistle",
-  [234016] = "Signet Ring of the Bronze Dragonflight / 60",
-  [234017] = "Signet Ring of the Bronze Dragonflight / 60",
-  [234018] = "Signet Ring of the Bronze Dragonflight / 60",
-  [234019] = "Signet Ring of the Bronze Dragonflight / 60",
-  [234020] = "Signet Ring of the Bronze Dragonflight / 65",
-  [234021] = "Signet Ring of the Bronze Dragonflight / 65",
-  [234022] = "Signet Ring of the Bronze Dragonflight / 65",
-  [234023] = "Signet Ring of the Bronze Dragonflight / 65",
-  [234024] = "Signet Ring of the Bronze Dragonflight / 70",
-  [234025] = "Signet Ring of the Bronze Dragonflight / 70",
-  [234026] = "Signet Ring of the Bronze Dragonflight / 70",
-  [234027] = "Signet Ring of the Bronze Dragonflight / 70",
-  [234028] = "Signet Ring of the Bronze Dragonflight / 75",
-  [234029] = "Signet Ring of the Bronze Dragonflight / 75",
-  [234030] = "Signet Ring of the Bronze Dragonflight / 75",
-  [234031] = "Signet Ring of the Bronze Dragonflight / 75",
-  [234032] = "Signet Ring of the Bronze Dragonflight / 80",
-  [234033] = "Signet Ring of the Bronze Dragonflight / 80",
-  [234034] = "Signet Ring of the Bronze Dragonflight / 80",
-  [234035] = "Signet Ring of the Bronze Dragonflight / 80",
-  [234086] = "Black Grasp of the Destroyer",
-  [234198] = "Signet Ring of the Bronze Dragonflight / 60",
-  [234199] = "Signet Ring of the Bronze Dragonflight / 65",
-  [234200] = "Signet Ring of the Bronze Dragonflight / 70",
-  [234201] = "Signet Ring of the Bronze Dragonflight / 75",
-  [234202] = "Signet Ring of the Bronze Dragonflight / 80",
-  [234288] = "Ironvine Belt",
-  [234292] = "Ironvine Breastplate",
-  [234294] = "Sandstalker Bracers",
-  [234296] = "Sandstalker Gauntlets",
-  [234298] = "Sandstalker Breastplate",
-  [234302] = "Spitfire Gauntlets",
-  [234304] = "Spitfire Breastplate",
-  [234306] = "Bramblewood Belt",
-  [234308] = "Bramblewood Boots",
-  [234310] = "Bramblewood Helm",
-  [234312] = "Sylvan Shoulders",
-  [234315] = "Sylvan Crown",
-  [234317] = "Sylvan Vest",
-  [234319] = "Heavy Obsidian Belt",
-  [234321] = "Light Obsidian Belt",
-  [234324] = "Dreamscale Breastplate",
-  [234428] = "Obsidian Heartseeker",
-  [234434] = "Obsidian Shotgun",
-  [234436] = "Signet Ring of the Bronze Dragonflight / 80",
-  [234437] = "Signet Ring of the Bronze Dragonflight / 75",
-  [234438] = "Signet Ring of the Bronze Dragonflight / 70",
-  [234439] = "Signet Ring of the Bronze Dragonflight / 65",
-  [234440] = "Signet Ring of the Bronze Dragonflight / 60",
-  [234444] = "Occult Poison II",
-  [234459] = "Jagged Obsidian Shield",
-  [234460] = "Obsidian Mail Tunic",
-  [234468] = "Idol of Ursin Power",
-  [234469] = "Idol of Feline Ferocity",
-  [234474] = "Idol of Sidereal Wrath",
-  [234475] = "Libram of the Exorcist",
-  [234476] = "Libram of Sanctity",
-  [234477] = "Libram of Righteousness",
-  [234478] = "Totem of Thunderous Strikes",
-  [234479] = "Totem of Flowing Magma",
-  [234480] = "Totem of Pyroclastic Thunder",
-  [234482] = "Dreamscale Kilt",
-  [234484] = "Dreamscale Bracers",
-  [234485] = "Dreamscale Mitts",
-  [234487] = "Dreamscale Visor",
-  [234964] = "Signet Ring of the Bronze Dragonflight / 80",
-  [234965] = "Signet Ring of the Bronze Dragonflight / 75",
-  [234966] = "Signet Ring of the Bronze Dragonflight / 70",
-  [234967] = "Signet Ring of the Bronze Dragonflight / 65",
-  [234968] = "Signet Ring of the Bronze Dragonflight / 60",
-  [235040] = "Thick Obsidian Breastplate",
-  [235529] = "Obsidian Scope",
-  [236871] = "Creepy Censor Sensors",
-  [237023] = "Pup-Up Shrub",
-  [238264] = "Scarlet Augur's Hood",
-  [238265] = "Scarlet Augur's Mantle",
-  [238266] = "Scarlet Augur's Vestaments",
-  [238267] = "Scarlet Augur's Cuffs",
-  [238268] = "Scarlet Augur's Mitts",
-  [238269] = "Scarlet Augur's Strap",
-  [238270] = "Scarlet Augur's Leggings",
-  [238271] = "Scarlet Augur's Soles",
-  [238272] = "Scarlet Infiltrator's Bandana",
-  [238273] = "Scarlet Infiltrator's Shoulderpads",
-  [238274] = "Scarlet Infiltrator's Vest",
-  [238275] = "Scarlet Infiltrator's Bracers",
-  [238276] = "Scarlet Infiltrator's Gloves",
-  [238277] = "Scarlet Infiltrator's Belt",
-  [238278] = "Scarlet Infiltrator's Trousers",
-  [238279] = "Scarlet Infiltrator's Shoes",
-  [238280] = "Scarlet Huntsman's Coif",
-  [238281] = "Scarlet Huntsman's Pauldrons",
-  [238282] = "Scarlet Huntsman's Chain",
-  [238283] = "Scarlet Huntsman's Wristguards",
-  [238284] = "Scarlet Huntsman's Handguards",
-  [238285] = "Scarlet Huntsman's Clasp",
-  [238286] = "Scarlet Huntsman's Legguards",
-  [238287] = "Scarlet Huntsman's Boots",
-  [238288] = "Scarlet Soldier's Helmet",
-  [238289] = "Scarlet Soldier's Spaulders",
-  [238290] = "Scarlet Soldier's Chestplate",
-  [238291] = "Scarlet Soldier's Protectors",
-  [238292] = "Scarlet Soldier's Grips",
-  [238293] = "Scarlet Soldier's Waistguard",
-  [238294] = "Scarlet Soldier's Legplates",
-  [238295] = "Scarlet Soldier's Stompers",
-  [238641] = "Smoked Redgill",
-  [238642] = "Grand Lobster Banquet",
-  [238734] = "Tinkerbox: Teleport",
-  [238735] = "Tinkerbox: Nitro Boosts",
-  [238736] = "Tinkerbox: Magnetic Displacement",
-  [238737] = "Tinkerbox",
-  [238781] = "Semisafe Transporter: New Avalon",
-  [238786] = "Tinker: Teleport",
-  [238787] = "Tinker: Nitro Boosts",
-  [238788] = "Tinker: Magnetic Displacement",
-  [238925] = "Scarlet Quiver",
-  [238926] = "Scarlet Ammo Pouch",
-  [239147] = "Crusader's Knapsack",
-  [239148] = "Crimson Dawnwoven Bag",
-  [241650] = "Major Discolored Healing Potion",
 }
 
 local recipes = ns.Data.AtlasRecipes or {}
@@ -13176,10 +12293,6 @@ for r, v in pairs({
   [22312] = 22252,
   [22392] = -27837,
   [22683] = 22660,
-  [22687] = 22655,
-  [22695] = 22663,
-  [22698] = 22665,
-  [22705] = 22671,
   [22766] = 22762,
   [22767] = 22763,
   [22768] = 22764,
@@ -13189,5 +12302,4 @@ for r, v in pairs({
   [22772] = 22758,
   [22773] = 22757,
   [22774] = 22756,
-  [228982] = 228982,
 }) do if recipes[r] == nil then recipes[r] = v end end
