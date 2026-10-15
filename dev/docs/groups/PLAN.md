@@ -2,7 +2,7 @@
 
 The Dungeons tab becomes **Groups**: one guild group finder for dungeons, raids, quests and PvP. Look and flow =
 mockup v6, layout A (https://claude.ai/artifact/2mRPXHb6ZcyKShReidowt9, builder `dev/art/casc/lfg2_mockup`).
-Everything Dungeons does today keeps working the same way. Status: **approved 2026-10-15 with the defaults**; step 1 done (rf/groups).
+Everything Dungeons does today keeps working the same way. Status: **approved 2026-10-15 with the defaults**; steps 1-6 built (rf/groups): core, board, raids, quests, PvP, bridge + leader page; unverified in game.
 
 ## What gets built
 

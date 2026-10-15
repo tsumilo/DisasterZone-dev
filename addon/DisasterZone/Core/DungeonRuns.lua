@@ -480,7 +480,7 @@ end
 -- What drops my BiS, heroic keys, lockouts, dailies
 ---------------------------------------------------------------------------
 
-local myNeeds = { n = {}, h = {} }   -- [dkey] = { itemID, ... } (main picks first)
+local myNeeds = { n = {}, h = {}, r = {} }   -- [dkey] = { itemID, ... } (main picks first); r: raids (1.5)
 local savedUntil = {}                -- [dkey] = server time a heroic lockout ends
 
 -- My not-obtained picks of the view phase and of the Pre-raid list (both specs) that drop in a dungeon. Hint order:
@@ -489,7 +489,7 @@ local savedUntil = {}                -- [dkey] = server time a heroic lockout en
 -- when that slot is disabled in the view phase (it needs nothing this phase).
 local function ComputeNeeds()
     BuildData()
-    local out = { n = {}, h = {} }
+    local out = { n = {}, h = {}, r = {} }
     local BiS = ns.BiS
     if not BiS or not BiS.GetPhaseItems then return out end
     local g = G()
@@ -527,6 +527,20 @@ local function ComputeNeeds()
             for _, o in ipairs(order) do
                 if dd.n[o.id] then out.n[key] = out.n[key] or {}; out.n[key][#out.n[key] + 1] = o.id end
                 if dd.h[o.id] then out.h[key] = out.h[key] or {}; out.h[key][#out.h[key] + 1] = o.id end
+            end
+        end
+    end
+    -- (1.5) the raids: [raid key] = { { id, boss = "Raid:Boss" }, ... } (the item data's sources: tokens and
+    -- upgrades count as their piece), main picks first
+    local IDB = ns.ItemDB
+    if IDB and IDB.GetSources then
+        for _, o in ipairs(order) do
+            for _, src in ipairs(IDB:GetSources(o.id, "raids")) do
+                local rk = src.groupKey
+                if rk and GK.raidIndex[rk] then
+                    out.r[rk] = out.r[rk] or {}
+                    out.r[rk][#out.r[rk] + 1] = { id = o.id, boss = src.ref and src.ref.key }
+                end
             end
         end
     end
@@ -631,7 +645,7 @@ end
 -- Kinds. A run without k (every run from before 1.5) is a 5-man dungeon run.
 GK.saved = {}            -- my raid lockouts: [raid key] = { untilT, done, total }
 GK.rosterAsked = {}      -- [run id] = Now() I last asked its owner for its roster
-local GENERIC_FIELDS = { "k", "a", "n", "w", "lo", "lr", "bo", "pr", "mr", "fc" }
+local GENERIC_FIELDS = { "k", "a", "n", "w", "lo", "lr", "bo", "pr", "mr", "fc", "tn" }
 
 function GK.IsDungeon(run) return run.k == nil or run.k == "dungeon" end
 function GK.Kind(run) return run.k or "dungeon" end
@@ -719,7 +733,10 @@ function GK.FromOpts(opts)
     local kind = opts.k
     if kind == "dungeon" or not GK.kindIndex[kind] then return nil, "Pick what the group is for." end
     local a = {}
-    for _, x in ipairs(type(opts.a) == "table" and opts.a or { opts.a }) do a[#a + 1] = x end
+    for _, x in ipairs(type(opts.a) == "table" and opts.a or { opts.a }) do
+        if kind == "quest" and ns.GroupQuests then x = ns.GroupQuests:Key(x) or x end
+        a[#a + 1] = x
+    end
     local run = { k = kind, a = a }
     if not GK.Valid(run) then return nil, "Pick what the group is for." end
     local n
@@ -728,6 +745,13 @@ function GK.FromOpts(opts)
         for _, x in ipairs(a) do n = max(n, GK.raids[GK.raidIndex[x]].size or 25) end
     elseif kind == "pvp" then
         n = GK.pvp[GK.pvpIndex[a[1]]].size
+    elseif kind == "quest" then
+        n = 2
+        for _, id in ipairs(a) do
+            local q = ns.GroupQuests and ns.GroupQuests:Get(id)
+            n = max(n, q and q.players or 3)
+        end
+        n = min(n, PARTY_SIZE)
     else
         n = 5
     end
@@ -753,12 +777,18 @@ function GK.FromOpts(opts)
             end
         end
     elseif kind == "pvp" then
-        local mode = GK.pvp[GK.pvpIndex[a[1]]].mode
-        if mode == "arena" and opts.pr then
+        local p = GK.pvp[GK.pvpIndex[a[1]]]
+        if p.mode == "arena" and opts.pr then
+            local team = ns.GroupPvP and ns.GroupPvP:GetTeam(p.bracket)
+            if not team then return nil, "Rated games need your " .. p.bracket .. "v" .. p.bracket .. " team." end
             run.pr = true
             run.mr = IsInt(opts.mr, 0, 5000) and opts.mr or nil
+            run.tn = team.name:sub(1, 24)
         end
-        if mode == "bg" and opts.fc then run.fc = true end
+        if p.mode == "bg" and opts.fc then run.fc = true end
+    elseif kind == "quest" then
+        local why = GK.QuestRule(a)
+        if why then return nil, why end
     end
     return run
 end
@@ -799,6 +829,7 @@ function GK.Parse(msg, run)
         run.pr = (msg.pr == 1) or nil
         run.mr = IsInt(msg.mr, 0, 5000) and msg.mr or nil
         run.fc = (msg.fc == 1) or nil
+        run.tn = (run.pr and type(msg.tn) == "string" and #msg.tn <= 24) and msg.tn or nil
     end
     return true
 end
@@ -818,12 +849,13 @@ function GK.Wire(run, msg)
     msg.a, msg.n, msg.w = a, run.n, { w.tank or 0, w.healer or 0, w.dps or 0 }
     msg.lo = run.lo and GK.lootIndex[run.lo] or nil
     msg.lr, msg.bo = run.lr, run.bo
-    msg.pr, msg.mr, msg.fc = run.pr and 1 or nil, run.mr, run.fc and 1 or nil
+    msg.pr, msg.mr, msg.fc, msg.tn = run.pr and 1 or nil, run.mr, run.fc and 1 or nil, run.tn
 end
 
 -- Why I can't join a group, or nil (a dungeon: the heroic key, lockout, level); second return: the reason's kind.
 function GK.Blocker(run)
     if GK.IsDungeon(run) then return Runs:GetBlocker(run.d, run.h) end
+    if run.k == "pvp" then return GK.PvPBlocker(run) end
     if run.k ~= "raid" then return nil end
     local level = UnitLevel and tonumber(UnitLevel("player"))
     if level and level > 0 and level < RAID_LEVEL then return "Needs level " .. RAID_LEVEL, "level" end
@@ -840,6 +872,141 @@ function GK.Blocker(run)
         return "You're saved to " .. (raid and raid.name or saved[1]) .. done, "saved"
     end
     return "You're saved to all of them", "saved"
+end
+
+-- (1.5) Planned raids (Core/RaidPlan.lua) that fill open places: groups of the board built from the raid's own
+-- roster (its Accepted and Tentative answers, its comp's open places), "rp:<raid id>"; asking is the raid's sign-up
+-- (a join request for a locked raid). Within the next week, while places are open. Cached for a second.
+local bridgeCache, bridgeAt = {}, -1
+local COMP_ROLE = { tank = "tank", healer = "healer" }
+function GK.Bridge()
+    local RP = ns.RaidPlan
+    if not (RP and RP.GetRaids and RP.GetRaidOpenSlots) then return {} end
+    local t = GetTime and GetTime() or 0
+    if t - bridgeAt < 1 then return bridgeCache end
+    bridgeAt = t
+    local out, now = {}, Now()
+    for _, v in ipairs(RP:GetRaids(now - 3 * 3600, now + 7 * 86400)) do
+        local open = v.fo and not v.cancelled and RP:GetRaidOpenSlots(v)
+        if open and (open.openCount or 0) > 0 then
+            local a = {}
+            for _, key in ipairs(RP:GetRaidInstances(v)) do
+                local rk = ns.ItemDB and ns.ItemDB.ItemKeyOf and ns.ItemDB:ItemKeyOf(key)
+                if rk and GK.raidIndex[rk] then a[#a + 1] = rk end
+            end
+            if #a > 0 then
+                local s, w = {}, { tank = 0, healer = 0, dps = 0 }
+                for key, su in pairs(RP:GetSignups(v.id)) do
+                    if su.st == "A" or su.st == "T" then
+                        local role = ns.RaidComp and su.c and ns.RaidComp:RoleOf(su.c, su.sp)
+                        role = COMP_ROLE[role] or "dps"
+                        s[#s + 1] = { k = key, r = role, c = su.c }
+                        w[role] = w[role] + 1
+                    end
+                end
+                for _, slot in ipairs(open.slots or {}) do
+                    local role = COMP_ROLE[slot.role] or "dps"
+                    w[role] = w[role] + 1
+                end
+                local n = v.sz or open.size or 25
+                out[#out + 1] = { id = "rp:" .. v.id, rp = v.id, o = RP:GetRaidLeader(v) or v.by, k = "raid", a = a,
+                                  n = n, w = w, s = s, at = v.t, c = v.rev or now, lo = "lc", team = open.teamName,
+                                  no = (open.teamName and (open.teamName .. " raid: ") or "Planned raid: ")
+                                      .. open.openCount .. " open " .. (open.openCount == 1 and "place" or "places") }
+            end
+        end
+    end
+    bridgeCache = out
+    return out
+end
+
+-- Asks to join a planned raid from the board: its sign-up (Accepted), a join request when the raid is locked.
+function GK.BridgeJoin(run)
+    local RP = ns.RaidPlan
+    if not RP then return false, "The raid planner isn't loaded." end
+    local block = GK.Blocker(run)
+    if block then return false, block end
+    local ok, err = RP:SignUp(run.rp, "A")
+    bridgeAt = -1
+    Changed()
+    return ok and true or false, err
+end
+
+-- (1.5) A profile's group quests: { [key] = true }.
+function GK.ReadQuests(list)
+    local out = {}
+    if type(list) ~= "table" then return out end
+    for i, id in ipairs(list) do
+        if i > 30 then break end
+        if IsInt(id, 1, 999999) then out[id] = true end
+    end
+    return out
+end
+
+-- Why quests can't be one group, or nil: quests of one zone make a group; a quest another guildie's group already
+-- lists is joined there.
+function GK.QuestRule(keys)
+    local GQ = ns.GroupQuests
+    if not GQ then return nil end
+    local zone
+    for _, id in ipairs(keys) do
+        local q = GQ:Get(id)
+        if q then
+            if zone and q.zone ~= zone then return "Quests of one zone make one group." end
+            zone = q.zone
+        end
+    end
+    for _, id in ipairs(keys) do
+        local other = Runs:GetQuestGroup(id)
+        if other then
+            return Util.ShortName(other.o) .. " already has a group for " .. (GQ:GetName(id) or "it") .. ": join it."
+        end
+    end
+    return nil
+end
+
+-- A rated arena group is its team's: a guildie on another team of that bracket can't join.
+function GK.PvPBlocker(run)
+    local p = GK.pvp[GK.pvpIndex[run.a and run.a[1]] or 0]
+    if not (p and p.mode == "arena" and run.pr and run.tn) then return nil end
+    local mine = ns.GroupPvP and ns.GroupPvP:GetTeam(p.bracket)
+    if mine and mine.name ~= run.tn then
+        return "You're on another " .. p.bracket .. "v" .. p.bracket .. " team", "team"
+    end
+    return nil
+end
+
+-- Does a quest group want a ping from me: one of its quests is in my log.
+function GK.HasQuestOf(run)
+    local GQ = ns.GroupQuests
+    if run.k ~= "quest" or not GQ then return false end
+    for _, id in ipairs(run.a or {}) do
+        if GQ:IsInMyLog(id) then return true end
+    end
+    return false
+end
+
+-- (owner) A newcomer to my rated arena group gets a team invite first.
+function GK.TeamInvite(run, key)
+    local p = GK.pvp[GK.pvpIndex[run.a and run.a[1]] or 0]
+    if not (p and p.mode == "arena" and run.pr and ns.GroupPvP) then return end
+    local team = ns.GroupPvP:GetTeam(p.bracket)
+    if not team then return end
+    for _, m in ipairs(team.members) do
+        if m == key then return end
+    end
+    ns.GroupPvP:InviteToTeam(p.bracket, key)
+end
+
+-- (owner) I turned in a quest: my quest group ends once none of its quests is left in my log.
+function GK.OnQuestDone()
+    local run = Runs:GetMyGroup()
+    if not run or run.k ~= "quest" or not ns.GroupQuests then return end
+    if run.at and run.at > Now() then return end
+    for _, id in ipairs(run.a or {}) do
+        if ns.GroupQuests:IsInMyLog(id) then return end
+    end
+    Runs:Unlist(true)
 end
 
 -- The kinds of groups I'm up for: { dungeon = true, raid = true, ... } (dungeons and raids unless I picked).
@@ -959,8 +1126,15 @@ local function ProfileMsg(q)
         local s = GK.saved[raid.key]
         if s and s.untilT > Now() then rs[#rs + 1] = i end
     end
+    local nr = {}
+    for i, raid in ipairs(GK.raids) do
+        if myNeeds.r and myNeeds.r[raid.key] then nr[#nr + 1] = i end
+    end
     local msg = { t = "DRP", r = r, u = ((p.up or 0) > Now()) and p.up or 0, nn = nn, nh = nh, ids = ids, q = q,
-                  sv = sv, g = Runs:IsGrouped() and 1 or nil, uk = uk, rs = rs }
+                  sv = sv, g = Runs:IsGrouped() and 1 or nil, uk = uk, rs = rs, nr = nr }
+    -- (1.5) the group quests in my log, my arena teams
+    msg.gq = ns.GroupQuests and ns.GroupQuests:GetMine() or nil
+    msg.ap = ns.GroupPvP and ns.GroupPvP:ProfileList() or nil
     local d = Daily()
     if d.x then
         local function index(key) return key and DUNGEON[key] and DUNGEON[key].i or nil end
@@ -1103,7 +1277,7 @@ end
 
 -- A profile's fields (DRP, or one entry of a digest) as a peer record. sv: the heroics they are saved to, until the
 -- next daily reset (by my clock).
-local function ReadProfile(r, u, nn, nh, ids, sv, g, uk, rs)
+local function ReadProfile(r, u, nn, nh, ids, sv, g, uk, rs, nr, gq, ap)
     local roles = {}
     if type(r) == "table" then
         for _, i in ipairs(r) do
@@ -1128,7 +1302,12 @@ local function ReadProfile(r, u, nn, nh, ids, sv, g, uk, rs)
     end
     local left = GetQuestResetTime and tonumber(GetQuestResetTime()) or 86400
     -- (1.5) the kinds they're up for (a client from before: dungeons only) and the raids they're saved to
-    local kinds, raids = { dungeon = true }, {}
+    local kinds, raids, raidNeeds = { dungeon = true }, {}, {}
+    if type(nr) == "table" then
+        for _, i in ipairs(nr) do
+            if IsInt(i, 1, #GK.raids) then raidNeeds[GK.raids[i].key] = true end
+        end
+    end
     if type(uk) == "table" then
         kinds = {}
         for _, i in ipairs(uk) do
@@ -1141,7 +1320,8 @@ local function ReadProfile(r, u, nn, nh, ids, sv, g, uk, rs)
         end
     end
     return { roles = roles, up = IsInt(u, 0) and u or 0, nn = set(nn), nh = set(nh), ids = idset, seen = Now(),
-             saved = set(sv), savedUntil = Now() + left, grouped = (g == 1) or nil, kinds = kinds, raids = raids }
+             saved = set(sv), savedUntil = Now() + left, grouped = (g == 1) or nil, kinds = kinds, raids = raids,
+             raidNeeds = raidNeeds, quests = GK.ReadQuests(gq), arena = ns.GroupPvP and ns.GroupPvP:ReadList(ap) or {} }
 end
 
 -- Today's dailies as somebody saw them: the newest sighting of the current day wins.
@@ -1162,7 +1342,8 @@ local Digest   -- forward
 
 local function OnProfile(sender, msg, dist)
     if not InGuild(sender) then return end
-    local p = ReadProfile(msg.r, msg.u, msg.nn, msg.nh, msg.ids, msg.sv, msg.g, msg.uk, msg.rs)
+    local p = ReadProfile(msg.r, msg.u, msg.nn, msg.nh, msg.ids, msg.sv, msg.g, msg.uk, msg.rs, msg.nr, msg.gq,
+        msg.ap)
     peers[sender] = p
     Known()[sender] = Now()
     -- the owner's own list of runs: theirs that it no longer names are gone
@@ -1211,7 +1392,8 @@ local DIGEST_WIRE, DIGEST_INFLATED = 3800, 15000
 
 Digest = function()
     local mine = ProfileMsg()
-    local p = { { Me(), mine.r, mine.u, mine.nn, mine.nh, mine.sv, mine.g or false, mine.uk, mine.rs } }
+    local p = { { Me(), mine.r, mine.u, mine.nn, mine.nh, mine.sv, mine.g or false, mine.uk, mine.rs, mine.nr,
+                  mine.gq or false, mine.ap or false } }
     local keys = {}
     for key in pairs(peers) do
         if IsOnline(key) and not Util.IsMe(key) then keys[#keys + 1] = key end
@@ -1229,14 +1411,20 @@ Digest = function()
             if peer.nh and peer.nh[k] then nh[#nh + 1] = DUNGEON[k].i end
             if saved[k] then sv[#sv + 1] = DUNGEON[k].i end
         end
-        local uk, rs = {}, {}
+        local uk, rs, nr = {}, {}, {}
+        for i, raid in ipairs(GK.raids) do
+            if peer.raidNeeds and peer.raidNeeds[raid.key] then nr[#nr + 1] = i end
+        end
         for i, kind in ipairs(GK.kinds) do
             if peer.kinds and peer.kinds[kind] then uk[#uk + 1] = i end
         end
         for i, raid in ipairs(GK.raids) do
             if (peer.savedUntil or 0) > Now() and peer.raids and peer.raids[raid.key] then rs[#rs + 1] = i end
         end
-        p[#p + 1] = { key, r, peer.up or 0, nn, nh, sv, peer.grouped and 1 or false, uk, rs }
+        local gq, ap = {}, {}
+        for k in pairs(peer.quests or {}) do if #gq < 30 then gq[#gq + 1] = k end end
+        for b, t in pairs(peer.arena or {}) do ap[#ap + 1] = { b, t.rating, t.name } end
+        p[#p + 1] = { key, r, peer.up or 0, nn, nh, sv, peer.grouped and 1 or false, uk, rs, nr, gq, ap }
     end
     local l = {}
     local now = Now()
@@ -1291,7 +1479,7 @@ local function OnDigest(sender, msg)
         local key = type(e) == "table" and type(e[1]) == "string" and Util.NormalizeName(e[1])
         -- what a member told me themselves a moment ago beats the copy in the digest
         if key and not Util.IsMe(key) and InGuild(key) and not (peers[key] and now - (peers[key].seen or 0) < 10) then
-            peers[key] = ReadProfile(e[2], e[3], e[4], e[5], nil, e[6], e[7], e[8], e[9])
+            peers[key] = ReadProfile(e[2], e[3], e[4], e[5], nil, e[6], e[7], e[8], e[9], e[10], e[11], e[12])
             Known()[key] = now
         end
     end
@@ -1713,7 +1901,12 @@ MaybePing = function(run, fresh)
     if not Runs:IsUp() or Runs:IsGrouped() then return end
     if InCombat() or Util.InPartyInstance() or Util.InRaidInstance() then return end
     -- (1.5) only for the kinds of groups I'm up for; a roster still on its way first
-    if run.pt or not GK.MyKinds(Prefs())[GK.Kind(run)] then return end
+    if run.pt or not (GK.MyKinds(Prefs())[GK.Kind(run)] or GK.HasQuestOf(run)) then return end
+    if run.k == "pvp" and run.pr and run.mr then
+        local p = GK.pvp[GK.pvpIndex[run.a[1]] or 0]
+        local team = p and ns.GroupPvP and ns.GroupPvP:GetTeam(p.bracket)
+        if team and (team.personal or 0) < run.mr then return end
+    end
     local role = Runs:FitsMe(run)
     if not role or GK.Blocker(run) then return end
     if (run.at or 0) > Now() + 3600 then return end   -- a run for tomorrow is no reason to ping now
@@ -1872,6 +2065,16 @@ BuildDemo = function()
         now + 3600 - now % 900, 12, { { "Lorvane", "healer" }, { "Jorvik", "healer" }, { "Halvard", "dps" },
                                       { "Elowen", "dps" }, { "Grimtusk", "dps" }, { "Mirabel", "dps" } },
         "Flag carrier wanted")
+    -- quest groups: Terokk's Downfall now, the Ring of Blood's last fight; who has which quest
+    group("demo-q1", "Isolde", { k = "quest", a = { 11073 }, n = 5, w = { tank = 1, healer = 1, dps = 3 } }, 0, 5,
+        { { "Isolde", "healer" } })
+    group("demo-q2", "Faelar", { k = "quest", a = { 9977 }, n = 5, w = { tank = 1, healer = 1, dps = 3 } }, 0, 8,
+        { { "Faelar", "dps" }, { "Orinel", "dps" }, { "Quillon", "tank" } })
+    demo.peers[k("Isolde")].quests = { [11073] = true }
+    demo.peers[k("Faelar")].quests = { [9977] = true }
+    demo.peers[k("Orinel")].quests = { [9977] = true, [9937] = true }
+    demo.peers[k("Nortok")].quests = { [9937] = true, [9853] = true }
+    demo.peers[k("Quillon")].arena = { [3] = { rating = 1702, name = "Disastrous Decisions" } }
 end
 
 local function DemoRequests(run)
@@ -2168,11 +2371,20 @@ function Runs:GetGroups(kind)
     for _, run in pairs(State().list) do
         if not Expired(run, now) and GK.Valid(run) and (kind == nil or GK.Kind(run) == kind) then out[#out + 1] = run end
     end
+    if kind == nil or kind == "raid" then
+        for _, run in ipairs(GK.Bridge()) do out[#out + 1] = run end
+    end
     return out
 end
 
 -- A group of any kind by id; one whose lead passed is found by its old id too (share links, the Home calendar).
 function Runs:GetGroup(id)
+    if type(id) == "string" and id:sub(1, 3) == "rp:" then
+        for _, run in ipairs(GK.Bridge()) do
+            if run.id == id then return run end
+        end
+        return nil
+    end
     for _ = 1, 5 do
         local run = type(id) == "string" and State().list[id]
         if run then return (not Expired(run)) and run or nil end
@@ -2202,6 +2414,91 @@ function Runs:GetWant(run) return GK.Want(run) end
 function Runs:GetName(run) return GK.Name(run) end
 function Runs:GetGroupBlocker(run) return GK.Blocker(run) end
 
+-- The items on my BiS lists a group's instance drops, main picks first: a dungeon's (as GetMyBiSDrops), a raid
+-- group's (its raids; only the picked bosses' when it picked some).
+function Runs:GetGroupBiSDrops(run)
+    if GK.IsDungeon(run) then return self:GetMyBiSDrops(run.d, run.h) end
+    local out, seen = {}, {}
+    if run.k ~= "raid" then return out end
+    local picked
+    if run.bo then
+        picked = {}
+        for _, b in ipairs(run.bo) do picked[b] = true end
+    end
+    for _, rk in ipairs(run.a or {}) do
+        for _, e in ipairs(myNeeds.r and myNeeds.r[rk] or {}) do
+            if not seen[e.id] and (not picked or (e.boss and picked[e.boss])) then
+                seen[e.id] = true
+                out[#out + 1] = e.id
+            end
+        end
+    end
+    return out
+end
+
+-- Does a member (not me) have something on their BiS lists in that raid, as their DisasterZone told the guild?
+function Runs:HasRaidBiS(member, raidKey)
+    if Util.IsMe(member) then return (myNeeds.r and myNeeds.r[raidKey]) ~= nil end
+    local peer = Peers()[member]
+    return (peer and peer.raidNeeds and peer.raidNeeds[raidKey]) and true or false
+end
+
+-- The attunements a raid group needs that I haven't done: { "the Master's Key", ... } (a hint, never a block: what
+-- the realm asks for changes with its phase; Data/GroupKinds.lua raids[].attune).
+function Runs:GetMissingAttunements(run)
+    local out = {}
+    if run.k ~= "raid" or DemoOn() then return out end
+    local Q = C_QuestLog
+    for _, rk in ipairs(run.a or {}) do
+        local raid = GK.raids[GK.raidIndex[rk] or 0]
+        local at = raid and raid.attune
+        if at and at.quest and Q and Q.IsQuestFlaggedCompleted and not Q.IsQuestFlaggedCompleted(at.quest) then
+            out[#out + 1] = at.name
+        end
+    end
+    return out
+end
+
+-- (owner) Starts the raid session as my raid group listed it: rolls, soft reserves (n each) or the loot council.
+-- Returns ok, why.
+function Runs:StartGroupSession()
+    local run = MyRun()
+    if not run or run.k ~= "raid" then return false, "You don't lead a raid group." end
+    local GR = ns.GroupRules
+    if not (GR and GR.SetSession) then return false, "The raid session isn't available." end
+    local features = ({ roll = { loot = false, rolls = true, lock = false },
+                        sr = { loot = true, rolls = true, lock = false, reserve = true },
+                        lc = { loot = true, rolls = true, lock = false } })[run.lo or "roll"]
+    local ok, err = GR:SetSession(true, nil, features)
+    if not ok then return false, err end
+    if run.lo == "sr" and ns.Reserves and ns.Reserves.Open then
+        local ok2, err2 = ns.Reserves:Open({ rk = run.a[1], n = run.lr or 1 })
+        if not ok2 and err2 then ns:Print("Reserves: %s", err2) end
+    end
+    GK.sessionFor = run.id
+    return true
+end
+
+-- (owner) My raid group's leader just arrived in one of its raids, with no session running: the page offers to
+-- start it (GROUP_RAID_ARRIVED, once per group).
+function GK.CheckArrival()
+    local run = MyRun()
+    if not run or run.k ~= "raid" or GK.arrivedFor == run.id or DemoOn() then return end
+    if not (IsInRaid() and UnitIsGroupLeader("player")) or not GetInstanceInfo then return end
+    local _, itype, _, _, _, _, _, mapID = GetInstanceInfo()
+    if itype ~= "raid" then return end
+    local here = ns.ItemDB and ns.ItemDB.ItemKeyOf and ns.ItemDB:ItemKeyOf(mapID)
+    local listed = false
+    for _, rk in ipairs(run.a or {}) do
+        if rk == here then listed = true end
+    end
+    if not listed then return end
+    local GR = ns.GroupRules
+    if GR and GR.GetSession and GR:GetSession() then return end
+    GK.arrivedFor = run.id
+    ns:Fire("GROUP_RAID_ARRIVED", run.id)
+end
+
 -- A group's art in a w x h box: file, l, r, t, b (a dungeon's or raid's loading screen, a PvP place's, else
 -- Outland's); fw = the share of the screen's width (the cards' crop by default). Crops stay under the logo band.
 function Runs:GetGroupArt(run, w, h, fw)
@@ -2214,6 +2511,11 @@ function Runs:GetGroupArt(run, w, h, fw)
         return IDB:RaidArt(run.a[1], w, h, fw, true)   -- (all five values: no "and" in front of the call)
     end
     local src = run.k == "pvp" and GK.pvp[GK.pvpIndex[run.a and run.a[1]] or 0] or GK.art[run.k]
+    if run.k == "quest" and ns.GroupQuests then
+        local q = ns.GroupQuests:Get(run.a and run.a[1])
+        local z = q and ns.GroupQuests:GetZone(q.zone)
+        if z and z.screen then src = z end
+    end
     if not src then return nil end
     local fh = min(fw * (4 / 3) * (h / w), 0.68)
     local l = min(max(src.cx - fw / 2, 0), 1 - fw)
@@ -2238,6 +2540,8 @@ function Runs:GetGroupIcon(run)
         local p = GK.pvp[GK.pvpIndex[run.a and run.a[1]] or 0]
         return p and p.icon, 0.08, 0.92, 0.08, 0.92
     end
+    local o = run.k == "other" and GK.other[GK.otherIndex[run.a and run.a[1]] or 0]
+    if o and o.icon then return o.icon, 0.08, 0.92, 0.08, 0.92 end
     local a = GK.art[run.k]
     return a and a.icon, l, r, t, b
 end
@@ -2305,6 +2609,70 @@ function Runs:SetMyKind(kind, on)
         for _, run in pairs(State().list) do MaybePing(run, false) end
     end
     return true
+end
+
+-- The places a group lists by default: { tank, healer, dps } for its kind, size and (PvP) activity.
+function Runs:GetDefaultWant(kind, n, key) return GK.DefaultWant(kind, n, key) end
+
+-- (1.5) Quests: the group (not mine) that already lists a quest, or nil; the guildies online with it in their log.
+function Runs:GetQuestGroup(id)
+    local key = ns.GroupQuests and ns.GroupQuests:Key(id) or id
+    for _, run in pairs(State().list) do
+        if run.k == "quest" and run.o ~= Me() and not Expired(run) then
+            for _, x in ipairs(run.a or {}) do
+                if x == key then return run end
+            end
+        end
+    end
+    return nil
+end
+function Runs:GetQuestHolders(id)
+    local key = ns.GroupQuests and ns.GroupQuests:Key(id) or id
+    local out = {}
+    for k, peer in pairs(Peers()) do
+        if peer.quests and peer.quests[key] and not Util.IsMe(k) and (DemoOn() or IsOnline(k)) then out[#out + 1] = k end
+    end
+    tsort(out)
+    return out
+end
+-- The group quests guildies online have in their logs: { [key] = n }.
+function Runs:GetGuildQuests()
+    local out = {}
+    for k, peer in pairs(Peers()) do
+        if not Util.IsMe(k) and (DemoOn() or IsOnline(k)) then
+            for key in pairs(peer.quests or {}) do out[key] = (out[key] or 0) + 1 end
+        end
+    end
+    return out
+end
+-- (1.5) A planned raid I'm signed up for (Accepted or Tentative) whose time this group's would clash with: its view,
+-- or nil. A group lasts 2 hours (a raid group 3.5), a planned raid 3.5.
+function Runs:GetOverlap(run)
+    local RP = ns.RaidPlan
+    if not (RP and RP.GetRaids and RP.GetMySignup) or run.rp then return nil end
+    local start = (run.at and run.at > 0) and run.at or Now()
+    local dur = (run.k == "raid") and 3.5 * 3600 or 2 * 3600
+    for _, v in ipairs(RP:GetRaids(start - 4 * 3600, start + dur)) do
+        if not v.cancelled and v.t < start + dur and v.t + 3.5 * 3600 > start then
+            local su = RP:GetMySignup(v.id)
+            if su and (su.st == "A" or su.st == "T") then return v end
+        end
+    end
+    return nil
+end
+
+-- PvP: a member's team of a bracket as their profile said: { rating, name } or nil.
+function Runs:GetArenaOf(member, bracket)
+    local peer = Peers()[member]
+    return peer and peer.arena and peer.arena[bracket] or nil
+end
+-- How many guildies online have BiS in a raid.
+function Runs:GetRaidNeeders(raidKey)
+    local n = 0
+    for k, peer in pairs(Peers()) do
+        if not Util.IsMe(k) and (DemoOn() or IsOnline(k)) and peer.raidNeeds and peer.raidNeeds[raidKey] then n = n + 1 end
+    end
+    return n
 end
 
 -- My lockout for a raid (item key): until (server time), bosses done, bosses in all; nil when not saved.
@@ -2484,6 +2852,7 @@ end
 function Runs:Join(id)
     local run = self:GetGroup(id)
     if not run then return false, "That run is gone." end
+    if run.rp then return GK.BridgeJoin(run) end
     if run.pt then return false, "Still getting that group's players: try again in a moment." end
     local role = self:FitsMe(run)
     if not role then return false, "No open place fits your roles." end
@@ -2493,7 +2862,7 @@ function Runs:Join(id)
     if self:IsGrouped() then return false, "Leave your group first: an invite can't reach you while you're in one." end
     if not DemoOn() then
         if not IsOnline(run.o) then return false, "The leader is offline." end
-        local b = (GK.IsDungeon(run) and #self:GetMyBiSDrops(run.d, run.h) > 0) and 1 or nil
+        local b = (#self:GetGroupBiSDrops(run) > 0) and 1 or nil
         if not Send({ t = "DRJ", id = id, r = ROLE_INDEX[role], b = b }, "WHISPER", run.o) then
             return false, "Could not reach the leader."
         end
@@ -2549,6 +2918,7 @@ function Runs:Accept(id, key)
         return false
     end
     InviteToRun(run, key)
+    GK.TeamInvite(run, key)
     req.st = "invited"
     Send({ t = "DRA", id = id, ok = 1 }, "WHISPER", key)
     Changed()
@@ -2676,10 +3046,11 @@ local function RefreshNeeds()
         local before = ProfileMsg()
         myNeeds = ComputeNeeds()
         local after = ProfileMsg()
-        local same = #before.nn == #after.nn and #before.nh == #after.nh
+        local same = #before.nn == #after.nn and #before.nh == #after.nh and #before.nr == #after.nr
         if same then
             for i, v in ipairs(after.nn) do if before.nn[i] ~= v then same = false end end
             for i, v in ipairs(after.nh) do if before.nh[i] ~= v then same = false end end
+            for i, v in ipairs(after.nr) do if before.nr[i] ~= v then same = false end end
         end
         if not same then SendProfile() end
         Changed()
@@ -2738,6 +3109,13 @@ function Runs:OnInit()
     for _, ev in ipairs({ "QUEST_TURNED_IN", "QUEST_REMOVED" }) do
         ns:RegisterEvent(ev, function() Util.Debounce("dungeon-runs-quests", 0.5, Changed) end)
     end
+    -- (1.5) my group quests changed: the guild hears it; a quest group of mine whose quests are all done ends
+    ns:On("GROUP_QUESTS_UPDATED", function()
+        GK.OnQuestDone()
+        SendProfile()
+        Changed()
+    end)
+    ns:On("GROUP_PVP_UPDATED", function() Util.Debounce("dungeon-runs-pvp", 2, SendProfile) end)
     ns:RegisterEvent("QUEST_DETAIL", function()
         if GetQuestID then NoteQuest(GetQuestID()) end
     end)
@@ -2747,7 +3125,11 @@ function Runs:OnInit()
             if type(q) == "table" then NoteQuest(q.questID) end
         end
     end)
-    ns:RegisterEvent("PLAYER_ENTERING_WORLD", function() Util.After(2, UpdateUp) end)
+    ns:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+        Util.After(2, UpdateUp)
+        Util.After(3, GK.CheckArrival)
+    end)
+    ns:RegisterEvent("ZONE_CHANGED_NEW_AREA", function() Util.After(2, GK.CheckArrival) end)
     ns:RegisterEvent("PLAYER_LEVEL_UP", Changed)
     ns:RegisterEvent("UPDATE_FACTION", function() Util.Debounce("dungeon-runs-rep", 1, Changed) end)
     ns:RegisterSlash("lfg", function() if ns.MainFrame then ns.MainFrame:Open("dungeons") end end,

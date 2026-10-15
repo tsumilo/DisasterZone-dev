@@ -158,6 +158,18 @@ M.quests_on, M.quests_done = {}, {}
 C_QuestLog = C_QuestLog or {}
 C_QuestLog.IsOnQuest = function(id) return M.quests_on[tonumber(id) or 0] == true end
 C_QuestLog.IsQuestFlaggedCompleted = function(id) return M.quests_done[tonumber(id) or 0] == true end
+-- arena teams: tests set __MOCK.arena[i] = { name, size, rating, personal, members = { 'Name', ... } };
+-- ArenaTeamInviteByName records __MOCK.team_invites[#+1] = { index, name }
+M.arena, M.team_invites = {}, {}
+function GetArenaTeam(i)
+  local t = M.arena[i]
+  if not t then return nil end
+  return t.name, t.size, t.rating or 0, 0, 0, 0, 0, 0, 0, 0, t.personal or t.rating or 0
+end
+function GetNumArenaTeamMembers(i) local t = M.arena[i]; return t and #(t.members or {}) or 0 end
+function GetArenaTeamRosterInfo(i, j) local t = M.arena[i]; return t and t.members and t.members[j] or nil end
+function ArenaTeamRoster() end
+function ArenaTeamInviteByName(i, name) M.team_invites[#M.team_invites + 1] = { i, name } end
 -- reputations: tests set __MOCK.factions[id] = standingID (1 hated .. 8 exalted); any other faction is revered (7)
 M.factions = {}
 M.FACTION_NAMES = { [946] = "Honor Hold", [947] = "Thrallmar", [942] = "Cenarion Expedition", [1011] = "Lower City",

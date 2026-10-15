@@ -263,16 +263,17 @@ end
 
 local function Runs() return ns.DungeonRuns end
 
--- "The Shattered Halls (Heroic)", "now" / "Thu 9 Oct 20:00", the complex's icon.
+-- "The Shattered Halls (Heroic)" / "Gruul's Lair + Magtheridon's Lair", "now" / "Thu 9 Oct 20:00", the group's icon
+-- (1.5: a group of any kind).
 local function RunParts(run)
-    local d = Runs():GetDungeon(run.d)
-    local name = (d and d.name or tostring(run.d)) .. (run.h and " (Heroic)" or "")
+    local R = Runs()
+    local name = R:GetName(run) .. ((R:GetKind(run) == "dungeon" and run.h) and " (Heroic)" or "")
     local when = (run.at or 0) > GetServerTime() and When(run.at) or "now"
-    return name, when, d and d.complex and d.complex.icon
+    return name, when, (R:GetGroupIcon(run))
 end
 
 KINDS.run = function(arg)
-    local run = Runs() and Runs():GetRun(arg)
+    local run = Runs() and Runs():GetGroup(arg)
     if not run then return { icon = TexIcon(ICON.raid) } end
     local name, when, icon = RunParts(run)
     return { label = name .. " · " .. when, icon = TexIcon(icon or ICON.raid), known = true }
@@ -694,10 +695,12 @@ end
 
 TIPS.run = function(tt, arg)
     local R = Runs()
-    local run = R:GetRun(arg)
+    local run = R:GetGroup(arg)
     local name, when = RunParts(run)
     Line(tt, name, "GOLD")
-    tt:AddLine("Dungeon run led by " .. Util().ShortName(run.o) .. " · " .. when, 1, 1, 1)
+    local what = ({ dungeon = "Dungeon run", raid = "Raid group", quest = "Quest group", pvp = "PvP group" })[R:GetKind(run)]
+        or "Group"
+    tt:AddLine(what .. " led by " .. Util().ShortName(run.o) .. " · " .. when, 1, 1, 1)
     local open, parts = R:GetOpenRoles(run), {}
     for _, role in ipairs(R.ROLES) do
         local n = open[role]
@@ -706,7 +709,7 @@ TIPS.run = function(tt, arg)
     if #parts > 0 then
         Line(tt, "Looking for " .. tconcat(parts, ", "), "TEXT")
     else
-        Line(tt, "The party is full", "TEXT")
+        Line(tt, "The group is full", "TEXT")
     end
     if R:IsInRun(run) then Line(tt, "You're in", "OK") end
     if run.no then tt:AddLine(run.no, 1, 1, 1, true) end
@@ -882,7 +885,7 @@ function Share:CurrentRef()
         local v = ns.ChangelogUI:GetSelected()
         return (v and ChangelogEntry(v)) and ("ver:" .. v) or "changelog"
     elseif tab == "dungeons" and ns.DungeonRuns then
-        local mine = ns.DungeonRuns:GetMine()
+        local mine = ns.DungeonRuns:GetMyGroup()
         return mine and self:RunRef(mine.id) or "dungeons"
     elseif tab == "council" and ns.CouncilUI then
         return ns.CouncilUI:GetView() == "log" and "loot" or "council"

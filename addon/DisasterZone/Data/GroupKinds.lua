@@ -8,15 +8,16 @@ ns.Data.GroupKinds = {
     -- kind keys; index 1 is the 5-man dungeon (Core/DungeonRuns.lua COMPLEXES), which keeps its own wire fields
     kinds = { "dungeon", "raid", "quest", "pvp", "other" },
 
-    -- raids by the item data's key (Data/Items.lua, Data/Raids.lua RaidMeta): size = the places a group lists by default
+    -- raids by the item data's key (Data/Items.lua, Data/Raids.lua RaidMeta): size = the places a group lists by default;
+    -- attune = the quest that ends its attunement (a hint only; 1.5: unverified on the anniversary realms' phases)
     raids = {
-        { key = "Karazhan", size = 10 },
+        { key = "Karazhan", size = 10, attune = { quest = 9837, name = "the Master's Key" } },
         { key = "GruulsLair", size = 25 },
         { key = "MagtheridonsLair", size = 25 },
         { key = "SerpentshrineCavern", size = 25 },
         { key = "TempestKeep", size = 25 },
-        { key = "HyjalSummit", size = 25 },
-        { key = "BlackTemple", size = 25 },
+        { key = "HyjalSummit", size = 25, attune = { quest = 10445, name = "the Vials of Eternity" } },
+        { key = "BlackTemple", size = 25, attune = { quest = 10985, name = "the Medallion of Karabor" } },
         { key = "ZulAman", size = 10 },
         { key = "SunwellPlateau", size = 25 },
     },
@@ -38,11 +39,17 @@ ns.Data.GroupKinds = {
 
     -- anything else: what it is for (the note says the rest)
     other = {
-        { key = "attune", name = "Attunement" },
-        { key = "worldboss", name = "World boss" },
-        { key = "farm", name = "Farming" },
-        { key = "rep", name = "Reputation" },
-        { key = "any", name = "Anything else" },
+        -- (icon: shown round, its edge cut off; hint: the note's placeholder)
+        { key = "attune", name = "Attunement", icon = "Interface\Icons\INV_Misc_Key_10",
+          hint = "Which one, e.g. \"Arcatraz key\"" },
+        { key = "worldboss", name = "World boss", icon = "Interface\Icons\Spell_Fire_FelFlameRing",
+          hint = "Which one, e.g. \"Doom Lord Kazzak\"" },
+        { key = "farm", name = "Farming", icon = "Interface\Icons\INV_Misc_Herb_Felweed",
+          hint = "What and where, e.g. \"Motes of Fire, Shadowmoon\"" },
+        { key = "rep", name = "Reputation", icon = "Interface\Icons\INV_Misc_Note_02",
+          hint = "Which faction, e.g. \"Sha'tari Skyguard\"" },
+        { key = "any", name = "Anything else", icon = "Interface\Icons\INV_Misc_QuestionMark",
+          hint = "What the group is for (needed)" },
     },
 
     -- the art of the kinds that have no instance of their own: a loading screen (cx, cy as above) and an LFG icon

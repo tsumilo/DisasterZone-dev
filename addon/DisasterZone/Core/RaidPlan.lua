@@ -762,6 +762,11 @@ local function CleanRaidFields(out, r, now, partial, minT)
         if type(r.pv) ~= "boolean" then return false end
         if r.pv or partial then out.pv = r.pv end
     end
+    -- (1.5) fill open places: the raid shows on the Groups board while it is short of players
+    if r.fo ~= nil then
+        if type(r.fo) ~= "boolean" then return false end
+        if r.fo or partial then out.fo = r.fo end
+    end
     local inv = CleanInvites(r.inv)
     if inv == false then return false end
     if inv and (#inv > 0 or partial) then out.inv = inv end
@@ -1100,7 +1105,7 @@ end
 -- Occurrences (the resolved view the UI reads)
 ---------------------------------------------------------------------------
 
-local RAID_FIELDS = { "t", "i", "ix", "sz", "tm", "tl", "ti", "no", "lk", "pv", "inv", "ml", "rl", "rlb" }
+local RAID_FIELDS = { "t", "i", "ix", "sz", "tm", "tl", "ti", "no", "lk", "pv", "inv", "ml", "rl", "rlb", "fo" }
 
 -- The view's leader: a leader named by the GM or a raid leader on the list, else none (rl, rlb = nil).
 local function ViewLeader(v)
@@ -1135,6 +1140,7 @@ local function ViewEvent(e)
         id = e.id, t = e.t, i = e.i, ix = CopyList(e.ix), sz = e.sz, tm = CopyList(e.tm) or {}, tl = CopyMap(e.tl),
         ti = e.ti, no = e.no,
         lk = e.lk and true or false, pv = e.pv and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
+        fo = e.fo and true or false,
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
         gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm), gx = CopyMap(e.gx), rl = e.rl, rlb = e.rlb,
         weekly = false,
@@ -1160,6 +1166,7 @@ local function ViewOccurrence(root, s, k)
     v.tm = v.tm or {}
     v.lk = v.lk and true or false
     v.pv = v.pv and true or false
+    v.fo = v.fo and true or false
     v.inv = v.inv or {}
     if (v.ml or 0) <= 0 then v.ml = nil end
     if o then
@@ -3479,6 +3486,11 @@ local function ApplyFields(rec, f, partial)
         if f.pv then rec.pv = true
         elseif rec.sid then rec.pv = false
         else rec.pv = nil end
+    end
+    if f.fo ~= nil then
+        if f.fo then rec.fo = true
+        elseif rec.sid then rec.fo = false
+        else rec.fo = nil end
     end
     if f.inv ~= nil then
         local list = {}

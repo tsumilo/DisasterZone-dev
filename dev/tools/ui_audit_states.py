@@ -2025,8 +2025,29 @@ STATES = [
                                        "dungeons")),
     ("Groups - raid opened (25)", demo(DR_ME + "ns.DungeonRuns:SetMyRole('dps', true); ns.DungeonsUI:SetTab('raid'); "
                                        "ns.DungeonsUI:OpenCard('demo-r2')", "dungeons")),
+    ("Groups - quests", demo(DR_ME + "ns.DungeonsUI:SetTab('quest'); ns.DungeonsUI:OpenCard('demo-q2')", "dungeons")),
     ("Groups - pvp opened", demo(DR_ME + "ns.DungeonsUI:SetTab('pvp'); ns.DungeonsUI:OpenCard('demo-p1')", "dungeons")),
     ("Groups - dungeon opened", demo(DR_ME + "ns.DungeonsUI:SetTab('all'); ns.DungeonsUI:OpenCard('demo-1')", "dungeons")),
+    ("Groups - sheet, raid", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); ns.DungeonsUI:OpenSheet(); "
+                                  "ns.DungeonsUI:SetSheet({ ra = { 'GruulsLair', 'MagtheridonsLair' }, lo = 'sr', lr = 2, "
+                                  "bo = { ['GruulsLair:Gruul'] = true } })", "dungeons")),
+    ("Groups - sheet, quest", demo(DR_ME + "ns.DungeonsUI:SetTab('quest'); ns.DungeonsUI:OpenSheet(); "
+                                   "ns.DungeonsUI:SetSheet({ qs = { 9937, 9853 } })", "dungeons")),
+    ("Groups - sheet, quest zone", demo(DR_ME + "ns.DungeonsUI:SetTab('quest'); ns.DungeonsUI:OpenSheet(); "
+                                        "ns.DungeonsUI:SetSheet({ qview = 4 })", "dungeons")),
+    ("Groups - sheet, arena rated", demo(DR_ME + "ns.DungeonsUI:SetTab('pvp'); ns.DungeonsUI:OpenSheet(); "
+                                         "ns.DungeonsUI:SetSheet({ pm = 'arena', pa = 'arena3', paSet = true, pr = true })",
+                                         "dungeons")),
+    ("Groups - sheet, battleground", demo(DR_ME + "ns.DungeonsUI:SetTab('pvp'); ns.DungeonsUI:OpenSheet(); "
+                                          "ns.DungeonsUI:SetSheet({ pm = 'bg', pa = 'wsg', fc = true })", "dungeons")),
+    ("Groups - sheet, other", demo(DR_ME + "ns.DungeonsUI:OpenSheet(); ns.DungeonsUI:SetSheet({ kind = 'other', "
+                                   "oa = 'attune' })", "dungeons")),
+    ("Groups - leader view", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); ns.DungeonRuns:List({ k = 'raid', "
+                                  "a = { 'GruulsLair', 'MagtheridonsLair' }, role = 'healer', lo = 'sr', lr = 1, "
+                                  "no = 'Pug fill, no BoE drama' }); ns.GroupsLead:Open()", "dungeons")),
+    ("Groups - my raid group", demo(DR_ME + "ns.DungeonsUI:SetTab('raid'); "
+                                    "ns.DungeonRuns:List({ k = 'raid', a = { 'Karazhan' }, role = 'healer', lo = 'lc' })",
+                                    "dungeons")),
     # Guild > Polls (UI/PollsTab.lua, polls_seed): the list, closed polls, answering one, my poll's results, a Pick
     # days poll, the New poll sheet (who votes open; Pick days), the pop-up, a member who isn't asked anything
     ("Polls", polls_view()),

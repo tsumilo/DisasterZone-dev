@@ -97,18 +97,15 @@ def the_tabs_filter_by_kind_and_count_each_kind():
     w.tick(1)
     labels = g.eval_py("local out = {}; for _, b in ipairs(ns.DungeonsUI:GetPanel().tabsRow.tabs) do "
                        "out[#out + 1] = b:GetText() end; return out")
-    assert [strip_codes(x) for x in labels] == ["All  8", "Dungeons  4", "Raids  2", "Quests  0", "PvP  2"], labels
+    assert [strip_codes(x) for x in labels] == ["All  10", "Dungeons  4", "Raids  2", "Quests  2", "PvP  2"], labels
     g.eval("ns.DungeonsUI:SetTab('raid')")
     assert sorted(x["id"] for x in board(g)) == ["demo-r1", "demo-r2"], board(g)
     g.eval("ns.DungeonsUI:SetTab('pvp')")
     assert sorted(x["id"] for x in board(g)) == ["demo-p1", "demo-p2"], board(g)
-    # a kind with nothing listed says so
     g.eval("ns.DungeonsUI:SetTab('quest')")
-    assert board(g) == []
-    assert g.eval_py("local e = ns.DungeonsUI:GetPanel().empty; return e:IsShown() and e.title:GetText()") == \
-        "No quest groups listed right now."
+    assert sorted(x["id"] for x in board(g)) == ["demo-q1", "demo-q2"], board(g)
     g.eval("ns.DungeonsUI:SetTab('all')")
-    assert len(board(g)) == 8
+    assert len(board(g)) == 10
     w.assert_no_errors()
 
 

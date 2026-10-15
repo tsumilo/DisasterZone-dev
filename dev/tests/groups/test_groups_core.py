@@ -245,10 +245,14 @@ def an_old_client_keeps_seeing_dungeon_runs_and_ignores_the_rest():
 def pvp_quest_and_other_groups_and_what_list_refuses():
     w, c = guild(SEVEN[:3])
     g, b, cara = c["Gina"], c["Bert"], c["Cara"]
+    # rated: only with a team of that bracket; the group carries the team's name
+    assert list_group(g, k="pvp", a=["arena3"], role="healer", pr=True) == "Rated games need your 3v3 team."
+    g.eval("__MOCK.arena[1] = { name = 'Disastrous Decisions', size = 3, rating = 1712, members = { 'Gina' } }")
     rid = list_group(g, k="pvp", a=["arena3"], role="healer", pr=True, mr=1650)
     w.tick(3)
     x = groups(cara)[0]
     assert x["k"] == "pvp" and x["n"] == 3 and x["w"] == [0, 1, 2] and x["pr"] is True and x["mr"] == 1650, x
+    assert cara.eval_py("return ns.DungeonRuns:GetGroup(...).tn", rid) == "Disastrous Decisions"
     assert x["name"] == "Arena 3v3", x
     # no tanks in PvP: a warrior up for tanking only doesn't fit, as DPS he does
     roles(b, "tank")

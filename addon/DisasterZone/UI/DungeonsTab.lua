@@ -45,6 +45,8 @@ local STAR = "|T" .. STAR_TEX .. ":11:11:0:0|t"
 local ROLE_NAME = { tank = "tank", healer = "healer", dps = "DPS" }
 
 local GOLD = S.C.GOLD
+-- (1.5) a raid group's loot, in words
+local LOOT_WORDS = { roll = "everyone rolls", sr = "soft reserves", lc = "the loot council" }
 local SHEET_BG = { 0.035, 0.035, 0.043, 1 }       -- the List a run sheet: a cover over the page (opaque: nothing under it shows)
 
 local panel, toast
@@ -203,7 +205,7 @@ local function CreateTop(p)
     for _, role in ipairs(R().ROLES) do
         top.roles[role] = NewRoleChip(top, role, function(self) R():SetMyRole(role, not self.on) end)
     end
-    top.list = bar:SetPrimary({ text = "List a run", width = 110, onClick = function() DungeonsUI:OpenSheet() end })
+    top.list = bar:SetPrimary({ text = "List a group", width = 120, onClick = function() DungeonsUI:OpenSheet() end })
 end
 
 local function UpdateTop(p)
@@ -342,6 +344,7 @@ function DungeonsUI:Refresh()
     if not panel or not panel:IsVisible() then return end
     local p = panel
     if state.sheet then self:RefreshSheet() end
+    if ns.GroupsLead and ns.GroupsLead:IsOpen() then ns.GroupsLead:Refresh() end
     local width = p:GetWidth()
     if not width or width < 300 then width = 780 end
     local mine, now, later = Sections()
@@ -356,7 +359,7 @@ function DungeonsUI:Refresh()
     p.tabsRow:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, y)
     y = y - TABS_H - 4
     if mine == nil then
-        p.layout.toolbar:SetPrimary({ text = "List a run", width = 110, onClick = function() DungeonsUI:OpenSheet() end })
+        p.layout.toolbar:SetPrimary({ text = "List a group", width = 120, onClick = function() DungeonsUI:OpenSheet() end })
         UpdateTop(p)
         p.strip:ClearAllPoints()
         p.strip:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y)
@@ -524,8 +527,20 @@ function DungeonsUI:OpenMineMenu(owner)
                 end)
             end
         end
-        entry(16, "Edit", "Change the dungeon, the time, the note or your role.",
-            function() DungeonsUI:OpenSheet(true) end)
+        local group = R():GetMyGroup()
+        local raid = group and R():GetKind(group) == "raid"
+        entry(16, "Edit", raid and "Change the raids, the places, the loot, the time or the note."
+            or "Change the dungeon, the time, the note or your role.", function() DungeonsUI:OpenSheet(true) end)
+        if group and R():GetSize(group) > 5 and not (ns.GroupsLead and ns.GroupsLead:IsOpen()) then
+            entry(Ui.ICON.team or 16, "Manage group", "The roster by role, the requests and who fits a place.",
+                function() ns.GroupsLead:Open(group.id) end)
+        end
+        -- (1.5) a raid group: its raid session, the way it was listed (rolls, soft reserves, the loot council)
+        local GR = ns.GroupRules
+        if raid and not (GR and GR.GetSession and GR:GetSession()) then
+            entry(Ui.ICON.play or 16, "Start raid session", "Starts the raid session with your group's loot: "
+                .. LOOT_WORDS[group.lo or "roll"] .. ".", function() DungeonsUI:StartSession() end)
+        end
         entry(18, "Post in LFG", "Posts the open places in the LookingForGroup channel: "
             .. (R():GetChannelText() or "nothing is open") .. ".", function()
                 local ok, why = R():PostToChannel()
@@ -548,6 +563,13 @@ function DungeonsUI:OpenMineMenu(owner)
             R():Unlist()
         end, { 1, 0.4, 0.35 })
     end)
+end
+
+-- Starts my raid group's session (its loot as listed); says why it couldn't.
+function DungeonsUI:StartSession()
+    local ok, why = R():StartGroupSession()
+    if not ok and why then ns:Print("%s", why) end
+    return ok
 end
 
 function DungeonsUI:CreatePanel(parent)
@@ -584,510 +606,20 @@ function DungeonsUI:CreatePanel(parent)
 end
 
 ---------------------------------------------------------------------------
--- List a run: the sheet
+-- List a group: the sheet (UI/GroupsSheet.lua)
 ---------------------------------------------------------------------------
-
-local WHEN = { { key = "now", text = "Now" }, { key = "30", text = "In 30 min" }, { key = "60", text = "In 1 h" },
-               { key = "later", text = "Later" } }
-local FORM_LABEL_W = 62
-local FORM_W = 286
-local DAYS_AHEAD = 6
-local HEROIC_ICON = "|T" .. HEROIC_TEX .. ":13:10:0:0:32:32:0:16:0:20|t"   -- (the skull of UI-LFG-ICON-HEROIC)
-local DAILY_ICON = "|TInterface\\GossipFrame\\DailyQuestIcon:12:12:0:0|t"
-
--- Minutes after midnight of now (local clock).
-local function NowMinutes()
-    local t = date("*t", ns.Util.Now())
-    return t.hour * 60 + t.min
-end
-
--- The earliest start a later run can have on day `day` (0 = today): a quarter of an hour from now, on a quarter.
-local function MinMinutes(day)
-    if day > 0 then return 0 end
-    return math.ceil((NowMinutes() + 15) / 15) * 15
-end
-
-local function DayTime(day, mins)
-    local t = date("*t", ns.Util.Now())
-    return time({ year = t.year, month = t.month, day = t.day + day, hour = floor(mins / 60), min = mins % 60,
-                  sec = 0 })
-end
-
-local function SheetTime(s)
-    if s.when == "now" then return 0 end
-    if s.when == "30" then return ns.Util.Now() + 1800 end
-    if s.when == "60" then return ns.Util.Now() + 3600 end
-    return DayTime(s.day or 0, s.mins or 0)
-end
-
--- A later run's first suggestion: the next full hour at least an hour away (tomorrow when today is over).
-local function DefaultLater(s)
-    local mins = math.ceil((NowMinutes() + 60) / 60) * 60
-    if mins >= 24 * 60 then
-        s.day, s.mins = 1, 20 * 60
-    else
-        s.day, s.mins = 0, mins
-    end
-end
-
--- Keeps day / time valid: today never before now + 15 min.
-local function ClampLater(s)
-    s.day = min(max(s.day or 0, 0), DAYS_AHEAD)
-    if MinMinutes(s.day) >= 24 * 60 then s.day = s.day + 1 end
-    s.mins = min(max(s.mins or 0, MinMinutes(s.day)), 24 * 60 - 15)
-end
-
-local function DayText(day)
-    if day == 0 then return "Today" end
-    if day == 1 then return "Tomorrow" end
-    local t = DayTime(day, 12 * 60)
-    return date("%a ", t) .. tonumber(date("%d", t)) .. date(" %b", t)
-end
-
--- A dungeon tile: the short name, then at most one badge (★ guildies with BiS there, or "Saved"), the DAILY pill on
--- its edge; the sleek button's surface (UI:PaintSleek: "chosen" while picked, quiet while it can't be picked).
-local function NewTile(parent)
-    local t = CreateFrame("Button", nil, parent)
-    t:SetSize(TILE_W, TILE_H)
-    t.bg = t:CreateTexture(nil, "BACKGROUND")
-    t.bg:SetAllPoints()
-    UI():AddEdges(t, "BORDER")
-    t.name = UI():Text(t, "emph", "TEXT")
-    t.name:SetPoint("LEFT", 10, 0)
-    t.count = UI():Text(t, "emph", "GOLD")
-    t.count:SetPoint("RIGHT", -9, 0)
-    t.star = t:CreateTexture(nil, "OVERLAY")
-    t.star:SetTexture(STAR_TEX)
-    t.star:SetSize(11, 11)
-    t.star:SetPoint("RIGHT", t.count, "LEFT", -2, 0)
-    t.saved = UI():Text(t, "small", "SUB")
-    t.saved:SetPoint("RIGHT", -8, 0)
-    t.saved:SetText("Saved")
-    t.lock = t:CreateTexture(nil, "OVERLAY")
-    t.lock:SetTexture(UI().ICON_LOCK)
-    t.lock:SetSize(12, 12)
-    t.lock:SetPoint("RIGHT", t.saved, "LEFT", -2, 0)
-    t.daily = UI():CreatePill(t, "bis", "DAILY")
-    t.daily:SetPoint("TOPRIGHT", t, "TOPRIGHT", -8, 7)
-    t.daily:SetFrameLevel(t:GetFrameLevel() + 2)
-    t.liveTip = true
-    t:SetScript("OnEnter", function(self)
-        local lines = self.tip and self.tip()
-        if lines then UI():SetTextTooltip(self, lines, "ANCHOR_TOP") end
-    end)
-    t:SetScript("OnLeave", HideTip)
-    return t
-end
-
-local DAILY_WORDS = {
-    log = "Your daily quest for it is in your quest log.",
-    today = "Today's daily: you haven't done it yet.",
-    done = "Today's daily: done.",
-}
-
--- The tile's tooltip, or nil when it would only repeat the name on the tile.
-local function TileTip(info, heroic)
-    return function()
-        local lines = { info.name .. (heroic and " (Heroic)" or "") }
-        local block, kind = R():GetBlocker(info.key, heroic)
-        if kind == "saved" then
-            lines[#lines + 1] = S:Wrap("WARN", block) .. S:Wrap("SUB", " (the daily reset)")
-        elseif block then
-            lines[#lines + 1] = S:Wrap("WARN", block)
-        end
-        local daily = R():GetMyDaily(info.key, heroic)
-        if daily then
-            lines[#lines + 1] = (daily == "done" and S:Wrap("SUB", DAILY_WORDS.done))
-                or (DAILY_ICON .. " " .. S:Wrap("GOLD", DAILY_WORDS[daily]))
-        end
-        local n, who = R():GetNeeders(info.key, heroic)
-        if n > 0 then
-            local names = {}
-            for i, k in ipairs(who) do
-                if i > 8 then names[#names + 1] = "+" .. (#who - 8) break end
-                names[#names + 1] = UI():ColoredName(k)
-            end
-            lines[#lines + 1] = STAR .. " " .. n .. (n == 1 and " guildie online has" or " guildies online have")
-                .. " BiS here: " .. tconcat(names, ", ")
-        end
-        local drops = R():GetMyBiSDrops(info.key, heroic)
-        if #drops > 0 then
-            lines[#lines + 1] = S:Wrap("GOLD", "Drops your BiS:")
-            for i, id in ipairs(drops) do
-                if i > 6 then lines[#lines + 1] = S:Wrap("SUB", "+" .. (#drops - 6) .. " more") break end
-                lines[#lines + 1] = "  " .. ItemLinkText(id)
-            end
-        end
-        if #lines == 1 and info.short == info.name then return nil end
-        return lines
-    end
-end
-
--- A dungeon complex in the sheet: the shared art row (UI:CreateArtRow: its picture, its icon, the name, what holds
--- back the whole complex), its dungeons' tiles on the right.
-local function NewComplexRow(parent)
-    local r = UI():CreateArtRow(parent, { rule = false })
-    UI():AttachTooltip(r, nil, function(self) return self.whyTip end, { anchor = "ANCHOR_TOP" })
-    r.tiles = {}
-    return r
-end
-
-local function SheetSelect(key)
-    local s = state.sheet
-    if not s then return end
-    s.d = key
-    s.err = nil
-    DungeonsUI:RefreshSheet()
-end
-
-local function CreateSheet(p)
-    -- the shared sheet as a cover over the page (its title, its close X; Escape closes it too)
-    -- (only the sheet's own close counts: hidden with the tab or the window, it stays open with its draft)
-    local sh = UI():CreateSheet(p, { cover = true, bg = SHEET_BG, rule = false, onClose = function()
-        if state.sheet and p:IsVisible() then DungeonsUI:CloseSheet() end
-    end })
-    -- Normal / Heroic: the shared segments, after the sheet's title
-    sh.mode = UI():CreateSegments(sh, { { key = "normal", label = "Normal" },
-        { key = "heroic", label = HEROIC_ICON .. " Heroic" } }, function(key)
-        state.sheet.h = key == "heroic"
-        state.sheet.err = nil
-        DungeonsUI:RefreshSheet()
-    end, { h = S.BTN_H, itemW = 82 })
-    UI():AttachTooltip(sh.close, "Close", "Nothing is listed.", { anchor = "ANCHOR_LEFT" })
-    sh.rows = {}
-
-    -- the form: When, (At), Note, You go as; its rows anchored once inside sh.form
-    local form = CreateFrame("Frame", nil, sh)
-    form:SetSize(FORM_LABEL_W + FORM_W, 140)
-    sh.form = form
-    sh.whenLabel = UI():Text(form, "body", "SUB")
-    sh.whenLabel:SetText("When")
-    sh.whenLabel:SetPoint("TOPLEFT", 0, -6)
-    local whenItems = {}
-    for i, def in ipairs(WHEN) do whenItems[i] = { key = def.key, label = def.text } end
-    sh.when = UI():CreateSegments(form, whenItems, function(key)
-        local s = state.sheet
-        if s.when == key then return end
-        s.when = key
-        if key == "later" and not s.mins then DefaultLater(s) end
-        DungeonsUI:RefreshSheet()
-    end, { h = S.BTN_H })
-    sh.when:SetPoint("TOPLEFT", FORM_LABEL_W, 0)
-    sh.atRow = CreateFrame("Frame", nil, form)
-    sh.atRow:SetSize(FORM_LABEL_W + FORM_W, 24)
-    sh.atRow:SetPoint("TOPLEFT", 0, -33)
-    sh.atLabel = UI():Text(sh.atRow, "body", "SUB")
-    sh.atLabel:SetText("At")
-    sh.atLabel:SetPoint("LEFT", 0, 0)
-    local stepTip = { "Pick the time", "Click the arrows or scroll. Your clock; everybody sees it in theirs." }
-    sh.day = UI():CreateStepper(sh.atRow, 150, function(dir)
-        local s = state.sheet
-        s.day = (s.day or 0) + dir
-        ClampLater(s)
-        DungeonsUI:RefreshSheet()
-    end, { tip = stepTip })
-    sh.day:SetPoint("LEFT", FORM_LABEL_W, 0)
-    sh.time = UI():CreateStepper(sh.atRow, 96, function(dir)
-        local s = state.sheet
-        s.mins = (s.mins or 0) + dir * 15
-        ClampLater(s)
-        DungeonsUI:RefreshSheet()
-    end, { tip = stepTip })
-    sh.time:SetPoint("LEFT", sh.day, "RIGHT", 6, 0)
-    sh.noteRow = CreateFrame("Frame", nil, form)
-    sh.noteRow:SetSize(FORM_LABEL_W + FORM_W, 24)
-    sh.noteLabel = UI():Text(sh.noteRow, "body", "SUB")
-    sh.noteLabel:SetText("Note")
-    sh.noteLabel:SetPoint("LEFT", 0, 0)
-    sh.note = UI():CreateSleekEditBox(sh.noteRow, FORM_W, 24, "GameFontHighlightSmall")
-    sh.note:SetPoint("LEFT", FORM_LABEL_W, 0)
-    sh.note:SetMaxLetters(R().NOTE_MAX)
-    sh.fields[#sh.fields + 1] = sh.note
-    sh.note:SetScript("OnTextChanged", function(self)
-        if state.sheet then state.sheet.no = self:GetText() end
-        DungeonsUI:RefreshSheetPreview()
-    end)
-    UI():SetEditPlaceholder(sh.note, "Optional, e.g. \"badge run, fast pulls\"")
-    sh.roleRow = CreateFrame("Frame", nil, form)
-    sh.roleRow:SetSize(FORM_LABEL_W + FORM_W, 24)
-    sh.roleRow:SetPoint("TOPLEFT", sh.noteRow, "BOTTOMLEFT", 0, -9)
-    sh.roleLabel = UI():Text(sh.roleRow, "body", "SUB")
-    sh.roleLabel:SetText("You go as")
-    sh.roleLabel:SetPoint("LEFT", 0, 0)
-    -- the role I play: one of the roles my class plays (the shared segments, their role icons)
-    sh.roles = UI():CreateSegments(sh.roleRow, {}, function(key)
-        state.sheet.role = key
-        DungeonsUI:RefreshSheet()
-    end, { h = S.BTN_H, itemW = 34 })
-    sh.roles:SetPoint("LEFT", FORM_LABEL_W, 0)
-    -- the Group Finder too (a run for now: listed with the same click; for later: a pop-up when it starts)
-    sh.gfRow = CreateFrame("Frame", nil, form)
-    sh.gfRow:SetSize(FORM_LABEL_W + FORM_W, 24)
-    sh.gfRow:SetPoint("TOPLEFT", sh.roleRow, "BOTTOMLEFT", 0, -9)
-    sh.gfLabel = UI():Text(sh.gfRow, "body", "SUB")
-    sh.gfLabel:SetText("Pugs")
-    sh.gfLabel:SetPoint("LEFT", 0, 0)
-    local function flip()
-        state.sheet.gf = not state.sheet.gf
-        DungeonsUI:RefreshSheet()
-    end
-    local function gfTip(self)
-        UI():SetTextTooltip(self, { "Group Finder", "Also puts your run in Blizzard's Group Finder, for players outside the guild. "
-            .. "Whoever looks for this dungeon there, or whispers you, shows up on your run.",
-            S:Wrap("SUB", "A run for later: you get a pop-up when it starts.") }, "ANCHOR_TOP")
-    end
-    sh.gf = UI():CreateSwitch(sh.gfRow, nil, function() flip() end)
-    sh.gf:SetPoint("LEFT", FORM_LABEL_W, 0)
-    sh.gf:SetScript("OnEnter", gfTip)
-    sh.gf:SetScript("OnLeave", HideTip)
-    sh.gfText = CreateFrame("Button", nil, sh.gfRow)
-    sh.gfText.text = UI():Text(sh.gfText, "emph", "TEXT")
-    sh.gfText.text:SetPoint("LEFT")
-    sh.gfText:SetPoint("LEFT", sh.gf, "RIGHT", 8, 0)
-    sh.gfText:SetScript("OnClick", flip)
-    sh.gfText:SetScript("OnEnter", gfTip)
-    sh.gfText:SetScript("OnLeave", HideTip)
-
-    -- the preview and the button
-    sh.previewLabel = UI():CreateSectionHeader(sh, "Preview", { style = "caps" })
-    sh.preview = NewRunCard(sh)
-    sh.preview:EnableMouse(false)
-    sh.pick = UI():Text(sh, "emph", "SUB")
-    sh.pick:SetText("Pick a dungeon above.")
-    sh.err:ClearAllPoints()
-    sh.go = UI():CreateSleekButton(sh, "List run", 130, S.BTN_H, function() DungeonsUI:SubmitSheet() end, "primary")
-    sh:Hide()
-    p.sheet = sh
-    return sh
-end
-
-function DungeonsUI:RefreshSheetPreview()
-    local sh = panel and panel.sheet
-    local s = state.sheet
-    if not sh or not s then return end
-    local info = s.d and R():GetDungeon(s.d)
-    sh.preview:SetShown(info ~= nil)
-    sh.pick:SetShown(info == nil)
-    if not info then return end
-    local party = { { k = Me(), r = s.role } }
-    for key in pairs(ns.Util.group or {}) do
-        if not ns.Util.IsMe(key) then party[#party + 1] = { k = key, r = R():GetRoleOf(key) } end
-    end
-    local mine = R():GetMine()
-    local run = { id = "preview", o = Me(), d = s.d, h = s.h or nil, at = SheetTime(s), c = mine and mine.c or ns.Util.Now(),
-                  no = (s.no and ns.Util.Trim(s.no) ~= "") and ns.Util.Trim(s.no) or nil, s = party }
-    if run.at > 0 and run.at <= ns.Util.Now() + 60 then run.at = 0 end
-    FillCard(sh.preview, run, { width = sh.previewW or 390, compact = true })
-end
-
--- Lays out the complex rows (art rows, their tiles in one grid on the right); returns the y under them.
-local function SheetRows(sh, s, width)
-    local y = -44
-    local rowW = width - 2 * PAD
-    local tilesW = 4 * (TILE_W + TILE_GAP)
-    local ri = 0
-    for _, c in ipairs(R():GetComplexes()) do
-        ri = ri + 1
-        local r = sh.rows[ri] or NewComplexRow(sh)
-        sh.rows[ri] = r
-        r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", sh, "TOPLEFT", PAD, y)
-        r:SetWidth(rowW)
-        -- the heroic key or the level holds back the whole complex: said once, on the row
-        local whyAll, whyTip
-        if s.h then
-            local text, kind = R():GetBlocker(c.dungeons[1].key, true)
-            if kind == "rep" or kind == "level" then
-                whyAll = kind == "rep" and "Needs Revered" or text
-                whyTip = { { c.name, S:Color("GOLD") }, text .. (kind == "rep" and " for the heroic key." or ".") }
-            end
-        end
-        -- (the complex's loading screen, cropped round its first dungeon: clear of the logo band)
-        local first = c.dungeons[1] and c.dungeons[1].key
-        r:SetData({ art = function(tex, w, h)
-                local file, l, rr, t, b = R():GetArt(first, w, h)
-                tex:SetTexture(file)
-                if file then tex:SetTexCoord(l, rr, t, b) end
-            end, icon = c.icon, title = c.name, sub = whyAll and S:Wrap("WARN", whyAll) or nil })
-        r.title:SetTextColor(S:Color("GOLD"))
-        r.whyTip = whyTip
-        r:SetRightWidth(tilesW)
-        for i, info in ipairs(c.dungeons) do
-            local tile = r.tiles[i] or NewTile(r.right)
-            r.tiles[i] = tile
-            tile:ClearAllPoints()
-            tile:SetPoint("LEFT", r.right, "RIGHT", -tilesW + (i - 1) * (TILE_W + TILE_GAP), 0)
-            tile.name:SetText(info.short)
-            local block, kind = R():GetBlocker(info.key, s.h)
-            local daily = R():GetMyDaily(info.key, s.h)
-            local n = R():GetNeeders(info.key, s.h)
-            local sel = s.d == info.key
-            local off = block ~= nil
-            -- picked: the gold of a pick (the segments' thumb); one I can't go to: the quiet surface, its name dimmed
-            UI():PaintSleek(tile, sel and not off and "primary" or "secondary", false, off and 0.3 or nil)
-            tile.bg:SetAlpha(off and 0.6 or 1)
-            tile.name:SetTextColor(S:Color(off and "DIM" or "TEXT"))
-            local saved = kind == "saved"
-            tile.saved:SetShown(saved)
-            tile.lock:SetShown(saved)
-            local showCount = n > 0 and not off
-            tile.count:SetShown(showCount)
-            tile.star:SetShown(showCount)
-            tile.count:SetText(n)
-            tile.daily:SetShown((daily == "log" or daily == "today") and not off)
-            tile.tip = TileTip(info, s.h)
-            local dkey = info.key
-            tile:SetScript("OnClick", function() if not off then SheetSelect(dkey) end end)
-            tile:Show()
-        end
-        for i = #c.dungeons + 1, #r.tiles do r.tiles[i]:Hide() end
-        r:Show()
-        y = y - ROW_H - ROW_GAP
-    end
-    for i = ri + 1, #sh.rows do sh.rows[i]:Hide() end
-    return y
-end
-
-function DungeonsUI:RefreshSheet()
-    local sh = panel and panel.sheet
-    local s = state.sheet
-    if not sh or not s then return end
-    local width = panel:GetWidth()
-    if not width or width < 300 then width = 780 end
-    sh.title:SetText(s.edit and "Edit your run" or "List a run")
-    sh.mode:ClearAllPoints()
-    sh.mode:SetPoint("LEFT", sh.title, "RIGHT", 18, 0)
-    sh.mode:Select(s.h and "heroic" or "normal")
-
-    local y = SheetRows(sh, s, width)
-    -- a picked dungeon the switch to heroic made impossible is dropped
-    if s.d and R():GetBlocker(s.d, s.h) then s.d = nil end
-
-    -- the form (left) and the preview (right)
-    y = y - 8
-    sh.form:ClearAllPoints()
-    sh.form:SetPoint("TOPLEFT", sh, "TOPLEFT", PAD, y)
-    sh.when:Select(s.when)
-    local later = s.when == "later"
-    sh.atRow:SetShown(later)
-    if later then
-        ClampLater(s)
-        local minDay = MinMinutes(0) >= 24 * 60 and 1 or 0
-        sh.day:Set(DayText(s.day), s.day > minDay, s.day < DAYS_AHEAD)
-        sh.time:Set(("%02d:%02d"):format(floor(s.mins / 60), s.mins % 60), s.mins > MinMinutes(s.day),
-            s.mins < 24 * 60 - 15)
-    end
-    sh.noteRow:ClearAllPoints()
-    sh.noteRow:SetPoint("TOPLEFT", sh.form, "TOPLEFT", 0, later and -66 or -33)
-    local roles = {}
-    for i, role in ipairs(R():GetPlayableRoles()) do
-        roles[i] = { key = role, label = UI():RoleIconText(role, 16), tip = R().ROLE_LABEL[role] .. ": the role you play "
-            .. "in this run." }
-    end
-    sh.roles:SetItems(roles)
-    sh.roles:Select(s.role)
-    local GF = ns.GroupFinder
-    sh.gfRow:SetShown(GF ~= nil and GF:IsAvailable())
-    sh.gf:SetOn(s.gf)
-    sh.gfText.text:SetText(later and "List it in the Group Finder when it starts" or "Also list it in the Group Finder")
-    sh.gfText.text:SetTextColor(S:Color(s.gf and "TEXT" or "SUB"))
-    sh.gfText:SetSize((sh.gfText.text:GetStringWidth() or 200) + 2, 20)
-
-    local px = PAD + FORM_LABEL_W + FORM_W + 24
-    sh.previewW = width - PAD - px
-    sh.previewLabel:ClearAllPoints()
-    sh.previewLabel:SetPoint("TOPLEFT", sh, "TOPLEFT", px, y + 2)
-    sh.previewLabel:SetWidth(sh.previewW)
-    sh.preview:ClearAllPoints()
-    sh.preview:SetPoint("TOPLEFT", sh, "TOPLEFT", px, y - 18)
-    sh.pick:ClearAllPoints()
-    sh.pick:SetPoint("TOPLEFT", sh, "TOPLEFT", px, y - 44)
-    sh.go:ClearAllPoints()
-    sh.go:SetPoint("TOPRIGHT", sh, "TOPRIGHT", -PAD, y - 18 - CARD_H - 8)
-    sh.go:SetText(s.edit and "Save" or "List run")
-    sh.go:SetEnabled(s.d ~= nil)
-    sh.err:ClearAllPoints()
-    sh.err:SetPoint("RIGHT", sh.go, "LEFT", -10, 0)
-    sh.err:SetText(s.err or "")
-    sh.err:SetShown(s.err ~= nil)
-    self:RefreshSheetPreview()
-end
 
 function DungeonsUI:OpenSheet(edit)
     if not panel then
         if ns.MainFrame then ns.MainFrame:Open("dungeons") end
         if not panel then return end
     end
-    local mine = R():GetMine()
-    local level = UnitLevel and tonumber(UnitLevel("player")) or 70
-    local s = { h = level >= 70, when = "now", role = R():GetGoAs(), edit = edit and mine ~= nil or nil }
-    if s.edit then
-        s.d, s.h, s.no, s.gf = mine.d, mine.h and true or false, mine.no, mine.gf
-        if (mine.at or 0) > ns.Util.Now() then
-            local t, n = date("*t", mine.at), date("*t", ns.Util.Now())
-            s.when = "later"
-            s.day = floor((time({ year = t.year, month = t.month, day = t.day, hour = 12 })
-                - time({ year = n.year, month = n.month, day = n.day, hour = 12 })) / 86400 + 0.5)
-            s.mins = t.hour * 60 + t.min - t.min % 15
-        end
-    else
-        -- today's daily that is still mine to do, when I can go
-        for _, c in ipairs(R():GetComplexes()) do
-            for _, info in ipairs(c.dungeons) do
-                local daily = R():GetMyDaily(info.key, s.h)
-                if not s.d and (daily == "log" or daily == "today") and not R():GetBlocker(info.key, s.h) then
-                    s.d = info.key
-                end
-            end
-        end
-    end
-    if not R():GetMyRoles()[s.role] then
-        for _, role in ipairs(R().ROLES) do
-            if R():GetMyRoles()[role] then s.role = role break end
-        end
-    end
-    state.sheet = s
-    local sh = panel.sheet or CreateSheet(panel)
-    sh.note:SetText(s.no or "")
-    sh:Open()
-    -- (the sheet covers the page: the toolbar under it goes, so nothing under the cover takes a click)
-    panel.layout.toolbar:Hide()
-    self:RefreshSheet()
+    ns.GroupsSheet:Open(panel, edit)
 end
-
-function DungeonsUI:CloseSheet()
-    state.sheet = nil
-    if panel and panel.sheet then
-        panel.sheet.note:ClearFocus()
-        panel.sheet:Close()
-        panel.layout.toolbar:Show()
-    end
-    self:Refresh()
-end
-
-function DungeonsUI:SubmitSheet()
-    local s = state.sheet
-    if not s or not s.d then return end
-    local GF = ns.GroupFinder
-    local before = R():GetMine()
-    local wasListed = GF and before and select(2, GF:GetListing(before)) or false
-    local run, why = R():List({ d = s.d, h = s.h, at = SheetTime(s), no = s.no, role = s.role, gf = s.gf })
-    if not run then
-        s.err = why
-        self:RefreshSheet()
-        return
-    end
-    -- the Group Finder follows the run, with this very click (the client lists only inside one): a run for now that
-    -- was listed, or is meant to be, is listed as its dungeon (switched when that changed); one moved to later
-    -- comes out
-    if GF and R():IsNow(run) and (s.gf or wasListed) and not select(2, GF:GetListing(run)) then
-        local ok, gfWhy = GF:List(run)
-        if not ok and gfWhy then ns:Print("%s", gfWhy) end
-    elseif GF and wasListed and not R():IsNow(run) then
-        GF:Unlist()
-    end
-    self:CloseSheet()
-end
+function DungeonsUI:CloseSheet() ns.GroupsSheet:Close() end
+function DungeonsUI:SubmitSheet() ns.GroupsSheet:Submit() end
+function DungeonsUI:RefreshSheet() ns.GroupsSheet:Refresh() end
+function DungeonsUI:RefreshSheetPreview() ns.GroupsSheet:RefreshPreview() end
 
 ---------------------------------------------------------------------------
 -- The pop-up: a run needs me / somebody asks to join my run
@@ -1169,16 +701,25 @@ local function BoardShown()
     return panel ~= nil and panel:IsVisible() and not state.sheet
 end
 
+-- (1.5) My raid group's leader arrived in its raid with no session running: a pop-up offers to start it.
+function DungeonsUI:OnRaidArrived(id)
+    local run = R():GetGroup(id)
+    if not run then return end
+    ShowToast(run, "You're in", "Start the raid session: " .. LOOT_WORDS[run.lo or "roll"] .. ".", "Start",
+        function() DungeonsUI:StartSession() end)
+end
+
 function DungeonsUI:OnPing(id)
     local run = R():GetGroup(id)
     if not run or BoardShown() then return end
     local role = R():FitsMe(run)
     if not role then return end
     local hint = HintFor(run)
-    ShowToast(run, UI():ColoredName(run.o) .. S:Wrap("SUB", " needs a " .. ROLE_NAME[role]), hint, "Join", function()
-        local ok, why = R():Join(id)
-        if not ok and why then ns:Print("%s", why) end
-    end)
+    -- (sized to the group: "7/10")
+    local filled = 0
+    for _, d in ipairs(R():GetSlots(run)) do if not d.empty then filled = filled + 1 end end
+    ShowToast(run, UI():ColoredName(run.o) .. S:Wrap("SUB", " needs a " .. ROLE_NAME[role] .. "  ·  " .. filled .. "/"
+        .. R():GetSize(run)), hint, "Join", function() G.TryJoin(run) end)
 end
 
 function DungeonsUI:OnRequest(id, key)
@@ -1284,6 +825,7 @@ function DungeonsUI:OnInit()
         ns:On(msg, refresh)
     end
     ns:On("DUNGEON_RUN_PING", function(id) DungeonsUI:OnPing(id) end)
+    ns:On("GROUP_RAID_ARRIVED", function(id) DungeonsUI:OnRaidArrived(id) end)
     ns:On("DUNGEON_RUN_REQUEST", function(id, key) DungeonsUI:OnRequest(id, key) end)
     ns:On("DUNGEON_RUN_INVITE", function(id, from) DungeonsUI:OnInvite(id, from) end)
     ns:On("DUNGEON_RUN_INVITE_GONE", function() DungeonsUI:OnInviteGone() end)

@@ -1493,8 +1493,7 @@ local function runState(run)
 end
 
 local function runName(run)
-    local d = DR() and DR():GetDungeon(run.d)
-    return d and d.name or tostring(run.d)
+    return DR() and DR():GetName(run) or tostring(run.d)
 end
 
 -- A guild event's status (Events tab): live, my sign-up, who won once over.
@@ -1550,8 +1549,9 @@ local function calendarEvents(from, to)
     for _, rec in ipairs(logs) do
         if not (rec.pl and shown[rec.pl]) then add({ t = rec.start, rec = rec, name = rec.zone or "Raid" }) end
     end
-    for _, run in ipairs(DR() and DR():GetRuns() or {}) do
-        local t = run.at or 0
+    for _, run in ipairs(DR() and DR():GetGroups() or {}) do
+        -- (a planned raid filling its open places is on the calendar already, as the raid)
+        local t = (not run.rp) and run.at or 0
         if t > 0 and t >= from and t <= to then add({ t = t, run = run, name = runName(run) }) end
     end
     for _, o in ipairs(EV() and EV():GetOccurrences(from, to) or {}) do
@@ -1576,7 +1576,7 @@ end
 local function eventTip(ev)
     if ev.run then
         local tip = ns.DungeonsUI and ns.DungeonsUI.GetRunTip and ns.DungeonsUI:GetRunTip(ev.run) or { ev.name }
-        tip[#tip + 1] = dim("Click to open it in the Dungeons tab")
+        tip[#tip + 1] = dim("Click to open it in the Groups tab")
         return tip
     end
     if ev.occ then
@@ -1647,7 +1647,7 @@ end
 -- The art of an event's place: { file, l, r, t, b } for a w x h thumbnail.
 local function eventArt(ev, w, h)
     if ev.run then
-        local file, l, r, t, b = DR():GetArt(ev.run.d, w, h)
+        local file, l, r, t, b = DR():GetGroupArt(ev.run, w, h)
         if file then return file, l, r, t, b end
         return nil
     end

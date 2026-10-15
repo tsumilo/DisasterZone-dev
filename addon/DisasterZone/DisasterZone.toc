@@ -38,6 +38,7 @@ Data\Raids.lua
 Data\Dungeons.lua
 Data\Sources.lua
 Data\GroupKinds.lua
+Data\GroupQuests.lua
 Data\ItemClasses.lua
 Data\BiSLists.lua
 Data\Gems.lua
@@ -148,6 +149,8 @@ Core\Tanks.lua
 Core\StrategyPractice.lua
 Core\StrategyCollab.lua
 Core\DungeonRuns.lua
+Core\GroupQuests.lua
+Core\GroupPvP.lua
 Core\GroupFinder.lua
 Core\EventBlocks.lua
 Core\EventEngine.lua
@@ -241,6 +244,8 @@ UI\LootRulesUI.lua
 UI\CouncilRules.lua
 UI\RaidsTab.lua
 UI\GroupsCard.lua
+UI\GroupsSheet.lua
+UI\GroupsLead.lua
 UI\DungeonsTab.lua
 UI\EventWidgets.lua
 UI\EventPieces.lua

@@ -105,6 +105,12 @@ local function DungeonName(run)
         return d and d.name or tostring(run.d), d and d.short or nil
     end
     local short
+    if run.k == "quest" and ns.GroupQuests and run.a and #run.a > 1 then
+        -- several quests of one zone: the first one's name and how many more
+        local first = ns.GroupQuests:GetName(run.a[1]) or R():GetName(run)
+        local more = S:Wrap("GOLD", "  +" .. (#run.a - 1) .. (#run.a == 2 and " quest" or " quests"))
+        return first .. more, first .. more
+    end
     if run.k == "raid" and ns.ItemDB and ns.ItemDB.RaidShort then
         local parts = {}
         for _, key in ipairs(run.a or {}) do parts[#parts + 1] = ns.ItemDB:RaidShort(key) or key end
@@ -127,8 +133,30 @@ local function Kicker(run)
         if mode == "arena" then return run.pr and ("Rated" .. (run.mr and (" " .. run.mr .. "+") or "")) or "Skirmish" end
         return mode == "world" and "Raid, no queue" or "Premade"
     end
-    if kind == "quest" then return "Group quest" end
+    if kind == "quest" then
+        -- (the zone the quests are in)
+        local GQ = ns.GroupQuests
+        local q = GQ and GQ:Get(run.a and run.a[1])
+        local z = q and GQ:GetZone(q.zone)
+        return z and z.name or "Group quest"
+    end
     return R():GetSize(run) .. " players"
+end
+
+-- Asks to join a group; first asks me when it clashes with a raid I signed up for. done(ok) after a join (optional).
+local function TryJoin(run, done)
+    local function go()
+        local ok, why = R():Join(run.id)
+        if not ok and why then ns:Print("%s", why) end
+        if done then done(ok, why) end
+    end
+    local clash = R():GetOverlap(run)
+    if not (clash and ns.Popup and ns.Popup.Confirm) then return go() end
+    local RP = ns.RaidPlan
+    ns.Popup:Confirm({ key = "dz-group-clash", title = "It clashes with a raid",
+        text = "You signed up for " .. ((RP and RP.GetRaidName and RP:GetRaidName(clash)) or "a raid") .. " at "
+            .. date("%H:%M", clash.t) .. ", around the time of this group. Join anyway?",
+        ok = "Join anyway", alert = true, onAccept = function() go() end })
 end
 
 -- (an OnLeave handler: the shared tooltip goes)
@@ -395,7 +423,7 @@ local function CardTip(run)
             lines[#lines + 1] = tconcat(who, "   ")
         end
         if run.no then lines[#lines + 1] = S:Wrap("SUB", "\"" .. run.no .. "\"") end
-        local drops = R():GetKind(run) == "dungeon" and R():GetMyBiSDrops(run.d, run.h) or {}
+        local drops = R():GetGroupBiSDrops(run)
         if #drops > 0 and run.o ~= Me() then
             lines[#lines + 1] = S:Wrap("GOLD", "Drops your BiS:")
             for i, id in ipairs(drops) do
@@ -434,12 +462,12 @@ local function HintFor(run)
     if R():IsGrouped() and not R():IsInRun(run) and R():FitsMe(run) then
         return S:Wrap("SUB", "You're in a group: leave it to join")
     end
-    if R():GetKind(run) ~= "dungeon" then return AboutLine(run) end
-    local drops = R():GetMyBiSDrops(run.d, run.h)
+    local drops = R():GetGroupBiSDrops(run)
     if #drops > 0 then
         local more = #drops > 1 and S:Wrap("SUB", " +" .. (#drops - 1)) or ""
         return S:Wrap("GOLD", STAR .. " Drops your BiS ") .. ItemLinkText(drops[1]) .. more, drops[1], drops
     end
+    if R():GetKind(run) ~= "dungeon" then return AboutLine(run) end
     local daily = R():GetMyDaily(run.d, run.h)
     if daily == "log" or daily == "today" then
         return "|TInterface\\GossipFrame\\DailyQuestIcon:12:12:0:0|t " .. S:Wrap("GOLD", run.h and "Your daily heroic"
@@ -755,6 +783,7 @@ local SEAT_W, SEAT_FACE, SEAT_H = 60, 38, 64
 local SEAT_GROUP_GAP = 20                -- between the role groups of seats (a faint line in the middle)
 local CELL_H, CELL_GAP, CELL_COL_GAP = 21, 2, 8
 local OPEN_PAD = 16
+local RequestHints   -- (forward: the request rows' hints, set before FillCard)
 local SEATS_MAX = 10                     -- bigger groups open as raid frames
 local SEG = { 0.78, 0.78, 0.82, 0.75 }
 
@@ -786,7 +815,7 @@ local function NewMeters(c)
         col.bg = col:CreateTexture(nil, "ARTWORK")
         col.bg:SetPoint("BOTTOMLEFT", 0, 0)
         col.bg:SetSize(METER_W, 5)
-        col.bg:SetColorTexture(1, 1, 1, 0.07)
+        col.bg:SetColorTexture(unpack(S.C.HAIRLINE))
         col.segs = {}
         col:EnableMouse(true)
         col:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip, "ANCHOR_TOP") end end)
@@ -950,7 +979,7 @@ local function FillCell(f, d, you)
         f.name:SetText(S:Wrap("GOLD", "You · " .. ShortRole(d.role)))
         f.tip = { "Your place", "They want a " .. ShortRole(d.role) .. ": Join takes it." }
     elseif d.empty then
-        f.bg:SetColorTexture(1, 1, 1, 0.025)
+        f.bg:SetColorTexture(S.C.HOVER[1], S.C.HOVER[2], S.C.HOVER[3], 0.025)
         UI():SetEdgeColor(f, 1, 1, 1, 0.12)
         f.name:SetText(S:Wrap("SUB", "open"))
         f.tip = { "Open place: " .. R().ROLE_LABEL[d.role] }
@@ -975,6 +1004,14 @@ local function OpenChips(run)
         out[#out + 1] = { "flag", run.bo and (#run.bo .. (#run.bo == 1 and " boss" or " bosses")) or "Full clear" }
     elseif kind == "dungeon" then
         out[#out + 1] = { "shield", run.h and "Heroic" or "Normal" }
+    elseif kind == "quest" and ns.GroupQuests then
+        -- the chain step of each quest that has one
+        for _, id in ipairs(run.a or {}) do
+            local q = ns.GroupQuests:Get(id)
+            if q and q.step and q.steps and #out < 2 then
+                out[#out + 1] = { "flag", (#run.a > 1 and (q.name .. ": ") or "") .. "part " .. q.step .. " of " .. q.steps }
+            end
+        end
     elseif kind == "pvp" then
         out[#out + 1] = { "trophy", Kicker(run) }
         if run.fc then out[#out + 1] = { "flag", "Flag carrier wanted" } end
@@ -1000,6 +1037,19 @@ local function OpenFit(run)
     end
     if not block and kind == "raid" then ok[#ok + 1] = "you're not saved" end
     if not block and kind == "dungeon" and run.h then ok[#ok + 1] = "not saved today" end
+    if kind == "quest" and ns.GroupQuests then
+        local n = 0
+        for _, id in ipairs(run.a or {}) do
+            if ns.GroupQuests:IsInMyLog(id) then n = n + 1 end
+        end
+        if n > 0 then ok[#ok + 1] = (#run.a > 1 and (n .. " of them") or "it's") .. " in your quest log" end
+        if n == 0 then bad[#bad + 1] = "not in your quest log: pick it up first" end
+    end
+    -- (a hint, never a block: what a realm asks for changes with its phase)
+    if not block and kind == "raid" then
+        local miss = R():GetMissingAttunements(run)
+        if #miss > 0 then bad[#bad + 1] = "check your attunement: " .. tconcat(miss, ", ") end
+    end
     local lines = {}
     if #ok > 0 then lines[#lines + 1] = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12:0:0|t " .. S:Wrap("TEXT", tconcat(ok, " · ")) end
     if #bad > 0 then
@@ -1137,6 +1187,9 @@ local function FillOpen(c, run, w)
         end
         y = y + 15 + 5 * (CELL_H + CELL_GAP)
     end
+    o.ruleL:Show()
+    o.ruleR:Show()
+    o.fit:Show()
     -- the divider: a gold line fading out at both ends
     y = y + 10
     local half = floor(inner / 2)
@@ -1195,10 +1248,7 @@ local function FillOpen(c, run, w)
     elseif mineRole and not R():IsGrouped() and not (a and a.st == "declined") then
         o.join:SetText("Join as " .. ShortRole(mineRole))
         o.join:SetKind("primary")
-        o.join.onClick = function()
-            local ok, why = R():Join(run.id)
-            if not ok and why then ns:Print("%s", why) end
-        end
+        o.join.onClick = function() TryJoin(run) end
         o.join.tip = { "Join", "Asks " .. (ns.Util.ShortName(run.o) or run.o) .. " to take you as " .. ShortRole(mineRole) .. "." }
         o.join:Show()
     else
@@ -1252,6 +1302,36 @@ local function FillBosses(c, run, right)
         x = x - 66 - 4
     end
     for i = #list + 1, #c.bossPics do c.bossPics[i]:Hide() end
+end
+
+-- The hint after a request on my own card: fn(key, classFile) -> text or nil. On the guild's blacklist (orange); a raid
+-- group's buffs nobody in it brings yet that their class brings (green, two at most).
+RequestHints = function(run)
+    local missing = {}
+    local Comp = ns.RaidComp
+    if run.k == "raid" and Comp and Comp.Coverage then
+        local members = {}
+        for _, d in ipairs(R():GetSlots(run)) do
+            if not d.empty and d.class then members[#members + 1] = { key = d.key, c = d.class } end
+        end
+        -- (raid-wide buffs only: who shares a party with whom is the leader's call later)
+        for _, e in ipairs(Comp:Coverage(members, "raid")) do
+            if #e.providers == 0 then missing[#missing + 1] = e.buff end
+        end
+    end
+    return function(key, classFile)
+        local RP = ns.RaidPlan
+        local bl = RP and RP.GetBlacklistEntry and RP:GetBlacklistEntry(key)
+        if bl then
+            return S:Wrap("WARN", "On the blacklist" .. (bl.by and (" (" .. (ns.Util.ShortName(bl.by) or bl.by) .. ")") or ""))
+        end
+        local brings = {}
+        for _, b in ipairs(missing) do
+            if #brings < 2 and Comp:Provides(b.key, classFile, nil) then brings[#brings + 1] = b.name end
+        end
+        if #brings > 0 then return S:Wrap("OK", "brings " .. tconcat(brings, ", ")) end
+        return nil
+    end
 end
 
 -- Fills a card. opts = { width, mine = my own run (requests + free members), compact = the sheet's preview }.
@@ -1466,10 +1546,7 @@ local function FillCard(c, run, opts)
             c.btn:SetText("Join")
             c.btn:SetKind("primary")
             c.btn:SetTint(nil)
-            c.btn.onClick = function()
-                local ok, why = R():Join(run.id)
-                if not ok and why then ns:Print("%s", why) end
-            end
+            c.btn.onClick = function() TryJoin(run) end
             c.btn.tip = { "Join", "Asks " .. ns.Util.ShortName(run.o) .. " to take you as " .. ROLE_NAME[fits] .. ".",
                 R():GetMine() and S:Wrap("WARN", "Your own run comes off the board when you join.") or nil }
             c.btn:Show()
@@ -1485,9 +1562,38 @@ local function FillCard(c, run, opts)
     -- my run: who asks, and who is up for a run and fits
     HideReqRows(c)
     local h = CARD_H
-    if mine and not compact then
+    if c.manage then c.manage:Hide() end
+    if mine and not compact and R():GetSize(run) > 5 then
+        -- (1.5) a group bigger than a party: one line here, the leader's own page for the rest (UI/GroupsLead.lua)
+        local m = c.manage
+        if not m then
+            m = CreateFrame("Frame", nil, c)
+            m:SetHeight(34)
+            m.line = UI():Rule(m, { layer = "BORDER", top = 0 })
+            m.text = UI():Text(m, "body", "TEXT")
+            m.text:SetPoint("LEFT", 0, 0)
+            m.btn = UI():CreateSleekButton(m, "Manage group", 120, S.BTN_H, function()
+                if ns.GroupsLead then ns.GroupsLead:Open(m.runId) end
+            end, "primary")
+            m.btn:SetPoint("RIGHT", 0, 0)
+            c.manage = m
+        end
+        m.runId = run.id
+        m:ClearAllPoints()
+        m:SetPoint("TOPLEFT", c, "TOPLEFT", textX, -CARD_H)
+        m:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, -CARD_H)
+        local reqs = R():GetRequests(run.id)
+        local open = 0
+        for _, d in ipairs(R():GetSlots(run)) do if d.empty then open = open + 1 end end
+        m.text:SetText((#reqs > 0 and S:Wrap("GOLD", #reqs .. (#reqs == 1 and " asking" or " asking")) or
+            S:Wrap("SUB", "Nobody asking yet")) .. S:Wrap("SUB", "  ·  " .. open .. (open == 1 and " open place" or
+            " open places")))
+        m:Show()
+        h = CARD_H + 38
+    elseif mine and not compact then
         local x = textX
         local y = -CARD_H + 2
+        local hintsFor = RequestHints(run)
         local reqs = R():GetRequests(run.id)
         for i, q in ipairs(reqs) do
             local r = c.reqs[i] or NewReqRow(c)
@@ -1502,6 +1608,11 @@ local function FillCard(c, run, opts)
             r.spec:SetText(UI():RoleIconText(q.r, 12) .. " " .. (spec or R().ROLE_LABEL[q.r]))
             r.tag:SetShown(q.b and true or false)
             r.tag.who = ns.Util.ShortName(q.key) .. "'s"
+            -- what matters about them: on the blacklist, a buff the group lacks that they bring
+            r.hint = r.hint or UI():Text(r, "small", "TEXT")
+            r.hint:ClearAllPoints()
+            r.hint:SetPoint("LEFT", q.b and r.tag or r.spec, "RIGHT", 9, 0)
+            r.hint:SetText(hintsFor(q.key, classFile) or "")
             local key = q.key
             if q.st == "invited" then
                 r.yes:Hide()
@@ -1524,7 +1635,13 @@ local function FillCard(c, run, opts)
         for _, e in ipairs(R():GetUpForRun()) do
             local ok = false
             for role in pairs(e.roles) do if open[role] then ok = true end end
-            if ok and not asking[e.key] and not (run.h and R():IsSaved(e.key, run.d)) then fitting[#fitting + 1] = e end
+            -- (1.5) up for this kind of group, and not saved there
+            local kindOk = (e.kinds or { dungeon = true })[R():GetKind(run)]
+            local saved = run.h and R():IsSaved(e.key, run.d)
+            for _, rk in ipairs(run.k == "raid" and run.a or {}) do
+                if R():IsSavedToRaid(e.key, rk) then saved = true end
+            end
+            if ok and kindOk and not asking[e.key] and not saved then fitting[#fitting + 1] = e end
         end
         if #fitting > 0 then
             local r = c.free[1]
@@ -1630,3 +1747,5 @@ G.CARD_H, G.ART_W, G.STAR, G.ROLE_NAME, G.HEROIC_TEX = CARD_H, ART_W, STAR, ROLE
 G.WhenText, G.DayLabel, G.DungeonName, G.ItemLinkText, G.HideTip = WhenText, DayLabel, DungeonName, ItemLinkText, HideTip
 G.RedrawHoveredTip, G.HintFor, G.CardTip = RedrawHoveredTip, HintFor, CardTip
 G.NewRunCard, G.FillCard, G.NewPersonChip, G.FillChip, G.Disc = NewRunCard, FillCard, NewPersonChip, FillChip, Disc
+G.Kicker, G.TryJoin = Kicker, TryJoin
+G.NewMeters, G.FillMeters, G.RequestHints, G.LootText = NewMeters, FillMeters, RequestHints, LootText
