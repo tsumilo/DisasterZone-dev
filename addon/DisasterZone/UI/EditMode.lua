@@ -1514,30 +1514,39 @@ function EM:Ease(elapsed)
     end
 end
 
-local function BuildBar()
-    bar = CreateFrame("Frame", "DisasterZoneEditBar", overlay)
-    bar:SetFrameLevel(overlay:GetFrameLevel() + 110)
-    bar:SetHeight(BAR_H)
-    bar:SetPoint("TOP", overlay, "TOP", 0, 0)
-    bar:EnableMouse(true)
-    if UI.SoftShadow then UI:SoftShadow(bar, 14, 0.45, -4, 2) end
-    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-    bar.bg:SetAllPoints()
-    bar.bg:SetColorTexture(0.04, 0.04, 0.05, 0.95)
-    -- (a thin edge on the sides and the bottom; none along the screen's top)
-    bar.edges = {}
+-- The slim bar flush to the screen's top edge (Edit layout's; Key binds wears it too): a frame on the overlay with the
+-- dark fill, its soft shadow, a thin edge on the sides and the bottom (none along the screen's top) and a gold title.
+local function TopBar(parent, name, title)
+    local b = CreateFrame("Frame", name, parent)
+    b:SetFrameLevel(parent:GetFrameLevel() + 110)
+    b:SetHeight(BAR_H)
+    b:SetPoint("TOP", parent, "TOP", 0, 0)
+    b:EnableMouse(true)
+    if UI.SoftShadow then UI:SoftShadow(b, 14, 0.45, -4, 2) end
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.bg:SetColorTexture(0.04, 0.04, 0.05, 0.95)
+    b.edges = {}
     local function edge(p1, p2, horiz)
-        local t = bar:CreateTexture(nil, "BORDER")
+        local t = b:CreateTexture(nil, "BORDER")
         t:SetPoint(p1); t:SetPoint(p2)
         if horiz then t:SetHeight(1) else t:SetWidth(1) end
         t:SetColorTexture(0.2, 0.2, 0.23, 1)
-        bar.edges[#bar.edges + 1] = t
+        b.edges[#b.edges + 1] = t
     end
     edge("BOTTOMLEFT", "BOTTOMRIGHT", true)
     edge("TOPLEFT", "BOTTOMLEFT")
     edge("TOPRIGHT", "BOTTOMRIGHT")
-    bar.title = UI:Text(bar, "body", "GOLD", { shadow = false })
-    bar.title:SetText("Edit layout")
+    b.title = UI:Text(b, "body", "GOLD", { shadow = false })
+    b.title:SetText(title)
+    return b
+end
+-- (the bar's pieces for the other overlays that wear it: UI/KeyBinds.lua)
+EM.BarKit = { TopBar = TopBar, Button = BarButton, Icon = BarIcon, Tip = BarTip, BAR_H = BAR_H,
+    INK = INK, INK_HOT = INK_HOT, INK_OFF = INK_OFF }
+
+local function BuildBar()
+    bar = TopBar(overlay, "DisasterZoneEditBar", "Edit layout")
     bar.read = UI:Text(bar, "small", { 0.6, 0.58, 0.54 }, { shadow = false })
     bar.seps = {}
     local function act(a) return function() EM:Act(a) end end

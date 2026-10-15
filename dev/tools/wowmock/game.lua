@@ -327,6 +327,76 @@ function GetMacroIndexByName(name)
   for i, m in pairs(M.macros) do if m[1] == name then return i end end
   return 0
 end
+-- Binding keys (GetBindingKey & co.): keys on the entries of M.bindings ({ command, key1, key2, ... }), "CLICK
+-- <name>:<button>" commands from SetBindingClick. M.binding_set 1 account / 2 character; SaveBindings records the set
+-- in M.saved_binding_sets (a copy per set), LoadBindings brings a saved copy back (nothing saved: no keys).
+M.binding_set, M.saved_binding_sets, M.binding_log = 1, {}, {}
+local function BindingEntry(cmd, make)
+  for _, b in ipairs(M.bindings) do if b[1] == cmd then return b end end
+  if make then local b = { cmd }; M.bindings[#M.bindings + 1] = b; return b end
+end
+function GetBindingKey(cmd)
+  local b = BindingEntry(cmd)
+  if not b then return nil end
+  return unpack(b, 2)
+end
+function GetBindingAction(key)
+  for _, b in ipairs(M.bindings) do
+    for i = 2, #b do if b[i] == key then return b[1] end end
+  end
+  return ""
+end
+function SetBinding(key, cmd)
+  if InCombatLockdown() then return false end
+  for _, b in ipairs(M.bindings) do
+    for i = #b, 2, -1 do if b[i] == key then table.remove(b, i) end end
+  end
+  if cmd and cmd ~= "" then local b = BindingEntry(cmd, true); b[#b + 1] = key end
+  M.binding_log[#M.binding_log + 1] = { key, cmd }
+  return true
+end
+function SetBindingClick(key, name, button)
+  return SetBinding(key, "CLICK " .. tostring(name) .. ":" .. tostring(button or "LeftButton"))
+end
+local KEY_TEXT = { MOUSEWHEELUP = "Mouse Wheel Up", MOUSEWHEELDOWN = "Mouse Wheel Down", BUTTON3 = "Middle Mouse",
+  BUTTON4 = "Mouse Button 4", BUTTON5 = "Mouse Button 5", SPACE = "Spacebar" }
+function GetBindingText(key)
+  if not key then return "" end
+  local mods, base = key:match("^(.-)([^%-]+)$")
+  return (mods:gsub("SHIFT%-", "Shift-"):gsub("CTRL%-", "Ctrl-"):gsub("ALT%-", "Alt-")) .. (KEY_TEXT[base] or base)
+end
+function GetCurrentBindingSet() return M.binding_set end
+local function CopyBindings(src)
+  local out = {}
+  for i, b in ipairs(src) do local c = {}; for j, v in ipairs(b) do c[j] = v end; out[i] = c end
+  return out
+end
+function SaveBindings(set)
+  if set ~= 1 and set ~= 2 then return end
+  M.binding_set = set
+  M.saved_binding_sets[set] = CopyBindings(M.bindings)
+end
+function LoadBindings(set)
+  local saved = M.saved_binding_sets[set] or (set == 2 and M.saved_binding_sets[1]) or {}
+  M.bindings = CopyBindings(saved)
+  M.binding_set = set
+end
+-- (the cursor's action: picking up a slot puts it on the cursor and empties the slot; placing swaps)
+function PickupAction(slot)
+  slot = tonumber(slot) or 0
+  local held, a = M.cursor, M.actions[slot]
+  M.actions[slot] = (held and held.action) or nil
+  M.cursor = a and { kind = a[1], id = a[2], action = a } or nil
+end
+function PlaceAction(slot)
+  if not M.cursor then return end
+  PickupAction(slot)
+end
+function HasAction(slot) return M.actions[tonumber(slot) or 0] ~= nil end
+function GetActionTexture(slot)
+  local a = M.actions[tonumber(slot) or 0]
+  return a and 136243 or nil
+end
 -- (2.5.x returns the spell's ID)
 function GetMacroSpell(i) local m = M.macros[tonumber(i) or 0]; return m and m[2] or nil end
 

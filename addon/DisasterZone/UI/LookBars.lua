@@ -908,7 +908,37 @@ function Bars:WatchingRep()
     return (d.xp ~= nil and d.rep ~= nil) and true or false
 end
 
+-- The game's own Quick Keybind Mode: clicking a button with an ability on the cursor calls
+-- C_ActionBar.PutActionInSlot, which breaks on this client ("attempt to call a nil value", ActionButton.lua:1371;
+-- Vic, 2026-10-15: dragging one ability over another). Before the game's click runs the cursor is emptied, so the
+-- broken call never happens: after a drop (the drop already swapped, the old ability is on the cursor) only
+-- emptied; a plain click with an ability held places it with PlaceAction first. Every bar, the part on or off.
+local function QuickKeybindPlaceFix()
+    if not (KeybindFrames_InQuickKeybindMode and PlaceAction) then return end
+    local droppedAt = 0
+    for _, bar in ipairs(BARS) do
+        local prefix, n = bar[2], bar[3]
+        if prefix ~= "StanceButton" and prefix ~= "PetActionButton" then
+            for i = 1, n do
+                local b = _G[prefix .. i]
+                if b and b.CalculateAction then
+                    b:HookScript("OnReceiveDrag", function() droppedAt = GetTime() end)
+                    b:HookScript("PreClick", function(self, button)
+                        if InCombatLockdown() or not KeybindFrames_InQuickKeybindMode() or not GetCursorInfo() then return end
+                        if GetTime() - droppedAt > 0.3 then
+                            local slot = self:CalculateAction(button)
+                            if slot and slot > 0 then PlaceAction(slot) end
+                        end
+                        ClearCursor()
+                    end)
+                end
+            end
+        end
+    end
+end
+
 function Bars:OnLogin()
+    QuickKeybindPlaceFix()
     local L = Look()
     L:SetApplied("bars", L:Key("bars"))
     self:Restyle()
