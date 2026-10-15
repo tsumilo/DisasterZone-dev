@@ -1622,14 +1622,35 @@ local function BestLine()
         rec.bestScore, rec.bestTime or 0, rec.clears or 0, rec.tries or 0)
 end
 
+-- The briefing / result card's top: the game's logo over the boss's name on the briefing (when its art is in),
+-- the title alone on a result.
+local function PlaceOverlayTop(withLogo)
+    local logo = withLogo and overlay.logo
+    local y, gap = -24, 40
+    if logo then
+        logo:Show()
+        y, gap = -14 - logo:GetHeight() - 6, 30      -- (under the logo the boss's name is a size smaller)
+        overlay.title:SetFontObject("GameFontNormalLarge")
+    else
+        if overlay.logo then overlay.logo:Hide() end
+        overlay.title:SetFontObject("GameFontNormalHuge")
+    end
+    overlay.title:ClearAllPoints()
+    overlay.title:SetPoint("TOP", 0, y)
+    overlay.body:ClearAllPoints()
+    overlay.body:SetPoint("TOPLEFT", 16, y - gap)
+    overlay.body:SetPoint("TOPRIGHT", -16, y - gap)
+end
+
 function ShowBriefing()
     local enc = Encounter()
     if not enc then return end
+    PlaceOverlayTop(true)
     overlay.title:SetText(enc.name)
     overlay.title:SetTextColor(1, 0.82, 0.2)
     local lines = {}
     for i, l in ipairs(enc.howTo or { enc.desc }) do lines[#lines + 1] = i .. ". " .. l end
-    lines[#lines + 1] = ""
+    if not overlay.logo then lines[#lines + 1] = "" end      -- (with the logo the card has no line to spare)
     if scene then
         lines[#lines + 1] = "W / S run, A / D turn, Q / E strafe. Hold the right mouse button to turn and look, wheel to zoom."
         lines[#lines + 1] = "Tab targets what is in front of you; or click a construct or its name plate. Esc pauses."
@@ -1646,6 +1667,7 @@ end
 function ShowResult(score, best)
     local enc = Encounter()
     local won = sim.state == "won"
+    PlaceOverlayTop(false)
     overlay.title:SetText(won and "Constructs down!" or "Wipe")
     if enc.resultTitle then overlay.title:SetText(enc.resultTitle(sim)) end
     if won then overlay.title:SetTextColor(0.4, 0.9, 0.4) else overlay.title:SetTextColor(0.95, 0.3, 0.3) end
@@ -1863,9 +1885,11 @@ function UI:CreatePanel(parent)
     overlay.body:SetPoint("TOPLEFT", 16, -64)
     overlay.body:SetPoint("TOPRIGHT", -16, -64)
     overlay.body:SetJustifyH("LEFT")
-    overlay.body:SetSpacing(4)
+    overlay.body:SetSpacing(2)                    -- (the briefing's lines just fit above Start)
+    overlay.logo = ns.GamesUI and ns.GamesUI.CreateLogo and ns.GamesUI:CreateLogo(overlay, "trainer", 0.5)
+    if overlay.logo then overlay.logo:SetPoint("TOP", 0, -14) overlay.logo:Hide() end
     overlay.go = ns.UI:CreateSleekButton(overlay, "Start  (Space)", 150, 26, function() StartTry() end, "primary")
-    overlay.go:SetPoint("BOTTOM", 0, 20)
+    overlay.go:SetPoint("BOTTOM", 0, 12)
 
     -- paused
     focusOverlay = CreateFrame("Button", nil, root)

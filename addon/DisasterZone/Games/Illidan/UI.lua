@@ -1121,6 +1121,9 @@ local function DrawCards()
     pools.token = keep
 end
 
+-- The title screen's logo (Games/HubUI.lua's, art pack 14), made once; nil until then or without its art.
+local titleLogo, titleLogoTried
+
 local function DrawTitle()
     local keep = pools.token
     pools.token = pools.topToken
@@ -1128,8 +1131,19 @@ local function DrawTitle()
     local cf = layers.cardTop
     Rect("card", 0, 0, W, H, { 0, 0, 0 }, 1)
     CardArt("bt", 0.55)
-    Label("tTitle", cf, 34, CX, 48, "The Binding of Illidan", GOLD)
-    Label("tSub", cf, 13, CX, 78, "Five floors of the Black Temple. The bosses fight like the raid.", { 0.85, 0.81, 0.75 })
+    if not titleLogoTried then
+        titleLogoTried = true
+        titleLogo = ns.GamesUI and ns.GamesUI.CreateLogo and ns.GamesUI:CreateLogo(cf, "illidan", 1.15)
+    end
+    if titleLogo then
+        titleLogo:ClearAllPoints()
+        titleLogo:SetPoint("CENTER", screen, "TOPLEFT", CX, -52)
+        titleLogo:Show()
+        Label("tSub", cf, 13, CX, 98, "Five floors of the Black Temple. The bosses fight like the raid.", { 0.85, 0.81, 0.75 })
+    else
+        Label("tTitle", cf, 34, CX, 48, "The Binding of Illidan", GOLD)
+        Label("tSub", cf, 13, CX, 78, "Five floors of the Black Temple. The bosses fight like the raid.", { 0.85, 0.81, 0.75 })
+    end
     -- you
     local cls = UI.Class()
     local c = D.CLASSES[cls]
@@ -1206,6 +1220,7 @@ local function Draw()
     end
     for _, p in pairs(panels) do if not p.used then p:Hide() end end
     for _, p in pairs(plates) do if not p.used then p:Hide() end end
+    if titleLogo and run then titleLogo:Hide() end
     layers.static:SetShown(run ~= nil and run.mode ~= "floorcard")
     if attract then return end
     local shake = run and run.shake and run.shake > 0 and run.mode == "play"

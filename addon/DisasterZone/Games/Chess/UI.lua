@@ -523,9 +523,17 @@ local function BuildLobby()
     lobby.title:SetPoint("TOPLEFT", PAD, -PAD)
     lobby.title:SetText("Karazhan Chess")
     lobby.title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    -- the game's logo in the title's place (art pack 14; the text title stays without it)
+    lobby.logo = ns.GamesUI and ns.GamesUI.CreateLogo and ns.GamesUI:CreateLogo(f, "chess", 0.8)
+    local head = lobby.title
+    if lobby.logo then
+        lobby.logo:SetPoint("TOPLEFT", PAD, -PAD - 2)
+        lobby.title:Hide()
+        head = lobby.logo
+    end
 
     lobby.aiHead = Section(f, "Play the Echo of Medivh")
-    lobby.aiHead:SetPoint("TOPLEFT", lobby.title, "BOTTOMLEFT", 0, -14)
+    lobby.aiHead:SetPoint("TOPLEFT", head, "BOTTOMLEFT", 0, lobby.logo and -18 or -14)
     local S = ns.ChessAI.STRENGTH
     lobby.strength = Choices(f, { { S.apprentice.name, "apprentice" }, { S.magus.name, "magus" },
                                   { S.guardian.name, "guardian" } }, inner,

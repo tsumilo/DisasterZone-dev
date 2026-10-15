@@ -26,6 +26,13 @@ ns.CHANGELOG = {
               "PLAY at the foot of the front poster; side posters keep just your one number.",
               "Between raids Bingo shows your last card faded, with its lines.",
           } },
+          { heading = "A logo for every game", area = "games", kind = "new", hi = true, open = "games",
+            lead = "Bingo, Raid Trainer, Chess and Illidan have their own logos, like Azeromon.", lines = {
+              "The logos stand in for the names on the Games posters.",
+              "Illidan's title screen and the Chess lobby open with theirs.",
+              "Bingo's logo stands over the card until a game deals you one.",
+              "Raid Trainer's briefing card carries it above the boss's name.",
+          } },
       } },
     { version = "1.5.0", date = "15 October 2026", title = "Groups, UI profiles and key binds",
       sections = {

@@ -1571,6 +1571,10 @@ local function RefreshCard(g, active)
     local lines, marked, onLine, _, away, count = 0, 0, {}, {}, {}, {}
     if cardIds then lines, marked, onLine, _, away, count = ns.BingoCard.Analyze(marks) end
     local fated = g and Bingo:GetFated(me)
+    if card.logo then
+        card.logo:SetShown(cardIds == nil)
+        grid:SetAlpha(cardIds and 1 or 0.4)
+    end
 
     -- what's new since this card was last on screen
     local v = View()
@@ -1714,6 +1718,13 @@ local function CreateCardView(parent)
     cells = {}
     for i = 1, 25 do cells[i] = CreateCell(grid, i) end
     for _, c in ipairs(cells) do c.top:SetFrameLevel(grid:GetFrameLevel() + 12) end
+    -- with no card yet the game's logo stands over the faded grid, its title screen (art pack 14)
+    f.logo = ns.GamesUI and ns.GamesUI.CreateLogo and ns.GamesUI:CreateLogo(f, "bingo", 1.6)
+    if f.logo then
+        f.logo:SetPoint("CENTER", grid, "CENTER", 0, 8)
+        f.logo:SetFrameLevel(grid:GetFrameLevel() + 20)
+        f.logo:Hide()
+    end
     -- the gold threads: a segment between each pair of neighbours on every line, behind the squares (they show in
     -- the gaps between them)
     threads = {}

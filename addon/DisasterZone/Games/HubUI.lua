@@ -20,6 +20,7 @@ local SIDE_DIM = 0.55                              -- the dark over a side poste
 local TURN_TIME, OPEN_TIME, BACK_TIME = 0.32, 0.58, 0.52
 local OPEN_DARK = 0.72                              -- how dark the painting gets as it becomes the game's backdrop
 local KICK_H, PLATE_H = 21, 40                      -- the kicker's pill; the row of numbers on a front poster
+local LOGO_SIDE = 0.66                              -- a side poster's logo, of the front's
 local BASE = { 0.086, 0.086, 0.102 }               -- the posters' ground (#16161a)
 local BASE_A1, BASE_A0 = { BASE[1], BASE[2], BASE[3], 1 }, { BASE[1], BASE[2], BASE[3], 0 }
 local WHITE = { 1, 1, 1 }                           -- (titles and names over the art: the client's white)
@@ -35,6 +36,43 @@ local ACCENT = {
     chess = { 0.74, 0.58, 1 }, illidan = { 0.65, 0.94, 0.29 },
 }
 local DEFAULT_ACCENT = ns.Style.C.GOLD
+
+-- The games' logos (dev/generators/gen_game_logos.py; Azeromon's is its title logo): the texture and its size, k =
+-- texture pixels per UI pixel, the solid letters' box inside it (l, t, r, b: what lines up with text; the glow and
+-- shadow hang outside it), and the art set that brought it.
+local LOGOS = {
+    bingo = { file = MEDIA .. "Games\\logo_bingo", tw = 512, th = 256, k = 2, l = 10, t = 2, r = 294, b = 137, pack = 14 },
+    trainer = { file = MEDIA .. "Games\\logo_trainer", tw = 512, th = 256, k = 2, l = 17, t = 17, r = 474, b = 143, pack = 14 },
+    chess = { file = MEDIA .. "Games\\logo_chess", tw = 512, th = 256, k = 2, l = 16, t = 3, r = 383, b = 114, pack = 14 },
+    illidan = { file = MEDIA .. "Games\\logo_illidan", tw = 512, th = 256, k = 2, l = 17, t = 6, r = 429, b = 124, pack = 14 },
+    azeromon = { file = MEDIA .. "Azeromon\\title_logo", tw = 256, th = 64, k = 1, l = 1, t = 2, r = 139, b = 48, pack = 13,
+                 nearest = true },
+}
+
+-- GamesUI:CreateLogo(parent, id [, scale]): a frame the size of game id's logo letters (anchor it like a line of
+-- text; the glow spills past it), or nil when the game has no logo or its art isn't installed yet (keep the text
+-- title then). f:SetLogoScale(s) resizes it (1 = the poster title's size).
+function GamesUI:CreateLogo(parent, id, scale)
+    local d = LOGOS[id]
+    if not (d and ns:HasAssets(d.pack)) then return nil end
+    local f = CreateFrame("Frame", nil, parent)
+    f.tex = f:CreateTexture(nil, "ARTWORK")
+    if d.nearest then
+        if not pcall(f.tex.SetTexture, f.tex, d.file, nil, nil, "NEAREST") then f.tex:SetTexture(d.file) end
+    else
+        f.tex:SetTexture(d.file)
+    end
+    function f:SetLogoScale(s)
+        local u = (s or 1) / d.k
+        self.scale = s or 1
+        self:SetSize((d.r - d.l) * u, (d.b - d.t) * u)
+        self.tex:SetSize(d.tw * u, d.th * u)
+        self.tex:ClearAllPoints()
+        self.tex:SetPoint("TOPLEFT", self, "TOPLEFT", -d.l * u, d.t * u)
+    end
+    f:SetLogoScale(scale)
+    return f
+end
 
 -- A raid's loading screen by RaidPlan instance key (a FileDataID: the client doesn't resolve them by path; the art of
 -- ns.Data.RaidMeta), nil for anything else; and where the painting's subject stands across the image (the posters'
@@ -791,7 +829,8 @@ COVERS.trainer = function(parent)
     c.head:SetText("BEST CLEAR")
     c.head:SetTextColor(0.61, 0.73, 0.74)
     function c:Layout(w, h)
-        self:SetSize(w - 32, max(60, h - 52))     -- (the rows end just above the title)
+        self.lw, self.lh = w, h
+        self:SetSize(w - 32, max(60, h - 52 - (self.lift or 0)))   -- (the rows end just above the title or logo)
         for i, ch in ipairs(self.chips) do
             ch:ClearAllPoints()
             ch:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 0, (#self.shown - i) * 32)
@@ -830,8 +869,7 @@ COVERS.trainer = function(parent)
             self.shown[i] = ch
         end
         for i = #self.shown + 1, #self.chips do self.chips[i]:Hide() end
-        local w, h = self:GetSize()
-        if w and w > 0 then self:Layout(w + 32, h + 52) end
+        if self.lw then self:Layout(self.lw, self.lh) end
     end
     return c
 end
@@ -917,6 +955,16 @@ local function SetSideLook(p, side)
         p.title:SetPoint("BOTTOMLEFT", p.desc, "TOPLEFT", 0, 4)
         p.title:SetWidth(FRONT_W - 32)
         p.title:SetFont(p.titleFont, ns.Style:Size(26), p.titleFlags)   -- (a poster's display title)
+    end
+    if p.logo then
+        p.title:Hide()
+        p.logo:ClearAllPoints()
+        p.logo:SetLogoScale(side and LOGO_SIDE or 1)
+        if side then
+            p.logo:SetPoint("BOTTOMLEFT", p.heroV, "TOPLEFT", 0, 8)
+        else
+            p.logo:SetPoint("BOTTOMLEFT", p.desc, "TOPLEFT", 0, 9)
+        end
     end
     p.desc:SetShown(not side)
     p.rule:SetShown(not side)
@@ -1198,6 +1246,7 @@ local function CreatePoster(i, def)
     p.title:SetJustifyH("LEFT")
     local font, _, flags = p.title:GetFont()
     p.titleFont, p.titleFlags = font, flags
+    p.logo = GamesUI:CreateLogo(p.words, def.id)   -- (the game's logo in the title's place, when its art is installed)
     -- a side poster's one number: the value, then its label
     p.heroV = UI:Text(p.words, 16, WHITE)
     p.heroV:SetPoint("BOTTOMLEFT", p.words, "BOTTOMLEFT", 14, 16)
@@ -1222,6 +1271,8 @@ local function CreatePoster(i, def)
         function c:Refresh() end
         p.cover = c
     end
+    -- (a logo stands taller than the title: covers that end above the title end above it instead)
+    if p.logo then p.cover.lift = max(0, floor(p.logo:GetHeight() - 30 + 12 + 0.5)) end
     if p.cover:GetParent() == p.over then
         p.cover:SetPoint("TOP", p.over, "TOP", 0, -52)
     end
