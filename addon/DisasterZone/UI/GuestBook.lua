@@ -87,6 +87,23 @@ local function seesRaidLog()
     return (ns.Util.DemoOn() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember())) and true or false
 end
 
+-- (1.6) One recruit list: for the GM and officers, a guest is a recruit when they're in Guild > Recruitment, and
+-- Recruit adds them there (the mark is set too, so the raid leaders see the star); for a raid leader who isn't an
+-- officer, Recruit is the shared mark, and a marked guest comes into Recruitment for the officers (Core/Recruit.lua).
+local function recruiter()
+    local Rc = ns.Recruit
+    return Rc and Rc.CanUse and Rc:CanUse() and ns.RecruitUI ~= nil
+end
+
+local function isRecruit(key, e)
+    if recruiter() then
+        local r = ns.Recruit:Get(key)
+        return r ~= nil and r.st ~= "gone"
+    end
+    return (e and e.recruit) and true or false
+end
+H.IsRecruit = isRecruit
+
 local function inGuild(key)
     local G = ns.Guild
     return (G and G.IsInGuild and G:IsInGuild(key, true)) and true or false
@@ -195,7 +212,7 @@ local function filterRows(filter)
         end
     else
         for _, e in ipairs(GB():GetEntries()) do
-            if filter ~= "recruits" or e.recruit then out[#out + 1] = { key = e.key, e = e, bl = e.blacklist } end
+            if filter ~= "recruits" or isRecruit(e.key, e) then out[#out + 1] = { key = e.key, e = e, bl = e.blacklist } end
         end
     end
     return out
@@ -337,6 +354,12 @@ function GuestUI:BuildRaidMenu(root, key, e)
 end
 
 local function toggleRecruit(key, e)
+    if recruiter() then
+        if isRecruit(key, e) then return ns.RecruitUI:Open(key) end
+        ns.RecruitUI:AddFrom(key, "guest", nil, true)
+        if not (e and e.recruit) then GB():SetNote(key, nil, true) end
+        return
+    end
     local ok, err = GB():SetNote(key, nil, not (e and e.recruit))
     if not ok then Print("%s", tostring(err)) end
 end
@@ -392,9 +415,9 @@ function GuestUI:OpenEntryMenu(owner, e)
                 local sub = root:CreateButton(iconText(UI().ICON.invite or 19) .. "  Add to a raid")
                 GuestUI:BuildRaidMenu(sub, key, entry)
             end
-            root:CreateButton(starText(14) .. "  " .. ((entry and entry.recruit) and "Not a recruit" or "Recruit"),
-                function() toggleRecruit(key, entry) end)
-            H.RecruitButton(root, key)
+            local label = recruiter() and (isRecruit(key, entry) and "Open in Recruitment" or "Recruit")
+                or ((entry and entry.recruit) and "Not a recruit" or "Recruit")
+            root:CreateButton(starText(14) .. "  " .. label, function() toggleRecruit(key, entry) end)
             root:CreateButton(iconText(16) .. "  Note", function() GuestUI:EditNote(key) end)
             if entry and entry.note then
                 root:CreateButton(iconText(UI().ICON.trash) .. "  Clear note", function() clearNote(key) end)
@@ -481,7 +504,7 @@ function H.MarksText(d)
     if d.add then return nil, 0 end
     local out = {}
     local e = d.e
-    if e and e.recruit then out[#out + 1] = starText(13) end
+    if isRecruit(d.key, e) then out[#out + 1] = starText(13) end
     if e and e.note then out[#out + 1] = UI():AtlasIconText(UI().ICON.notes, 13, S.C.SUB) end
     if d.bl and state.filter ~= "black" then out[#out + 1] = blockText(13) end
     if #out == 0 then return nil, 0 end
@@ -612,8 +635,7 @@ local function decorateBanner(b)
             elseif key then
                 toggleRecruit(key, e)
             end
-        end, tip = { "Recruit", "A player you'd like in the guild: the Recruits filter lists them, and the raid leaders "
-            .. "and officers see the star." } },
+        end },
         add = { text = "Add", kind = "primary", onClick = function() GuestUI:SaveFresh() end },
         unblack = { text = "Take off the blacklist", onClick = function()
             local _, _, _, bl = picked()
@@ -721,9 +743,13 @@ local function fillBanner(kind, key, e, bl)
     if kind == "draftBlack" then list[#list + 1] = A.black end
     if kind == "guest" or kind == "fresh" then
         local on
-        if kind == "fresh" then on = state.draft.recruit else on = e and e.recruit end
-        A.recruit.text = starText(13, not on) .. "  Recruit"
+        if kind == "fresh" then on = state.draft.recruit else on = isRecruit(key, e) end
+        A.recruit.text = starText(13, not on) .. "  " .. ((on and kind ~= "fresh" and recruiter()) and "In Recruitment" or "Recruit")
         A.recruit.kind = on and "chosen" or nil
+        A.recruit.tip = recruiter() and { "Recruit", "Adds them to Guild > Recruitment (or opens them there). The "
+            .. "Recruits filter lists the guests who are in Recruitment, and the raid leaders see the star." }
+            or { "Recruit", "A player you'd like in the guild: the officers get them in Recruitment, and the Recruits "
+            .. "filter lists them." }
         list[#list + 1] = A.recruit
     end
     b:SetActions(list)
@@ -1185,6 +1211,7 @@ function GuestUI:SaveFresh()
         view.form.err:SetText(err or "Could not add that player.")
         return false
     end
+    if d.recruit and recruiter() then ns.RecruitUI:AddFrom(key, "guest", nil, true) end
     view.form.err:SetText("")
     view.form.noteBox:SetText("")
     view.form.noteBox:ClearFocus()
@@ -1461,3 +1488,6 @@ function GuestUI:OnInit()
         end
     end
 end
+
+-- (tests)
+GuestUI._H = H

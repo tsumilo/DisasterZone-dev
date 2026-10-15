@@ -148,19 +148,21 @@ def the_search_adds_a_name():
 def add_to_recruitment_from_the_guest_book_and_player_menus():
     w, c = guild()
     gina, cora = c["Gina"], c["Cora"]
-    # a guest with a note, starred as a recruit
-    assert gina.eval("return (ns.GuestBook:SetNote('Aurelith-Thunderstrike', 'sweet, wants to learn', true, 'PALADIN', 1))") is True
+    # a guest with a note: Recruit (one item, no second "Add to Recruitment") puts them in Recruitment
+    assert gina.eval("return (ns.GuestBook:SetNote('Aurelith-Thunderstrike', 'sweet, wants to learn', nil, 'PALADIN', 1))") is True
     w.tick(2)
     gina.eval("ns.GuestBookUI:OpenEntryMenu(UIParent, { key = 'Aurelith-Thunderstrike' })")
-    assert "Add to Recruitment" in menu_labels(gina), menu_labels(gina)
-    menu_pick(gina, "Add to Recruitment")
+    labels = menu_labels(gina)
+    assert "Recruit" in labels and "Add to Recruitment" not in labels, labels
+    menu_pick(gina, "Recruit")
     w.tick(1)
     p = person(gina, "Aurelith")
     assert p and p["c"] == "PALADIN" and p["sp"] == 1 and p["src"] == "guest", p
     assert lst(p["n"])[0]["t"] == "sweet, wants to learn", p
-    # now the menu says Recruitment... instead
+    assert gina.eval("return ns.GuestBook:GetNote('Aurelith-Thunderstrike').recruit") is True   # (the raid leaders' star)
+    # now the menu opens them in Recruitment instead
     gina.eval("ns.UI:CloseMenus(); ns.GuestBookUI:OpenEntryMenu(UIParent, { key = 'Aurelith-Thunderstrike' })")
-    assert "Recruitment..." in menu_labels(gina) and "Add to Recruitment" not in menu_labels(gina)
+    assert "Open in Recruitment" in menu_labels(gina) and "Recruit" not in menu_labels(gina)
     gina.eval("ns.UI:CloseMenus()")
 
     def player_menu(cl, ctx):

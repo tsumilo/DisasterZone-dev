@@ -500,6 +500,24 @@ function Recruit:Note(key, fields)
     return H.Save(k, r)
 end
 
+-- Raids > Guests' Recruit mark is the way in for the raid leaders who aren't officers: a guest marked there comes into
+-- Recruitment (unclaimed, with the guest book's class and note), once. Someone removed from Recruitment isn't brought
+-- back (the tombstone); the mark goes when they're removed.
+function H.PullGuestMarks()
+    local GB = ns.GuestBook
+    if not (GB and GB.GetEntries and Recruit:CanUse()) or Util.DemoOn() or H.Pretending() then return end
+    local b = H.Store(true)
+    if not b then return end
+    local people = H.People()
+    local G = Guild()
+    for _, e in ipairs(GB:GetEntries()) do
+        local key = H.WireKey(e.key)
+        if e.recruit and key and not people[key] and not b.x[key] and not (G and G.IsInGuild and G:IsInGuild(key, true)) then
+            Recruit:Add(key, { src = "guest", c = e.c, sp = e.sp, note = e.note, noteBy = e.noteBy, claim = false })
+        end
+    end
+end
+
 -- Removes someone (a tombstone travels so nobody brings them back).
 function Recruit:Remove(key)
     local k, r = H.Editable(key)
@@ -513,6 +531,9 @@ function Recruit:Remove(key)
     local rev = max(Now(), (r.rev or 0) + 1)
     b.p[k] = nil
     b.x[k] = { rev = rev, by = Me() }
+    local GB = ns.GuestBook
+    local e = GB and GB.GetNote and GB:GetNote(k)
+    if e and e.recruit then GB:SetNote(k, nil, false) end
     if not H.Pretending() then
         for _, who in ipairs(H.OnlineRecruiters()) do H.Send({ t = "RCX", k = k, v = rev, by = Me() }, who) end
     end
@@ -1214,7 +1235,9 @@ function Recruit:OnLogin()
         H.Share()
         H.ScanFriends()
         H.Reconcile()
+        H.PullGuestMarks()
     end)
+    ns:On("GUESTBOOK_CHANGED", function() Util.Debounce("recruit-guests", 2, H.PullGuestMarks) end)
     ns:On("ROSTER_UPDATED", function()
         Util.Debounce("recruit-roster", 5, function()
             H.Purge()

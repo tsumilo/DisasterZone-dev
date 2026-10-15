@@ -13,4 +13,7 @@
 	<Binding name="DISASTERZONE_LFGPOST" category="ADDONS">
 		DisasterZone_PostLFG()
 	</Binding>
+	<Binding name="DISASTERZONE_RECRUITPOST" category="ADDONS">
+		DisasterZone_PostRecruit()
+	</Binding>
 </Bindings>
