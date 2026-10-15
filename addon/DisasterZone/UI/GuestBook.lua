@@ -394,6 +394,7 @@ function GuestUI:OpenEntryMenu(owner, e)
             end
             root:CreateButton(starText(14) .. "  " .. ((entry and entry.recruit) and "Not a recruit" or "Recruit"),
                 function() toggleRecruit(key, entry) end)
+            H.RecruitButton(root, key)
             root:CreateButton(iconText(16) .. "  Note", function() GuestUI:EditNote(key) end)
             if entry and entry.note then
                 root:CreateButton(iconText(UI().ICON.trash) .. "  Clear note", function() clearNote(key) end)
@@ -1410,21 +1411,38 @@ local function MenuPlayer(contextData)
     return ns.Util.NormalizeName((type(server) == "string" and server ~= "") and (name .. "-" .. server) or name)
 end
 
+-- "Add to Recruitment" (or "Recruitment..." for someone already there) for the GM and officers, for players outside
+-- the guild (UI/Recruit.lua). unit: the menu's unit, for the class and level.
+function H.RecruitButton(root, key, unit)
+    local Rc = ns.Recruit
+    if not (Rc and Rc.CanUse and Rc:CanUse()) or inGuild(key) or not ns.RecruitUI then return end
+    if Rc:Get(key) then
+        root:CreateButton(iconText(UI().ICON.team or 46) .. "  Recruitment...", function() ns.RecruitUI:Open(key) end)
+    else
+        root:CreateButton(iconText(UI().ICON.team or 46) .. "  " .. S:Wrap("GOLD", "Add to Recruitment"),
+            function() ns.RecruitUI:AddFrom(key, "whisper", unit) end)
+    end
+end
+
 function GuestUI:ModifyPlayerMenu(root, contextData)
-    if not root or not isManager() then return end
+    local recruiter = ns.Recruit and ns.Recruit.CanUse and ns.Recruit:CanUse()
+    if not root or not (isManager() or recruiter) then return end
     local key = MenuPlayer(contextData)
     if not key or ns.Util.IsMe(key) then return end
     if root.CreateDivider then root:CreateDivider() end
     if root.CreateTitle then root:CreateTitle("DisasterZone") end
-    local R = RP()
-    if R and R.IsBlacklisted and R:IsBlacklisted(key) then
-        root:CreateButton("On the raid blacklist...", function() GuestUI:OpenBlacklist(key) end)
-    else
-        root:CreateButton("Blacklist...", function() GuestUI:OpenBlacklist(key) end)
+    if isManager() then
+        local R = RP()
+        if R and R.IsBlacklisted and R:IsBlacklisted(key) then
+            root:CreateButton("On the raid blacklist...", function() GuestUI:OpenBlacklist(key) end)
+        else
+            root:CreateButton("Blacklist...", function() GuestUI:OpenBlacklist(key) end)
+        end
+        if UI():IsGuest(key) then
+            root:CreateButton("Guest book...", function() GuestUI:OpenGuest(key) end)
+        end
     end
-    if UI():IsGuest(key) then
-        root:CreateButton("Guest book...", function() GuestUI:OpenGuest(key) end)
-    end
+    H.RecruitButton(root, key, type(contextData) == "table" and contextData.unit or nil)
 end
 
 ---------------------------------------------------------------------------

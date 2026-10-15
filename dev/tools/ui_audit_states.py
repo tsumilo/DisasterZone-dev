@@ -2130,6 +2130,19 @@ STATES = [
     # Guild > Polls (UI/PollsTab.lua, polls_seed): the list, closed polls, answering one, my poll's results, a Pick
     # days poll, the New poll sheet (who votes open; Pick days), the pop-up, a member who isn't asked anything
     ("Polls", polls_view()),
+    # Guild > Recruitment (UI/Recruit.lua) on demo mode's made-up people: a raider who fits a team, a leveller, an
+    # introduction nobody took, a milestone, a check-in, Not now, the search adding a name, the Settings card
+    ("Recruit - raider", demo("ns.RecruitUI:Open(); ns.RecruitUI:Select('Kaelthorn-Thunderstrike')", "recruit")),
+    ("Recruit - leveller", demo("ns.RecruitUI:Open(); ns.RecruitUI:Select('Aurelith-Thunderstrike')", "recruit")),
+    ("Recruit - unclaimed", demo("ns.RecruitUI:Open(); ns.RecruitUI:Select('Thalric-Thunderstrike')", "recruit")),
+    ("Recruit - milestone", demo("ns.RecruitUI:Open(); ns.RecruitUI:Select('Nortok-Thunderstrike')", "recruit")),
+    ("Recruit - check-in", demo("ns.RecruitUI:Open(); ns.RecruitUI:Select('Bramble-Thunderstrike')", "recruit")),
+    ("Recruit - not now", demo("ns.RecruitUI:Open(); ns.RecruitUI:SetFilter('notnow')", "recruit")),
+    ("Recruit - add a name", demo("ns.RecruitUI:Open(); ns.RecruitUI:SetSearch('Shadowfang')", "recruit")),
+    ("Recruit - settings", demo("ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('recruit')", "settings")),
+    ("Recruit - guild menu", demo("__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == 'grp:guild' then "
+                                  "t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:guild') end end; "
+                                  "if ns.NavMenu.Focus then ns.NavMenu:Focus('recruit') end", "members")),
     ("Polls - closed", polls_view("ns.PollsUI:ShowList('closed')")),
     ("Polls - answering", polls_view("local d, yn, raid, night = ...; ns.PollsUI:OpenPoll(night); ns.PollsUI:Pick(2)")),
     ("Polls - results (asker)", polls_view("local _, _, _, _, _, _, loot = ...; ns.PollsUI:OpenPoll(loot)")),

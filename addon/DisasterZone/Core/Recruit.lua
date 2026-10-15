@@ -544,7 +544,11 @@ function Recruit:FitTeam(r, team)
     local nightsOk = #core > 0 and hit == #core
     local place = false
     local RP = ns.RaidPlan
-    if r.c and RP and RP.GetTeamOpenSlots then
+    if team.demoOpen then
+        for _, o in ipairs(team.demoOpen) do
+            if o.c == r.c and (r.sp == nil or o.sp == r.sp) then place = true end
+        end
+    elseif r.c and RP and RP.GetTeamOpenSlots then
         for _, o in ipairs((RP:GetTeamOpenSlots(team))) do
             if o.c == r.c and (r.sp == nil or o.sp == r.sp) then place = true break end
         end
@@ -554,10 +558,35 @@ function Recruit:FitTeam(r, team)
 end
 
 -- Every team's fit (teams in name order), and the first that fits fully (or nil).
+-- Demo mode, when no team has raid nights yet: two made-up teams, so the fit can be tried.
+function H.DemoTeams()
+    local function night(d, h, m, o) return { w = (d - 1) * 1440 + h * 60 + m, m = 210, o = o } end
+    return {
+        { id = "demo-main", name = "Main team", nights = { night(4, 19, 30), night(7, 19, 30, true) },
+          demoOpen = { { c = "PALADIN", sp = 1 }, { c = "DRUID", sp = 3 }, { c = "HUNTER", sp = 3 } } },
+        { id = "demo-owls", name = "Night Owls", nights = { night(1, 21, 0), night(3, 21, 0) },
+          demoOpen = { { c = "PALADIN", sp = 1 }, { c = "WARRIOR", sp = 3 } } },
+    }
+end
+
+function Recruit:GetTeams()
+    local RP = ns.RaidPlan
+    local teams = RP and RP.GetTeams and RP:GetTeams() or {}
+    if Util.DemoOn() then
+        local any = false
+        for _, t in ipairs(teams) do if t.nights and #t.nights > 0 then any = true end end
+        if not any then return H.DemoTeams() end
+    end
+    return teams
+end
+
+function Recruit:GetTeam(id)
+    for _, t in ipairs(self:GetTeams()) do if t.id == id then return t end end
+end
+
 function Recruit:Fits(r)
     local out, best = {}, nil
-    local RP = ns.RaidPlan
-    for _, team in ipairs(RP and RP.GetTeams and RP:GetTeams() or {}) do
+    for _, team in ipairs(self:GetTeams()) do
         local f = self:FitTeam(r, team)
         if f then
             out[#out + 1] = f
@@ -693,34 +722,32 @@ function Recruit:BuildDemo()
     local function key(n) return n .. "-" .. realm end
     local d = function(days) return now - days * DAY end
     local function note(by, days, t) return { by = by, at = floor(d(days)), t = t } end
-    local RP = ns.RaidPlan
-    local teams = RP and RP.GetTeams and RP:GetTeams() or {}
-    local team1 = teams[1] and teams[1].id or nil
+    local team1 = (Recruit:GetTeams()[1] or {}).id
     local p = {}
     p[key("Kaelthorn")] = { st = "talk", c = "PALADIN", sp = 1, w = m(2), src = "trade", wa = 9, ni = { 4, 7 },
         nt = "from 19:00", sd = "SSC 4/6 and TK 1/4 before my guild broke up. Want a steady group that doesn't take itself too seriously.",
-        tg = { "Chill" }, fu = { at = floor(now + 0.5 * DAY), t = "bring him to SSC as a guest" }, lv = 70, la = now,
+        tg = { "Chill" }, fu = { at = floor(now + 0.5 * DAY), t = "bring him to SSC as a guest" }, lv = 70, la = now, at = floor(d(2)),
         n = { note(m(2), 1, "Lovely chat. Calm, explains his healing well, wants a relaxed SSC group. Thursdays and Sundays both fine.") } }
     p[key("Aurelith")] = { st = "talk", c = "PALADIN", sp = 1, w = me, src = "whisper", wa = 14,
         sd = "Not thinking about raids yet. Would love to see Karazhan one day.", tg = { "New to WoW", "Chill" },
-        fu = { at = floor(now + 2 * DAY), t = "she wants to try a dungeon with us first" }, lv = 13, la = now,
+        fu = { at = floor(now + 2 * DAY), t = "she wants to try a dungeon with us first" }, lv = 13, la = now, at = floor(d(4)),
         n = { note(m(1), 1, "Took her through Ramparts with three guildies. Asked lots of good questions."),
               note(me, 3, "Started a month ago with her partner. Loves questing, a bit nervous about dungeons.") } }
     p[key("Darkstalkerr")] = { st = "talk", c = "HUNTER", sp = 3, w = m(1), src = "guest", wa = 9, ni = { 4, 5, 6 },
         nt = "late, from 21:00", sd = "Works some Sundays. Thursdays always free.", tg = { "Chill" },
-        fu = { at = floor(now + DAY), t = "after Thursday's raid" }, lv = 70, la = d(2),
+        fu = { at = floor(now), t = "after Thursday's raid" }, lv = 70, la = d(2), at = floor(d(21)),
         n = { note(m(1), 5, "Great guy in voice, plays late, wants a home guild after his old one stopped.") } }
-    p[key("Thalric")] = { st = "talk", c = "WARRIOR", sp = 3, src = "intro", ib = m(3), wa = 12, lv = 34, la = d(2),
+    p[key("Thalric")] = { st = "talk", c = "WARRIOR", sp = 3, src = "intro", ib = m(3), wa = 12, lv = 34, la = d(2), at = floor(d(2)),
         it = "My cousin, played vanilla, coming back after 15 years. Very chill, wants to level with us.",
         tg = { "Returning", "Has friends here" } }
     p[key("Nortok")] = { st = "joined", c = "SHAMAN", sp = 3, src = "whisper", wa = 1, ni = { 4, 7 }, lv = 70, la = now,
-        ja = floor(d(15)), jl = 52, jb = m(2), tm = team1, tg = { "Returning" }, ms = { [58] = floor(d(12)), [70] = floor(d(1)), r = floor(d(4)) },
+        ja = floor(d(15)), jl = 52, jb = m(2), tm = team1, tg = { "Returning" }, at = floor(d(24)), ms = { [58] = floor(d(12)), [70] = floor(d(1)), r = floor(d(4)) },
         ck = { w = true }, n = { note(m(2), 22, "Met him in a Ramparts pug, healed it like a champ at 52. Came back after 10 years away.") } }
     p[key("Bramble")] = { st = "joined", c = "DRUID", sp = 3, src = "whisper", wa = 10, lv = 48, la = now,
-        ja = floor(d(7)), jl = 41, jb = me, tg = { "Returning", "Social" },
+        ja = floor(d(7)), jl = 41, jb = me, tg = { "Returning", "Social" }, at = floor(d(10)),
         n = { note(me, 9, "Came back after Wrath. Loves healing, wants to learn TBC dungeons.") } }
     p[key("Fennick")] = { st = "joined", c = "ROGUE", sp = 2, src = "name", wa = 4, lv = 61, la = d(16), ja = floor(d(25)),
-        jl = 55, jb = m(1) }
+        jl = 55, jb = m(1), ck = { w = true }, at = floor(d(28)) }
     p[key("Stabbystab")] = { st = "notnow", c = "ROGUE", sp = 2, src = "trade", wa = 1, lv = 70, la = d(13), nn = floor(d(13)),
         n = { note(m(1), 13, "Only wants loot, not the group. Maybe later.") } }
     for _, r in pairs(p) do

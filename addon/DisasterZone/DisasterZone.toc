@@ -261,6 +261,7 @@ UI\EventsTab.lua
 UI\EventBoard.lua
 UI\EventTracker.lua
 UI\PollsTab.lua
+UI\Recruit.lua
 UI\Members.lua
 UI\GuildMapUI.lua
 UI\SessionDrawer.lua

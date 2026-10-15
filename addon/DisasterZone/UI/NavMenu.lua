@@ -61,6 +61,7 @@ local INFO = {
     map     = { art = LS .. "Kalimdor", cx = 0.55, icon = "flag", accent = { 0.37, 0.82, 1 } },
     events  = { art = LS .. "NagrandArenaBattlegrounds", cx = 0.50, icon = "trophy", accent = { 0.73, 0.55, 1 } },
     polls   = { art = LS .. "WarsongGulch", cx = 0.50, icon = "poll", accent = S.C.GOLD },
+    recruit = { art = 131832, cx = 0.40, icon = "team", accent = S.C.GOLD },
     games   = { art = 131849, cx = 0.70, icon = "games", accent = { 0.31, 0.83, 0.88 } },
 }
 local DEFAULT_INFO = { art = LS .. "Outland", cx = 0.5, icon = "notes", accent = S.C.GOLD }
@@ -325,6 +326,21 @@ FACTS.polls = function()
     end
     out[#out + 1] = { Count(n), Plural(n, "open poll", "open polls") }
     return out
+end
+
+FACTS.recruit = function()
+    local Rc = ns.Recruit
+    if not (Rc and Rc.CanUse and Rc:CanUse()) then return end
+    local need, joined = 0, 0
+    local month = date("*t", ns.Util.Now())
+    month.day, month.hour, month.min, month.sec = 1, 0, 0, 0
+    local from = time(month)
+    for _, r in ipairs(Rc:GetPeople()) do
+        local sec = Rc:Section(r)
+        if sec == "unclaimed" or sec == "need" or sec == "check" or sec == "mile" or sec == "quiet" then need = need + 1 end
+        if (r.ja or 0) >= from then joined = joined + 1 end
+    end
+    return { { Count(need), Plural(need, "needs you", "need you") }, { Count(joined), "joined this month" } }
 end
 
 FACTS.games = function()
