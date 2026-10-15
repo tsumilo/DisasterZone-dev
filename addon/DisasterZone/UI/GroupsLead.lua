@@ -909,6 +909,8 @@ function GL:Open(id, startTab)
     runId = id or (R():GetMyGroup() and R():GetMyGroup().id)
     if not MyGroup() then return end
     if not sh then Create(panel) end
+    -- (one cover at a time)
+    if ns.GroupsCard.state.sheet and ns.GroupsSheet then ns.GroupsSheet:Close() end
     tab = startTab or "roster"
     sh:Open()
     panel.layout.toolbar:Hide()
@@ -928,6 +930,7 @@ function GL:Close()
 end
 
 function GL:IsOpen() return sh ~= nil and sh:IsShown() end
+function GL:GetTab() return tab end
 function GL:Get() return sh end
 function GL:SetTab(key)
     tab = key

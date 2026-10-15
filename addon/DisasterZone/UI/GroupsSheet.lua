@@ -1858,6 +1858,12 @@ function GS:Open(panel, edit)
             if R():GetMyRoles()[role] then s.role = role break end
         end
     end
+    -- (one cover at a time: opened from my group's page, the page goes and comes back when the sheet closes)
+    local GL = ns.GroupsLead
+    if GL and GL:IsOpen() then
+        s.backTo = GL:GetTab()
+        GL:Close(true)
+    end
     state.sheet = s
     if not sh then CreateSheet(panel) end
     sh.note:SetText(s.no or "")
@@ -1870,6 +1876,7 @@ function GS:Open(panel, edit)
 end
 
 function GS:Close()
+    local backTo = state.sheet and state.sheet.backTo
     state.sheet = nil
     local panel = DUI():GetPanel()
     if sh then
@@ -1882,6 +1889,7 @@ function GS:Close()
         end
     end
     DUI():Refresh()
+    if backTo and ns.GroupsLead and R():GetMyGroup() then ns.GroupsLead:Open(nil, backTo) end
 end
 
 function GS:Submit()
@@ -1901,9 +1909,10 @@ function GS:Submit()
             Refresh()
             return
         end
+        local back = s.backTo
         self:Close()
         -- a group bigger than a party: straight to its page (the roster, the requests)
-        if R():GetSize(run) > 5 and ns.GroupsLead then ns.GroupsLead:Open(run.id) end
+        if not back and R():GetSize(run) > 5 and ns.GroupsLead then ns.GroupsLead:Open(run.id) end
         return
     end
     local GF = ns.GroupFinder
