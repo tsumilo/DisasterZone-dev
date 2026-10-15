@@ -2727,11 +2727,59 @@ end
 function AtlasUI:OpenShop(groupId)
     if Nav() then Nav():Close() end
     ClearSearch()
+    -- (where "‹ back" returns to)
+    if state.view ~= "shop" then
+        state.back = { view = state.view, cat = state.cat, src = state.src, page = state.page, heroic = state.heroic }
+    end
     state.view = "shop"
     state.selected = nil
     if ns.AtlasShopUI and groupId then ns.AtlasShopUI:GetState().group = groupId end
     if not panel then return end
     self:RefreshItems(true)
+end
+
+-- "‹ back" on the path: a search ends (the page I was on shows again); the shopping list goes back to the place I
+-- opened it from (else the Atlas's default place).
+function AtlasUI:GoBack()
+    if Nav() then Nav():Close() end
+    if IsSearching() or (searchBox and (searchBox:GetText() or "") ~= "") then
+        ClearSearch()
+        if Nav() then Nav():SetSearching(false) end
+        self:RefreshItems(true)
+        return
+    end
+    if state.view ~= "shop" then return end
+    local A = Atlas()
+    local b = state.back
+    state.back = nil
+    if b and b.view == "category" and A:GetCategory(b.cat) then
+        self:OpenCategory(b.cat)
+        return
+    end
+    if b and A:GetSource(b.cat, b.src) then
+        state.heroic = b.heroic and true or false
+        SelectSource(b.cat, b.src, b.view == "page" and b.page or nil)
+        return
+    end
+    local cat, src = A:DefaultSource()
+    if cat then SelectSource(cat, src) end
+end
+
+-- Where "‹ back" leads, as its label: the place (or category) I was on.
+function AtlasUI:BackLabel()
+    local A = Atlas()
+    local b = (state.view == "shop") and (state.back or {}) or state
+    if b.view == "category" then
+        local cat = b.cat and A:GetCategory(b.cat)
+        return cat and cat.name or "Atlas"
+    end
+    local src = b.cat and A:GetSource(b.cat, b.src)
+    if not src then return "Atlas" end
+    if b.view == "page" and #src.pages > 1 then
+        local page = A:GetPage(b.cat, b.src, b.page)
+        if page and page.name then return page.name end
+    end
+    return src.name or "Atlas"
 end
 
 -- Opens the Atlas tab at an item (e.g. from a chat command): its first location.

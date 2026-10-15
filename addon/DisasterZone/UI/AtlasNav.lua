@@ -590,7 +590,7 @@ local function LayoutCrumbs(items)
             c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         end
         c.textW = ceil(c.label:GetStringWidth() or 40)
-        c.chevOn = it.onClick ~= nil or it.onArrow ~= nil
+        c.chevOn = (it.onClick ~= nil or it.onArrow ~= nil) and not it.back
         local w = (c.iconOn and 28 or 8) + c.textW + (c.chevOn and 16 or 0) + 8 + (it.onArrow and 4 or 0)
         widths[i] = w
         total = total + w + (i < #items and SEP_W or 0)
@@ -683,15 +683,23 @@ local function ShopMenu(crumb)
     end)
 end
 
+-- "‹ Karazhan": back to where I was (out of a search, out of the shopping list).
+function Nav.BackItem()
+    local label = AUI():BackLabel()
+    return { text = "‹  " .. label, kind = "mid", back = true, onClick = function() AUI():GoBack() end,
+             tip = { "Back", "Back to " .. label .. "." } }
+end
+
 -- The crumbs of where I am.
 local function Items()
     local st = AUI():GetState()
     local Atlas = A()
     local out = {}
     if st.view == "shop" then
-        out[1] = { text = "Shopping list", kind = "mid", icon = nil }
+        out[1] = Nav.BackItem()
+        out[2] = { text = "Shopping list", kind = "mid", icon = nil }
         local label = ns.AtlasShopUI and ns.AtlasShopUI:GetGroupLabel() or "Everyone"
-        out[2] = { text = label, kind = "cur", onClick = ShopMenu }
+        out[3] = { text = label, kind = "cur", onClick = ShopMenu }
         return out
     end
     if Atlas:HasEra("classic") then
@@ -733,7 +741,7 @@ local function LayoutRight()
     bagBtn:SetPoint("RIGHT", bar, "TOPRIGHT", -PAD + 2, -ns.UI.LAYOUT.ROW_MID)
     searchBox:ClearAllPoints()
     if searching then
-        searchBox:SetPoint("LEFT", bar, "TOPLEFT", PAD, -ns.UI.LAYOUT.ROW_MID)
+        searchBox:SetPoint("LEFT", bar, "TOPLEFT", (Nav.pathEnd or PAD) + 6, -ns.UI.LAYOUT.ROW_MID)
         searchBox:SetPoint("RIGHT", bagBtn, "LEFT", -8, 0)
     else
         -- what the path leaves, between its narrowest and widest
@@ -772,7 +780,11 @@ local function CreateBag()
     b:RegisterForClicks("LeftButtonUp")
     b:SetScript("OnClick", function()
         GameTooltip:Hide()
-        AUI():OpenShop()
+        if AUI():GetState().view == "shop" and not AUI():IsSearching() then
+            AUI():GoBack()
+        else
+            AUI():OpenShop()
+        end
     end)
     b:SetScript("OnEnter", function(self)
         self.hovered = true
@@ -825,7 +837,7 @@ function Nav:Update()
     end
     if searching or AUI():IsSearching() then
         searching = true
-        LayoutCrumbs({})
+        LayoutCrumbs({ Nav.BackItem() })
     else
         LayoutCrumbs(Items())
     end

@@ -271,6 +271,35 @@ def members_recipe_rows_have_the_bag_too():
 
 
 @case
+def back_from_the_shopping_list():
+    w, g, a, b = world()
+    fill(b, [BAG])
+    b.eval("ns.MainFrame:Open('atlas'); ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")
+    b.eval("ns.AtlasUI:OpenShop()")
+    w.tick(0.2)
+    assert b.eval("return ns.AtlasShopUI:IsShown()")
+    crumbs = b.eval_py("return ns.AtlasNav:GetCrumbs()")
+    assert crumbs[0][0].endswith("Prince Malchezaar"), crumbs
+    # "‹ Prince Malchezaar" on the path: back to the page the list was opened from
+    b.click(b.eval("return ns.AtlasNav:GetCrumbFrames()[1]"))
+    w.tick(0.2)
+    assert not b.eval("return ns.AtlasShopUI:IsShown()")
+    st = b.eval_py("local s = ns.AtlasUI:GetState() return { s.view, s.cat, s.src, s.page or '' }")
+    assert st == ["page", "raids", "Karazhan", "Prince"], st
+    # the bag toggles: open, then a second click goes back too
+    bag = b.eval("return ns.MainFrame:GetPanel('atlas').bag")
+    b.click(bag)
+    assert b.eval("return ns.AtlasShopUI:IsShown()")
+    b.click(bag)
+    assert not b.eval("return ns.AtlasShopUI:IsShown()")
+    assert b.eval("return ns.AtlasUI:GetState().page") == "Prince"
+    # a place picked from the jump panel leaves the list as well
+    b.eval("ns.AtlasUI:OpenShop(); ns.AtlasUI:OpenSource('raids', 'GruulsLair')")
+    assert not b.eval("return ns.AtlasShopUI:IsShown()")
+    w.assert_no_errors()
+
+
+@case
 def empty_list_and_search_take_turns():
     w, g, a, b = world()
     b.eval("ns.MainFrame:Open('atlas'); ns.AtlasUI:OpenShop()")

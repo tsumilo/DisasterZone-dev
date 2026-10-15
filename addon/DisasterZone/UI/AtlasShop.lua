@@ -446,7 +446,7 @@ local function InitMat(row, d)
     local x = IN + MAT_ICON + 8
     row.name:Show()
     row.name:ClearAllPoints()
-    row.name:SetWidth((d.w or ShopUI.rowW) - x - IN - 50)
+    row.name:SetWidth((d.w or ShopUI.rowW) - x - IN - 40)
     row.name:SetText(H.NameText(m.id))
     row.name:SetAlpha(done and 0.55 or 1)
     local two = d.people ~= nil and not done

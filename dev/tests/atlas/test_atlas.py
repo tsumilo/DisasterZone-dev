@@ -215,6 +215,28 @@ def data_file_shape_and_names_for_every_entry():
 
 
 @case
+def back_from_a_search():
+    w, c = setup()
+    c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
+    c.eval("ns.AtlasUI:SetSearch('gladiator')")
+    # searching: the path is "‹ Attumen the Huntsman" beside the field
+    crumbs = c.eval_py("return ns.AtlasNav:GetCrumbs()")
+    assert len(crumbs) == 1 and crumbs[0][0].endswith("Attumen the Huntsman"), crumbs
+    c.click(c.eval("return ns.AtlasNav:GetCrumbFrames()[1]"))
+    assert c.eval("return ns.AtlasUI:IsSearching()") is False
+    assert c.eval("return T_atlas().searchBox:GetText()") == ""
+    assert state(c)[:3] == ["raids", "Karazhan", "Attumen"], state(c)
+    crumbs = [x[0] for x in c.eval_py("return ns.AtlasNav:GetCrumbs()")]
+    assert crumbs[-1] == "Attumen the Huntsman" and "Karazhan" in crumbs, crumbs
+    assert HARBINGER in item_ids(c)
+    # Esc in the field does the same
+    c.eval("ns.AtlasUI:SetSearch('gladiator')")
+    c.eval("T_atlas().searchBox:GetScript('OnEscapePressed')(T_atlas().searchBox)")
+    assert c.eval("return ns.AtlasUI:IsSearching()") is False and HARBINGER in item_ids(c)
+    no_errors(w)
+
+
+@case
 def search_by_name_words_and_number_and_click_opens_the_page():
     w, c = setup()
     c.eval("ns.AtlasUI:SetSearch('harbinger')")
