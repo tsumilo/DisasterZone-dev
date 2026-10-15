@@ -293,6 +293,23 @@ def editing_from_my_groups_page_swaps_the_page_for_the_sheet_and_back():
 
 
 @case
+def the_reserves_tab_opens_the_reserves_window():
+    w, c = guild([("Gina", "PALADIN")])
+    g = c["Gina"]
+    g.eval("ns.Demo:SetEnabled(true)")
+    g.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(1)
+    list_group(g, k="raid", a=["GruulsLair"], role="healer", lo="sr", lr=1)
+    g.eval("ns.Reserves:Open({ rk = 'GruulsLair', n = 1 })")
+    g.eval("ns.GroupsLead:Open(nil, 'reserves')")
+    btn = "return ns.GroupsLead:Get().summary.open"
+    assert g.eval_py(btn + ":IsShown()") is True
+    g.eval("ns.GroupsLead:Get().summary.open:Click()")
+    assert g.eval_py("local f = ns.ReservesUI:GetFrame(); return f and f:IsShown()") is True
+    w.assert_no_errors()
+
+
+@case
 def the_raid_session_starts_as_the_group_listed_its_loot():
     w, c = guild([("Gina", "PALADIN"), ("Bert", "WARRIOR")])
     g = c["Gina"]
