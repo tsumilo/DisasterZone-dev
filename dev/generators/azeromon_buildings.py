@@ -9,6 +9,9 @@ beam, log-end posts) and put back together in new shapes, so they match the exis
   cottage  5 x 6  thatched roof, flower box under the window (door dx 3, dy 5 like a house)
   stable   5 x 6  brown roof, barn doors with cross braces (no door)
   well     2 x 3  stone curb, timber posts, a small shingled roof, crank and bucket (DawnBringer 16, hand-placed)
+  stall    2 x 3  Maybell's market stall, open: a striped awning, wares on the counter (pumpkins, bread, honey, apples)
+  stallshut 2 x 3 the same stall shut: the awning rolled up, a cloth over the wares, a CLOSED board (Routine.lua
+                  swaps the tiles at opening time)
 
 Used by gen_azeromon_art.py: tiles(cell) -> [(name_x_y, 16 x 16 RGBA Image)] where cell(name) returns an atlas tile
 as a (16, 16, 4) array (taken after the stamps' grass margins are cleaned). SIZE / DOORS / CHIMNEYS / FORGE describe
@@ -18,7 +21,8 @@ from PIL import Image
 
 K = (34, 32, 52)                          # the stamps' outline
 
-SIZE = {"inn": (9, 8), "smithy": (5, 6), "cottage": (5, 6), "stable": (5, 6), "well": (2, 3)}
+SIZE = {"inn": (9, 8), "smithy": (5, 6), "cottage": (5, 6), "stable": (5, 6), "well": (2, 3), "stall": (2, 3),
+        "stallshut": (2, 3)}
 DOORS = {"inn": [(4, 7), (5, 7)], "cottage": [(3, 5)]}
 CHIMNEYS = {"inn": [(16, 27), (80, 27)], "smithy": [(16, 13)], "cottage": [(16, 13)], "stable": [(16, 13)]}
 FORGE = {"smithy": (24, 87)}              # the forge's glow inside the smithy (px in the stamp)
@@ -306,7 +310,101 @@ def well(cell):
     return img
 
 
-BUILD = {"inn": inn, "smithy": smithy, "cottage": cottage, "stable": stable, "well": well}
+# ------------------------------------------------------------------ the market stall (hand-shaded like the props)
+import azeromon_props as _P  # noqa: E402
+
+_ORANGE = [(92, 34, 14), (156, 64, 18), (214, 104, 28), (244, 150, 52), (255, 196, 108)]
+_CREAM = [(120, 100, 78), (178, 160, 128), (226, 212, 180), (248, 240, 218)]
+_GREEN = [(20, 56, 30), (34, 96, 46), (60, 140, 62), (110, 184, 86)]
+_GOLD = [(96, 62, 14), (164, 116, 30), (220, 172, 52), (250, 218, 110), (255, 246, 196)]
+
+
+def _stall(open_):
+    """32 x 40: posts, the awning (open: striped roof and scalloped valance; shut: rolled up), the counter, the wares
+    or a cloth and a CLOSED board"""
+    WOOD, DWOOD, RED, THATCH, PAPER, TEAL, CANVAS = _P.WOOD, _P.DWOOD, _P.RED, _P.THATCH, _P.PAPER, _P.TEAL, _P.CANVAS
+    back, front = _P.Spr(32, 40), _P.Spr(32, 40)
+    for x in (2, 29):
+        back.rect(x, 8, x + 1, 38, WOOD[2]); back.rect(x, 8, x, 38, WOOD[3]); back.put(x + 1, 38, WOOD[1])
+    back.rect(4, 12, 27, 13, DWOOD[2])
+    if open_:
+        def roof(x, y):
+            r = RED if (x // 4) % 2 == 0 else _CREAM
+            k = 3 if y < 4 else 2 if y < 7 else 1
+            if x < 6 and y < 6:
+                k = min(len(r) - 1, k + 1)
+            return r[min(k, len(r) - 1)]
+        back.poly([(3, 1), (29, 1), (32, 9.5), (0, 9.5)], roof)
+        back.rect(3, 0, 28, 0, DWOOD[1])
+        for x in range(0, 32):
+            r = RED if (x // 4) % 2 == 0 else _CREAM
+            for y in range(10, 10 + (3 if (x % 4) in (1, 2) else 2)):
+                front.put(x, y, r[2] if y == 10 else r[1])
+            front.put(x, 9, r[3] if x < 16 else r[2])
+    else:
+        back.rect(1, 6, 30, 7, DWOOD[2])
+        for x in range(1, 31):
+            r = RED if (x // 3) % 2 == 0 else _CREAM
+            for y, k in ((3, 3), (4, 2), (5, 1)):
+                back.put(x, y, r[min(k, len(r) - 1)])
+        for x in (8, 23):
+            back.rect(x, 3, x, 6, WOOD[1])
+    front.rect(0, 24, 31, 25, WOOD[4]); front.rect(0, 26, 31, 26, WOOD[2])
+
+    def boards(x, y):
+        c = WOOD[3] if x < 10 else WOOD[2]
+        if x % 5 == 0 or _P.H(x, y // 3, 7) < 0.08:
+            c = WOOD[1]
+        return c
+    front.fill(1, 27, 30, 37, boards)
+    front.rect(1, 38, 30, 38, DWOOD[1])
+    for x in (1, 30):
+        front.rect(x, 24, x, 38, DWOOD[2])
+    if open_:
+        def pumpkin(cx, cy, r):
+            front.ellipse(cx, cy, r + 0.6, r, lambda x, y: _ORANGE[3] if x < cx - 0.5 else _ORANGE[2] if x < cx + r * 0.5 else _ORANGE[1])
+            front.put(cx - 1, cy - r + 1, _ORANGE[4]); front.put(int(cx), cy - r - 1, _GREEN[2]); front.put(int(cx), cy - r, _GREEN[1])
+        pumpkin(5, 21.5, 2.6); pumpkin(9, 22.5, 1.8)
+        front.rect(12, 21, 18, 23, THATCH[2]); front.rect(12, 21, 18, 21, THATCH[3])
+        for x in (13, 15, 17):
+            front.ellipse(x + 0.5, 20.2, 1.4, 1, lambda xx, yy: (214, 164, 92) if yy < 20 else (172, 120, 60))
+        for x in (21, 24):
+            front.rect(x, 19, x + 2, 23, _GOLD[2]); front.put(x, 19, _GOLD[3]); front.put(x, 20, _GOLD[4])
+            front.rect(x, 18, x + 2, 18, CANVAS[3])
+        for x, y in ((27, 22), (29, 22), (28, 21)):
+            front.put(x, y, RED[2]); front.put(x + 1, y, RED[1]); front.put(x, y - 1, RED[3])
+        front.rect(13, 14, 18, 17, PAPER[2]); front.rect(13, 14, 18, 14, PAPER[3]); front.put(15, 15, DWOOD[1]); front.put(16, 16, DWOOD[1])
+        front.put(14, 13, DWOOD[1]); front.put(17, 13, DWOOD[1])
+    else:
+        def cloth(x, y):
+            k = 3 if y < 21 else 2
+            if (x + y) % 9 == 0:
+                k -= 1
+            return TEAL[max(0, k)] if x < 26 else TEAL[1]
+        front.poly([(1, 23.5), (4, 19), (28, 19), (31, 23.5)], cloth)
+        front.rect(1, 24, 31, 24, TEAL[1])
+        for x in (5, 12, 19, 26):
+            front.rect(x, 25, x, 27, TEAL[2])
+        front.rect(10, 29, 21, 35, PAPER[2]); front.rect(10, 29, 21, 29, PAPER[3]); front.rect(10, 35, 21, 35, PAPER[1])
+        for x in (12, 13, 14, 15, 17, 18, 19):
+            front.put(x, 32, RED[1])
+    back.outline(); front.outline()
+    img = np.zeros((48, 32, 4), dtype=np.uint8)               # the stall standing on the stamp's bottom edge
+    paste(img, np.array(back.image()), 0, 8)
+    paste(img, np.array(front.image()), 0, 8)
+    return img
+
+
+def stall(cell):
+    return _stall(True)
+
+
+def stallshut(cell):
+    return _stall(False)
+
+
+BUILD = {"inn": inn, "smithy": smithy, "cottage": cottage, "stable": stable, "well": well, "stall": stall,
+         "stallshut": stallshut}
 
 
 def images(cell):

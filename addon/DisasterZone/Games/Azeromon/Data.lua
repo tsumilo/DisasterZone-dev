@@ -1324,6 +1324,7 @@ D.shopStock = { "net", "potion", "antidote", "greatnet", "superpotion" }
 -- Shops with more on the shelf (G:Shop(name, stockId)); a shop without a stock id sells D.shopStock.
 -- (fireprotection is an alchemy potion, Crafting.lua; Thorium Point sells it too)
 D.shopStocks = {
+    maybell = { "potion", "antidote", "net" },                -- Maybell's stall in Goldshire
     lakeshire = { "net", "potion", "antidote", "greatnet", "superpotion", "greatpotion" },
     thorium = { "net", "antidote", "greatnet", "truesilverrod", "superpotion", "greatpotion", "fireprotection" },
 }

@@ -82,7 +82,8 @@ local STAMP_SIZE = { house = { 5, 6 }, farmhouse = { 5, 6 }, stonehouse = { 5, 6
                      banner = { 1, 2 }, bannerblue = { 1, 2 }, window = { 1, 2 }, crest = { 2, 2 }, pillar = { 1, 2 },
                      fireplace = { 2, 2 }, throne = { 2, 1 }, rrhouse = { 5, 6 },
                      -- the bigger Goldshire (0.27, dev/generators/azeromon_buildings.py)
-                     inn = { 9, 8 }, smithy = { 5, 6 }, cottage = { 5, 6 }, stable = { 5, 6 }, well = { 2, 3 } }
+                     inn = { 9, 8 }, smithy = { 5, 6 }, cottage = { 5, 6 }, stable = { 5, 6 }, well = { 2, 3 },
+                     stall = { 2, 3 }, stallshut = { 2, 3 } }
 local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true, darkhouse = true, bbhouse = true,
                  rrhouse = true, cottage = true }
 -- the walkable doorway tile of a stamp (dx, dy), if it has one
@@ -461,6 +462,8 @@ function G:EnterMap(id, x, y, face, silent)
         self.npcs[#self.npcs + 1] = { def = def, id = def.id, x = def.x, y = def.y, face = def.face or "down",
             homeX = def.x, homeY = def.y, hidden = hidden, wanderIn = 2 + self.rng(0, 30) / 10 }
     end
+    -- daily routines (Routine.lua): people where the clock puts them, visitors in a room's seats, a stall's hours
+    if ns.AzeroRoutine then ns.AzeroRoutine.Enter(self, m) end
     if not silent then
         self.fade = 0.3
         if m.def.outdoor then
@@ -485,8 +488,10 @@ end
 function G:RefreshNpcs()
     local s = self.save
     for _, n in ipairs(self.npcs or {}) do
-        local hidden = self:NpcHidden(n.def)
-        if hidden then
+        local hidden = (not n.routine) and self:NpcHidden(n.def)          -- (a routine shows and hides on its own)
+        if n.routine then
+            -- left alone: Routine.Step decides
+        elseif hidden then
             n.hidden = true
         elseif n.hidden and not (s and n.x == s.x and n.y == s.y) then
             n.hidden = false
@@ -1309,6 +1314,8 @@ end
 ---------------------------------------------------------------------------
 
 function G:UpdateNpcs(dt)
+    local Routine = ns.AzeroRoutine
+    local now = Routine and self.map and Routine.Update(self, dt)
     for _, n in ipairs(self.npcs or {}) do
         if n.exclaim then
             n.exclaim = n.exclaim - dt
@@ -1328,6 +1335,8 @@ function G:UpdateNpcs(dt)
         elseif not n.moving and n.path and #n.path == 0 then
             n.path = nil
             if self.pending and self.pending.kind == "walk" and self.pending.npc == n then self:Advance() end
+        elseif not n.moving and n.routine and not n.visitor and now then
+            Routine.Step(n, dt, now)                -- keeps to its day (walks, goes indoors, comes out)
         elseif not n.moving and n.def.wander and not n.hidden and not self.pending and not self.co then
             n.wanderIn = n.wanderIn - dt
             if n.wanderIn <= 0 then

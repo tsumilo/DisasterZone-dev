@@ -165,7 +165,10 @@ def a_spectator_who_joins_mid_match_sees_what_the_challenger_sees():
     gear = a.eval(GEAR)                          # gear changes stats: every copy of the match must include it
     assert gear
     challenge(a, w, (a, b, c))
-    run(w, (a, b), seconds=2)                    # a turn or more before Carol arrives
+    for _ in range(20):                          # a turn or more before Carol arrives (then Bob stops answering,
+        run(w, (a, b), seconds=0.3)              # so the match waits for her; not a fixed time: the battle's dice
+        if a.eval("local m = ns.AzeroPvP:Match() return m and m.battle.turn or 0") >= 1:    # follow the seed
+            break
     b.eval("T_PVP.idle = true")
     run(w, (a, b), seconds=1)
     joined = a.eval("return ns.AzeroPvP:Match().battle.turn")

@@ -1899,6 +1899,11 @@ STATES = [
     ("Games - Azeromon Goldshire north road", azero_at("town", 17, 2)),
     ("Games - Azeromon Goldshire inn", azero_at("town", 9, 23)),
     ("Games - Azeromon Lion's Pride inside", azero_at("post", 7, 8)),
+    # daily routines (Routine.lua): the market at noon, the lamplighter's round at dusk, the night patrol, the inn
+    ("Games - Azeromon Goldshire market noon", azero_at("town", 19, 19, "ns.Azero.clockHour = 12 ns.Azero:EnterMap('town', 19, 19, 'down', true)")),
+    ("Games - Azeromon Goldshire dusk lamps", azero_at("town", 17, 15, "ns.Azero.clockHour = 18 + 1.5 / 60 ns.Azero:EnterMap('town', 17, 15, 'down', true)")),
+    ("Games - Azeromon Goldshire night patrol", azero_at("town", 17, 12, "ns.Azero.clockHour = 23.2 ns.Azero:EnterMap('town', 17, 12, 'down', true)")),
+    ("Games - Azeromon Lion's Pride evening", azero_at("post", 7, 8, "ns.Azero.clockHour = 22 ns.Azero:EnterMap('post', 7, 8, 'down', true)")),
     ("Games - Azeromon Goldshire night", azero_at("town", 13, 10, "ns.Azero.clockHour = 23")),
     ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),
     ("Games - Azeromon home", azero_at("home", 4, 5)),

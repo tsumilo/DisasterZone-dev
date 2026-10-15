@@ -697,6 +697,17 @@ def lava_lights(m, th):
     return out
 
 
+LAMP_COVER = 64            # the cover's size in picture pixels; the lamp's light sits at (32, 35) in it (the 4-px grid)
+
+
+def lamp_cover(dark):
+    """dark / (the light map with one lamp post): 1 outside its pool, the darkness over the lit colour inside"""
+    lx, ly, r = 32, 35, LIGHT_TILES["lamppost"][2]
+    lit = light_map(LAMP_COVER, LAMP_COVER, [(lx, ly, r, 0, 0)], dark).astype(np.float64)
+    cover = np.clip(np.array(dark, dtype=np.float64)[None, None, :] / np.maximum(lit, 1) * 255, 0, 255)
+    return np.round(cover).astype(np.uint8)
+
+
 def light_map(W, H, ls, dark):
     """the darkness for dusk or night with stepped warm pools round each light, at 1 / LIGHT_SCALE size"""
     w, h = -(-W // LIGHT_SCALE), -(-H // LIGHT_SCALE)
@@ -1088,7 +1099,7 @@ def main():
     entries[hall.MAP], hall_files = hall.bake()
     print("baked", hall.MAP, "(the Guild Hall)")
     keep |= hall_files
-    keep |= {"clouds.tga", "vignette.tga", "battle_clouds.tga", "mist.tga", "shafts.tga"} | {"battle_%s.tga" % s for s in battle.THEMES}
+    keep |= {"clouds.tga", "vignette.tga", "battle_clouds.tga", "mist.tga", "shafts.tga", "lampcover_d.tga", "lampcover_n.tga"} | {"battle_%s.tga" % s for s in battle.THEMES}
     for f in os.listdir(OUT_DIR):
         if (f.endswith(".tga") or f.endswith(".blp")) and (f.endswith(".blp") or f not in keep):
             os.remove(os.path.join(OUT_DIR, f))
@@ -1103,6 +1114,10 @@ def main():
     _save(Image.fromarray(vignette(), "RGB"), os.path.join(OUT_DIR, "vignette.tga"))
     _save(Image.fromarray(mist(), "RGBA"), os.path.join(OUT_DIR, "mist.tga"))
     _save(Image.fromarray(shafts(), "RGB"), os.path.join(OUT_DIR, "shafts.tga"))
+    # an unlit lamp post's cover (Routine.lua: lamps the lamplighter has not reached): multiplied over its baked pool
+    # of light, it brings that pool back to the darkness; one per period, 16 x 16 at the light maps' scale
+    for period, dark in NIGHT.items():
+        _save(Image.fromarray(lamp_cover(dark), "RGB"), os.path.join(OUT_DIR, "lampcover_%s.tga" % period[0]))
     write_lua(entries)
     print("wrote Ground.lua", len(entries), "maps (%s)" % FORMAT)
 

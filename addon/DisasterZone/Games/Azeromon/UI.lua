@@ -3306,6 +3306,42 @@ local function Glow(n, sx, sy, size, r, g, b, a)
     t:Show()
 end
 
+-- An NPC's spot on screen this frame (in map pixels: 16 a tile), walking or not.
+function Amb.NpcPixels(n)
+    local nx, ny = n.x, n.y
+    if n.moving then
+        local f = math.min(1, n.moving.t / n.moving.dur)
+        nx, ny = n.fromX + (n.x - n.fromX) * f, n.fromY + (n.y - n.fromY) * f
+    end
+    return nx * 16, ny * 16
+end
+
+-- An unlit lamp post's pool of light, covered (Ground/lampcover_<d|n>.tga multiplied over it: the baker's
+-- lamp_cover). Returns true when it drew one.
+Amb.coverTex = {}
+function Amb.CoverLamp(m, g, l, px, py, key, i)
+    local S = TILE / 16
+    local sx, sy = PicToScreen(g, l[1] - 32, l[2] - 35, px, py)
+    if sx > SW or sy > SH or sx + 64 * S < 0 or sy + 64 * S < 0 then return false end
+    local t = Amb.coverTex[i]
+    if not t then
+        t = Tex(world, "OVERLAY", 5)
+        pcall(t.SetBlendMode, t, "MOD")
+        Amb.coverTex[i] = t
+    end
+    local file = MEDIA .. "Ground\\lampcover_" .. key
+    if t.file ~= file then
+        t.file = file
+        t.loaded = SetPixelTexture(t, file)
+        t:SetTexCoord(0, 1, 0, 1)
+        t:SetSize(64 * S, 64 * S)
+    end
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", world, "TOPLEFT", sx, -sy)
+    t:SetShown(t.loaded)
+    return true
+end
+
 function Amb.Night(m, g, px, py)
     local period = G:Period()
     local key = (period == "night" and "n") or ((period == "dusk" or period == "dawn") and "d") or nil
@@ -3339,12 +3375,27 @@ function Amb.Night(m, g, px, py)
         end
         if n > 0 then
             local k = (key == "n") and 1 or 0.6
+            local Routine = ns.AzeroRoutine
+            local cn = 0
             for _, l in ipairs(g.lights or {}) do
                 local sx, sy = PicToScreen(g, l[1], l[2], px, py)
-                if sx > -TILE * 2 and sy > -TILE * 2 and sx < SW + TILE * 2 and sy < SH + TILE * 2 then
+                local lamp = Routine and m.def.lamps and Routine.LampAt(m.id, floor(l[1] / 16) - g.mx, floor(l[2] / 16) - g.my)
+                local off = lamp and not Routine.LampLit(m.id, lamp)
+                if off and Amb.CoverLamp(m, g, l, px, py, key, cn + 1) then cn = cn + 1 end
+                if not off and sx > -TILE * 2 and sy > -TILE * 2 and sx < SW + TILE * 2 and sy < SH + TILE * 2 then
                     local fl = (l[4] == 1) and (0.75 + 0.25 * math.sin(now * 9 + l[1]) * math.sin(now * 5.3 + l[2])) or 1
                     gn = gn + 1
                     Glow(gn, sx, sy, l[3] * 1.5 * S, 1, 0.66, 0.31, (l[5] == 1 and 0.3 or 0.45) * fl * k)
+                end
+            end
+            for i = cn + 1, #Amb.coverTex do Amb.coverTex[i]:Hide() end
+            -- the night watch's lanterns (Routine.lua: def.lantern)
+            for _, nn in ipairs(G.npcs or {}) do
+                if not nn.hidden and nn.def.lantern then
+                    local x, y = Amb.NpcPixels(nn)
+                    gn = gn + 1
+                    Glow(gn, (x / 16 - px + HX) * TILE + TILE * 0.8, (y / 16 - py + HY) * TILE + TILE * 0.6, 40 * S, 1, 0.7, 0.35,
+                         (0.4 + 0.05 * math.sin(now * 7 + x)) * k)
                 end
             end
             -- the player's lantern (outdoors)
@@ -3357,6 +3408,7 @@ function Amb.Night(m, g, px, py)
     end
     for i = n + 1, #Amb.lightTex do Amb.lightTex[i]:Hide() end
     for i = gn + 1, #Amb.glowTex do Amb.glowTex[i]:Hide() end
+    if n == 0 then for _, t in ipairs(Amb.coverTex) do t:Hide() end end
     return n > 0
 end
 
@@ -3807,6 +3859,45 @@ function Amb.Hall(m, g, px, py, period, dark)
     if P.topTex and not on then P.topTex:Hide() end
 end
 
+-- People at work (Routine.lua: the act of their day): the smith's sparks, the alchemist's bubbles, Billy's line.
+function Amb.Acts(m, px, py)
+    local now = GetTime and GetTime() or 0
+    for _, n in ipairs(G.npcs or {}) do
+        if not n.hidden and n.act and not n.moving then
+            local x, y = Amb.NpcPixels(n)
+            local d = ({ up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } })[n.face or "down"]
+            if n.act == "smith" then
+                local beat = (now * 2.2) % 1                 -- each hammer blow throws sparks off the anvil
+                if beat < 0.4 then
+                    for k = 0, 6 do
+                        local a = ((k * 37 + floor(now * 2.2) * 11) % 100) / 100 * math.pi + math.pi
+                        local r = beat * 20 * (0.4 + ((k * 53) % 10) / 10)
+                        Amb.Pix(px, py, x + d[1] * 16 + 9 + math.cos(a) * r, y + 6 + math.sin(a) * r * 0.6 + beat * beat * 18,
+                                1, 1, 1, k % 2 == 0 and 0.82 or 0.55, k % 2 == 0 and 0.48 or 0.23, 1)
+                    end
+                end
+            elseif n.act == "brew" then
+                for k = 0, 4 do
+                    local age = (now * 0.6 + k / 5) % 1
+                    Amb.Pix(px, py, x + d[1] * 16 + 8 + math.sin(age * 6 + k) * 2, y + d[2] * 16 + 4 - age * 16, 1, 1,
+                            0.62, 0.88, 0.54, 1 - age * 0.6)
+                end
+            elseif n.act == "fish" then
+                for k = 0, 17 do                              -- the line, sagging out over the water, and the bobber
+                    Amb.Pix(px, py, x + 12 + k * d[1] + (d[1] == 0 and 8 or 0), y + 6 - math.sin(k / 18 * math.pi) * 6 + k * 0.3,
+                            1, 1, 0.94, 0.94, 0.9, 0.7)
+                end
+                local bob = math.sin(now * 3) > 0.7 and 1 or 0
+                Amb.Pix(px, py, x + 12 + 18 * d[1], y + 11 + bob, 2, 2, 0.91, 0.25, 0.17, 1)
+            end
+        end
+        if not n.hidden and n.def.lantern and G:IsNight() then
+            local x, y = Amb.NpcPixels(n)
+            Amb.Pix(px, py, x + 11, y + 8, 3, 3, 1, 0.82, 0.48, 1)        -- the lantern in his hand
+        end
+    end
+end
+
 function Amb.Draw(m, g, px, py)
     local period = G:Period()
     Amb.Water(m, g, px, py)
@@ -3821,6 +3912,7 @@ function Amb.Draw(m, g, px, py)
     end
     Amb.Glints(m, g, px, py)
     Amb.Steps(m, px, py)
+    if g then Amb.Acts(m, px, py) end      -- (maps without a baked ground have no ambient at all)
     Amb.Mood(m, g, px, py, period)
     local dark = Amb.Night(m, g, px, py)
     Amb.Hall(m, g, px, py, period, dark)
@@ -3936,6 +4028,13 @@ local function Sprite(i)
         s.name = world:CreateFontString(nil, "OVERLAY")
         if not s.name:SetFont(FONT_BOLD, 11, "OUTLINE") then s.name:SetFont(FONT_FALLBACK, 9, "OUTLINE") end
         s.name:SetTextColor(1, 0.98, 0.9)
+        -- a speech bubble over the name (a line from the NPC's day: Routine.lua def.says)
+        s.say = Box(world, 100, 26, world:GetFrameLevel() + 15)
+        s.say:EnableMouse(false)
+        s.say.fs = Font(s.say, 11)
+        s.say.fs:SetPoint("LEFT", 9, 0)
+        s.say.fs:SetJustifyV("MIDDLE")
+        s.say:Hide()
         sprites[i] = s
     end
     return s
@@ -4095,6 +4194,7 @@ local function DrawWorld()
                 local cyc = (now + h * 9) % 9
                 if cyc < 1.1 then face = (face == "left" or face == "right") and "down" or ((h < 0.5) and "left" or "right") end
             end
+            if npc.act == "smith" and not npc.moving then nframe = floor(now * 2.2) % 2 == 0 and 0 or 1 end
             SetChar(sp, npc.def.sprite or "bald", face, nframe)
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
@@ -4115,9 +4215,22 @@ local function DrawWorld()
             sp.bang:ClearAllPoints()
             sp.bang:SetPoint("BOTTOM", sp.name, "TOP", 0, -2)
             sp.bang:SetShown(npc.exclaim ~= nil)
+            local line = npc.def.says and G:IsFree() and ns.AzeroRoutine and ns.AzeroRoutine.Says(npc.def)
+            if line then
+                if sp.say.text ~= line then
+                    sp.say.text = line
+                    sp.say.fs:SetText(line)
+                    sp.say:SetWidth(floor(TextWidth(line, 11) + 22))
+                end
+                sp.say:ClearAllPoints()
+                sp.say:SetPoint("BOTTOM", sp.name, "TOP", 0, 2)
+                sp.say:Show()
+            else
+                sp.say:Hide()
+            end
         end
     end
-    for i = n + 1, #sprites do sprites[i]:Hide() sprites[i].shadow:Hide() if sprites[i].legs then sprites[i].legs:Hide() end sprites[i].bang:Hide() sprites[i].name:Hide() sprites[i].title:Hide() end
+    for i = n + 1, #sprites do sprites[i]:Hide() sprites[i].shadow:Hide() if sprites[i].legs then sprites[i].legs:Hide() end sprites[i].bang:Hide() sprites[i].name:Hide() sprites[i].title:Hide() sprites[i].say:Hide() end
     -- other players (guildmates), drawn with the hero sprite in their class colour and a name tag
     local pn = 0
     for _, p in ipairs(ns.AzeroNet:PeersOn(m.id)) do

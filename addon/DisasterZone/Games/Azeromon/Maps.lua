@@ -24,6 +24,14 @@ Maps.RESPAWN = { map = "post", x = 5, y = 4, face = "up" }
 -- Goldshire (town)
 ---------------------------------------------------------------------------
 
+-- Old Tom's round of the six lamp posts (Maps.town.lamps): from the inn, every lamp, back to the inn
+local LAMP_ROUTE = {
+    { 8, 22 }, { 8, 23 }, { 7, 23 }, { 7, 24, wait = 5, face = "left", lamp = 6 }, { 7, 23 },
+    { 19, 23, wait = 5, face = "up", lamp = 4 }, { 18, 23 }, { 18, 13 }, { 12, 13, wait = 5, face = "left", lamp = 3 },
+    { 17, 13 }, { 17, 6, wait = 5, face = "left", lamp = 1 }, { 17, 10 }, { 22, 10, wait = 5, face = "up", lamp = 2 },
+    { 26, 10, wait = 5, face = "up", lamp = 5 }, { 18, 10 }, { 18, 23 }, { 8, 23 }, { 8, 22 },
+}
+
 Maps.town = {
     name = "Goldshire",
     rev = 2,                -- 2: the bigger Goldshire (0.27); presence hides players on another revision (Net.lua)
@@ -36,14 +44,14 @@ Maps.town = {
         "T................==#####......TTTTTT",
         "T................==#o.o#.......T..TT",
         "T................==#.o.#...........T",
-        "TT...............==#o.o#...........T",
+        "TT..............l==#o.o#...........T",
         "TT...............==##.##...........T",
         "T................==................T",
-        "T.....=.....=....==........==......T",
+        "T.....=.....=....==...l...l==......T",
         "T.....======.==========....==.....TT",
         "T.....=======================.....TT",
         "TTT.........=================.wwwwTT",
-        "TTTT........============.....wwwww.T",
+        "TTTT.......l============.....wwwww.T",
         "TTTT..........========.......wwwww.T",
         "TTT..............==............ww..T",
         "TTT..............==...............TT",
@@ -52,9 +60,9 @@ Maps.town = {
         "T................==...............TT",
         "T................==....g...........T",
         "T................==....k...........T",
-        "TT...............==................T",
+        "TT...............==l...............T",
         "TTT....=======================....TT",
-        "TTT....=======================.TTTTT",
+        "TTT...l=======================.TTTTT",
         "TTTT......TT............TT....TTTTTT",
         "TTTTT....TTTT..........TTTT..TTTTTTT",
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
@@ -69,6 +77,7 @@ Maps.town = {
         { kind = "stable", x = 12, y = 17 },    -- the inn's stable
         { kind = "smithy", x = 24, y = 17 },    -- Smith Argus' smithy, open to the lane
         { kind = "well", x = 20, y = 11 },      -- the well in the market square
+        { kind = "stall", x = 19, y = 14 },     -- Maybell's market stall (open 8 till 6: Routine.lua swaps the tiles)
         { kind = "mailbox", x = 2, y = 10 },
         { kind = "bigtree", x = 30, y = 18 },
     },
@@ -89,9 +98,21 @@ Maps.town = {
         { x = 7, y = 22, map = "post", tx = 7, ty = 8, face = "up" },
         { x = 8, y = 22, map = "post", tx = 7, ty = 8, face = "up" },
     },
-    edges = { north = { map = "route1", dx = -7 } },     -- the north road: Goldshire x 17-18 = Elwynn x 10-11
+    edges = { north = { map = "route1", dx = -7 } },
+    -- daily routines (Routine.lua): the lamp posts Old Tom lights at dusk and puts out at dawn, Maybell's stall
+    lamps = { { 16, 6 }, { 22, 9 }, { 11, 13 }, { 19, 22 }, { 26, 9 }, { 6, 24 } },
+    stall = { x = 19, y = 14, keeper = "farmer" },     -- the north road: Goldshire x 17-18 = Elwynn x 10-11
     npcs = {
-        { id = "guard", name = "Marshal Dughan", x = 19, y = 1, sprite = "bald", tint = { 0.55, 0.65, 1 }, face = "left",   -- Marshal Dughan
+        -- Marshal Dughan keeps the north road by day and hands it to Guard Thomas at dusk.
+        { id = "guard", name = "Marshal Dughan", x = 19, y = 1, sprite = "bald", tint = { 0.55, 0.65, 1 }, face = "left",
+          day = {
+              { "00:00", inside = "post", label = "Asleep at the inn" },
+              { "05:40", path = { { 8, 22 }, { 8, 23 }, { 17, 23 }, { 17, 1 }, { 19, 1 } }, face = "left",
+                label = "Watching the north road", walk = "Off to the north road" },
+              { "20:00", path = { { 19, 1 }, { 17, 1 }, { 17, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post",
+                label = "Off duty at the inn", walk = "Heading to the inn" },
+          },
+          says = { { "09:00", "Mind the tall grass, traveller." }, { "19:56", "Thomas, she's all yours." } },
           script = function(G)
               if G:Flag("starter") then
                   G:Say("Marshal Dughan: The road north runs through Elwynn Forest toward Westfall. Mind the tall grass, and keep an eye out for Hogger.")
@@ -100,17 +121,117 @@ Maps.town = {
                   G:Say("Marshal Dughan: Wolves, kobolds and worse lurk in the forest.\nNobody leaves Goldshire without a beast of their own.")
               end
           end },
-        { id = "farmer", name = "Maybell Maclure", x = 15, y = 13, sprite = "bald", tint = { 1, 0.85, 0.6 }, face = "down", wander = true,
+        -- Maybell runs the market stall from eight till six, eats at the inn, sleeps in the cottage.
+        { id = "farmer", name = "Maybell Maclure", x = 20, y = 17, sprite = "bald", tint = { 1, 0.85, 0.6 }, face = "down",
+          day = {
+              { "00:00", inside = "cottage", label = "Asleep at home" },
+              { "07:50", path = { { 12, 8 }, { 12, 9 }, { 12, 11 }, { 18, 11 }, { 18, 17 }, { 20, 17 } }, face = "down",
+                act = "sell", label = "Selling at the stall", walk = "Off to open the stall" },
+              { "18:00", path = { { 20, 17 } }, face = "down", label = "Closing the stall" },
+              { "18:44", path = { { 20, 17 }, { 18, 17 }, { 18, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post",
+                label = "Supper at the inn", walk = "Heading to the inn" },
+              { "21:00", path = { { 8, 22 }, { 8, 23 }, { 17, 23 }, { 17, 11 }, { 12, 11 }, { 12, 9 }, { 12, 8 } },
+                enter = "cottage", label = "Asleep at home", walk = "Walking home" },
+          },
+          says = { { "08:20", "Fresh pumpkins! Elwynn honey!" }, { "18:00", "Closing up! Back tomorrow." },
+                   { "18:30", "Billy! Supper!" } },
           script = function(G)
-              G:Say("Maybell Maclure: Huntmaster Aldric can tame anything, they say. His lodge is in the northeast.\nIf you see Tommy Joe Stonefield... never mind.")
+              local R = ns.AzeroRoutine
+              if R and R.StallOpen("town") then
+                  G:Say("Maybell Maclure: Potions, nets and a good word for anyone who asks. What'll it be?")
+                  G:Shop("Maybell Maclure", "maybell")
+                  G:Say("Maybell Maclure: Mind the tall grass, dear.")
+              else
+                  G:Say("Maybell Maclure: The stall's shut till eight, dear. Brog at the inn keeps late hours.")
+              end
           end },
+        -- Mallory brews at her table by day and reads by the inn's fire at night.
         { id = "mallory", name = "Alchemist Mallory", role = "profession", x = 14, y = 4, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "right",       -- Herbalism, Alchemy
+          day = {
+              { "00:00", inside = "post", label = "Asleep at the inn" },
+              { "07:30", path = { { 8, 22 }, { 8, 23 }, { 17, 23 }, { 17, 5 }, { 14, 5 }, { 14, 4 } }, face = "right",
+                act = "brew", label = "Brewing at her table", walk = "Off to her table" },
+              { "17:00", path = { { 14, 4 }, { 14, 5 }, { 17, 5 }, { 17, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post",
+                label = "Reading by the fire", walk = "Heading to the inn" },
+          },
+          says = { { "11:00", "Hmm. Needs more peacebloom." } },
           script = function(G) ns.AzeroCraft:TrainerTalk(G, "mallory") end },
+        -- Argus works the anvil and forge by the smithy from dawn to six.
         { id = "argus", name = "Smith Argus", role = "profession", x = 23, y = 22, sprite = "bald", tint = { 0.85, 0.72, 0.6 }, face = "left",      -- Mining, Blacksmithing
+          day = {
+              { "00:00", inside = "post", label = "Asleep at the inn" },
+              { "06:10", path = { { 8, 22 }, { 8, 23 }, { 23, 23 }, { 23, 22 } }, face = "left", act = "smith",
+                label = "Hammering at the anvil", walk = "Off to the forge" },
+              { "18:00", path = { { 23, 22 }, { 23, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post",
+                label = "Supper at the inn", walk = "Heading to the inn" },
+          },
+          says = { { "07:00", "Forge is hot! Bring me ore." }, { "14:30", "*clang* *clang*" } },
           script = function(G) ns.AzeroCraft:TrainerTalk(G, "argus") end },
-        { id = "kid", name = "Billy Maclure", x = 21, y = 18, sprite = "hero", tint = { 1, 0.75, 0.75 }, face = "left", wander = true,
+        -- Billy plays on the west green, fishes in the pond in the afternoon, runs in when Maybell calls.
+        { id = "kid", name = "Billy Maclure", x = 10, y = 12, sprite = "hero", tint = { 1, 0.75, 0.75 }, face = "left",
+          day = {
+              { "00:00", inside = "cottage", label = "Asleep at home" },
+              { "08:00", path = { { 12, 8 }, { 12, 9 }, { 12, 12 }, { 10, 12 } }, label = "Playing", walk = "Running out to play" },
+              { "09:00", loop = { { 10, 12 }, { 5, 12 }, { 5, 13 }, { 10, 13 }, { 10, 12 } }, label = "Playing tag on the green" },
+              { "14:00", path = { { 10, 12 }, { 17, 12 }, { 17, 10 }, { 28, 10 }, { 28, 13 } }, face = "right", act = "fish",
+                label = "Fishing in the pond", walk = "Off to the pond" },
+              { "18:40", path = { { 28, 13 }, { 28, 10 }, { 18, 10 }, { 18, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post",
+                label = "Supper at the inn", walk = "Running to the inn" },
+              { "21:04", path = { { 8, 22 }, { 8, 23 }, { 17, 23 }, { 17, 11 }, { 12, 11 }, { 12, 9 }, { 12, 8 } },
+                enter = "cottage", label = "Asleep at home", walk = "Walking home" },
+          },
+          says = { { "10:30", "Mrgllglgl! I'm a murloc!" }, { "16:00", "I almost caught one!" }, { "18:34", "Coming, Ma!" } },
           script = function(G)
               G:Say("Billy Maclure: When I grow up I'm gonna tame a dragon whelp! Or a murloc! Mrgllglgl!")
+          end },
+        -- Guard Thomas walks the roads at night with a lantern.
+        { id = "nightguard", name = "Guard Thomas", x = 17, y = 23, sprite = "bald", tint = { 0.62, 0.7, 0.95 }, face = "down",
+          lantern = true,
+          day = {
+              { "00:00", loop = { { 17, 23 }, { 17, 2 }, { 18, 2 }, { 18, 23 }, { 28, 23 }, { 28, 24 }, { 8, 24 }, { 8, 23 }, { 17, 23 } },
+                label = "Night patrol" },
+              { "05:30", path = { { 17, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post", label = "Asleep upstairs", walk = "Going to bed" },
+              { "19:50", path = { { 8, 22 }, { 8, 23 }, { 17, 23 } }, label = "On watch", walk = "Starting his watch" },
+              { "20:20", loop = { { 17, 23 }, { 17, 2 }, { 18, 2 }, { 18, 23 }, { 28, 23 }, { 28, 24 }, { 8, 24 }, { 8, 23 }, { 17, 23 } },
+                label = "Night patrol" },
+          },
+          says = { { "22:30", "All quiet on the north road." }, { "02:00", "Is that... no, just a rabbit." } },
+          script = function(G)
+              G:Say("Guard Thomas: Evening. I keep the roads till dawn. Nothing gets past my lantern... mostly.")
+          end },
+        -- Old Tom lights the lamp posts at dusk and puts them out at dawn.
+        { id = "lamplighter", name = "Old Tom", x = 8, y = 23, sprite = "bald", tint = { 0.82, 0.8, 0.7 }, face = "down",
+          day = {
+              { "00:00", inside = "post", label = "Asleep at the inn" },
+              { "05:20", path = LAMP_ROUTE, enter = "post", lamps = "off", label = "Back to bed", walk = "Putting out the lamps" },
+              { "17:50", path = LAMP_ROUTE, enter = "post", lamps = "on", label = "A pipe by the fire", walk = "Lighting the lamps" },
+          },
+          says = { { "17:52", "Evening, Goldshire!" } },
+          script = function(G)
+              G:Say("Old Tom: Six lamps, forty years. Not one has gone out on my watch.")
+          end },
+        -- Travellers on the north road stay the night at the inn.
+        { id = "wenna", name = "Wenna", x = 17, y = 0, sprite = "girl", tint = { 0.8, 1, 0.85 }, face = "down",
+          day = {
+              { "00:00", inside = "post", label = "Staying the night" },
+              { "08:30", path = { { 8, 22 }, { 8, 23 }, { 17, 23 }, { 17, 0 } }, away = true, label = "Gone north", walk = "Setting off north" },
+              { "16:20", path = { { 17, 0 }, { 17, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post", label = "Staying the night",
+                walk = "Arriving from Stormwind" },
+          },
+          says = { { "17:26", "Two rooms, please!" } },
+          script = function(G)
+              G:Say("Wenna: We're walking to Westfall. Is it true there are golems in the fields?")
+          end },
+        { id = "pell", name = "Pell", x = 17, y = 0, sprite = "hero", tint = { 0.95, 0.9, 0.7 }, face = "down",
+          day = {
+              { "00:00", inside = "post", label = "Staying the night" },
+              { "08:34", path = { { 8, 22 }, { 8, 23 }, { 17, 23 }, { 17, 0 } }, away = true, label = "Gone north", walk = "Setting off north" },
+              { "16:24", path = { { 17, 0 }, { 17, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post", label = "Staying the night",
+                walk = "Arriving from Stormwind" },
+          },
+          says = { { "17:00", "A warm bed at last!" } },
+          script = function(G)
+              G:Say("Pell: Best stew this side of Stormwind, they say. We'll see about that.")
           end },
     },
     triggers = {
@@ -167,6 +288,7 @@ Maps.cottage = {
         "WWWWrWWWWW",
     },
     warps = { { x = 4, y = 7, map = "town", tx = 12, ty = 9, face = "down" } },
+    seats = { { 2, 3, "down" }, { 5, 4, "left" }, { 3, 4, "right" } },
     npcs = {},
 }
 
@@ -268,6 +390,9 @@ Maps.post = {
     },
     warps = { { x = 7, y = 9, map = "town", tx = 7, ty = 23, face = "down" },
               { x = 10, y = 2, map = "hideout", tx = 17, ty = 31, face = "up" } },          -- the Guild Hall below
+    -- where people whose day has them inside sit (Routine.lua): beside the tables, by the beds
+    seats = { { 3, 5, "left" }, { 6, 5, "left" }, { 9, 5, "left" }, { 3, 7, "left" }, { 6, 7, "left" }, { 9, 7, "left" },
+              { 4, 4, "down" }, { 7, 4, "down" }, { 1, 6, "right" }, { 10, 6, "left" }, { 13, 3, "down" }, { 15, 3, "down" } },
     signs = { { x = 9, y = 2, text = "THE GUILD HALL\nDown the stairs: the guild's raid trophies and its champions." } },
     npcs = {
         { id = "healer", name = "Innkeeper Farley", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.8, 0.85 }, face = "down",

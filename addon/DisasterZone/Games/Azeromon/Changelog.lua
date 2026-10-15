@@ -14,6 +14,11 @@ ns.AzeroChangelog = {
           "The Maclures live in a thatched cottage you can visit.",
           "The forest edge winds round the town; a pumpkin patch.",
           "Guildmates on an older version are hidden in Goldshire.",
+          "Goldshire keeps a daily routine by the realm clock.",
+          "People walk to work, eat at the inn and go home.",
+          "Old Tom lights the lamp posts at dusk, puts them out at dawn.",
+          "Maybell's market stall opens at eight and shuts at six.",
+          "Guard Thomas walks the roads at night with a lantern.",
       } },
     { version = "0.26", date = "15 October 2026", title = "Blackrock",
       lines = {
