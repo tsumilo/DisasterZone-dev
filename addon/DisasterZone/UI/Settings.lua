@@ -2596,7 +2596,7 @@ end
 
 -- What reaches you: one grid for every kind of notification and the BiS drop alert, grouped by the part of the addon
 -- they come from (Loot first, with the BiS alert on top), then "Off-spec items too" for the BiS alert.
-local KIND_GROUPS = { "Loot", "Raids", "Dungeons", "Polls", "Games", "Feedback", "DisasterZone" }
+local KIND_GROUPS = { "Loot", "Raids", "Dungeons", "Polls", "Recruitment", "Games", "Feedback", "DisasterZone" }
 
 function SettingsUI:BuildNotify(sec)
     local N = ns.Notify

@@ -51,6 +51,7 @@
   {"kind": "up", "from": "Core/Materials.lua", "to": "Core/Comm.lua", "why": "L3->L4 Items->Sync", "syms": ["Comm", "Comm.Register", "Comm.Send"]},
   {"kind": "up", "from": "Core/Meter.lua", "to": "UI/MeterWindow.lua", "why": "L3->L5 Combat->Combat", "syms": ["MeterWindow", "MeterWindow.Toggle"]},
   {"kind": "up", "from": "Core/OfficerNotes.lua", "to": "Core/Comm.lua", "why": "L3->L4 Guild->Sync", "syms": ["Comm.RateLimit", "Comm.Register", "Comm.Send"]},
+  {"kind": "up", "from": "Core/RecruitIntro.lua", "to": "Core/Comm.lua", "why": "L3->L4 Guild->Sync", "syms": ["Comm.Register", "Comm.Send"]},
   {"kind": "up", "from": "Core/Recruit.lua", "to": "Core/Comm.lua", "why": "L3->L4 Guild->Sync", "syms": ["Comm.RateLimit", "Comm.Register", "Comm.Send"]},
   {"kind": "up", "from": "Core/Perf.lua", "to": "Core/Comm.lua", "why": "L0->L4 Platform->Sync", "syms": ["Comm", "Comm.Backlog", "Comm.OnCommReceived", "Comm.Send", "Comm.stats"]},
   {"kind": "up", "from": "Core/Perf.lua", "to": "Render3D/Rooms.lua", "why": "L0->L5 Platform->Render3D", "syms": ["Render3D.DATA_ADDON"]},

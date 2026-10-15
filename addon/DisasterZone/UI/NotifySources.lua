@@ -437,6 +437,187 @@ local function register()
     end, { "PATCH_UPDATED" })
 end
 
+-- Recruitment (Core/Recruit.lua, Core/RecruitIntro.lua; the page is UI/Recruit.lua's Guild > Recruitment)
+local function openRecruit(key) if ns.RecruitUI then ns.RecruitUI:Open(key) end end
+
+local function whisper(key)
+    local name = (Ambiguate and Ambiguate(key, "none")) or Short(key)
+    local open = (ChatFrameUtil and ChatFrameUtil.OpenChat) or ChatFrame_OpenChat
+    if open then open("/w " .. name .. " ") end
+end
+
+local MILESTONE = { [58] = "hit level 58: off to Outland", [70] = "hit level 70", d = "did a first dungeon with the guild",
+                    r = "came to a first raid with the guild" }
+
+local function registerRecruit(N)
+    local Rc = ns.Recruit
+    -- the GM and officers: the people who need them
+    N:RegisterKind("recruit", {
+        section = "Recruitment", page = "recruit", icon = { 46, 19, 4 }, color = S.C.GOLD,
+        label = "People to talk to", desc = "Follow-ups, introductions nobody took, check-ins, milestones, quiet new members.",
+        needsYou = true, popup = true, sound = false, home = true,
+        kicker = function(it) return it.data and it.data.kicker or "Recruitment" end,
+        open = function(it) openRecruit(it.data and it.data.who) end,
+        actions = function(it)
+            local who = it.data and it.data.who
+            if it.data and it.data.online then
+                return { { text = "Whisper", primary = true, fn = function() whisper(who) end },
+                         { text = "Open", fn = function() openRecruit(who) end } }
+            end
+            return { { text = "Open", primary = true, fn = function() openRecruit(who) end } }
+        end,
+        chip = function() return { kind = "warn", icon = atlas(UI().ICON.team or 46) } end,
+        chipGroup = function(items) return { text = #items .. " to talk to", title = #items .. " people need you in Recruitment" } end,
+        openGroup = function() openRecruit() end,
+    })
+    N:RegisterSource("recruit", function()
+        local out = {}
+        if not (Rc and Rc.CanUse and Rc:CanUse()) then return out end
+        local me, now = Me(), ns.Util.Now()
+        local rules = Rc:GetRules()
+        for _, r in ipairs(Rc:GetPeople()) do
+            local name = UI():ColoredName(r.key, r.c)
+            local live = Rc:Live(r.key) or {}
+            local sec = Rc:Section(r)
+            local data = { who = r.key, online = live.online }
+            if sec == "unclaimed" then
+                local days = math.floor((now - (r.at or r.rev)) / DAY)
+                local late = (rules.uc or 0) > 0 and days >= rules.uc
+                data.kicker = late and "Recruitment · nobody took them" or "Recruitment · introduced"
+                out[#out + 1] = { key = (late and "uc:" or "u:") .. r.key, from = r.ib, time = r.at, data = data,
+                    title = name .. (r.ib and (" (from " .. Short(r.ib) .. ")") or ""),
+                    text = r.it and ("\"" .. r.it .. "\"") or "Nobody is talking with them yet.",
+                    short = Short(r.key) .. " needs someone to talk to" }
+            elseif sec == "need" and r.w == me and live.online ~= false then
+                data.kicker = live.online and "Recruitment · online now" or "Recruitment · follow-up"
+                out[#out + 1] = { key = "f:" .. r.key .. ":" .. r.fu.at, time = r.fu.at, data = data,
+                    title = live.online and (name .. " is online") or ("Talk to " .. name .. " again"),
+                    text = r.fu.t ~= "" and ("You said: " .. r.fu.t) or "Your follow-up is today.",
+                    short = "Talk to " .. Short(r.key) }
+            elseif sec == "check" and r.jb == me then
+                local due = Rc:CheckInDue(r)
+                data.kicker = "Recruitment · check-in"
+                out[#out + 1] = { key = "c:" .. r.key .. ":" .. due, time = r.ja, data = data,
+                    title = "Check in with " .. name, text = due == "w" and "A week in the guild." or "A month in the guild.",
+                    short = "Check in with " .. Short(r.key) }
+            elseif sec == "mile" and r.jb == me then
+                local m, at = Rc:RecentMilestone(r)
+                if (rules.ms or {})[m] ~= false then
+                    data.kicker = "Recruitment · milestone"
+                    out[#out + 1] = { key = "m:" .. r.key .. ":" .. tostring(m), time = at, data = data,
+                        title = name .. " " .. (MILESTONE[m] or ""), text = "You invited them on " .. date("%d %b", r.ja or r.rev) .. ".",
+                        short = Short(r.key) .. " " .. (MILESTONE[m] or "") }
+                end
+            elseif sec == "quiet" and r.jb == me then
+                data.kicker = "Recruitment · gone quiet"
+                out[#out + 1] = { key = "q:" .. r.key, time = r.la, data = data, title = name .. " has gone quiet",
+                    text = "Offline " .. (Rc:QuietDays(r) or 0) .. " days. Maybe a whisper?", short = Short(r.key) .. " has gone quiet" }
+            elseif r.st == "gone" and r.jb == me and r.rev > now - 7 * DAY then
+                data.kicker = "Recruitment · left"
+                out[#out + 1] = { key = "l:" .. r.key .. ":" .. r.rev, time = r.rev, data = data, needsYou = false,
+                    title = name .. " left the guild", text = "You invited them on " .. date("%d %b", r.ja or r.rev) .. ".",
+                    short = Short(r.key) .. " left the guild" }
+            elseif r.st == "notnow" and (rules.nn or 0) > 0 and r.nn and now >= r.nn + rules.nn * DAY
+                and (r.w == me or (not r.w and r.by == me)) then
+                data.kicker = "Recruitment · Not now"
+                out[#out + 1] = { key = "n:" .. r.key .. ":" .. r.nn, time = r.nn, data = data,
+                    title = "Talk to " .. name .. " again?", text = "You said Not now on " .. date("%d %b", r.nn) .. ".",
+                    short = "Talk to " .. Short(r.key) .. " again?" }
+            end
+        end
+        return out
+    end, { "RECRUIT_UPDATED", "RECRUIT_LIVE", "RECRUIT_RULES_CHANGED", "ROSTER_UPDATED" })
+    ns:On("RECRUIT_ONLINE", function() N:Refresh("recruit") end)
+
+    -- Raid leaders: someone joined onto their team's bench, a raider hit 70
+    N:RegisterKind("recruitTeam", {
+        section = "Recruitment", page = "raids", icon = { 46, 19, 4 }, color = S.C.GOLD,
+        label = "New raiders for the teams", desc = "Someone joined onto a team's bench, or a new member who wants to raid hit 70.",
+        needsYou = false, popup = true, sound = false, home = true,
+        kicker = function() return "Recruitment · for raid leaders" end,
+        open = function(it)
+            openTab("raids")
+            if ns.RaidsUI and ns.RaidsUI.SetView then ns.RaidsUI:SetView("teams") end
+            if ns.RaidPlanUI and it.data and it.data.team then ns.RaidPlanUI:SelectTeam(it.data.team) end
+        end,
+        actions = function(it)
+            return { { text = "Open the team", primary = true, fn = function() N:Open(it.id) end },
+                     { text = "OK", fn = function() Rc:DismissTeamNews(it.data.id) end } }
+        end,
+    })
+    N:RegisterSource("recruitTeam", function()
+        local out = {}
+        if not (Rc and Rc.GetTeamNews) then return out end
+        for _, n in ipairs(Rc:GetTeamNews()) do
+            local team = ns.RaidPlan and ns.RaidPlan:GetTeam(n.team)
+            local spec = n.c and n.sp and ns.SPECS[n.c] and ns.SPECS[n.c][n.sp]
+            local what = (spec and (spec.label .. " ") or "") .. (n.c and ns.ClassName(n.c) or "")
+            local where = team and (n.why == "70" and (team.name .. " has a place for them") or ("on " .. team.name .. "'s bench")) or ""
+            out[#out + 1] = { key = n.id, from = n.by, time = n.at, data = { id = n.id, team = n.team },
+                title = UI():ColoredName(n.key, n.c) .. (n.why == "70" and " hit 70 and wants to raid" or " joined the guild"),
+                text = (what ~= "" and where ~= "") and (what .. " · " .. where) or (what .. where),
+                short = Short(n.key) .. (n.why == "70" and " wants to raid" or " joined") }
+        end
+        return out
+    end, { "RECRUIT_TEAM_NEWS", "RAIDPLAN_CHANGED" })
+
+    -- Every member: an officer asks about someone, or my introduction joined
+    local Intro = ns.RecruitIntro
+    N:RegisterKind("recruitAsk", {
+        section = "Recruitment", icon = { 46, 19, 4 }, color = S.C.GOLD,
+        label = "Asked by an officer", desc = "How did it go with someone, could you take them along; a friend you introduced joined.",
+        needsYou = true, popup = true, sound = false, home = true,
+        kicker = function(it) return it.data and it.data.kicker or "Recruitment" end,
+        actions = function(it)
+            local d = it.data or {}
+            if d.kind == "q" then
+                return { { text = "Answer", primary = true, fn = function()
+                            ns.Popup:Prompt({ title = "How did it go with " .. Short(d.who) .. "?",
+                                text = "One line for " .. Short(d.by) .. ". It goes on their recruitment card.",
+                                maxLetters = 200, trim = true, validate = function(v) return v ~= "" end,
+                                onAccept = function(v) Intro:Answer(d.id, v) end })
+                         end },
+                         { text = "Skip", fn = function() Intro:Dismiss(d.id) end } }
+            elseif d.kind == "t" then
+                return { { text = "Sure", primary = true, fn = function() Intro:TakeAlong(d.id, true) end },
+                         { text = "Not tonight", fn = function() Intro:TakeAlong(d.id, false) end } }
+            end
+            return { { text = "OK", primary = true, fn = function() Intro:DismissIntro(d.who) end } }
+        end,
+    })
+    N:RegisterSource("recruitAsk", function()
+        local out = {}
+        if not Intro then return out end
+        for _, a in ipairs(Intro:GetAsks()) do
+            local name = UI():ColoredName(a.key, a.c)
+            if a.kind == "q" then
+                out[#out + 1] = { key = a.id .. ":" .. a.at, from = a.by, time = a.at, title = "How did it go with " .. name .. "?",
+                    text = Short(a.by) .. " would like a word about them, one line.", short = "How did it go with " .. Short(a.key) .. "?",
+                    data = { id = a.id, kind = "q", who = a.key, by = a.by, kicker = "From " .. Short(a.by) .. " · recruitment" } }
+            else
+                local bits = {}
+                if a.lv then bits[#bits + 1] = "level " .. a.lv end
+                if a.z then bits[#bits + 1] = a.z end
+                if a.t and a.t ~= "" then bits[#bits + 1] = a.t end
+                out[#out + 1] = { key = a.id .. ":" .. a.at, from = a.by, time = a.at, title = "Could you take " .. name .. " along?",
+                    text = table.concat(bits, " · "), short = "Take " .. Short(a.key) .. " along?",
+                    data = { id = a.id, kind = "t", who = a.key, by = a.by, kicker = "From " .. Short(a.by) .. " · take someone along" } }
+            end
+        end
+        for _, e in ipairs(Intro:GetIntros()) do
+            if e.joined then
+                out[#out + 1] = { key = "j:" .. e.key, time = e.joined, title = Short(e.key) .. " joined the guild",
+                    text = "You introduced them. Thank you!", short = Short(e.key) .. " joined",
+                    data = { kind = "j", who = e.key, kicker = "Recruitment · your friend" } }
+            end
+        end
+        return out
+    end, { "RECRUIT_MEMBER_UPDATED" })
+end
+
 function NotifySources:OnInit()
-    if ns.Notify then register() end
+    if ns.Notify then
+        register()
+        registerRecruit(ns.Notify)
+    end
 end

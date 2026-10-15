@@ -1042,6 +1042,91 @@ function H.OnSystem(text)
 end
 
 ---------------------------------------------------------------------------
+-- Settling in: what the guild roster says about the people who joined. One client keeps each person up to date:
+-- whoever invited them (else the Guild Master, when the inviter isn't in the guild any more). Their level (58 and 70
+-- are milestones; a raider at 70 is a word for the raid leaders), when they were last online (gone quiet), their
+-- first raid with the guild (attendance), and leaving the guild ("gone").
+---------------------------------------------------------------------------
+
+-- Last online from the roster: seconds ago (0 while online), or nil when they're not in it.
+function H.RosterSeen(key)
+    local G = Guild()
+    local m = G and G.GetMember and G:GetMember(key, true)
+    if not m then return nil end
+    if m.online then return 0, m.level end
+    for i = 1, (GetNumGuildMembers and GetNumGuildMembers()) or 0 do
+        local name = GetGuildRosterInfo(i)
+        if name and Util.NormalizeName(name) == key and GetGuildRosterLastOnline then
+            local y, mo, d, h = GetGuildRosterLastOnline(i)
+            local s = (((tonumber(y) or 0) * 365 + (tonumber(mo) or 0) * 30 + (tonumber(d) or 0)) * 24 + (tonumber(h) or 0)) * 3600
+            return s, m.level
+        end
+    end
+    return nil, m.level
+end
+
+function H.KeeperOf(r)
+    local G = Guild()
+    if r.jb and G and G:IsInGuild(r.jb, true) then return r.jb end
+    return G and G.GetGM and G:GetGM() or nil
+end
+
+function H.CheckSettling()
+    local G = Guild()
+    if Util.DemoOn() or not H.AmIRealRecruiter() or not (G and G.IsReady and G:IsReady()) then return end
+    local me, now = Me(), Now()
+    local rules = Recruit:GetRules()
+    local ms = rules.ms or {}
+    for key, rec in pairs(H.People()) do
+        if rec.st == "joined" and H.KeeperOf(rec) == me then
+            local r = Recruit:Clean(rec)
+            local fields, any = {}, false
+            local function set(f, v) fields[f], any = v, true end
+            if not G:IsInGuild(key, true) then
+                set("st", "gone")
+            else
+                local ago, lv = H.RosterSeen(key)
+                local la = ago and (now - ago) or nil
+                if la and math.abs((r.la or 0) - la) > DAY / 2 then set("la", floor(la)) end
+                if lv and lv ~= r.lv then set("lv", lv) end
+                local reached = Util.CopyTable(r.ms or {})
+                local changed = false
+                for _, at in ipairs({ 58, 70 }) do
+                    if ms[at] ~= false and lv and lv >= at and not reached[at] and (r.jl or 0) < at then
+                        reached[at], changed = now, true
+                        if at == 70 and rules.rl ~= false and Recruit:Wants(r, "raid") then H.TellAt70(key, r) end
+                    end
+                end
+                local Att = ns.Attendance
+                if ms.r ~= false and not reached.r and Att and Att.GetHistory then
+                    local ok, hist = pcall(Att.GetHistory, Att, key)
+                    if ok and type(hist) == "table" and #hist > 0 then reached.r, changed = now, true end
+                end
+                if changed then set("ms", reached) end
+            end
+            if any then Recruit:Note(key, fields) end
+        end
+    end
+end
+
+-- A raider hit 70: a word for the raid leaders, with the team that has a place for them (if any).
+function H.TellAt70(key, r)
+    local _, best = Recruit:Fits(r)
+    local team = best and best.team or { id = r.tm or "" }
+    local G = Guild()
+    if not G then return end
+    local to = {}
+    for _, k in ipairs(G:GetRaidLeaders() or {}) do to[k] = true end
+    local gm = G.GetGM and G:GetGM()
+    if gm then to[gm] = true end
+    for _, k in ipairs(G:GetOnlineMembers() or {}) do
+        if to[k] and not Util.IsMe(k) then
+            H.Send({ t = "RCR", k = key, tm = team.id, c = r.c, sp = r.sp, why = "70" }, k)
+        end
+    end
+end
+
+---------------------------------------------------------------------------
 -- Demo mode: made-up people, in memory only, never sent
 ---------------------------------------------------------------------------
 
@@ -1134,6 +1219,7 @@ function Recruit:OnLogin()
         Util.Debounce("recruit-roster", 5, function()
             H.Purge()
             if not indexSent then H.Share() end
+            H.CheckSettling()
         end)
     end)
 end

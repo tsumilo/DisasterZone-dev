@@ -39,11 +39,12 @@ local function Me() return ns.Util.PlayerKey() end
 
 H.SECTIONS = {
     talk = { { "unclaimed", "UNCLAIMED" }, { "need", "NEEDS YOU" }, { "talk", "TALKING" } },
-    joined = { { "check", "CHECK-IN DUE" }, { "mile", "MILESTONES" }, { "quiet", "GONE QUIET" }, { "settle", "SETTLING IN" } },
+    joined = { { "check", "CHECK-IN DUE" }, { "mile", "MILESTONES" }, { "quiet", "GONE QUIET" }, { "settle", "SETTLING IN" },
+               { "gone", "LEFT THE GUILD" } },
     notnow = { { "notnow", "NOT NOW" } },
 }
 H.FILTER_OF = { unclaimed = "talk", need = "talk", talk = "talk", check = "joined", mile = "joined", quiet = "joined",
-                settle = "joined", notnow = "notnow" }
+                settle = "joined", gone = "joined", notnow = "notnow" }
 H.WANTS = { { "raid", "Raiding" }, { "dungeons", "Dungeons" }, { "level", "Levelling" }, { "social", "Social" } }
 
 function H.SpecText(r)
@@ -217,6 +218,7 @@ function H.RowLine(r, sec)
     end
     if sec == "quiet" then return "Offline " .. (Rc:QuietDays(r) or 0) .. " days" end
     if sec == "settle" then return "Joined " .. date("%d %b", r.ja or 0) .. (r.jb and (" · " .. Short(r.jb)) or "") end
+    if sec == "gone" then return "Left the guild · joined " .. date("%d %b", r.ja or r.rev) end
     if sec == "notnow" then return "Not now since " .. date("%d %b", r.nn or r.rev) end
     if r.ni then
         local _, best = Rc:Fits(r)
@@ -280,7 +282,7 @@ local function initRow(row, d)
         return
     end
     local r = d.r
-    row.ar:SetData({ art = H.Art(H.ArtInst(r.key, r), d.sec == "notnow" or d.sec == "quiet"), title = Name(r.key, r.c),
+    row.ar:SetData({ art = H.Art(H.ArtInst(r.key, r), d.sec == "notnow" or d.sec == "quiet" or d.sec == "gone"), title = Name(r.key, r.c),
         sub = H.RowLine(r, d.sec), pill = H.RowPill(r, d.sec), selected = state.sel == r.key })
     row.ar.icon:Set(CLASS_TILE)
     row.ar.icon.tex:ClearAllPoints()
@@ -393,7 +395,7 @@ end
 function H.FillFits(c, r)
     local Rc = R()
     for _, row in ipairs(c.rows) do row:Hide() end
-    if r.st == "joined" then
+    if r.st == "joined" or r.st == "gone" then
         c:SetTitle("TEAM", "caps")
         local team = r.tm and R():GetTeam(r.tm)
         c.none:Show()
@@ -613,6 +615,7 @@ end
 
 function H.Kicker(r)
     if r.st == "joined" then return "JOINED " .. date("%d %b", r.ja or r.rev):upper() .. (r.jb and (" · INVITED BY " .. Short(r.jb):upper()) or "") end
+    if r.st == "gone" then return "LEFT THE GUILD · JOINED " .. date("%d %b", r.ja or r.rev):upper() end
     if r.st == "notnow" then return "NOT NOW · SINCE " .. date("%d %b", r.nn or r.rev):upper() end
     if not r.w then return (r.ib and ("INTRODUCED BY " .. Short(r.ib):upper()) or "NEW") .. " · " .. date("%d %b", r.at or r.rev):upper() end
     return "TALKING · " .. Short(r.w):upper() .. " · SINCE " .. date("%d %b", r.at or r.rev):upper()
@@ -641,6 +644,7 @@ function H.FillPerson()
     if sec == "unclaimed" then b:SetActions({ A.claim, A.pass })
     elseif r.st == "joined" then b:SetActions(Rc:CheckInDue(r) and { A.checked, A.later } or { A.later })
     elseif r.st == "notnow" then b:SetActions({ A.reopen })
+    elseif r.st == "gone" then b:SetActions({})
     else b:SetActions({ A.invite, A.notnow, A.along }) end
 
     -- the follow-up (or the claim) as the notice strip
@@ -678,8 +682,9 @@ function H.FillPerson()
         v.settle.facts:SetText(S:Wrap("TEXT", r.la and H.Day(r.la) or "?") .. " last online")
         ly = ly - 70 - GAP
     end
-    v.looking:SetShown(r.st ~= "joined")
-    if r.st ~= "joined" then
+    local joined = r.st == "joined" or r.st == "gone"
+    v.looking:SetShown(not joined)
+    if not joined then
         v.looking:ClearAllPoints()
         v.looking:SetPoint("TOPLEFT", 0, ly)
         ly = ly - H.FillLooking(v.looking, r) - GAP
@@ -1029,7 +1034,37 @@ function RU:BringAlongMenu(root)
         local sub = root:CreateButton(UI:AtlasIconText(UI.ICON.invite or 19, 14) .. "  A guest seat in a raid")
         GUI:BuildRaidMenu(sub, key, ns.GuestBook and ns.GuestBook:GetEntry(key))
     end
-    if RU.AskMemberMenu then RU:AskMemberMenu(root, key) end
+    RU:AskMemberMenu(root, key)
+end
+
+-- Guild members online (not me), for "ask a member": the ones who were in a group or raid with them first is not
+-- known to the addon, so: everyone online, by name.
+function H.OnlineMembers()
+    local G = ns.Guild
+    local out = {}
+    for _, k in ipairs(G and G.GetOnlineMembers and G:GetOnlineMembers() or {}) do
+        if not ns.Util.IsMe(k) then out[#out + 1] = k end
+    end
+    tsort(out)
+    return out
+end
+
+function RU:AskMemberMenu(root, key)
+    local I = ns.RecruitIntro
+    if not I then return end
+    local list = H.OnlineMembers()
+    root:CreateDivider()
+    local take = root:CreateButton(UI:AtlasIconText(UI.ICON.whisper or 42, 14) .. "  Ask a member to take them along")
+    local ask = root:CreateButton(UI:AtlasIconText(UI.ICON.notes or 25, 14) .. "  Ask how it went")
+    for i, m in ipairs(list) do
+        if i > 25 then break end
+        take:CreateButton(Name(m), function() H.Try(I:AskTakeAlong(key, m)) end)
+        ask:CreateButton(Name(m), function() H.Try(I:AskHowItWent(key, m)) end)
+    end
+    if #list == 0 then
+        take:CreateTitle("Nobody else is online")
+        ask:CreateTitle("Nobody else is online")
+    end
 end
 
 -- Invite to the guild: one dialog (the welcome line can be changed or emptied); the game's invite goes out on its
