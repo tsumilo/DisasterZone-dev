@@ -77,7 +77,7 @@ def demo_toggle_repeatedly_changes_nothing_saved_and_sends_nothing():
         after = snapshot(c)
         assert after == before, (rank, before, after)
         sent = [e for e in w.addon_log[m0:] if e["sender"] == c.full_name and e["prefix"] != "CDLm"]
-        assert sent == [], "rank %d: demo toggling sent %d addon message(s)" % (rank, len(sent))
+        assert sent == [], "rank %d: demo toggling sent %r" % (rank, [(e["prefix"], str(e.get("msg") or e.get("message") or e)[:160]) for e in sent])
         text = sv_text(c)
         leaked = [n for n in FAKE if n in text]
         assert not leaked, "demo names in SavedVariables: %r" % leaked

@@ -3110,9 +3110,12 @@ function Runs:OnInit()
         ns:RegisterEvent(ev, function() Util.Debounce("dungeon-runs-quests", 0.5, Changed) end)
     end
     -- (1.5) my group quests changed: the guild hears it; a quest group of mine whose quests are all done ends
-    ns:On("GROUP_QUESTS_UPDATED", function()
-        GK.OnQuestDone()
-        SendProfile()
+    -- (demo: its made-up log came or went; nothing real changed)
+    ns:On("GROUP_QUESTS_UPDATED", function(demoSwap)
+        if not demoSwap and not DemoOn() then
+            GK.OnQuestDone()
+            SendProfile()
+        end
         Changed()
     end)
     ns:On("GROUP_PVP_UPDATED", function() Util.Debounce("dungeon-runs-pvp", 2, SendProfile) end)

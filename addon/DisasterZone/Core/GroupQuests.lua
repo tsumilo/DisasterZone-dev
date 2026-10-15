@@ -116,11 +116,16 @@ local function InLog(id)
     return Q and Q.IsOnQuest and Q.IsOnQuest(id) and true or false
 end
 
--- Looks through the log again (the group quests only); fires GROUP_QUESTS_UPDATED when that set changed.
+-- Looks through the log again (the group quests only); fires GROUP_QUESTS_UPDATED when that set changed, with true
+-- when it changed only because demo mode came on or went off (nothing to tell the guild, no group of mine ends).
+local scannedDemo = false
 function GQ:Scan()
     Index()
     local now, changed = {}, false
-    if ns.Util.DemoOn() then
+    local demo = ns.Util.DemoOn() and true or false
+    local swapped = demo ~= scannedDemo
+    scannedDemo = demo
+    if demo then
         -- (demo: a made-up log, Terokkar and Nagrand)
         for _, id in ipairs({ 11073, 9977, 9937, 9853 }) do
             local q = byId[id]
@@ -134,7 +139,7 @@ function GQ:Scan()
     for k in pairs(now) do if not mine[k] then changed = true end end
     for k in pairs(mine) do if not now[k] then changed = true end end
     mine = now
-    if changed then ns:Fire("GROUP_QUESTS_UPDATED") end
+    if changed then ns:Fire("GROUP_QUESTS_UPDATED", swapped) end
     return changed
 end
 

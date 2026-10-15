@@ -301,11 +301,11 @@ MENU = """
     return { pages = pages, shown = shown, tools = ns.MainFrame:GetShownTools() }
 """
 m = vic.eval_py(MENU)
-assert not any(txt(x) in ("Blessings", "Totems") for x in m["pages"]) and m["shown"] is False and m["tools"] == ["editlayout"], m
+assert not any(txt(x) in ("Blessings", "Totems") for x in m["pages"]) and m["shown"] is False and m["tools"] == ["editlayout", "keybinds"], m
 m = kha.eval_py(MENU)
 pages = [txt(x) for x in m["pages"]]
 assert "Totems" not in pages and "Blessings" not in pages and m["shown"] is True, m
-assert [txt(x) for x in m["tools"]] == ["totems", "editlayout"], m
+assert [txt(x) for x in m["tools"]] == ["totems", "editlayout", "keybinds"], m
 
 w.assert_no_errors()
 print(w.report())

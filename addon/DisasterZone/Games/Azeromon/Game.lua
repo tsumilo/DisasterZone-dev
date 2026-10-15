@@ -1610,7 +1610,7 @@ end
 ---------------------------------------------------------------------------
 
 function G:OnInit()
-    if not ns:HasAssets(12) then return end      -- Blackrock's grounds, world map and pixel font came with art pack 12
+    if not ns:HasAssets(13) then return end      -- Goldshire's new grounds and atlas came with art pack 13 (Blackrock's with 12)
     ns:RegisterEvent("ENCOUNTER_END", function(_, encounterID, encounterName, _, _, success)
         G:OnEncounterEnd(encounterID, encounterName, success)
     end)

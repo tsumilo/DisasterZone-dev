@@ -58,7 +58,8 @@ def demo_mode_fills_the_page_and_saves_and_sends_nothing():
     # the demo's officer answer is news in the bell too (kept in memory by the notification center)
     g.eval("ns.Notify:Refresh('feedbackAnswer')")
     w.tick(0.2)
-    assert g.eval("for _, it in ipairs(ns.Notify:List()) do if it.kind == 'feedbackAnswer' then return it.title end end")         == "Caelith answered your feedback"
+    assert g.eval("for _, it in ipairs(ns.Notify:List()) do if it.kind == 'feedbackAnswer' "
+                  "and it.title == 'Caelith answered your feedback' then return true end end") is True
     # off again: the real (empty) feedback, the demo's gone
     g.slash("/dz demo off")
     w.tick(1)

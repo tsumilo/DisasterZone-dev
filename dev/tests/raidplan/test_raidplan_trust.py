@@ -251,7 +251,8 @@ def a_weeks_own_leader_edits_and_cancels_that_week_but_does_not_delete_it():
     w.tick(0.3)
     btn = vic.eval("return %s.upcoming.detail.moreBtn" % P)
     entries = [e["text"] for e in vic.dropdown_menu(btn)["children"] if e.get("text") and "|T" not in e["text"]]
-    assert entries == ["Cancel this week's raid"], entries
+    # (1.5: a raid short of players offers Fill open places on Groups first)
+    assert entries == ["Fill open places on Groups", "Cancel this week's raid"], entries
     vic.eval("ns.RaidPlanUI:OpenEditor(...)", occ1)
     assert vic.eval("return ns.RaidPlanUI:GetEditor():IsShown()")
     assert not vic.eval("return ns.RaidPlanUI:GetEditor().saveAllBtn:IsShown()")
@@ -267,7 +268,7 @@ def a_weeks_own_leader_edits_and_cancels_that_week_but_does_not_delete_it():
     w.tick(0.3)
     btn = sam.eval("return %s.upcoming.detail.moreBtn" % P)
     entries = [e["text"] for e in sam.dropdown_menu(btn)["children"] if e.get("text") and "|T" not in e["text"]]
-    assert entries == ["Cancel this week's raid", "Stop repeating after this raid", "Delete this week's raid...",
+    assert entries == ["Fill open places on Groups", "Cancel this week's raid", "Stop repeating after this raid", "Delete this week's raid...",
                        "Delete the whole weekly raid..."], entries
     assert call(sam, "DeleteRaid", occ0)["ok"] is True
     w.tick(2)

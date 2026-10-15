@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.5.0", date = "October 2026", title = "Groups",
+    { version = "1.5.0", date = "15 October 2026", title = "Groups, UI profiles and key binds",
       sections = {
           { heading = "Groups", area = "raids", kind = "new", hi = true, open = "dungeons",
             lead = "The Dungeons tab is now Groups: dungeons, raids, quests and PvP on one board.", lines = {
@@ -70,7 +70,7 @@ ns.CHANGELOG = {
           } },
           { heading = "Vendor visits", area = "look", kind = "new", open = "settings/looks",
             lead = "Junk sells and your gear mends as soon as you talk to a vendor.", lines = {
-              { "Settings > Looks > Bags: sell junk and repair, each its own switch, off until you turn it on.", fb = { 21 }, by = { "Vicnado" }, k = "idea" },
+              { "Settings > Looks > Bags: sell junk and repair, each its own switch, off by default.", fb = { 21 }, by = { "Vicnado" }, k = "idea" },
               { "Pick how far up it sells on a rarity ladder: junk only, or up to common or uncommon gear.", fb = { 21 }, by = { "Vicnado" }, k = "idea" },
               "Above grey only weapons and armour sell, soulbound ones unless you say otherwise.",
               "Gear in an outfit or on your BiS lists never sells; Check my bags shows what would.",
@@ -105,8 +105,8 @@ ns.CHANGELOG = {
           } },
           { heading = "Errors in bug reports", area = "other", kind = "new", open = "feedback",
             lead = "A bug report can carry the whole error, pasted from BugSack.", lines = {
-              { "Something broke has a Paste error button: the error goes in its own window, apart from your words.", fb = { 20 }, by = { "Vicnado" }, k = "idea" },
-              "A report with an error shows a red warning icon in its header: click it to read and copy the error.",
+              { "Something broke: Paste error puts the error in its own window, apart from your words.", fb = { 20 }, by = { "Vicnado" }, k = "idea" },
+              "A report with an error has a red warning icon in its header: click it to read and copy it.",
           } },
           { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
               "Fixed: the game's Quick Keybind Mode no longer errors when you drop an ability.",

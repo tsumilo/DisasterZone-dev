@@ -175,7 +175,7 @@ def cancel_menu_cancels_restores_and_deletes_weekly():
     btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.moreBtn")
     # (the ··· menu: Raid leader and Edit with their icons, then cancelling and deleting)
     entries = [e["text"] for e in bob.dropdown_menu(btn)["children"] if e.get("text") and "|T" not in e["text"]]
-    assert entries == ["Cancel this week's raid", "Stop repeating after this raid", "Delete this week's raid...",
+    assert entries == ["Fill open places on Groups", "Cancel this week's raid", "Stop repeating after this raid", "Delete this week's raid...",
                        "Delete the whole weekly raid..."], entries
     bob.menu_select("Cancel this week's raid")
     w.tick(2)
