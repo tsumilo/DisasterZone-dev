@@ -87,6 +87,11 @@ local HAND_SLOT = { [16] = "MAINHANDSLOT", [17] = "SECONDARYHANDSLOT" }
 -- said they held, for at most REMOTE_RUN s (then they stand); a new word's guess drawn from where they were drawn,
 -- the gap closing over about 1 / REMOTE_EASE s; one more than REMOTE_SNAP yd off (or 4 yd up or down) is put there.
 local REMOTE_RUN, REMOTE_EASE, REMOTE_SNAP = 3, 7, 6
+-- A raid walking together (tests/strategy/test_walk_crowd.py, 25 walkers): only the WALK_OCC_MAX others nearest the
+-- camera, on screen and within WALK_OCC_DIST yd of where the view looks, are hidden where the room is in front of
+-- them; names out to WALK_LABEL_DIST yd.
+local WALK_OCC_MAX, WALK_OCC_DIST, WALK_LABEL_DIST = 6, 45, 70
+local NONE = {}
 
 -- Floor marks (yd over the floor, so they never sink into it), posts (yd)
 local LIFT, LIFT_HATCH, LIFT_SEL = 0.08, 0.06, 0.11
@@ -2608,8 +2613,18 @@ function V:DrawWalkers(occ, n)
     local dt = min(0.25, now - (self.walkersAt or now))
     self.walkersAt = now
     local r3 = R3()
-    local seen, ground, fl = {}, r3.Ground(self.room), r3.Floor(self.room)
-    for _, rw in ipairs(ground and fl and self:RemoteWalkers() or {}) do
+    local ground, fl = r3.Ground(self.room), r3.Floor(self.room)
+    local seen = self.walkSeen or {}
+    self.walkSeen = seen
+    wipe(seen)
+    local cand, candD, candZ = self.walkCand or {}, self.walkCandD or {}, self.walkCandZ or {}
+    self.walkCand, self.walkCandD, self.walkCandZ = cand, candD, candZ
+    local nc = 0
+    -- (how far: from where the view looks - my feet while walking, else the orbit's centre - not from the camera,
+    -- which stands 100 yd back over the whole room)
+    local focus = self.walk and self.walk.k or self.orb
+    local fx, fy = focus.x or 0, focus.y or 0
+    for _, rw in ipairs(ground and fl and self:RemoteWalkers() or NONE) do
         local a = self.walkers[rw.key]
         if not a then
             -- (a pool of their own: an actor shared with the bosses' kept their scale and centre, and lost Hydross)
@@ -2671,31 +2686,45 @@ function V:DrawWalkers(occ, n)
             end
             a.wf = a.wface + have
             local z = a.wz - (k.swimming and SWIM_SINK or 0)
-            local dx, dy = self.view:CentreShift(a, 1, a.wf)
-            pcall(a.SetPosition, a, a.wx + dx, self.view:SY(a.wy + dy), z)
-            pcall(a.SetYaw, a, self.cam.mirror * a.wf)
-            pcall(a.SetShown, a, true)
+            -- (placed only when they moved or turned: a raid standing round costs no calls)
+            if a.px ~= a.wx or a.py ~= a.wy or a.pz ~= z or a.pf ~= a.wf then
+                a.px, a.py, a.pz, a.pf = a.wx, a.wy, z, a.wf
+                local dx, dy = self.view:CentreShift(a, 1, a.wf)
+                pcall(a.SetPosition, a, a.wx + dx, self.view:SY(a.wy + dy), z)
+                pcall(a.SetYaw, a, self.cam.mirror * a.wf)
+            end
+            if not a.walkShown then
+                a.walkShown = true
+                pcall(a.SetShown, a, true)
+            end
             local anim = (k.falling and WANIM.fall) or (k.swimming and (k.moving and WANIM.swim or WANIM.swimIdle))
                 or (k.moving and (k.backward and WANIM.back or WANIM.run)) or WANIM.stand
             if a.anim ~= anim then
                 a.anim = anim
                 pcall(a.SetAnimation, a, anim)
             end
-            n = n + 1
-            local o = occ[n] or {}
-            occ[n] = o
-            o.id, o.x, o.y, o.z, o.h, o.group, o.layer = a, a.wx, a.wy, z, 2.4, nil, nil
-            o.w, o.rb, o.top, o.prio = 1.2, 0.6, 2.6, 1
-            -- the name over them
+            -- the name over them, out to WALK_LABEL_DIST yd; on screen and near enough, a candidate occluder (the
+            -- WALK_OCC_MAX nearest the camera are, below)
             local fs = self.walkerLabels[rw.key]
             if not fs then
                 fs = self.view.plateFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                 self.walkerLabels[rw.key] = fs
             end
-            local sx, sy = self:Proj(a.wx, a.wy, z + 2.7)
-            if sx then
-                fs:SetText((ns.Util and ns.Util.ShortName and ns.Util.ShortName(rw.key)) or rw.key)
-                fs:SetTextColor(rw.r or 1, rw.g or 1, rw.b or 1)
+            local sx, sy, d = self:Proj(a.wx, a.wy, z + 2.7)
+            local pw, ph = self.view.plateFrame:GetSize()
+            local onScreen = sx and (d or 1) > 0 and sx > -60 and sy > -60 and sx < (pw or 0) + 60
+                and sy < (ph or 0) + 120
+            local far2 = (a.wx - fx) ^ 2 + (a.wy - fy) ^ 2
+            if onScreen and far2 <= WALK_OCC_DIST * WALK_OCC_DIST then
+                nc = nc + 1
+                cand[nc], candD[nc], candZ[nc] = a, d or 0, z
+            end
+            if onScreen and far2 <= WALK_LABEL_DIST * WALK_LABEL_DIST then
+                if fs.walkKey ~= rw.key then
+                    fs.walkKey = rw.key
+                    fs:SetText((ns.Util and ns.Util.ShortName and ns.Util.ShortName(rw.key)) or rw.key)
+                    fs:SetTextColor(rw.r or 1, rw.g or 1, rw.b or 1)
+                end
                 fs:ClearAllPoints()
                 fs:SetPoint("BOTTOM", self.view.plateFrame, "BOTTOMLEFT", sx, sy)
                 fs:Show()
@@ -2704,11 +2733,35 @@ function V:DrawWalkers(occ, n)
             end
         end
     end
+    -- occluders: the WALK_OCC_MAX nearest the camera, on screen, within WALK_OCC_DIST yd (each one's copies are redone
+    -- every frame it moves - 24 in view cost the copies ~5 ms a frame; a far one is small, and one shown over a pillar
+    -- is a smaller fault than the frame time)
+    for i = nc + 1, #cand do cand[i] = nil end
+    if nc > WALK_OCC_MAX then
+        for i = 2, nc do                    -- (insertion sort by depth: a handful, no closure, no garbage)
+            local ca, cd, cz, j = cand[i], candD[i], candZ[i], i - 1
+            while j >= 1 and candD[j] > cd do
+                cand[j + 1], candD[j + 1], candZ[j + 1] = cand[j], candD[j], candZ[j]
+                j = j - 1
+            end
+            cand[j + 1], candD[j + 1], candZ[j + 1] = ca, cd, cz
+        end
+        nc = WALK_OCC_MAX
+    end
+    for i = 1, nc do
+        local a = cand[i]
+        n = n + 1
+        local o = occ[n] or {}
+        occ[n] = o
+        o.id, o.x, o.y, o.z, o.h, o.group, o.layer = a, a.wx, a.wy, candZ[i], 2.4, nil, nil
+        o.w, o.rb, o.top, o.prio = 1.2, 0.6, 2.6, 1
+    end
     for key, a in pairs(self.walkers) do
         if not seen[key] then
             pcall(a.SetShown, a, false)
             pcall(a.ClearModel, a)
             a.look, a.display, a.anim, a.sim, a.dressLook = nil, nil, nil, nil, nil
+            a.walkShown, a.px = nil, nil
             self.walkers[key] = nil
             self.walkerPool[#self.walkerPool + 1] = a
             if self.walkerLabels[key] then self.walkerLabels[key]:Hide() end

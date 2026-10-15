@@ -2306,6 +2306,8 @@ local function send_addon(fname, logged, prefix, text, chatType, target)
     if b.tokens < 1 then
       M.warn("addon message throttled by the server rate limit (prefix '" .. prefix .. "', >10 msgs burst, 1/s regen)")
       M.throttled = (M.throttled or 0) + 1
+      M.throttledBy = M.throttledBy or {}
+      M.throttledBy[prefix] = (M.throttledBy[prefix] or 0) + 1
       return R.AddonMessageThrottle
     end
     b.tokens = b.tokens - 1

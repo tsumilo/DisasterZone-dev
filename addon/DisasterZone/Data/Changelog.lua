@@ -15,6 +15,7 @@ ns.CHANGELOG = {
               "Positions never wait in a queue, so what you see is never seconds old.",
               "Their own race, sex and gear (helm and cloak only when shown).",
               "/dz 3d looks npc: walkers of the other sex as a dressed NPC of their race.",
+              "A whole raid can walk together: 25 at once stay smooth, only the nearest hide behind pillars.",
           } },
       } },
     { version = "1.5.0", date = "15 October 2026", title = "Groups, UI profiles and key binds",

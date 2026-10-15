@@ -968,20 +968,31 @@ end
 
 -- Who walks in strategy `id`'s room `roomKey` now (not me): { key, x, y, z, f, vx, vy, s, d, i, w, vz (nil i: an
 -- older version), n (words heard: a new one when it grows), age (seconds since they were where their last word says,
--- sent time on my clock), r, g, b (their class colour), look (SWL, or nil) }, by name.
+-- sent time on my clock), r, g, b (their class colour), look (SWL, or nil) }, by name. The list and its records are
+-- the same tables every call (the 3D view asks every frame: 25 walkers made ~1 MB of garbage a second), good until
+-- the next call.
+local walkList, walkRec = {}, {}
+local function ByKey(a, b) return a.key < b.key end
 function Collab:RemoteWalkers(id, roomKey)
-    local out, now = {}, GetTime()
+    local out, n, now = walkList, 0, GetTime()
     for key, w in pairs(walkers) do
         if now - w.heard > WALK_TTL then
             walkers[key] = nil
         elseif w.id == id and w.r == roomKey then
-            local r, g, b = self:ColorOf(key)
-            out[#out + 1] = { key = key, x = w.x, y = w.y, z = w.z, f = w.f, vx = w.vx, vy = w.vy, s = w.s, d = w.d,
-                              i = w.i, w = w.w, vz = w.vz, n = w.n, age = now - w.at, r = r, g = g, b = b,
-                              look = walkLooks[key] }
+            local o = walkRec[key]
+            if not o then
+                o = { key = key }
+                walkRec[key] = o
+            end
+            if o.n ~= w.n then o.r, o.g, o.b = self:ColorOf(key) end      -- (once a word: the roster may come late)
+            o.x, o.y, o.z, o.f, o.vx, o.vy, o.s, o.d = w.x, w.y, w.z, w.f, w.vx, w.vy, w.s, w.d
+            o.i, o.w, o.vz, o.n, o.age, o.look = w.i, w.w, w.vz, w.n, now - w.at, walkLooks[key]
+            n = n + 1
+            out[n] = o
         end
     end
-    table.sort(out, function(a, b) return a.key < b.key end)
+    for i = n + 1, #out do out[i] = nil end
+    if n > 1 then table.sort(out, ByKey) end
     return out
 end
 
