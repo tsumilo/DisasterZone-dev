@@ -1691,6 +1691,13 @@ STATES = [
                                                "ns.KitView:OpenPicker('best', 'flask', ns.MyBiS:GetPanel())")),
     ("My BiS - Consumables left out",kit_view(lua="ns.Kit:SetOff('best', 'food', true); ns.Kit:SetOff('budget', 'scroll', true)")),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
+    # the Crumbs Atlas: a place's whole loot, the path's drop-downs (Recent holds a Classic dungeon)
+    ("Atlas - all bosses", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan')")),
+    ("Atlas - jump panel", opened("atlas", "ns.AtlasUI:Select('c_dungeons', 'SMLibrary'); "
+                                           "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince'); "
+                                           "ns.AtlasNav:OpenJump('raids', ns.AtlasNav:GetCrumbFrames()[3])")),
+    ("Atlas - boss picker", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince'); "
+                                            "ns.AtlasNav:OpenBosses(ns.AtlasNav:GetCrumbFrames()[4])")),
     # my marks on a heroic dungeon's items: Gina's Pre-raid list (its hands also in P2: "Pre-raid, P2")
     ("Atlas - Pre-raid marks", opened("atlas", SEED_PRE_RAID + "local g = ns.BiS:GetSlot(0, 7); "
                                                "if g then ns.BiS:SetSlot(2, 7, 'main', g) end; local page; "
@@ -1721,8 +1728,10 @@ STATES = [
     ("Atlas - shopping list crafter", shop_view("ns.AtlasShopUI:Select('Lightbringer-Thunderstrike')")),
     ("Atlas - shopping list empty", shop_view("ns.Shop:Clear()")),
     ("Atlas - shopping list add", shop_view("ns.AtlasUI:Select('crafting', 'Tailoring', 'Bag'); "
-                                            "ns.AtlasUI:HoverItem(21841)")),
+                                            "ns.AtlasUI:HoverItem(21841); ns.AtlasUI:ShowShopNote(21841)")),
     # Classic | TBC (the last Atlas states: they end on TBC again)
+    ("Atlas - category tiles", opened("atlas", "ns.AtlasUI:OpenCategory('c_dungeons')")),
+    ("Atlas - place search", opened("atlas", "ns.AtlasUI:SetSearch('scar')")),
     ("Atlas - classic dungeon", opened("atlas", "ns.AtlasUI:Select('c_dungeons', 'ShadowfangKeep')")),
     ("Atlas - classic raid", opened("atlas", "ns.AtlasUI:Select('c_raids', 'MoltenCore', 'Ragnaros')")),
     ("Atlas - classic sets", opened("atlas", "ns.AtlasUI:Select('c_sets', 'Tier2', 'Paladin')")),

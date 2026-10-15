@@ -1,12 +1,12 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/AtlasShop.lua", ...) then return end -- DisasterZone UI/AtlasShop.lua
--- ns.AtlasShopUI: the shopping list inside the Atlas tab (model: Core/ShoppingList.lua). It is a place in the Atlas's
--- left column like Raids or Crafting and then fills the other two columns: the middle lists who makes my crafts
--- (Everything, me, the guild member who can make the most of what is left first, nobody, bind on pickup), the right
--- shows the chosen group's crafts (amount, how far the materials are broken down; a stepper and a bin on hover) over
--- their materials (what my bags and bank hold of what they need, the missing ones first) and, with Auctionator, what
--- the rest costs. A member's group has a Whisper button that types the ask with the item links.
--- UI/Atlas.lua creates it (ShopUI:Create) with its own text helpers and shows / hides it (ShowIn / Hide).
--- (1.4: the Atlas's List + detail layout; the rows' shared looks, text styles and tokens.)
+-- ns.AtlasShopUI: the shopping list page of the Atlas tab (model: Core/ShoppingList.lua), behind the bag button at
+-- the right of the Atlas's path ("Shopping list › Everyone ▾": whose crafts). One card per crafter: the guild member
+-- who can make the most of what is left first (online first), with what they know and a Whisper button that types
+-- the ask with the item links; then me, what nobody in the guild makes and what binds when picked up. A card lists
+-- its crafts (amount, how far the materials are broken down; a stepper, an eye and a bin on hover). Beside the cards
+-- the materials: what my bags and bank hold of what they need (the missing ones first, a bar of how many are done)
+-- and, with Auctionator, what the rest costs.
+-- UI/Atlas.lua creates it in its body (ShopUI:Create) with its own text helpers and shows / hides it.
 local addonName, ns = ...
 
 local ShopUI = {}
@@ -19,23 +19,24 @@ local floor, max, min = math.floor, math.max, math.min
 local tconcat = table.concat
 
 local IN = Style.IN
-local ROW_GROUP, ROW_ITEM, ROW_SECT, ROW_MAT, ROW_MAT2, ROW_COST = 22, 34, 32, 24, 34, 30
-local ICON, MAT_ICON, CLASS_ICON = 26, 18, 16
+local ROW_HEAD, ROW_ITEM, ROW_SECT, ROW_MAT, ROW_MAT2, ROW_COST, ROW_GAP = 42, 34, 32, 24, 34, 30, 8
+local MATS_W, TOP_H = 252, 26             -- the materials card; the line over the cards
+local ICON, MAT_ICON, CLASS_ICON = 26, 18, 26
 local BTN, NUM_W = 20, 26
 local BAR_SPACE = 10
 local MAX_NAMES = 3
 local DIM = { 0.55, 0.55, 0.58 }
 local GREEN_HEX, GREY_HEX, OFF_HEX = Style:Hex("OK"), Style:Hex("SUB"), Style:Hex("SUB")
-local EMPTY_TEXT = "Nothing here yet. Hover a craft in the Atlas and click its bag."
+local EMPTY_TEXT = "Nothing here yet. Hover a craft in the Atlas and click + List."
 local BOP_TEXT = "Binds when picked up: only its crafter can wear it"
 local NOBODY_TEXT = "Nobody in the guild knows this craft yet"
 local NOBODY_SHORT = "No guild crafter yet"       -- (the row's second line; the tooltip says it in full)
 local LEFT_OUT_TEXT = "Not in materials"
 local HOVER_W = 130   -- what the hover buttons (eye, - n +, bin) take at a craft row's right
 
-local H              -- the Atlas's helpers and sizes: TextWidth, CodedWidth, NameText, HEAD_H, BANNER_H
-local mid, right, midHead, groupList, head, list
-local state = { group = "all" }   -- "all", "you", "nobody", "bop" or a member's key
+local H              -- the Atlas's helpers and sizes: TextWidth, CodedWidth, NameText, BODY_W
+local root, list, matList, matCard, topTitle, topSub, clearBtn
+local state = { group = "all" }   -- "all" (everyone), "you", "nobody", "bop" or a member's key
 local shown = false
 
 local function Shop() return ns.Shop end
@@ -95,46 +96,75 @@ local function Money(copper)
 end
 
 ---------------------------------------------------------------------------
--- Middle column: who makes what
+-- A crafter's card head: class, name, what they know and whether they're on, how many crafts, Whisper
 ---------------------------------------------------------------------------
 
-local function SetupGroupRow(row)
-    row.cdl = true
-    UI():DecorateRow(row, { selectable = true })   -- (hover, and the picked look: row:SetSelected)
-    row.class = row:CreateTexture(nil, "ARTWORK")
-    row.class:SetSize(CLASS_ICON, CLASS_ICON)
-    row.class:SetPoint("LEFT", row, "LEFT", IN, 0)
-    row.dot = row:CreateTexture(nil, "OVERLAY")
-    row.dot:SetSize(7, 7)
-    row.dot:SetPoint("BOTTOMRIGHT", row.class, "BOTTOMRIGHT", 2, -2)
-    row.dot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-    row.dot:SetVertexColor(0.24, 0.81, 0.36)
-    row.count = UI():Text(row, "small", "DIM", { justify = "RIGHT", width = 24 })
-    row.count:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
-    row.label = UI():Text(row, "body", "TEXT")
-    row:RegisterForClicks("LeftButtonUp")
-    row:SetScript("OnClick", function(self)
-        local d = self.__cdlData
-        if not d then return end
-        state.group = d.id
-        ShopUI:Refresh(true)
-    end)
+local function GroupSub(g)
+    local S = Shop()
+    if g.kind == "member" then
+        local parts = { S:SkillText(g.key, g.profs) }
+        if g.reach and g.reach ~= g.key then
+            parts[#parts + 1] = "online as " .. (ns.Util.ShortName(g.reach) or g.reach)
+        else
+            parts[#parts + 1] = g.reach and "online" or "offline"
+        end
+        return (tconcat(parts, "  ·  "):gsub("^  ·  ", ""))
+    end
+    if g.kind == "you" then return S:SkillText(g.key, g.profs) end
+    if g.kind == "nobody" then return "Buy them at the auction house, or ask in trade chat" end
+    return "Binds when picked up: only its crafter can wear it"
 end
 
-local function InitGroupRow(row, d)
-    if not row.cdl then SetupGroupRow(row) end
-    local cf = d.classFile
-    row.class:SetShown(cf ~= nil)
-    if cf then UI():ClassIcon(row.class, cf) end
-    row.dot:SetShown(d.online == true)
-    row.label:ClearAllPoints()
-    row.label:SetPoint("LEFT", row, "LEFT", cf and (IN + CLASS_ICON + 7) or IN, 0)
-    row.label:SetPoint("RIGHT", row.count, "LEFT", -4, 0)
-    row.label:SetText(d.label)
-    local c = d.dim and DIM or { 0.92, 0.92, 0.92 }
-    row.label:SetTextColor(c[1], c[2], c[3])
-    row.count:SetText(d.count and tostring(d.count) or "")
-    row:SetSelected(state.group == d.id)
+local function SetupHead(row)
+    local U = UI()
+    row.hclass = row:CreateTexture(nil, "ARTWORK")
+    row.hclass:SetSize(CLASS_ICON, CLASS_ICON)
+    row.hclass:SetPoint("LEFT", row, "LEFT", IN + 2, 0)
+    row.hghost = row:CreateTexture(nil, "ARTWORK")
+    row.hghost:SetSize(CLASS_ICON, CLASS_ICON)
+    row.hghost:SetPoint("LEFT", row, "LEFT", IN + 2, 0)
+    row.hghost:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    row.hghost:SetVertexColor(Style:Color("EDGE"))
+    row.hdot = row:CreateTexture(nil, "OVERLAY")
+    row.hdot:SetSize(8, 8)
+    row.hdot:SetPoint("BOTTOMRIGHT", row.hclass, "BOTTOMRIGHT", 2, -1)
+    row.hdot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    row.hdot:SetVertexColor(0.24, 0.81, 0.36)
+    row.gname = U:Text(row, "title", "TEXT")
+    row.gname:SetPoint("TOPLEFT", row, "TOPLEFT", IN + CLASS_ICON + 12, -7)
+    row.gsub = U:Text(row, "small", "SUB")
+    row.gsub:SetPoint("TOPLEFT", row, "TOPLEFT", IN + CLASS_ICON + 12, -24)
+    row.gcount = U:Text(row, "small", "DIM", { justify = "RIGHT" })
+    row.whisper = U:CreateSleekButton(row, "Whisper", 72, 22, function(self)
+        local d = row.__cdlData
+        if d and d.type == "ghead" then Shop():Whisper(d.g) end
+    end, "primary")
+    row.whisper:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
+end
+
+local function InitHead(row, d)
+    local g = d.g
+    local cf = (g.kind == "member" or g.kind == "you") and ClassOf(g.key) or nil
+    row.hclass:SetShown(cf ~= nil)
+    if cf then UI():ClassIcon(row.hclass, cf) end
+    row.hghost:Hide()
+    local tx = cf and (IN + CLASS_ICON + 12) or (IN + 4)
+    row.gname:ClearAllPoints()
+    row.gname:SetPoint("TOPLEFT", row, "TOPLEFT", tx, -7)
+    row.gsub:ClearAllPoints()
+    row.gsub:SetPoint("TOPLEFT", row, "TOPLEFT", tx, -24)
+    row.hdot:SetShown(cf ~= nil and g.kind == "member" and g.reach ~= nil)
+    row.gname:SetText(GroupLabel(g))
+    row.gname:SetTextColor(Style:Color((g.kind == "nobody" or g.kind == "bop") and "SUB" or "TEXT"))
+    row.gsub:SetText(GroupSub(g))
+    local whisper = g.kind == "member" and g.reach ~= nil
+    row.whisper:SetShown(whisper)
+    row.gcount:ClearAllPoints()
+    row.gcount:SetPoint("RIGHT", whisper and row.whisper or row, whisper and "LEFT" or "RIGHT", whisper and -10 or -IN, 0)
+    row.gcount:SetText(#g.entries == 1 and "1 craft" or (#g.entries .. " crafts"))
+    local room = (d.w or ShopUI.rowW) - (IN + CLASS_ICON + 12) - (whisper and 84 or 0) - 70
+    row.gsub:SetWidth(max(1, room))
+    row.gsub:SetWordWrap(false)
 end
 
 ---------------------------------------------------------------------------
@@ -260,6 +290,8 @@ local function SetupRow(row)
     row:RegisterForClicks("LeftButtonUp")
     -- the shared hover (SetHover holds it while the row's buttons are under the cursor)
     U:DecorateRow(row)
+    row.card = U:Fill(row, "CARD")
+    SetupHead(row)
     row.rule = row:CreateTexture(nil, "ARTWORK")
     row.rule:SetHeight(1)
     row.rule:SetColorTexture(Style:Color("HAIRLINE"))
@@ -335,7 +367,7 @@ local function SetupRow(row)
 end
 
 local function InitItem(row, d)
-    local w = ShopUI.rowW
+    local w = d.w or ShopUI.rowW
     local e = d.e
     row.dzHover:Show()
     row.icon:Show()
@@ -362,11 +394,11 @@ local function InitItem(row, d)
     row.name:SetAlpha((bop or off) and 0.55 or 1)
     -- the second line: who makes it (Everything), how far its materials are broken down
     local who = ""
-    if bop then
+    if bop and d.showWho then
         who = BOP_TEXT
-    elseif d.g.kind == "nobody" then
+    elseif d.g.kind == "nobody" and d.showWho then
         who = NOBODY_SHORT
-    elseif d.showWho then
+    elseif d.showWho and d.g.kind ~= "bop" and d.g.kind ~= "nobody" then
         who = d.g.kind == "you" and "You" or UI():ColoredName(d.g.key)
     end
     if off and not bop then who = who .. (who ~= "" and "  ·  " or "") .. LEFT_OUT_TEXT end
@@ -414,7 +446,7 @@ local function InitMat(row, d)
     local x = IN + MAT_ICON + 8
     row.name:Show()
     row.name:ClearAllPoints()
-    row.name:SetWidth(ShopUI.rowW - x - IN - 70)
+    row.name:SetWidth((d.w or ShopUI.rowW) - x - IN - 50)
     row.name:SetText(H.NameText(m.id))
     row.name:SetAlpha(done and 0.55 or 1)
     local two = d.people ~= nil and not done
@@ -423,7 +455,7 @@ local function InitMat(row, d)
         row.sub:Show()
         row.sub:ClearAllPoints()
         row.sub:SetPoint("TOPLEFT", row, "TOPLEFT", x, -19)
-        row.sub:SetWidth(ShopUI.rowW - x - IN - 70)
+        row.sub:SetWidth((d.w or ShopUI.rowW) - x - IN - 50)
         row.sub:SetWordWrap(false)
         row.sub:SetText(d.profIcon .. (d.profName and (d.profName .. "  ·  ") or "") .. d.people)
     else
@@ -450,7 +482,7 @@ local function InitSect(row, d)
     row.have:ClearAllPoints()
     row.have:SetPoint("TOPRIGHT", row, "TOPRIGHT", -IN, -10)
     row.have:SetText(GREY_HEX .. d.done .. " of " .. d.total .. "|r")
-    local bw = ShopUI.rowW - 2 * IN
+    local bw = (d.w or ShopUI.rowW) - 2 * IN
     row.barBg:Show()
     row.barBg:ClearAllPoints()
     row.barBg:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", IN, 3)
@@ -475,7 +507,7 @@ local function InitCost(row, d)
     row.name:SetAlpha(1)
     row.name:ClearAllPoints()
     row.name:SetPoint("LEFT", row, "LEFT", IN, -1)
-    row.name:SetWidth(ShopUI.rowW - 2 * IN - 120)
+    row.name:SetWidth((d.w or ShopUI.rowW) - 2 * IN - 48)
     row.name:SetText(GREY_HEX .. "The rest at the auction house|r")
     row.have:Show()
     row.have:ClearAllPoints()
@@ -483,8 +515,30 @@ local function InitCost(row, d)
     row.have:SetText(Money(d.copper))
 end
 
+local function HeadParts(row, on)
+    for _, f in ipairs({ row.hclass, row.hghost, row.hdot, row.gname, row.gsub, row.gcount, row.whisper }) do
+        if not on then f:Hide() elseif f ~= row.hclass and f ~= row.hghost and f ~= row.hdot and f ~= row.whisper then f:Show() end
+    end
+end
+
 local function InitRow(row, d)
     if not row.cdl then SetupRow(row) end
+    HeadParts(row, d.type == "ghead")
+    row.card:SetShown(d.type == "item" or d.type == "ghead")
+    if d.type == "ghead" or d.type == "gap" then
+        Hide(row.icon, row.name, row.sub, row.step, row.amt, row.num, row.plusBtn, row.minusBtn, row.bin, row.eye,
+            row.have, row.title, row.barBg, row.barFill)
+        row:SetHover(false)
+        row.dzHover:Hide()
+        row.rule:SetShown(d.type == "ghead")
+        if d.type == "ghead" then
+            row.rule:ClearAllPoints()
+            row.rule:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+            row.rule:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+            InitHead(row, d)
+        end
+        return
+    end
     -- (the right edge of a material's count and a section's count move; reset them)
     row.have:ClearAllPoints()
     row.have:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
@@ -501,84 +555,20 @@ end
 
 local function Extent(d)
     if d.type == "item" then return ROW_ITEM end
+    if d.type == "ghead" then return ROW_HEAD end
+    if d.type == "gap" then return ROW_GAP end
     if d.type == "sect" then return ROW_SECT end
     if d.type == "mat" then return (d.people and d.m.have < d.m.need) and ROW_MAT2 or ROW_MAT end
     return ROW_COST
 end
 
 ---------------------------------------------------------------------------
--- The column titles
----------------------------------------------------------------------------
-
--- The detail's banner (D3: UI:CreatePageBanner, tool size, like the Atlas's pages): the group's name, what its crafter
--- knows, Whisper as its action and More (Clear) as its tool. head.title / head.sub are the banner's texts; head.whisper
--- the Whisper button while it is offered.
-local WHISPER_ACTION = {
-    text = "Whisper", kind = "primary",
-    onClick = function()
-        local g = FindGroup(ShopUI.groups, state.group)
-        if g then Shop():Whisper(g) end
-    end,
-}
-local MORE_TOOL = {
-    icon = "more", title = "More",
-    menu = function(root)
-        local U = UI()
-        local b = root:CreateButton(U:AtlasIconText(U.ICON.trash, 12) .. " Clear", function()
-            ns.Popup:Show("DISASTERZONE_SHOP_CLEAR")
-        end)
-        if b and b.SetTooltip then
-            b:SetTooltip(function(tt) GameTooltip_SetTitle(tt, "Take everything off the list") end)
-        end
-    end,
-}
-
-local function CreateTitle(parent)
-    local h = UI():CreatePageBanner(parent, { size = "tool", width = 392 })
-    h:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
-    h:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
-    -- (the Whisper button: the banner's first action button, made once and kept)
-    h:SetActions({ WHISPER_ACTION })
-    h.whisper = h.actions[1]
-    h:SetActions(nil)
-    return h
-end
-
-local function FillTitle(groups, sel, entries)
-    local S = Shop()
-    local title, sub, whisper = "Shopping list", "", false
-    if not sel then
-        head:SetTools(#entries > 0 and { MORE_TOOL } or nil)
-        if #entries > 0 then sub = #entries == 1 and "1 craft" or (#entries .. " crafts") end
-    elseif sel.kind == "you" then
-        title = UI():ColoredName(sel.key)
-        sub = S:SkillText(sel.key, sel.profs)
-    elseif sel.kind == "member" then
-        title = UI():ColoredName(sel.key)
-        local parts = { S:SkillText(sel.key, sel.profs) }
-        if sel.reach and sel.reach ~= sel.key then
-            parts[#parts + 1] = "online as " .. (ns.Util.ShortName(sel.reach) or sel.reach)
-        else
-            parts[#parts + 1] = sel.reach and "online" or "offline"
-        end
-        sub = tconcat(parts, "  ·  "):gsub("^  ·  ", "")
-        whisper = sel.reach ~= nil
-    else
-        title = GroupLabel(sel)
-    end
-    if sel then head:SetTools(nil) end
-    head:SetActions(whisper and { WHISPER_ACTION } or nil)
-    head:SetKicker(sel and "Shopping list" or nil)
-    head:SetTitle(title)
-    head:SetSub(sub ~= "" and sub or nil)
-end
-
----------------------------------------------------------------------------
 -- Refresh
 ---------------------------------------------------------------------------
 
+-- Whose crafts the path's last part offers: Everyone, then each group.
 local function GroupRows(groups)
-    local rows = { { id = "all", label = "Everything" } }
+    local rows = { { id = "all", label = "Everyone" } }
     for _, g in ipairs(groups) do
         local member = g.kind == "member"
         rows[#rows + 1] = { id = GroupId(g), label = GroupLabel(g), count = #g.entries,
@@ -606,20 +596,22 @@ function ShopUI:Refresh(resetScroll)
     if state.group ~= "all" and not FindGroup(groups, state.group) then state.group = "all" end
     local sel = state.group ~= "all" and FindGroup(groups, state.group) or nil
 
-    groupList:SetData(#entries > 0 and GroupRows(groups) or {})
-    midHead:SetShown(#entries > 0)   -- (an empty list: no "Made by" over nothing)
-    FillTitle(groups, sel, entries)
-
-    local w = right:GetWidth()
-    -- (a layout region is 1 x 1 until the client lays it out: the detail's width from the layout then)
-    self.rowW = (w and w > 1) and w or (H.DETAIL_W or 392)
+    local w = root:GetWidth()
+    -- (before the client lays the page out: the Atlas's body width)
+    w = (w and w > 1) and w or (H.BODY_W or 770)
+    self.rowW = w - MATS_W - Style.GAP - BAR_SPACE
+    local cw = self.rowW
     local rows = {}
-    for _, g in ipairs(sel and { sel } or groups) do
+    for gi, g in ipairs(sel and { sel } or groups) do
+        if gi > 1 then rows[#rows + 1] = { type = "gap", w = cw } end
+        rows[#rows + 1] = { type = "ghead", g = g, w = cw }
         for _, e in ipairs(g.entries) do
-            rows[#rows + 1] = { type = "item", e = e, g = g, showWho = sel == nil,
+            rows[#rows + 1] = { type = "item", e = e, g = g, showWho = false, w = cw,
                                 counted = S:IsCounted(e, g.kind == "bop"), maxDepth = S:GetMaxDepth(e.id) }
         end
     end
+    local mrows = {}
+    local mw = MATS_W - 2
     local matEntries = S:GetMaterialEntries(sel and { sel } or groups)
     if #matEntries > 0 then
         local mats = S:GetMaterials(matEntries)
@@ -627,21 +619,44 @@ function ShopUI:Refresh(resetScroll)
         for _, m in ipairs(mats) do
             if m.have >= m.need then done = done + 1 end
         end
-        rows[#rows + 1] = { type = "sect", done = done, total = #mats }
+        mrows[#mrows + 1] = { type = "sect", done = done, total = #mats, w = mw }
         for _, m in ipairs(mats) do
             local prof = S:GetProfession(m.id)
-            rows[#rows + 1] = { type = "mat", m = m, entries = matEntries, people = MatPeople(m.id),
-                                profIcon = ProfIcon(prof),
-                                profName = prof and ns.Professions:GetName(prof) or nil }
+            mrows[#mrows + 1] = { type = "mat", m = m, entries = matEntries, people = MatPeople(m.id), w = mw,
+                                  profIcon = ProfIcon(prof),
+                                  profName = prof and ns.Professions:GetName(prof) or nil }
         end
         local cost, unpriced = S:GetCost(mats)
-        if cost and cost > 0 then rows[#rows + 1] = { type = "cost", copper = cost, unpriced = unpriced } end
+        if cost and cost > 0 then mrows[#mrows + 1] = { type = "cost", copper = cost, unpriced = unpriced, w = mw } end
     end
-    list:SetEmptyText(#entries == 0 and EMPTY_TEXT or "")
-    -- (empty: the illustrated state in the column; the plain text stays set for whoever reads it)
-    list:SetEmptyState(#entries == 0 and { glyph = UI().ICON.bag, title = "Your shopping list is empty",
-                                           text = "Hover a craft in the Atlas and click its bag." } or nil)
+    -- the line over the cards
+    local n = #entries
+    topTitle:SetText(n == 1 and "1 craft" or (n .. " crafts"))
+    topSub:SetText(n > 0 and (sel and ("made by " .. GroupLabel(sel)) or "grouped by who can make them, online first") or "")
+    clearBtn:SetShown(n > 0)
+    topTitle:SetShown(n > 0)
+    list:SetEmptyText(n == 0 and EMPTY_TEXT or "")
+    -- (empty: the illustrated state; the plain text stays set for whoever reads it)
+    list:SetEmptyState(n == 0 and { glyph = UI().ICON.bag, title = "Your shopping list is empty",
+                                    text = "Hover a craft in the Atlas and click + List." } or nil)
+    list.frame:ClearAllPoints()
+    list.frame:SetPoint("TOPLEFT", root, "TOPLEFT", 0, n > 0 and -TOP_H or 0)
+    list.frame:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", n > 0 and -(MATS_W + Style.GAP) or 0, 0)
+    matCard:SetShown(#mrows > 0)
     list:SetData(rows, resetScroll)
+    matList:SetData(mrows, resetScroll)
+end
+
+-- For the path: whose crafts can be picked, and the pick's name.
+function ShopUI:GetGroupChoices()
+    local S = Shop()
+    return GroupRows(S and S:GetGroups(S:GetEntries()) or {})
+end
+
+function ShopUI:GetGroupLabel()
+    if state.group == "all" then return "Everyone" end
+    local g = FindGroup(self.groups or (Shop() and Shop():GetGroups(Shop():GetEntries())) or {}, state.group)
+    return g and GroupLabel(g) or "Everyone"
 end
 
 ---------------------------------------------------------------------------
@@ -714,44 +729,79 @@ function ShopUI:Select(groupId)
     self:Refresh(true)
 end
 
+-- The groups (Everyone, then each: the path's choices) and the rows (the cards' and the materials'), as lists with
+-- GetData / box:GetFrames / emptyText (tests).
 function ShopUI:GetLists()
-    return groupList, list
+    local groupsView = { GetData = function()
+        local S = Shop()
+        local entries = S and S:GetEntries() or {}
+        if #entries == 0 then return {} end
+        return GroupRows(S:GetGroups(entries))
+    end }
+    local rowsView = {
+        GetData = function()
+            local out = {}
+            for _, d in ipairs(list and list:GetData() or {}) do out[#out + 1] = d end
+            for _, d in ipairs(matList and matList:GetData() or {}) do out[#out + 1] = d end
+            return out
+        end,
+        emptyText = list and list.emptyText,
+        box = { GetFrames = function()
+            local out = {}
+            for _, l in ipairs({ list, matList }) do
+                if l then
+                    l.box:ForEachFrame(function(r) out[#out + 1] = r end)
+                end
+            end
+            return out
+        end },
+    }
+    return groupsView, rowsView
 end
 
+-- The first card's head: { title, sub, whisper } (tests: the crafter picked on the path).
 function ShopUI:GetTitle()
-    return head
+    local first
+    for _, d in ipairs(list and list:GetData() or {}) do
+        if d.type == "ghead" then first = d break end
+    end
+    local out
+    if list and first then
+        list.box:ForEachFrame(function(r)
+            if r.__cdlData == first then out = { title = r.gname, sub = r.gsub, whisper = r.whisper } end
+        end)
+    end
+    return out
 end
 
 ---------------------------------------------------------------------------
 -- Frames
 ---------------------------------------------------------------------------
 
--- helpers: { TextWidth, CodedWidth (text, style), NameText, HEAD_H, BANNER_H }; midFrame / rightFrame: the
--- Atlas's middle and right columns.
-function ShopUI:Create(helpers, midFrame, rightFrame)
+-- helpers: { TextWidth, CodedWidth (text, style), NameText, BODY_W }; body: the Atlas's body (under its path).
+function ShopUI:Create(helpers, body)
     if list then return end
     H = helpers
     local U = UI()
-    mid = CreateFrame("Frame", nil, midFrame)
-    mid:SetAllPoints(midFrame)
-    right = CreateFrame("Frame", nil, rightFrame)
-    right:SetAllPoints(rightFrame)
+    root = CreateFrame("Frame", nil, body)
+    root:SetAllPoints(body)
 
-    midHead = U:CreateSectionHeader(mid, "Made by", { style = "title" })
-    midHead:SetPoint("TOPLEFT", mid, "TOPLEFT", 0, 0)
-    midHead:SetPoint("TOPRIGHT", mid, "TOPRIGHT", 0, 0)
-    groupList = U:CreateScrollList(mid, ROW_GROUP, InitGroupRow)
-    groupList.frame:SetPoint("TOPLEFT", mid, "TOPLEFT", 0, -(H.HEAD_H + 4))
-    groupList.frame:SetPoint("BOTTOMRIGHT", mid, "BOTTOMRIGHT", 0, 0)
-    groupList.box:ClearAllPoints()
-    groupList.box:SetAllPoints(groupList.frame)
+    topTitle = U:Text(root, "page", "GOLD", { shadow = true })
+    topTitle:SetPoint("TOPLEFT", root, "TOPLEFT", 2, -2)
+    topSub = U:Text(root, "small", "SUB")
+    topSub:SetPoint("BOTTOMLEFT", topTitle, "BOTTOMRIGHT", 8, 2)
+    clearBtn = U:CreateSleekButton(root, U:AtlasIconText(U.ICON.trash, 12) .. " Clear", 70, 20, function()
+        ns.Popup:Show("DISASTERZONE_SHOP_CLEAR")
+    end)
+    clearBtn:SetPoint("TOPRIGHT", root, "TOPRIGHT", -(MATS_W + Style.GAP), 0)
+    U:AttachTooltip(clearBtn, "Clear", "Take everything off the list.")
 
-    head = CreateTitle(right)
-    list = U:CreateScrollList(right, ROW_ITEM, InitRow, Extent)
-    list.frame:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -(H.BANNER_H + Style.GAP))
-    list.frame:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
+    list = U:CreateScrollList(root, ROW_ITEM, InitRow, Extent)
+    list.frame:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -TOP_H)
+    list.frame:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -(MATS_W + Style.GAP), 0)
     list.box:ClearAllPoints()
-    list.box:SetAllPoints(list.frame)
+    list.box:SetPoint("TOPLEFT", list.frame, "TOPLEFT", 0, 0)
+    list.box:SetPoint("BOTTOMRIGHT", list.frame, "BOTTOMRIGHT", -BAR_SPACE, 0)
     list.bar:ClearAllPoints()
     list.bar:SetPoint("TOPLEFT", list.box, "TOPRIGHT", 4, 0)
     list.bar:SetPoint("BOTTOMLEFT", list.box, "BOTTOMRIGHT", 4, 0)
@@ -759,6 +809,19 @@ function ShopUI:Create(helpers, midFrame, rightFrame)
     list.emptyText:SetPoint("TOPLEFT", list.frame, "TOPLEFT", IN, -12)
     list.emptyText:SetPoint("TOPRIGHT", list.frame, "TOPRIGHT", -IN, -12)
     list.emptyText:SetJustifyH("LEFT")
+
+    matCard = U:CreateCard(root, { tone = "card" })
+    matCard:SetWidth(MATS_W)
+    matCard:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, 0)
+    matCard:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
+    matList = U:CreateScrollList(matCard, ROW_MAT, InitRow, Extent)
+    matList.frame:SetPoint("TOPLEFT", matCard, "TOPLEFT", 1, -2)
+    matList.frame:SetPoint("BOTTOMRIGHT", matCard, "BOTTOMRIGHT", -1, 2)
+    matList.box:ClearAllPoints()
+    matList.box:SetAllPoints(matList.frame)
+    matList.bar:ClearAllPoints()
+    matList.bar:SetPoint("TOPRIGHT", matList.box, "TOPRIGHT", -2, 0)
+    matList.bar:SetPoint("BOTTOMRIGHT", matList.box, "BOTTOMRIGHT", -2, 0)
 
     ns.Popup.dialogs["DISASTERZONE_SHOP_CLEAR"] = {
         title = "Clear the shopping list",
@@ -772,23 +835,20 @@ function ShopUI:Create(helpers, midFrame, rightFrame)
         hideOnEscape = true,
         preferredIndex = 3,
     }
-    mid:Hide()
-    right:Hide()
+    root:Hide()
 end
 
--- Shows the list in the Atlas's middle and right columns.
+-- Shows the list in the Atlas's body.
 function ShopUI:Show()
     if not list then return end
     shown = true
-    mid:Show()
-    right:Show()
+    root:Show()
     self:Refresh(true)
 end
 
 function ShopUI:Hide()
     shown = false
-    if mid then mid:Hide() end
-    if right then right:Hide() end
+    if root then root:Hide() end
 end
 
 function ShopUI:IsShown()

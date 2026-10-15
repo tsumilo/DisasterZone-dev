@@ -46,7 +46,7 @@ def a_level_20_opens_classic_on_the_dungeon_for_their_level():
     assert st[0] == "c_dungeons" and st[1] == "ShadowfangKeep", st
     srcs = [r[1] for r in rows(c, "src") if r[0] == "src"]
     assert srcs[:4] == ["Ragefire", "WailingCaverns", "Deadmines", "ShadowfangKeep"], srcs
-    assert c.eval("return ns.AtlasUI and ns.MainFrame:GetPanel('atlas').eraSeg:GetSelected()") == "classic"
+    assert c.eval_py("return ns.AtlasNav:GetCrumbs()")[0] == ["Classic", "era"]
     no_errors(w)
 
 
@@ -56,24 +56,23 @@ def a_level_70_opens_tbc_and_the_switch_swaps_and_remembers():
     assert era(c) == "tbc"
     assert cats(c)[0] == "raids" and "c_raids" not in cats(c)
     c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
-    seg = "ns.MainFrame:GetPanel('atlas').eraSeg"
     # the switch: Classic opens at its default (58+: the first raid), sources swap
-    c.eval(seg + ":Select('classic', true)")
+    c.eval("ns.AtlasUI:SetEra('classic')")
     assert era(c) == "classic"
     st = state(c)
     assert st[0] == "c_raids" and st[1] == "MoltenCore", st
     assert ARCANIST_BOOTS in item_ids(c)
     c.eval("ns.AtlasUI:Select('c_raids', 'BlackwingLair')")
     # back to TBC: where I was; then Classic again: Blackwing Lair
-    c.eval(seg + ":Select('tbc', true)")
+    c.eval("ns.AtlasUI:SetEra('tbc')")
     assert state(c)[:3] == ["raids", "Karazhan", "Attumen"], state(c)
     assert HARBINGER in item_ids(c)
-    c.eval(seg + ":Select('classic', true)")
+    c.eval("ns.AtlasUI:SetEra('classic')")
     assert state(c)[:2] == ["c_raids", "BlackwingLair"], state(c)
     # a place in the other era moves the switch along
     c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
     assert era(c) == "tbc", era(c)
-    assert c.eval("return (" + seg + ":GetSelected())") == "tbc", c.eval("return (" + seg + ":GetSelected())")
+    assert c.eval_py("return ns.AtlasNav:GetCrumbs()")[0] == ["TBC", "era"]
     no_errors(w)
 
 
@@ -88,10 +87,8 @@ def search_covers_the_shown_era_and_offers_the_other():
     txt = c.eval("local _, _, l = ns.AtlasUI:GetLists(); return l.emptyText:GetText()") or ""
     assert "1 match in Classic" in txt, txt
     # a click on "In Classic" switches, the search stays
-    c.eval("""local _, p = ns.AtlasUI:GetLists()
-      for _, r in ipairs(p.box:GetFrames()) do
-        local d = rawget(r, '__cdlData')
-        if d and d.key == '@era' then r:Click() end
+    c.eval("""for _, ch in ipairs(T_atlas().chips.left) do
+        if ch:IsShown() and (ch.fs:GetText() or ''):find('^In Classic') then ch:Click() end
       end""")
     assert era(c) == "classic"
     assert item_ids(c) == [BONEREAVER], item_ids(c)
@@ -110,9 +107,9 @@ def classic_pages_have_their_art_and_levels_and_no_bis_adds():
     w, c = setup(level=40)
     assert era(c) == "classic"
     c.eval("ns.AtlasUI:Select('c_dungeons', 'ZulFarrak')")
-    b = c.eval_py("""local b = ns.MainFrame:GetPanel('atlas').banner
-      return { b:IsShown() and 1 or 0, b.sub and b.sub:GetText() or '' }""")
-    assert b[0] == 1 and "Levels 42-46" in b[1], b
+    b = c.eval_py("""local b = ns.MainFrame:GetPanel('atlas').hero
+      return { b:IsShown() and 1 or 0, b.kicker:GetText() or '' }""")
+    assert b[0] == 1 and "LEVELS 42-46" in b[1], b
     src = [r for r in rows(c, "src") if r[0] == "src" and r[1] == "ZulFarrak"]
     assert src, rows(c, "src")
     c.eval("ns.AtlasUI:Select('c_raids', 'MoltenCore', 'Lucifron')")

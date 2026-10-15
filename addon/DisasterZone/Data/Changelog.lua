@@ -18,8 +18,24 @@ ns.CHANGELOG = {
               "A whole raid can walk together: 25 at once stay smooth, only the nearest hide behind pillars.",
               "Walking and turning cost far less: the room is a touch coarser while you move, sharp when you stop.",
           } },
+          { heading = "A new Atlas", area = "gear", kind = "changed", hi = true, open = "atlas",
+            lead = "The Atlas is one wide page under a path you click: era, category, place, boss.", lines = {
+              "Each part of the path is a menu: any raid by phase, any boss by its portrait.",
+              "Your recent places sit at the top of that menu, Classic and Heroic ones too.",
+              "A raid or dungeon opens on all its loot, one section per boss.",
+              "Loot shows as tiles; chips filter weapons, armor, jewelry and tokens.",
+              "Search finds places and bosses as well as items, in both eras: try \"scar\".",
+              "Up, Down and Enter walk the results; Shift+Enter adds an item to your BiS list.",
+              "Ctrl+F jumps to the search. Click a category's name to see its places as pictures.",
+          } },
+          { heading = "Shopping list, by crafter", area = "gear", kind = "changed", open = "atlas",
+            lead = "The shopping list has its own page behind the bag at the Atlas's top right.", lines = {
+              "One card per crafter, online first, each with its own Whisper button.",
+              "The materials sit beside the cards, with the auction house total under them.",
+              "+ List on a craft adds it, says who can make it and offers Undo.",
+          } },
           { heading = "Atlas: Classic too", area = "gear", kind = "new", open = "atlas",
-            lead = "A Classic | TBC switch over the Atlas's sources, for your level 1-60 characters.", lines = {
+            lead = "Classic or TBC as the first step of the Atlas's path, for level 1-60 characters.", lines = {
               "Classic: Molten Core to Ahn'Qiraj, every old dungeon, professions, factions and sets.",
               "Dungeons are listed in level order, each with its levels beside it.",
               "Below level 58 the Atlas opens on Classic, at the dungeon for your level.",

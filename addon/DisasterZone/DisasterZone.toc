@@ -46,6 +46,7 @@ Data\SimItems.lua
 Data\SimAPL.lua
 Data\Atlas.lua
 Data\AtlasClassic.lua
+Data\AtlasPortraits.lua
 Data\Consumables.lua
 Data\Classes\Paladin.lua
 Data\Classes\Shaman.lua
@@ -228,6 +229,7 @@ UI\ImportExport.lua
 UI\Picker.lua
 UI\Atlas.lua
 UI\AtlasShop.lua
+UI\AtlasNav.lua
 UI\Council.lua
 UI\LootLog.lua
 UI\RaidGroups.lua

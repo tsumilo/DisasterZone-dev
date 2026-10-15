@@ -185,7 +185,7 @@ def the_list_view_crafter_whisper_materials_and_hover():
     b.eval("ns.MainFrame:Open('atlas'); ns.AtlasUI:OpenShop()")
     w.tick(0.3)
     gr = [tuple(x) for x in b.eval_py("return T_shop_groups()")]
-    assert gr == [("all", "Everything", 0), (K("Alfa"), "Alfa", 3), (K("Gina"), "Gina", 1),
+    assert gr == [("all", "Everyone", 0), (K("Alfa"), "Alfa", 3), (K("Gina"), "Gina", 1),
                   ("nobody", "Nobody in the guild", 1), ("bop", "Can't be made for you", 1)], gr
     r = rows(b)
     items = [x[1] for x in r if x[0] == "item"]

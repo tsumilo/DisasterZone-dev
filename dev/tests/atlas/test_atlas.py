@@ -138,17 +138,26 @@ def tab_sits_after_my_bis_and_opens_on_the_guild_phase_raid():
     first_p2 = c.eval("for _, r in ipairs(ns.Data.Raids) do if r.phase == 2 then return r.key end end")
     assert st[0] == "raids" and st[1] == first_p2, st
     first_boss = c.eval("local k = ...; for _, r in ipairs(ns.Data.Raids) do if r.key == k then return r.bosses[1].key end end", first_p2)
-    assert st[2] == first_boss, st
-    # left: the shopping list on top, Raids folded open with its raids; middle: the raid's bosses; right: the items
+    # a raid opens on all its loot (no boss picked): the path says "All bosses"
+    assert st[2] == "" and c.eval("return ns.AtlasUI:GetState().view") == "source", st
+    crumbs = [x[0] for x in c.eval_py("return ns.AtlasNav:GetCrumbs()")]
+    assert crumbs[-1] == "All bosses" and "Raids" in crumbs, crumbs
+    # the open category's places (the jump panel's), its bosses (the boss picker's), the items
     src = rows(c, "src")
-    assert src[0][0] == "shop" and src[1][:2] == ["cat", "raids"] and src[1][2] == 1, src[:3]
+    assert src[0][:2] == ["cat", "raids"] and src[0][2] == 1, src[:3]
     assert any(r[0] == "src" and r[1] == first_p2 for r in src), src
     pages = rows(c, "page")
     n_bosses = c.eval("local k = ...; for _, r in ipairs(ns.Data.Raids) do if r.key == k then return #r.bosses end end", first_p2)
     assert len(pages) == n_bosses, (len(pages), n_bosses)
     expect = c.eval_py("local k, b = ...; for _, r in ipairs(ns.Data.Raids) do if r.key == k then return r.bosses[1].items end end",
                        first_p2, first_boss)
-    assert item_ids(c) == list(expect), (item_ids(c)[:5], list(expect)[:5])
+    ids = item_ids(c)
+    assert all(i in ids for i in expect) and ids[0] == expect[0], (ids[:5], list(expect)[:5])
+    # one section per boss, each opens its page
+    secs = c.eval_py("local o = {} for _, d in ipairs(ns.AtlasUI:GetPanel().grid:GetData()) do if d.type == 'section' then o[#o + 1] = d.page.key end end return o")
+    assert len(secs) == n_bosses and secs[0] == first_boss, secs
+    c.eval("ns.AtlasUI:OpenPage(...)", first_boss)
+    assert state(c)[2] == first_boss and item_ids(c)[:len(expect)] == list(expect), state(c)
     no_errors(w)
 
 
@@ -296,7 +305,7 @@ def show_my_class_keeps_lighter_armor():
     every = item_ids(c)
     assert HARBINGER in every and STEELHAWK in every and WHITE_STAG in every
     assert c.eval("return ns.DB:GetSetting('atlas.show')") == "all"
-    assert c.eval("return T_button(T_atlas(), 'All items')") is not None
+    assert c.eval("return T_atlas().chips.forMe.fs:GetText()") == "For me"
     c.eval("ns.DB:SetSetting('atlas.show', 'class'); ns.AtlasUI:RefreshItems()")
     mine = item_ids(c)
     # a paladin keeps cloth and leather (ret wears leather / mail pieces), loses the crossbow
@@ -555,13 +564,14 @@ def dungeon_normal_and_heroic():
     normal = c.eval_py("local k, b = ...; for _, d in ipairs(ns.Data.Dungeons) do if d.key == k then for _, x in ipairs(d.bosses) do if x.key == b then return x.items end end end end", key, boss)
     heroic = c.eval_py("local k, b = ...; for _, d in ipairs(ns.Data.Dungeons) do if d.key == k then for _, x in ipairs(d.bosses) do if x.key == b then return x.heroicItems end end end end", key, boss)
     assert item_ids(c) == list(normal)
-    tab = c.eval("return T_button(T_atlas(), 'Heroic')")
+    tab = c.eval("return T_atlas().hero.diff.buttons[2]")
     assert c.eval("return T_visible(...)", tab) is True
     c.click(tab)
     assert item_ids(c) == list(heroic), (item_ids(c), list(heroic))
     # a raid has no Normal / Heroic tabs
     c.eval("ns.AtlasUI:Select('raids', 'Karazhan')")
     assert c.eval("return T_visible(...)", tab) is False
+    assert c.eval("return T_atlas().hero.diff:IsShown()") is False
     no_errors(w)
 
 
@@ -738,12 +748,8 @@ def hover_plus_adds_to_my_bis():
     assert non_gear and plus_shown(non_gear[0])[1] is False, non_gear
     assert plus_shown(STEELHAWK)[1] is False
     # the stars beside the boss count my picks there
-    star = c.eval("""local _, p = ns.AtlasUI:GetLists()
-      for _, r in ipairs(p.box:GetFrames()) do
-        local d = rawget(r, '__cdlData')
-        if d and d.page and d.page.key == 'Attumen' then return r.tag:GetText() end
-      end""")
-    assert strip_codes(star or "").strip() == "1", star
+    star = c.eval("return T_atlas().hero.stars.fs:GetText()")
+    assert strip_codes(star or "").strip() == "1 on your BiS list", star
     # locked lists: no + at all
     c.eval("ns.BiS.IsLocked = function() return true, { by = 'Lee-Realm', at = 0 } end; ns.AtlasUI:RefreshItems()")
     w.tick(0.2)

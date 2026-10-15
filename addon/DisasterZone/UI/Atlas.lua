@@ -1,29 +1,28 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Atlas.lua", ...) then return end -- DisasterZone UI/Atlas.lua
--- ns.AtlasUI: the Atlas tab, a loot browser for every member (no guild or raid needed). Three columns: the sources
--- (categories that fold open: Raids, Dungeons, Crafting, Reputation, PvP, Badges & Sunmote, Collections, World
--- Events, Sets; a later phase's tag beside a source), the chosen source (a raid's or dungeon's loading screen as a
--- banner, else a title row) over its pages (bosses, sub-lists, standings, each with a star count of my BiS picks
--- there), and the page's items with their icons. No rules between rows: type, colour and whitespace do the grouping.
--- One search box finds any item by name (or number) across everything; the middle column then says where the matches
--- are from ("Found in") and a click on a result opens its page.
--- Items: hover = tooltip and a + button that adds the item to my BiS list (phase, best / alt, the slot for rings /
--- trinkets / one-handers, "and later phases"); right-click = the same choices plus try on and link; shift-click =
--- link, ctrl-click = dressing room. Marks: on my list (best / alt / off spec, with the phases), owned, and for the
--- Loot Council how many members want it. An item a vendor sells shows its cost with the currencies' icons, each
--- amount red while I hold less (the vendor window's rule); a set page says what the pieces I don't own cost.
--- The currency bar along the bottom: Honor, Arena Points and Badges of Justice always, then what the list shown pays
--- with; hovering an item lights its currencies there with how many I lack or keep (model: Core/Currency.lua).
--- One spacing grid: PAD at the page's sides, GAP between the columns, IN inside rows and cards. The item list's scroll
--- bar sits in the page's right margin, the sources' over their right padding, the pages' takes room while they scroll.
--- Model: Core/Atlas.lua (ns.Atlas).
--- Classic | TBC: a switch over the sources column picks the era the Atlas browses (a level 1-57 character opens on
--- Classic, at the dungeon for its level). Each era keeps where I was; search finds the shown era's items and says how
--- many more the other era has ("In TBC", a click switches). Classic items can't be added to my BiS lists (those are
--- the TBC phases'); everything else works the same.
--- 1.4: a List + detail page in its 3-column form (UI:CreateLayout "listdetail" with a nav column): the toolbar holds
--- the search (left) and the Show / slot filters (right); nav = the sources, list = the source's pages, detail = the
--- items; the currency bar sits in the layout's bottom margin. While my lists are locked a notice says so (the +
--- buttons are gone, as before).
+-- ns.AtlasUI: the Atlas tab, a loot browser for every member (no guild or raid needed). One wide page under a path of
+-- drop-downs (UI/AtlasNav.lua): era › category › place › boss. Each part is both where I am and how I move: the era
+-- (Classic | TBC), the category (its words open the category as art tiles; its arrow the jump panel), the place (the
+-- jump panel: Recent in both eras, every place of a category grouped by phase or level, the categories, the era) and
+-- the boss (the bosses as portraits, or a menu of a source's pages). Views:
+--   source    a raid or dungeon opens on ALL its loot: a banner (loading screen, size, phase, my BiS stars, dots that
+--             jump to a boss) over one section per boss (portrait, items, stars, "Open ›") with the items as tiles
+--   page      one boss (or a vendor's / faction's / set class's page): the banner with the boss's Encounter Journal
+--             portrait, ‹ › to step and the dots, over the items in a grid
+--   category  every place of a category as art tiles (recently viewed first; Classic dungeons by level, the ones that
+--             fit my level first)
+--   search    the search field takes the path's place: places first (both eras: a wing, a raid, a boss; Enter opens
+--             one and the era follows), then the items grouped by where they're from ("Show all ›"), the categories
+--             as chips ("In Classic": the other era's count, a click switches). ↑ ↓ move, Enter opens, Shift+Enter
+--             adds to my BiS list, Esc leaves.
+--   shop      the shopping list (UI/AtlasShop.lua) behind the bag button on the path's right
+-- Under the banner a row of chips filters the items: All / Weapons / Armor / Jewelry / Tokens (the kinds the page has),
+-- "For me ▾" (all items, my class, a spec) and the slot. Items are tiles: icon, name, slot · type (a token's classes),
+-- my marks / the cost on the right; hover = tooltip, "+ BiS" (or "+ List" for a craft); right-click = the menu (BiS
+-- phases, shopping list, try on, link); shift-click = link, ctrl-click = dressing room. What an item gives or comes
+-- from (a token's pieces for my class, a Sunmote upgrade, what a recipe makes) follows it with a gold bar.
+-- An item a vendor sells shows its cost with the currencies' icons, red while I hold less; the currency bar along the
+-- bottom has Honor, Arena Points and Badges always, then what the page pays with, lit by a hovered item.
+-- Ctrl+F focuses the search. Model: Core/Atlas.lua (ns.Atlas).
 local addonName, ns = ...
 
 local AtlasUI = {}
@@ -33,62 +32,79 @@ local S = ns.Style
 local GearUI = ns.GearUI          -- (UI/PaperDoll.lua: the helpers the Gear pages share)
 
 local ipairs, pairs, type, tonumber, tostring = ipairs, pairs, type, tonumber, tostring
-local floor, ceil, max = math.floor, math.ceil, math.max
+local floor, ceil, max, min = math.floor, math.ceil, math.max, math.min
 
 local PAD, GAP, IN = S.PAD, S.GAP, S.IN
-local CTRL_H = 22                                 -- the search / filter row (on the toolbar's row)
-local COLS_Y = ns.UI.LAYOUT.TOP                   -- where the three columns start (under the toolbar)
-local LEFT_W, MID_W = 180, 182
-local RIGHT_W = S.INNER_W - LEFT_W - MID_W - 2 * GAP   -- 392: sizes before the first layout (fixed window)
+local CTRL_H = 22                                 -- the chips row, the search field
 local BAR_H = 30                                  -- the currency bar along the bottom
 local BOTTOM = PAD + BAR_H + GAP                  -- the layout's bottom margin: the currency bar's place
-local BODY_H = S.PAGE_H - COLS_Y - BOTTOM         -- 464
-local SLOT_W = 148                                -- the slot filter; Show takes the rest of the item column
-local BANNER_H, ART_FW = S.BANNER.tool, 0.95      -- the detail's banner (D3); the share of a loading screen it shows
-local HEAD_H = 24                                 -- the pages column's section header (UI:CreateSectionHeader "title")
-local TABS_H = 18                                 -- Normal / Heroic under a dungeon's banner
-local ROW_CAT, ROW_SRC, ROW_PAGE, ROW_TWO = 26, 23, 22, 34
-local ROW_ITEM, ROW_SECTION, ROW_MORE = 34, 28, 36
+local BODY_W = S.INNER_W                          -- sizes before the first layout (fixed window)
+local HERO_H = 92                                 -- the banner over a place / a page
+local PORTRAIT_W = 176                            -- a boss's portrait in the banner (128 x 64 art, 2:1)
+local CELL_GAP = 4                                -- between item tiles
+local CELL_MIN, CELL_MAX = 46, 64                 -- an item tile's least height; the grid's even height at most
+local SECTION_H, LABEL_H, PLACE_H, SRCHEAD_H = 38, 26, 46, 34
+local TILE_H, TILES_PER_ROW = 74, 4               -- the category view's place tiles
+local ROW_SECTION, ROW_MORE = 28, 36              -- a set's header, a "showing the first ..." note
 local ICON, ICON_REWARD = 26, 22
 local NAME_LH, SUB_LH = 14, 12                    -- line heights of an item's name (12) and its second line (10)
-local SRC_X = IN + 10                             -- a source's indent under its category
-local SRC_R = 12                                  -- the sources' right padding (their scroll bar lies over it)
-local TAG_W, COUNT_W = 18, 28                     -- the phase tag (left column), the star count (middle column)
-local BAR_SPACE = 10                              -- a scroll bar inside its column: 6 wide, 4 from the rows
-local PLUS = 22                                   -- the hover button that adds an item to my BiS list
-local MAX_SHOWN = 300                             -- search results drawn at most (Found in narrows them down)
+local BAR_SPACE = 10                              -- the grid's scroll bar: 6 wide, 4 from the tiles
+local PLUS = 22                                   -- the hover buttons on a tile
+local MAX_SHOWN = 300                             -- search results drawn at most (the chips narrow them down)
+local GROUP_SHOWN = 6                             -- search: a source's first tiles (two rows); "Show all ›" for more
+local PLACES_SHOWN = 5                            -- search: places listed before the items
+local RECENT_MAX = 6
 local DOT = "  ·  "
-local SHOP = "shop"                               -- state.cat of the shopping list (UI/AtlasShop.lua)
 local CLASS_WEAPON, CLASS_ARMOR = 2, 4            -- Enum.ItemClass
-local CARD_BG = S.C.CARD
-local ROW_TEXT = S.C.TEXT
 local GOLD_HEX = S:Hex("GOLD")
+local EJ_DEFAULT = 521744                         -- UI-EJ-BOSS-Default (also Data/AtlasPortraits.lua's DEFAULT)
 
 -- English names of a weapon / armor subclass, one item's worth ("Main Hand · Dagger", not "Daggers").
 local WEAPON_KIND = { [0] = "Axe", [1] = "Axe", [2] = "Bow", [3] = "Gun", [4] = "Mace", [5] = "Mace", [6] = "Polearm",
                       [7] = "Sword", [8] = "Sword", [10] = "Staff", [13] = "Fist Weapon", [15] = "Dagger",
                       [16] = "Thrown", [18] = "Crossbow", [19] = "Wand", [20] = "Fishing Pole" }
 local ARMOR_KIND = { [6] = "Shield", [7] = "Libram", [8] = "Idol", [9] = "Totem" }
+local JEWELRY = { INVTYPE_NECK = true, INVTYPE_FINGER = true, INVTYPE_TRINKET = true }
 
-local panel, layout, searchBox, showDD, slotDD, srcList, pageList, itemList, eraSeg
-local banner, midHead, diffNormal, diffHeroic, curBar
+-- The kinds the chips filter by, in their order.
+local KINDS = { { key = "weapon", name = "Weapons" }, { key = "armor", name = "Armor" },
+                { key = "jewelry", name = "Jewelry" }, { key = "token", name = "Tokens" }, { key = "other", name = "Other" } }
+
+-- A category's icon (the jump panel, a place tile without art), by its key without the Classic "c_".
+local CAT_ICON = {
+    raids = "Interface\\Icons\\INV_Misc_Head_Dragon_01", dungeons = 136339,
+    crafting = "Interface\\Icons\\Trade_BlackSmithing", reputation = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
+    pvp = "Interface\\Icons\\INV_Jewelry_TrinketPVP_02", vendors = "Interface\\Icons\\Spell_Holy_ChampionsBond",
+    collections = "Interface\\Icons\\Ability_Mount_RidingHorse", events = "Interface\\Icons\\INV_Misc_Ribbon_01",
+    sets = "Interface\\Icons\\INV_Chest_Plate03",
+}
+local CAT_ICON_DEFAULT = "Interface\\Icons\\INV_Misc_Book_09"
+
+local panel, layout, searchBox, grid, hero, chipsRow, curBar, toast
 local state = {
     cat = nil, src = nil, page = nil, heroic = false,
-    expanded = nil,      -- the category folded open in the left column
+    view = "page",       -- "source" (all a place's loot) | "page" | "category" | "shop" (search: state.search)
     search = "",
     slot = nil,          -- slot filter: nil = any, sid, or 0 = not gear
+    kind = nil,          -- the kind chip: nil = all, or a KINDS key
     selected = nil,      -- the item a search result jumped to (highlighted)
     facet = nil,         -- search: the category the results are narrowed to (nil = all)
-    places = {},         -- [era] = { cat, src, page, expanded, heroic }: where I was in the other era
+    showSrc = nil,       -- search: the source whose matches show in full ("Show all ›")
+    cursor = 1,          -- search: the highlighted result (↑ ↓, Enter)
+    places = {},         -- [era] = { cat, src, page, heroic, view }: where I was in the other era
+    recent = {},         -- the places opened last: { { cat, src, heroic }, ... } (both eras)
 }
-local ERA_FACET = "@era"  -- search: the facet row that switches to the other era
+local ERA_FACET = "@era"  -- search: the chip that switches to the other era
 local searchCache        -- { key, entries, facets } of the last search
+local hits = {}          -- search: the results ↑ ↓ walk through ({ place = p } / { item = d })
 local marks = {}         -- Atlas:GetMyListMarks() of the last refresh
 local pickCache = {}     -- [heroic and 2 or 1][page] = my BiS picks on that page
 local wantCache = {}     -- [itemID] = number of members who want it (council only; per refresh)
-local layCache = {}      -- [row data] = its layout (per refresh of the item list)
+local layCache = {}      -- [cell data] = its layout (per refresh of the grid)
 local listLocked = false -- my BiS lists are locked (no + buttons)
-local rowW = { src = LEFT_W, page = MID_W, item = RIGHT_W }   -- the rows' widths (less while a list scrolls)
+local rowW = { item = 250, grid = BODY_W - BAR_SPACE }   -- a tile's width, the grid's
+local cols = 3           -- tiles per row (2 when the page lists costs)
+local flatRows = {}      -- the grid's item-level rows in order (GetLists, tests)
 local SelectSource, ShowItemMenu, ShowAddMenu, SearchResults, AddToShop, ShopButtonTooltip   -- forward declarations
 
 ---------------------------------------------------------------------------
@@ -96,6 +112,7 @@ local SelectSource, ShowItemMenu, ShowAddMenu, SearchResults, AddToShop, ShopBut
 ---------------------------------------------------------------------------
 
 local function Atlas() return ns.Atlas end
+local function Nav() return ns.AtlasNav end
 
 local function Debounce(key, sec, fn)
     if ns.Util and ns.Util.Debounce then ns.Util.Debounce(key, sec, fn) else C_Timer.After(sec, fn) end
@@ -112,7 +129,7 @@ local function SetShowMode(mode)
 end
 
 local function Filtered()
-    return ShowMode() ~= "all" or state.slot ~= nil
+    return ShowMode() ~= "all" or state.slot ~= nil or state.kind ~= nil
 end
 
 local function IsCouncil()
@@ -177,6 +194,18 @@ local function TokenLine(id)
     return "Token" .. DOT .. table.concat(names, ", ")
 end
 
+-- The kind chip an entry falls under: weapon / armor / jewelry / token / other.
+local function KindOf(id)
+    if type(id) ~= "number" or id < 0 then return "other" end
+    local DB = ns.ItemDB
+    if DB and DB.GetTokenClasses and type(DB:GetTokenClasses(id)) == "table" then return "token" end
+    if not (C_Item and C_Item.GetItemInfoInstant) then return "other" end
+    local _, _, _, equipLoc, _, classID = C_Item.GetItemInfoInstant(id)
+    if classID == CLASS_WEAPON then return "weapon" end
+    if classID == CLASS_ARMOR then return JEWELRY[equipLoc] and "jewelry" or "armor" end
+    return "other"
+end
+
 local function NameText(id)
     local A = Atlas()
     if id < 0 then
@@ -215,7 +244,7 @@ end
 -- Text: styles and widths (every text is drawn and measured in a ns.Style text style: UI:Text / UI:TextWidth)
 ---------------------------------------------------------------------------
 
--- Width of a text in a style: rows whose text needs more get two lines instead of cutting a name off.
+-- Width of a text in a style: tiles whose text needs more get two lines instead of cutting a name off.
 local function TextWidth(text, style)
     return ns.UI:TextWidth(text or "", style) + 1
 end
@@ -235,16 +264,6 @@ local function StarText(size)
     return "|T" .. ns.UI:Tex("star") .. ":" .. size .. ":" .. size .. "|t"
 end
 
--- A category's chevron: the atlas chevron pointing down (open) or right (UI:SetChevron).
-local function SetChevron(tex, down)
-    if down then
-        tex:SetTexture(ns.UI.ICON_ATLAS)
-        tex:SetTexCoord(unpack(ns.UI:IconCoords(ns.UI.ICON.chevron)))
-    else
-        ns.UI:SetChevron(tex, true)
-    end
-end
-
 -- A colour fading from `bottom` (alpha at the foot) to `top` (UI:Gradient, vertical).
 local function Fade(tex, r, g, b, bottom, top)
     ns.UI:Gradient(tex, "VERTICAL", { r, g, b, bottom }, { r, g, b, top })
@@ -253,273 +272,277 @@ end
 ---------------------------------------------------------------------------
 -- Costs and the currency bar
 ---------------------------------------------------------------------------
-
-local CHIP_ICON, CHIP_GAP, MAX_CONTEXT = 16, 1, 4
-local CHIP_FONT, CHIP_STYLE = 12, "emph"
-local RED_HEX, GREEN_HEX, YELLOW_HEX = S:Hex("BAD"), S:Hex("OK"), S:Hex("GOLD")
 local barKeys = {}       -- the bar's currencies after the pinned ones: what the list shown pays with
-local hoverRow           -- the item row whose cost the bar shows
+local hoverRow           -- the item tile whose cost the bar shows
+local Cur, CostOf, AddCostLines, BarShowCost, LayoutBar, ContextKeys, SetTotals, CreateCurrencyBar
+do
 
-local function Cur() return ns.Currency end
+    local CHIP_ICON, CHIP_GAP, MAX_CONTEXT = 16, 1, 4
+    local CHIP_FONT, CHIP_STYLE = 12, "emph"
+    local RED_HEX, GREEN_HEX, YELLOW_HEX = S:Hex("BAD"), S:Hex("OK"), S:Hex("GOLD")
 
--- An item's cost: parts ({ { key, n }, ... }), where it comes from; nil when no vendor price is known.
-local function CostOf(id)
-    local C = Cur()
-    if not (C and type(id) == "number" and id > 0) then return nil end
-    return C:GetCost(id)
-end
+    function Cur() return ns.Currency end
 
--- "1,875 Arena Points" / "12g 50s" (an amount with the currency's name; money says itself).
-local function AmountName(C, key, n)
-    if key == C.MONEY then return C:AmountText(key, n, 12) end
-    return C:AmountText(key, n, 12) .. " " .. C:Name(key)
-end
+    -- An item's cost: parts ({ { key, n }, ... }), where it comes from; nil when no vendor price is known.
+    function CostOf(id)
+        local C = Cur()
+        if not (C and type(id) == "number" and id > 0) then return nil end
+        return C:GetCost(id)
+    end
 
--- The tooltip's cost block: each currency with what I lack, or what I have.
-local function AddCostLines(tt, parts, from)
-    local C = Cur()
-    tt:AddLine(" ")
-    tt:AddLine("Cost", S:RGB("GOLD"))
-    for _, c in ipairs((C:Check(parts))) do
-        local left = (c.key == C.MONEY and "" or (C:IconMarkup(c.key, 14) .. " ")) .. AmountName(C, c.key, c.n)
-        local right
-        if c.short > 0 then
-            right = RED_HEX .. C:AmountText(c.key, c.short, 12) .. " more needed|r"
-        else
-            local _, bags = C:Have(c.key)
-            right = bags < c.n and (YELLOW_HEX .. "Some is in your bank|r")
-                or (GREEN_HEX .. "You have " .. C:AmountText(c.key, c.have, 12) .. "|r")
+    -- "1,875 Arena Points" / "12g 50s" (an amount with the currency's name; money says itself).
+    local function AmountName(C, key, n)
+        if key == C.MONEY then return C:AmountText(key, n, 12) end
+        return C:AmountText(key, n, 12) .. " " .. C:Name(key)
+    end
+
+    -- The tooltip's cost block: each currency with what I lack, or what I have.
+    function AddCostLines(tt, parts, from)
+        local C = Cur()
+        tt:AddLine(" ")
+        tt:AddLine("Cost", S:RGB("GOLD"))
+        for _, c in ipairs((C:Check(parts))) do
+            local left = (c.key == C.MONEY and "" or (C:IconMarkup(c.key, 14) .. " ")) .. AmountName(C, c.key, c.n)
+            local right
+            if c.short > 0 then
+                right = RED_HEX .. C:AmountText(c.key, c.short, 12) .. " more needed|r"
+            else
+                local _, bags = C:Have(c.key)
+                right = bags < c.n and (YELLOW_HEX .. "Some is in your bank|r")
+                    or (GREEN_HEX .. "You have " .. C:AmountText(c.key, c.have, 12) .. "|r")
+            end
+            tt:AddDoubleLine(left, right, 1, 1, 1, 1, 1, 1)
         end
-        tt:AddDoubleLine(left, right, 1, 1, 1, 1, 1, 1)
-    end
-    if from == "season" then
-        tt:AddLine("The price of this season's other pieces for this slot.", 0.6, 0.6, 0.6, true)
-    end
-end
-
-local function ChipTooltip(chip, tt)
-    local C, key = Cur(), chip.key
-    if not (C and key) then return false end
-    tt:AddLine((key == C.MONEY and "" or (C:IconMarkup(key, 14) .. " ")) .. C:Name(key), S:RGB("GOLD"))
-    local total, bags = C:Have(key)
-    tt:AddDoubleLine("You have", C:AmountText(key, total, 12), 0.8, 0.8, 0.8, 1, 1, 1)
-    if total > bags then
-        tt:AddDoubleLine("Of that in your bank", C:AmountText(key, total - bags, 12), 0.8, 0.8, 0.8, 1, 1, 1)
-    end
-    local most = C:Max(key)
-    if most then tt:AddDoubleLine("The most you can hold", C:Number(most), 0.8, 0.8, 0.8, 1, 1, 1) end
-end
-
--- One currency on the bar: its icon in a slot frame, the amount, lit by a hovered item's cost.
--- TODO(refactor): move into a currency strip component (UI:CreateCurrencyBar: chips that light up with a cost) - no
--- shared component draws an amount strip; UI:CreateChip is a toggle chip.
-local function CreateChip(parent)
-    local chip = CreateFrame("Button", nil, parent)
-    chip:SetHeight(BAR_H - 6)
-    -- a cost lights the chip: a faint wash fading up and an underline in its colour
-    chip.bg = chip:CreateTexture(nil, "BACKGROUND")
-    chip.bg:SetAllPoints()
-    chip.bg:SetColorTexture(1, 1, 1, 0)
-    chip.line = chip:CreateTexture(nil, "BORDER")
-    chip.line:SetPoint("BOTTOMLEFT", chip, "BOTTOMLEFT", 6, 0)
-    chip.line:SetPoint("BOTTOMRIGHT", chip, "BOTTOMRIGHT", -6, 0)
-    chip.line:SetHeight(2)
-    chip.line:Hide()
-    local hl = chip:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    local wr, wg, wb = S:Color("HOVER")      -- (white: a lift that fades up)
-    Fade(hl, wr, wg, wb, 0.06, 0)
-    -- the icon in a thin dark frame, like an item slot
-    chip.frame = chip:CreateTexture(nil, "BORDER")
-    chip.frame:SetSize(CHIP_ICON + 2, CHIP_ICON + 2)
-    chip.frame:SetPoint("LEFT", chip, "LEFT", 7, 0)
-    chip.frame:SetColorTexture(0, 0, 0, 0.7)
-    chip.icon = chip:CreateTexture(nil, "ARTWORK")
-    chip.icon:SetSize(CHIP_ICON, CHIP_ICON)
-    chip.icon:SetPoint("CENTER", chip.frame, "CENTER", 0, 0)
-    chip.amount = ns.UI:Text(chip, CHIP_STYLE, { 0.93, 0.9, 0.82 })
-    chip.amount:SetPoint("LEFT", chip.frame, "RIGHT", 6, 0)
-    -- a faint rule on the chip's right: the gap to the next one
-    chip.sep = chip:CreateTexture(nil, "ARTWORK")
-    chip.sep:SetSize(1, BAR_H - 14)
-    chip.sep:SetPoint("LEFT", chip, "RIGHT", 0, 0)
-    chip.sep:SetColorTexture(S:Color("HAIRLINE"))
-    ns.UI:AttachTooltip(chip, ChipTooltip, nil, { anchor = "ANCHOR_TOP" })
-    return chip
-end
-
--- Lights the chips of a cost (red: I lack some, green: enough); nil clears it. The tooltip says the amounts.
-local function BarShowCost(d)
-    if not curBar then return end
-    local C = Cur()
-    local parts = C and d and d.type == "item" and CostOf(d.id)
-    local checks = parts and C:Check(parts)
-    local byKey = {}
-    for _, c in ipairs(checks or {}) do byKey[c.key] = c end
-    for _, chip in ipairs(curBar.chips) do
-        local c = chip:IsShown() and byKey[chip.key]
-        chip.state = c and (c.short > 0 and "short" or "ok") or nil
-        if not c then
-            chip.bg:SetColorTexture(1, 1, 1, 0)
-            chip.line:Hide()
-        else
-            local r, g, b = S:Color(c.short > 0 and "BAD" or "OK")
-            Fade(chip.bg, r, g, b, 0.16, 0)
-            chip.line:SetColorTexture(r, g, b, 0.85)
-            chip.line:Show()
+        if from == "season" then
+            tt:AddLine("The price of this season's other pieces for this slot.", 0.6, 0.6, 0.6, true)
         end
     end
-end
 
--- The bar: Honor, Arena Points and Badges always, a rule, then what the list shown pays with (most used first).
-local function LayoutBar()
-    if not curBar then return end
-    local C = Cur()
-    curBar:SetShown(C ~= nil)
-    if not C then return end
-    local keys = {}
-    for _, k in ipairs(C.PINNED) do keys[#keys + 1] = k end
-    local pinned = #keys
-    for _, k in ipairs(barKeys) do keys[#keys + 1] = k end
-    local x = 2
-    curBar.rule:Hide()
-    for i, key in ipairs(keys) do
-        local chip = curBar.chips[i] or CreateChip(curBar)
-        curBar.chips[i] = chip
-        chip.key = key
-        local tex, l, r, t, b = C:Icon(key)
-        chip.icon:SetTexture(tex)
-        -- money says itself with its coins: no icon in front
-        local money = key == C.MONEY
-        chip.icon:SetShown(not money)
-        chip.frame:SetShown(not money)
-        chip.amount:ClearAllPoints()
-        if money then
-            chip.amount:SetPoint("LEFT", chip, "LEFT", 8, 0)
-        else
-            chip.amount:SetPoint("LEFT", chip.frame, "RIGHT", 6, 0)
+    local function ChipTooltip(chip, tt)
+        local C, key = Cur(), chip.key
+        if not (C and key) then return false end
+        tt:AddLine((key == C.MONEY and "" or (C:IconMarkup(key, 14) .. " ")) .. C:Name(key), S:RGB("GOLD"))
+        local total, bags = C:Have(key)
+        tt:AddDoubleLine("You have", C:AmountText(key, total, 12), 0.8, 0.8, 0.8, 1, 1, 1)
+        if total > bags then
+            tt:AddDoubleLine("Of that in your bank", C:AmountText(key, total - bags, 12), 0.8, 0.8, 0.8, 1, 1, 1)
         end
-        if l then
-            chip.icon:SetTexCoord(l, r, t, b)
-        elseif key:match("^%d+$") then
-            chip.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)   -- an item's icon: without its border
-        else
-            chip.icon:SetTexCoord(0, 1, 0, 1)
-        end
-        local have = C:Have(key)
-        local text = C:AmountText(key, have, CHIP_FONT)
-        chip.amount:SetText(text)
-        if i == pinned + 1 then
-            curBar.rule:ClearAllPoints()
-            curBar.rule:SetPoint("LEFT", curBar, "LEFT", x + 4, 0)
-            curBar.rule:Show()
-            x = x + 10
-        end
-        -- the rule between pinned and context currencies stands in for the chip's own
-        chip.sep:SetShown(i ~= pinned and i ~= #keys)
-        local w = (money and 8 or (7 + CHIP_ICON + 2 + 6)) + ceil(CodedWidth(text, CHIP_STYLE)) + 12
-        chip:ClearAllPoints()
-        chip:SetPoint("LEFT", curBar, "LEFT", x, 0)
-        chip:SetWidth(w)
-        chip:Show()
-        x = x + w + CHIP_GAP
+        local most = C:Max(key)
+        if most then tt:AddDoubleLine("The most you can hold", C:Number(most), 0.8, 0.8, 0.8, 1, 1, 1) end
     end
-    for i = #keys + 1, #curBar.chips do curBar.chips[i]:Hide() end
-    BarShowCost(hoverRow and hoverRow:IsShown() and hoverRow.__cdlData or nil)
-end
 
--- What the rows pay with besides the pinned currencies, most used first (at most MAX_CONTEXT).
-local function ContextKeys(rows)
-    local C = Cur()
-    if not C then return {} end
-    local pinned, count, order = {}, {}, {}
-    for _, k in ipairs(C.PINNED) do pinned[k] = true end
-    for _, r in ipairs(rows) do
-        local parts = r.type == "item" and CostOf(r.id)
-        for _, p in ipairs(parts or {}) do
-            if not pinned[p.key] then
-                if not count[p.key] then order[#order + 1] = p.key end
-                count[p.key] = (count[p.key] or 0) + 1
+    -- One currency on the bar: its icon in a slot frame, the amount, lit by a hovered item's cost.
+    -- TODO(refactor): move into a currency strip component (UI:CreateCurrencyBar: chips that light up with a cost) - no
+    -- shared component draws an amount strip; UI:CreateChip is a toggle chip.
+    local function CreateChip(parent)
+        local chip = CreateFrame("Button", nil, parent)
+        chip:SetHeight(BAR_H - 6)
+        -- a cost lights the chip: a faint wash fading up and an underline in its colour
+        chip.bg = chip:CreateTexture(nil, "BACKGROUND")
+        chip.bg:SetAllPoints()
+        chip.bg:SetColorTexture(1, 1, 1, 0)
+        chip.line = chip:CreateTexture(nil, "BORDER")
+        chip.line:SetPoint("BOTTOMLEFT", chip, "BOTTOMLEFT", 6, 0)
+        chip.line:SetPoint("BOTTOMRIGHT", chip, "BOTTOMRIGHT", -6, 0)
+        chip.line:SetHeight(2)
+        chip.line:Hide()
+        local hl = chip:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        local wr, wg, wb = S:Color("HOVER")      -- (white: a lift that fades up)
+        Fade(hl, wr, wg, wb, 0.06, 0)
+        -- the icon in a thin dark frame, like an item slot
+        chip.frame = chip:CreateTexture(nil, "BORDER")
+        chip.frame:SetSize(CHIP_ICON + 2, CHIP_ICON + 2)
+        chip.frame:SetPoint("LEFT", chip, "LEFT", 7, 0)
+        chip.frame:SetColorTexture(0, 0, 0, 0.7)
+        chip.icon = chip:CreateTexture(nil, "ARTWORK")
+        chip.icon:SetSize(CHIP_ICON, CHIP_ICON)
+        chip.icon:SetPoint("CENTER", chip.frame, "CENTER", 0, 0)
+        chip.amount = ns.UI:Text(chip, CHIP_STYLE, { 0.93, 0.9, 0.82 })
+        chip.amount:SetPoint("LEFT", chip.frame, "RIGHT", 6, 0)
+        -- a faint rule on the chip's right: the gap to the next one
+        chip.sep = chip:CreateTexture(nil, "ARTWORK")
+        chip.sep:SetSize(1, BAR_H - 14)
+        chip.sep:SetPoint("LEFT", chip, "RIGHT", 0, 0)
+        chip.sep:SetColorTexture(S:Color("HAIRLINE"))
+        ns.UI:AttachTooltip(chip, ChipTooltip, nil, { anchor = "ANCHOR_TOP" })
+        return chip
+    end
+
+    -- Lights the chips of a cost (red: I lack some, green: enough); nil clears it. The tooltip says the amounts.
+    function BarShowCost(d)
+        if not curBar then return end
+        local C = Cur()
+        local parts = C and d and d.type == "item" and CostOf(d.id)
+        local checks = parts and C:Check(parts)
+        local byKey = {}
+        for _, c in ipairs(checks or {}) do byKey[c.key] = c end
+        for _, chip in ipairs(curBar.chips) do
+            local c = chip:IsShown() and byKey[chip.key]
+            chip.state = c and (c.short > 0 and "short" or "ok") or nil
+            if not c then
+                chip.bg:SetColorTexture(1, 1, 1, 0)
+                chip.line:Hide()
+            else
+                local r, g, b = S:Color(c.short > 0 and "BAD" or "OK")
+                Fade(chip.bg, r, g, b, 0.16, 0)
+                chip.line:SetColorTexture(r, g, b, 0.85)
+                chip.line:Show()
             end
         end
     end
-    table.sort(order, function(a, b)
-        if count[a] ~= count[b] then return count[a] > count[b] end
-        return a < b
-    end)
-    local out = {}
-    for i = 1, math.min(#order, MAX_CONTEXT) do out[i] = order[i] end
-    return out
-end
 
--- What a set's pieces I don't own cost together: (full text, the amounts alone), e.g. ("Set 8,250 [A]", "8,250 [A]")
--- or ("Still to buy 4,500 [A]", ...); nil unless every piece has a price and one is still to buy.
-local function SetTotal(items)
-    local C = Cur()
-    if not C or #items == 0 then return nil end
-    local sum, order, owned = {}, {}, 0
-    for _, id in ipairs(items) do
-        local parts = CostOf(id)
-        if not parts then return nil end
-        if ns.BiS and ns.BiS.IsObtained and ns.BiS:IsObtained(id) then
-            owned = owned + 1
-        else
-            for _, p in ipairs(parts) do
-                if not sum[p.key] then order[#order + 1] = p.key end
-                sum[p.key] = (sum[p.key] or 0) + p.n
+    -- The bar: Honor, Arena Points and Badges always, a rule, then what the list shown pays with (most used first).
+    function LayoutBar()
+        if not curBar then return end
+        local C = Cur()
+        curBar:SetShown(C ~= nil)
+        if not C then return end
+        local keys = {}
+        for _, k in ipairs(C.PINNED) do keys[#keys + 1] = k end
+        local pinned = #keys
+        for _, k in ipairs(barKeys) do keys[#keys + 1] = k end
+        local x = 2
+        curBar.rule:Hide()
+        for i, key in ipairs(keys) do
+            local chip = curBar.chips[i] or CreateChip(curBar)
+            curBar.chips[i] = chip
+            chip.key = key
+            local tex, l, r, t, b = C:Icon(key)
+            chip.icon:SetTexture(tex)
+            -- money says itself with its coins: no icon in front
+            local money = key == C.MONEY
+            chip.icon:SetShown(not money)
+            chip.frame:SetShown(not money)
+            chip.amount:ClearAllPoints()
+            if money then
+                chip.amount:SetPoint("LEFT", chip, "LEFT", 8, 0)
+            else
+                chip.amount:SetPoint("LEFT", chip.frame, "RIGHT", 6, 0)
+            end
+            if l then
+                chip.icon:SetTexCoord(l, r, t, b)
+            elseif key:match("^%d+$") then
+                chip.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)   -- an item's icon: without its border
+            else
+                chip.icon:SetTexCoord(0, 1, 0, 1)
+            end
+            local have = C:Have(key)
+            local text = C:AmountText(key, have, CHIP_FONT)
+            chip.amount:SetText(text)
+            if i == pinned + 1 then
+                curBar.rule:ClearAllPoints()
+                curBar.rule:SetPoint("LEFT", curBar, "LEFT", x + 4, 0)
+                curBar.rule:Show()
+                x = x + 10
+            end
+            -- the rule between pinned and context currencies stands in for the chip's own
+            chip.sep:SetShown(i ~= pinned and i ~= #keys)
+            local w = (money and 8 or (7 + CHIP_ICON + 2 + 6)) + ceil(CodedWidth(text, CHIP_STYLE)) + 12
+            chip:ClearAllPoints()
+            chip:SetPoint("LEFT", curBar, "LEFT", x, 0)
+            chip:SetWidth(w)
+            chip:Show()
+            x = x + w + CHIP_GAP
+        end
+        for i = #keys + 1, #curBar.chips do curBar.chips[i]:Hide() end
+        BarShowCost(hoverRow and hoverRow:IsShown() and hoverRow.__cdlData or nil)
+    end
+
+    -- What the rows pay with besides the pinned currencies, most used first (at most MAX_CONTEXT).
+    function ContextKeys(rows)
+        local C = Cur()
+        if not C then return {} end
+        local pinned, count, order = {}, {}, {}
+        for _, k in ipairs(C.PINNED) do pinned[k] = true end
+        for _, r in ipairs(rows) do
+            local parts = r.type == "item" and CostOf(r.id)
+            for _, p in ipairs(parts or {}) do
+                if not pinned[p.key] then
+                    if not count[p.key] then order[#order + 1] = p.key end
+                    count[p.key] = (count[p.key] or 0) + 1
+                end
             end
         end
+        table.sort(order, function(a, b)
+            if count[a] ~= count[b] then return count[a] > count[b] end
+            return a < b
+        end)
+        local out = {}
+        for i = 1, math.min(#order, MAX_CONTEXT) do out[i] = order[i] end
+        return out
     end
-    if #order == 0 then return nil end
-    local parts = {}
-    for i, k in ipairs(order) do parts[i] = { key = k, n = sum[k] } end
-    local amounts = C:CostText(parts, 12)
-    return S:Wrap("SUB", owned > 0 and "Still to buy" or "Set") .. "  " .. amounts, amounts
-end
 
--- A set page (one class's sets, a header per set): each header gets its set's total (row.cost / row.costShort);
--- returns the page's total when it has no headers (one set: its note in the column's title row).
-local function SetTotals(rows)
-    local header, items, pageItems = nil, {}, {}
-    local function close()
-        if header then header.cost, header.costShort = SetTotal(items) end
-    end
-    for _, r in ipairs(rows) do
-        if r.type == "header" then
-            close()
-            header, items = r, {}
-        elseif r.type == "item" and not r.via and r.id > 0 then
-            items[#items + 1] = r.id
-            pageItems[#pageItems + 1] = r.id
+    -- What a set's pieces I don't own cost together: (full text, the amounts alone), e.g. ("Set 8,250 [A]", "8,250 [A]")
+    -- or ("Still to buy 4,500 [A]", ...); nil unless every piece has a price and one is still to buy.
+    local function SetTotal(items)
+        local C = Cur()
+        if not C or #items == 0 then return nil end
+        local sum, order, owned = {}, {}, 0
+        for _, id in ipairs(items) do
+            local parts = CostOf(id)
+            if not parts then return nil end
+            if ns.BiS and ns.BiS.IsObtained and ns.BiS:IsObtained(id) then
+                owned = owned + 1
+            else
+                for _, p in ipairs(parts) do
+                    if not sum[p.key] then order[#order + 1] = p.key end
+                    sum[p.key] = (sum[p.key] or 0) + p.n
+                end
+            end
         end
+        if #order == 0 then return nil end
+        local parts = {}
+        for i, k in ipairs(order) do parts[i] = { key = k, n = sum[k] } end
+        local amounts = C:CostText(parts, 12)
+        return S:Wrap("SUB", owned > 0 and "Still to buy" or "Set") .. "  " .. amounts, amounts
     end
-    close()
-    if header then return nil end
-    return (SetTotal(pageItems))
-end
 
--- TODO(refactor): move into the currency strip component (see CreateChip above).
-local function CreateCurrencyBar(parent)
-    local bar = CreateFrame("Frame", nil, parent)
-    bar:SetHeight(BAR_H)
-    -- no box: a dark shade fading up into the panel under one hairline, gold in the middle and gone at the ends
-    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-    bar.bg:SetAllPoints()
-    Fade(bar.bg, CARD_BG[1] * 0.6, CARD_BG[2] * 0.6, CARD_BG[3] * 0.6, 0.85, 0.35)
-    local function hairline(l, r, a0, a1)
-        local t = bar:CreateTexture(nil, "BORDER")
-        t:SetHeight(1)
-        t:SetPoint("TOPLEFT", bar, l, 0, 0)
-        t:SetPoint("TOPRIGHT", bar, r, 0, 0)
-        ns.UI:Gradient(t, "HORIZONTAL", { 1, 0.82, 0.35, a0 }, { 1, 0.82, 0.35, a1 })
+    -- A set page (one class's sets, a header per set): each header gets its set's total (row.cost / row.costShort);
+    -- returns the page's total when it has no headers (one set: its note in the banner).
+    function SetTotals(rows)
+        local header, items, pageItems = nil, {}, {}
+        local function close()
+            if header then header.cost, header.costShort = SetTotal(items) end
+        end
+        for _, r in ipairs(rows) do
+            if r.type == "header" then
+                close()
+                header, items = r, {}
+            elseif r.type == "item" and not r.via and r.id > 0 then
+                items[#items + 1] = r.id
+                pageItems[#pageItems + 1] = r.id
+            end
+        end
+        close()
+        if header then return nil end
+        return (SetTotal(pageItems))
     end
-    hairline("TOPLEFT", "TOP", 0, 0.35)
-    hairline("TOP", "TOPRIGHT", 0.35, 0)
-    bar.rule = bar:CreateTexture(nil, "ARTWORK")
-    bar.rule:SetSize(1, BAR_H - 10)
-    bar.rule:SetColorTexture(1, 0.82, 0.35, 0.3)
-    bar.chips = {}
-    return bar
+
+    -- TODO(refactor): move into the currency strip component (see CreateChip above).
+    function CreateCurrencyBar(parent)
+        local bar = CreateFrame("Frame", nil, parent)
+        bar:SetHeight(BAR_H)
+        -- no box: a dark shade fading up into the panel under one hairline, gold in the middle and gone at the ends
+        bar.bg = bar:CreateTexture(nil, "BACKGROUND")
+        bar.bg:SetAllPoints()
+        local card = S.C.CARD
+        Fade(bar.bg, card[1] * 0.6, card[2] * 0.6, card[3] * 0.6, 0.85, 0.35)
+        local function hairline(l, r, a0, a1)
+            local t = bar:CreateTexture(nil, "BORDER")
+            t:SetHeight(1)
+            t:SetPoint("TOPLEFT", bar, l, 0, 0)
+            t:SetPoint("TOPRIGHT", bar, r, 0, 0)
+            ns.UI:Gradient(t, "HORIZONTAL", { 1, 0.82, 0.35, a0 }, { 1, 0.82, 0.35, a1 })
+        end
+        hairline("TOPLEFT", "TOP", 0, 0.35)
+        hairline("TOP", "TOPRIGHT", 0.35, 0)
+        bar.rule = bar:CreateTexture(nil, "ARTWORK")
+        bar.rule:SetSize(1, BAR_H - 10)
+        bar.rule:SetColorTexture(1, 0.82, 0.35, 0.3)
+        bar.chips = {}
+        return bar
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -534,9 +557,14 @@ local function PassesSlot(id)
     return DB:FitsSlot(id, state.slot)
 end
 
+-- The slot and Show filters (the kind chip is applied where the chips' counts are made).
 local function Passes(id)
     if not PassesSlot(id) then return false end
     return Atlas():PassesShow(id, ShowMode())
+end
+
+local function PassesKind(id)
+    return state.kind == nil or KindOf(id) == state.kind
 end
 
 local function SlotOptions()
@@ -557,7 +585,7 @@ local function SlotOptions()
 end
 
 -- My BiS picks on a page (the list shown: normal or heroic): an entry counts once, also when it is a token or a
--- recipe whose piece / product is the pick. The slot filter narrows it like the page list.
+-- recipe whose piece / product is the pick. The slot filter narrows it like the items.
 local function PickCount(page)
     local which = state.heroic and 2 or 1
     pickCache[which] = pickCache[which] or {}
@@ -583,11 +611,18 @@ local function PickCount(page)
     return n
 end
 
--- Can the + button add this item to my list (something that fits a slot, my class can use it, lists not locked)?
+-- My BiS picks over a whole source (its pages' counts).
+local function SourceStars(src)
+    local n = 0
+    for _, p in ipairs(type(src) == "table" and src.pages or {}) do n = n + PickCount(p) end
+    return n
+end
+
 local function ClassicShown()
     return Atlas():GetEra() == "classic"
 end
 
+-- Can the + button add this item to my list (something that fits a slot, my class can use it, lists not locked)?
 local function CanAdd(id)
     if id <= 0 or listLocked or ClassicShown() then return false end
     local A = Atlas()
@@ -600,802 +635,701 @@ local function CanAdd(id)
 end
 
 ---------------------------------------------------------------------------
--- Left and middle columns: sources, pages, search facets
+-- Places: art, portraits, icons, tags
 ---------------------------------------------------------------------------
 
-local function SetupListRow(row)
-    row.cdl = true
-    ns.UI:DecorateRow(row, { selectable = true })   -- (hover, and the picked look: row:SetSelected)
-    row.chev = row:CreateTexture(nil, "ARTWORK")
-    row.chev:SetSize(10, 10)
-    row.chev:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
-    row.chev:SetTexture(ns.UI.ICON_ATLAS)
-    row.chev:SetVertexColor(0.55, 0.55, 0.58)
-    row.label = ns.UI:Text(row, "body", "TEXT")
-    if row.label.SetMaxLines then row.label:SetMaxLines(2) end
-    row.tag = ns.UI:Text(row, "small", "DIM", { justify = "RIGHT" })
-    row.tag:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
-    row:RegisterForClicks("LeftButtonUp")
-end
-
-local function SetRowSelected(row, on)
-    row:SetSelected(on)
-    if on then
-        row.label:SetTextColor(1, 1, 1)
-    else
-        row.label:SetTextColor(ROW_TEXT[1], ROW_TEXT[2], ROW_TEXT[3])
+-- A source's picture cropped for a w x h box: file, l, r, t, b (nil: it has none). Classic places carry their loading
+-- screen; TBC raids and dungeons theirs (ItemDB / DungeonRuns).
+local function SourceArt(src, w, h, fw)
+    if type(src) ~= "table" or not (w and h and w > 0 and h > 0) then return nil end
+    fw = fw or 0.9
+    if src.art then
+        -- (a 4:3 loading screen: a band across its middle, clear of the logo on top and the frame below)
+        local fh = min(fw * (4 / 3) * (h / w), 0.7)
+        local t = 0.55 - fh / 2
+        return src.art, (1 - fw) / 2, (1 + fw) / 2, t, t + fh
     end
+    if src.kind == "dungeon" then
+        local R = ns.DungeonRuns
+        if R and R.GetArt then return R:GetArt(src.key, w, h, fw) end
+        return nil
+    end
+    if src.kind == "raid" then
+        local DB = ns.ItemDB
+        local key = DB and DB.GetRaidByInstance and DB:GetRaidByInstance(src.instanceID or 0)
+        if key and DB.RaidArt then return DB:RaidArt(key, w, h, fw, true) end
+    end
+    return nil
 end
 
--- "P2" .. "P5" beside a source of a later phase (what has been out from the start goes without); a Classic dungeon's
--- recommended levels ("24-32").
+-- A boss's Encounter Journal portrait (Data/AtlasPortraits.lua; the Journal's stand-in without one).
+local function PortraitOf(page)
+    local P = ns.Data and ns.Data.AtlasPortraits
+    local name = type(page) == "table" and page.name or page
+    local own = P and name and P[name]
+    return own or (P and P.DEFAULT) or EJ_DEFAULT, own ~= nil
+end
+
+-- Does a source list bosses (portraits, "All bosses")?
+local function HasBosses(src)
+    return type(src) == "table" and (src.kind == "raid" or src.kind == "dungeon")
+end
+
+-- Does a source open on all its loot (a raid or dungeon with more than one boss)?
+local function OpensOnAll(src)
+    return HasBosses(src) and #src.pages > 1
+end
+
+local function CatIcon(cat)
+    local key = type(cat) == "table" and cat.key or cat
+    key = tostring(key or ""):gsub("^c_", "")
+    return CAT_ICON[key] or CAT_ICON_DEFAULT
+end
+
+local function ProfessionOf(src)
+    local P = ns.Professions
+    if not (P and P.GetProfessions and type(src) == "table" and src.kind == "crafting") then return nil end
+    for _, def in ipairs(P:GetProfessions()) do
+        if def.name == src.name or def.name == src.key then return def end
+    end
+    return nil
+end
+
+-- A source's small icon (the jump panel, a tile without art): the raid's / dungeon's own, a profession's, else its
+-- category's.
+local function SourceIcon(src, cat)
+    local prof = ProfessionOf(src)
+    if prof and prof.icon then return prof.icon end
+    if type(src) == "table" and src.kind == "raid" then
+        local DB = ns.ItemDB
+        local key = DB and DB.GetRaidByInstance and DB:GetRaidByInstance(src.instanceID or 0)
+        local m = key and DB.GetRaidMeta and DB:GetRaidMeta(key)
+        if m and m.icon then return m.icon end
+    end
+    return CatIcon(cat)
+end
+
+-- "P2" .. "P5" for a later phase's place (what has been out from the start goes without); a Classic dungeon's levels.
 local function PhaseTag(src)
     if src and src.lv then return src.lv end
     local p = tonumber(src and src.phase)
     return (p and p > 1) and ("P" .. p) or nil
 end
 
-local function TagW(src)
-    local tag = PhaseTag(src)
-    return tag and max(TAG_W, ceil(TextWidth(tag, "small")) + 4) or 0
+-- "10 players", "Levels 18-21", "You're Revered" (a faction: its pages are the standings).
+local function SourceSub(src)
+    local sub = {}
+    if src.lv then sub[#sub + 1] = "Levels " .. src.lv end
+    if src.size then sub[#sub + 1] = src.size .. " players" end
+    local p = tonumber(src.phase)
+    if p and p > 1 then sub[#sub + 1] = "Phase " .. p end
+    if src.factionID and GetFactionInfoByID then
+        local name, _, standing = GetFactionInfoByID(src.factionID)
+        standing = tonumber(standing)
+        local label = standing and GearUI.StandingName(standing)
+        if name and type(label) == "string" and label ~= "" then sub[#sub + 1] = "You're " .. label end
+    end
+    return table.concat(sub, DOT)
 end
 
-local function ClearSearch()
-    if searchBox and (searchBox:GetText() or "") ~= "" then searchBox:SetText("") end
-    state.search = ""
-end
-
--- The shopping list at the top of the left column: a bag, its name like a category's, how many crafts are on it
--- (quiet while it's empty).
-local function InitShopRow(row)
-    if not row.bag then
-        row.bag = row:CreateTexture(nil, "ARTWORK")
-        row.bag:SetSize(14, 14)
-        row.bag:SetPoint("LEFT", row, "LEFT", IN, 0)
-        row.bag:SetTexture(ns.UI.ICON_ATLAS)
-        row.bag:SetTexCoord(unpack(ns.UI:IconCoords(ns.UI.ICON.bag)))
-    end
-    local n = ns.Shop and ns.Shop:Count() or 0
-    local on = not IsSearching() and state.cat == SHOP
-    row.bag:Show()
-    row.chev:Hide()
-    ns.UI:SetTextStyle(row.label, "emph", "GOLD")
-    row.label:SetWordWrap(false)
-    row.label:SetPoint("LEFT", row, "LEFT", IN + 20, 0)
-    row.label:SetWidth(rowW.src - IN - 20 - SRC_R - TAG_W)
-    row.label:SetText("Shopping list")
-    row.tag:ClearAllPoints()
-    row.tag:SetPoint("RIGHT", row, "RIGHT", -SRC_R, 0)
-    row.tag:SetWidth(TAG_W + 6)
-    row.tag:SetText(n > 0 and ("|cffcfcfcf" .. n .. "|r") or "")
-    row:SetSelected(on)
-    if n > 0 or on then
-        row.label:SetTextColor(S:Color("GOLD"))
-        row.bag:SetVertexColor(on and 1 or 0.9, on and 0.82 or 0.9, on and 0 or 0.9)
-    else
-        row.label:SetTextColor(0.55, 0.55, 0.58)
-        row.bag:SetVertexColor(0.55, 0.55, 0.58)
-    end
-    row:SetScript("OnClick", function()
-        ClearSearch()
-        AtlasUI:OpenShop()
-    end)
-end
-
-local function InitSourceRow(row, d)
-    if not row.cdl then SetupListRow(row) end
-    local w = rowW.src
-    local cat = d.type == "cat"
-    row.label:ClearAllPoints()
-    if row.bag then row.bag:Hide() end
-    if d.type == "shop" then return InitShopRow(row) end
-    row.chev:SetShown(cat)
-    row.chev:ClearAllPoints()
-    row.chev:SetPoint("RIGHT", row, "RIGHT", -SRC_R, 0)
-    row.tag:ClearAllPoints()
-    row.tag:SetPoint("RIGHT", row, "RIGHT", -SRC_R, 0)
-    if cat then
-        ns.UI:SetTextStyle(row.label, "emph", "GOLD")
-        row.label:SetWordWrap(false)
-        row.label:SetPoint("LEFT", row, "LEFT", IN, 0)
-        row.label:SetWidth(w - IN - SRC_R - 14)
-        row.label:SetText(d.cat.name)
-        SetChevron(row.chev, d.expanded)
-        row.tag:SetText("")
-        row:SetSelected(false)
-    else
-        ns.UI:SetTextStyle(row.label, "body", "TEXT")
-        row.label:SetWordWrap(true)
-        row.label:SetPoint("LEFT", row, "LEFT", SRC_X, 0)
-        row.label:SetWidth(w - SRC_X - SRC_R - TagW(d.src))
-        row.label:SetText(d.src.name)
-        row.tag:SetWidth(max(TAG_W, TagW(d.src)))
-        row.tag:SetText(PhaseTag(d.src) or "")
-        SetRowSelected(row, not IsSearching() and state.cat == d.cat.key and state.src == d.src.key)
-    end
-    row:SetScript("OnClick", function()
-        if d.type == "cat" then
-            state.expanded = (state.expanded ~= d.cat.key) and d.cat.key or nil
-            AtlasUI:RefreshSources()
-        else
-            ClearSearch()
-            SelectSource(d.cat.key, d.src.key)
+-- The guild's crafters of a profession for a crafting place's banner: { { key, skill, online }, ... } (online first,
+-- then by skill; at most n).
+local function GuildCrafters(prof, n)
+    local P, G = ns.Professions, ns.Guild
+    if not (prof and P and P.GetMembers and P.GetSkill) then return {} end
+    local out = {}
+    for _, key in ipairs(P:GetMembers()) do
+        local skill = P:GetSkill(key, prof.id)
+        if skill then
+            out[#out + 1] = { key = key, skill = skill, online = (G and G.IsOnline and G:IsOnline(key)) and true or false }
         end
-    end)
-end
-
-local function PageTooltip(row, tt)
-    local d = row.__cdlData
-    local n = d and d.type == "page" and PickCount(d.page) or 0
-    if n <= 0 then return false end
-    tt:AddLine(d.page.name or "?", S:RGB("GOLD"))
-    tt:AddLine(n == 1 and "1 item here is on your BiS list" or (n .. " items here are on your BiS list"), 1, 1, 1)
-end
-
-local function InitPageRow(row, d)
-    if not row.cdl then
-        SetupListRow(row)
-        ns.UI:AttachTooltip(row, PageTooltip)
     end
-    row.chev:Hide()
-    ns.UI:SetTextStyle(row.label, "body", "TEXT")
-    row.label:SetWordWrap(true)
-    row.label:ClearAllPoints()
-    row.label:SetPoint("LEFT", row, "LEFT", IN, 0)
-    row.label:SetWidth(rowW.page - 2 * IN - COUNT_W)
-    row.tag:SetWidth(COUNT_W)
-    if d.type == "facet" then
-        -- search: where the results are from (All, Raids, PvP, ...) with their counts
-        row.label:SetText(d.name)
-        row.tag:SetText(tostring(d.count))
-        SetRowSelected(row, d.key ~= ERA_FACET and state.facet == d.key)
-        if d.key == ERA_FACET then row.label:SetTextColor(S:Color("GOLD")) end
-        row:SetScript("OnClick", function()
-            if d.key == ERA_FACET then
-                AtlasUI:SetEra(d.era)
-                return
+    table.sort(out, function(a, b)
+        if a.online ~= b.online then return a.online end
+        if a.skill ~= b.skill then return a.skill > b.skill end
+        return a.key < b.key
+    end)
+    for i = #out, (n or 3) + 1, -1 do out[i] = nil end
+    return out
+end
+
+---------------------------------------------------------------------------
+-- Recent places
+---------------------------------------------------------------------------
+
+local function LoadRecent()
+    local saved = ns.DB and ns.DB.GetSetting and ns.DB:GetSetting("atlas.recent")
+    state.recent = {}
+    for _, r in ipairs(type(saved) == "table" and saved or {}) do
+        if type(r) == "table" and Atlas():GetSource(r.cat, r.src) then
+            state.recent[#state.recent + 1] = { cat = r.cat, src = r.src, heroic = r.heroic and true or nil }
+        end
+    end
+end
+
+local function NoteRecent(catKey, srcKey, heroic)
+    local list = { { cat = catKey, src = srcKey, heroic = heroic and true or nil } }
+    for _, r in ipairs(state.recent) do
+        if #list >= RECENT_MAX then break end
+        if not (r.cat == catKey and r.src == srcKey) then list[#list + 1] = r end
+    end
+    state.recent = list
+    if ns.db and ns.DB and ns.DB.SetSetting then ns.DB:SetSetting("atlas.recent", list) end
+end
+
+---------------------------------------------------------------------------
+-- Item tiles
+---------------------------------------------------------------------------
+local ShowShopToast, Layout, SetRowHover, InitItemRow
+do
+
+    -- My marks on an item: on my list (best / alt / off spec with the phases), owned.
+    local function MarksText(id)
+        local parts = {}
+        local m = marks[id]
+        if m then
+            if m.main then
+                parts[#parts + 1] = StarText(10) .. " " .. Colorize(Atlas():PhasesText(m.main), "main")
+            elseif m.alt then
+                parts[#parts + 1] = Colorize("Alt " .. Atlas():PhasesText(m.alt), "alt")
+            elseif m.os then
+                parts[#parts + 1] = Colorize("OS " .. Atlas():PhasesText(m.os), "offspec")
             end
-            state.facet = d.key
-            state.selected = nil
-            AtlasUI:RefreshPages()
-            AtlasUI:RefreshItems(true)
-        end)
-        return
-    end
-    row.label:SetText(d.page.name or "?")
-    local n = PickCount(d.page)
-    row.tag:SetText(n > 0 and (StarText(10) .. " " .. GOLD_HEX .. n .. "|r") or "")
-    SetRowSelected(row, not IsSearching() and state.page == d.page.key)
-    row:SetScript("OnClick", function()
-        ClearSearch()
-        state.page = d.page.key
-        state.selected = nil
-        AtlasUI:RefreshPages()
-        AtlasUI:RefreshItems(true)
-    end)
-end
-
-local function SourceExtent(d)
-    if d.type == "cat" then return ROW_CAT end
-    if d.type == "shop" then return ROW_CAT end
-    local w = rowW.src - SRC_X - SRC_R - TagW(d.src)
-    return TextWidth(d.src.name, "body") > w and ROW_TWO or ROW_SRC
-end
-
-local function PageExtent(d)
-    local w = rowW.page - 2 * IN - COUNT_W
-    return TextWidth(d.type == "facet" and d.name or d.page.name, "body") > w and ROW_TWO or ROW_PAGE
-end
-
----------------------------------------------------------------------------
--- The item list
----------------------------------------------------------------------------
-
--- My marks on an item: on my list (best / alt / off spec with the phases), owned.
-local function MarksText(id)
-    local parts = {}
-    local m = marks[id]
-    if m then
-        if m.main then
-            parts[#parts + 1] = StarText(10) .. " " .. Colorize(Atlas():PhasesText(m.main), "main")
-        elseif m.alt then
-            parts[#parts + 1] = Colorize("Alt " .. Atlas():PhasesText(m.alt), "alt")
-        elseif m.os then
-            parts[#parts + 1] = Colorize("OS " .. Atlas():PhasesText(m.os), "offspec")
         end
-    end
-    if id > 0 and ns.BiS and ns.BiS.IsObtained and ns.BiS:IsObtained(id) then
-        parts[#parts + 1] = "|T" .. ns.UI:Tex("check") .. ":0|t"
-    end
-    return table.concat(parts, " ")
-end
-
--- Puts a craft on my shopping list (UI/AtlasShop.lua: with the amount / breakdown set with Shift).
-function AddToShop(id)
-    if ns.AtlasShopUI then ns.AtlasShopUI:AddCraft(id) end
-end
-
--- The bag button's tooltip: who can make the craft for me, what a click adds.
-function ShopButtonTooltip(btn, row)
-    local d = row.__cdlData
-    if ns.AtlasShopUI and d and d.type == "item" then ns.AtlasShopUI:AddTooltip(btn, d.id) end
-end
-
--- The bag on a craft row's right: on my shopping list, and how many.
-local function ShopMark(id)
-    local n = ns.Shop and ns.Shop:GetAmount(id)
-    if not n then return "" end
-    return ns.UI:AtlasIconText(ns.UI.ICON.bag, 10, { 0.85, 0.85, 0.85 }) .. " |cffd8d8d8" .. n .. "|r"
-end
-
--- The right of an item row, at most two lines: the cost (icons, red while I hold less) / skill, my marks, the
--- council's "N want", my shopping list.
-local function RightLines(d)
-    local id = d.id
-    local lines = {}
-    local parts = CostOf(id)
-    if parts then
-        lines[#lines + 1] = Cur():CostText(parts, 12)
-    elseif d.x then
-        lines[#lines + 1] = "|cffe0e0e0" .. d.x .. "|r"
-    end
-    local mine = MarksText(id)
-    local bag = ShopMark(id)
-    if bag ~= "" then mine = mine ~= "" and (mine .. "  " .. bag) or bag end
-    if mine ~= "" then lines[#lines + 1] = mine end
-    if IsCouncil() and id > 0 then
-        local n = Wanted(id)
-        if n > 0 then
-            local want = Colorize(n .. " want", "council")
-            if #lines == 2 then lines[2] = lines[2] .. "  " .. want else lines[#lines + 1] = want end
+        if id > 0 and ns.BiS and ns.BiS.IsObtained and ns.BiS:IsObtained(id) then
+            parts[#parts + 1] = "|T" .. ns.UI:Tex("check") .. ":0|t"
         end
+        return table.concat(parts, " ")
     end
-    return lines
-end
 
--- The second line: the slot and type, a token's classes, where a search result is from, how a reward row relates.
-local function SubText(d)
-    local id = d.id
-    if d.loc and IsSearching() then return Atlas():LocationText(d.loc) or "" end
-    local sub = (id > 0 and TokenLine(id)) or TypeLine(id) or ""
-    local function lead(word) return sub ~= "" and (word .. DOT .. sub) or word end
-    if d.viaKind == "upgrade" then
-        sub = lead("Sunmote upgrade")
-    elseif d.viaKind == "base" then
-        sub = lead("Made from")
-    elseif d.viaKind == "makes" then
-        sub = lead("Makes")
-    elseif d.setPage and id > 0 then
-        -- a set piece: its slot and where it comes from ("Token · Prince Malchezaar", "Arena Season 2")
-        local slotText = TypeLine(id):match("^(.-)  ·  ") or TypeLine(id)
-        local from = ns.ItemDB and ns.ItemDB:GetSourceText(id, true)
-        if from then sub = slotText .. DOT .. from end
-    end
-    return sub or ""
-end
-
--- A row's layout (per refresh): icon, text width and lines, the right column, the + button, the height. A name or
--- second line that doesn't fit gets two lines (a taller row), never "...".
-local function Layout(d)
-    local lay = layCache[d]
-    if lay then return lay end
-    lay = {}
-    layCache[d] = lay
-    if d.type == "header" then
-        -- a set's header: its total at the right (the amounts alone when the words don't fit), the name on two
-        -- lines rather than cut
-        local avail = rowW.item - 2 * IN
-        local tw = TextWidth(d.text or "", "emph")
-        lay.cost = d.cost
-        local cw = d.cost and (ceil(CodedWidth(d.cost, "small")) + 12) or 0
-        if cw > 0 and tw + cw > avail and d.costShort then
-            lay.cost = d.costShort
-            cw = ceil(CodedWidth(d.costShort, "small")) + 12
-        end
-        lay.costW = cw
-        lay.headW = avail - cw
-        lay.headLines = tw > lay.headW and 2 or 1
-        lay.h = ROW_SECTION + (lay.headLines - 1) * 14
-        return lay
-    end
-    if d.type ~= "item" then
-        lay.h = d.type == "more" and ROW_MORE or ROW_SECTION
-        return lay
-    end
-    local id = d.id
-    lay.icon = d.via and ICON_REWARD or ICON
-    lay.iconX = d.via and (IN + 24) or IN
-    lay.textX = lay.iconX + lay.icon + 9
-    lay.lines = RightLines(d)
-    local rw = 0
-    for _, l in ipairs(lay.lines) do rw = max(rw, CodedWidth(l, "small")) end
-    lay.rightW = rw > 0 and (ceil(rw) + 2) or 0
-    lay.canAdd = CanAdd(id)
-    lay.canShop = ns.Shop ~= nil and ns.Shop:CanAdd(id)
-    lay.textW = rowW.item - lay.textX - IN - (lay.canAdd and (PLUS + 8) or 0) - (lay.canShop and (PLUS + 6) or 0)
-        - (rw > 0 and (lay.rightW + 10) or 0)
-    lay.sub = SubText(d)
-    lay.nameLines = CodedWidth(NameText(id), "emph") > lay.textW and 2 or 1
-    lay.subLines = (lay.sub == "" and 0) or (TextWidth(lay.sub, "small") > lay.textW and 2) or 1
-    lay.h = 8 + lay.nameLines * NAME_LH + max(lay.subLines, 1) * SUB_LH - (d.via and 2 or 0)
-    return lay
-end
-
-local function ItemExtent(d)
-    return Layout(d).h
-end
-
-local function RowTooltip(row)
-    local d = row.__cdlData
-    if not d or d.type ~= "item" then return end
-    local id = d.id
-    local function extra(tt)
-        local viaName = d.via and (Atlas():GetName(d.via) or "the item above")
-        local viaText = (d.viaKind == "token" and ("From " .. tostring(viaName)))
-            or (d.viaKind == "upgrade" and ("Upgrade of " .. tostring(viaName) .. ": bring it and a Sunmote to the Sunwell vendor"))
-            or (d.viaKind == "base" and ("Bring this and a Sunmote to the Sunwell vendor for " .. tostring(viaName)))
-            or (d.viaKind == "makes" and ("Made with " .. tostring(viaName)))
-        if viaText then
-            tt:AddLine(" ")
-            tt:AddLine(viaText, 0.7, 0.7, 0.7, true)
-        end
-        local parts, from = CostOf(id)
-        if parts then
-            AddCostLines(tt, parts, from)
-        elseif d.x then
-            tt:AddLine(" ")
-            local gr, gg, gb = S:Color("GOLD")
-            tt:AddLine(d.x, gr, gg, gb, true)
-        end
-        if d.loc then
-            tt:AddLine(" ")
-            tt:AddLine(Atlas():LocationText(d.loc) or "", 0.7, 0.7, 0.7, true)
-        end
-        -- a craft's materials (Shift held), then the hints
-        local matsHint, stepHint
-        if ns.Tooltip then matsHint, stepHint = ns.Tooltip:AddMaterials(tt, id) end
-        local hints = {}
-        -- (while the materials show, clicks break them down instead)
-        local clicksTaken = matsHint ~= nil and IsShiftKeyDown()
-        if id > 0 and #Atlas():GetBiSTargets(id) > 0 and not clicksTaken then
-            hints[#hints + 1] = "Right-click: add to your BiS list"
-        end
-        if d.loc and IsSearching() and not clicksTaken then hints[#hints + 1] = "Click: open its page" end
-        hints[#hints + 1] = matsHint
-        hints[#hints + 1] = stepHint
-        if #hints > 0 then tt:AddLine(" ") end
-        for _, h in ipairs(hints) do tt:AddLine(h, 0.55, 0.8, 1) end
-    end
-    if id > 0 then
-        local T = ns.Tooltip
-        if T then T.noMats = true end   -- the materials go under the row's own lines (extra)
-        ns.UI:SetItemTooltip(row, id, extra)
-        if T then T.noMats = nil end
-    else
-        GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
-        if GameTooltip.SetSpellByID then
-            GameTooltip:SetSpellByID(-id)
+    -- The note after a craft went on my shopping list: what, who can make it, Undo, Open list.
+    function ShowShopToast(id)
+        if not toast then return end
+        local Shop = ns.Shop
+        local name = NameText(id)
+        local who
+        if Shop and Shop.CanMake and Shop:CanMake(id) then
+            who = "you can make it"
         else
-            GameTooltip:SetHyperlink("spell:" .. -id)
+            local crafters = Shop and Shop.GetCrafters and Shop:GetCrafters(id) or {}
+            if crafters[1] then who = ns.UI:ColoredName(crafters[1].key) .. " can make it" end
         end
-        extra(GameTooltip)
-        GameTooltip:Show()
+        toast.id = id
+        toast.text:SetText(name .. " added" .. (who and (DOT .. who) or ""))
+        toast:Layout()
+        toast:Show()
+        toast.left = 5
     end
-end
 
-local function OnItemClick(row, mouseButton)
-    local d = row.__cdlData
-    if not d or d.type ~= "item" then return end
-    local id = d.id
-    if mouseButton == "RightButton" then
-        ShowItemMenu(row, d)
-        return
+    -- Puts a craft on my shopping list (UI/AtlasShop.lua: with the amount / breakdown set with Shift).
+    function AddToShop(id)
+        if ns.AtlasShopUI and ns.AtlasShopUI:AddCraft(id) then ShowShopToast(id) end
     end
-    if id > 0 then
-        if ns.UI:HandleModifiedItemClick(id) then return end
-    elseif IsShiftKeyDown() then
-        local link = GetSpellLink and GetSpellLink(-id)
-        local insert = (ChatFrameUtil and ChatFrameUtil.InsertLink) or ChatEdit_InsertLink
-        if link and insert then insert(link) end
-        return
-    end
-    if d.loc and IsSearching() then AtlasUI:GoTo(d.loc) end
-end
 
--- Hovering an item row shows its + button (when it can add to my BiS list) and its bag (a craft: add it to my
--- shopping list), and moves the marks left of them.
-local function SetRowHover(row, on)
-    local lay = row.lay
-    local item = lay and lay.textX ~= nil
-    row:SetHover(on and item or false)
-    -- the currency bar shows the hovered item's cost (a row being drawn while another is hovered leaves it)
-    if on and item then
-        hoverRow = row
-        BarShowCost(row.__cdlData)
-    elseif hoverRow == row then
-        hoverRow = nil
-        BarShowCost(nil)
-    end
-    local plus = on and item and lay.canAdd or false
-    local shop = on and item and lay.canShop or false
-    row.plus:SetShown(plus)
-    row.shop:SetShown(shop)
-    row.shop:ClearAllPoints()
-    row.shop:SetPoint("RIGHT", row, "RIGHT", plus and -(IN + PLUS + 6) or -IN, 0)
-    local x = -IN - (plus and (PLUS + 8) or 0) - (shop and (PLUS + (plus and 6 or 8)) or 0)
-    local two = item and #lay.lines > 1
-    row.mark:ClearAllPoints()
-    row.mark:SetPoint("RIGHT", row, "RIGHT", x, two and 7 or 0)
-    row.mark2:ClearAllPoints()
-    row.mark2:SetPoint("RIGHT", row, "RIGHT", x, -7)
-end
-
-local function SetupItemRow(row)
-    local UI = ns.UI
-    row.cdl = true
-    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    -- the shared row looks: hover (SetRowHover holds it while the + and bag buttons are under the cursor) and the
-    -- picked look (a search result jumped to: row:SetSelected)
-    UI:DecorateRow(row, { selectable = true })
-
-    -- section headers (a set per spec) and the "showing the first ..." note
-    row.header = UI:Text(row, "emph", "GOLD")
-    row.header:SetPoint("LEFT", row, "LEFT", IN, 0)
-    if row.header.SetMaxLines then row.header:SetMaxLines(2) end
-    -- a set header's total, at the right on the name's last line
-    row.headCost = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
-    row.headCost:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -IN, 8)
-    row.headCost:Hide()
-
-    row.icon = UI:CreateItemButton(row, ICON)
-    row.icon:EnableMouse(false)   -- the row handles hover and clicks
-    -- the guide line from an item down to what it gives / comes from (the indented rows under it)
-    row.guide = row:CreateTexture(nil, "ARTWORK")
-    row.guide:SetWidth(2)
-    local gr, gg, gb = S:Color("GOLD")
-    row.guide:SetColorTexture(gr, gg, gb, 0.55)
-
-    row.name = UI:Text(row, "emph", "TEXT")
-    if row.name.SetMaxLines then row.name:SetMaxLines(2) end
-    row.sub = UI:Text(row, "small", "SUB")
-    if row.sub.SetMaxLines then row.sub:SetMaxLines(2) end
-    -- the right: one or two lines (cost / skill, my marks, the council's count)
-    row.mark = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
-    row.mark2 = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
-
-    -- the + (hover): add to my BiS list
-    local plus = UI:CreateSleekButton(row, "", PLUS, PLUS, function(self) ShowAddMenu(self, row.__cdlData) end)
-    plus:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
-    for i, size in ipairs({ { 10, 2 }, { 2, 10 } }) do
-        local t = plus:CreateTexture(nil, "ARTWORK")
-        t:SetSize(size[1], size[2])
-        t:SetPoint("CENTER")
-        t:SetColorTexture(0.92, 0.92, 0.92, 1)
-        plus[i == 1 and "barH" or "barV"] = t
-    end
-    plus:SetScript("OnEnter", function() SetRowHover(row, true) end)
-    plus:SetScript("OnLeave", function()
-        if not row:IsMouseOver() then SetRowHover(row, false) end
-    end)
-    UI:AttachTooltip(plus, "Add to your BiS list", "Pick the phase, then best or alt.")
-    plus:Hide()
-    row.plus = plus
-
-    -- the bag (hover, a craft): add it to my shopping list
-    local shop = UI:CreateIconButton(row, PLUS, UI.ICON_ATLAS, UI:IconCoords(UI.ICON.bagAdd), function()
+    -- The bag button's tooltip: who can make the craft for me, what a click adds.
+    function ShopButtonTooltip(btn, row)
         local d = row.__cdlData
-        if d and d.type == "item" then AddToShop(d.id) end
-    end)
-    shop:HookScript("OnEnter", function(self)
-        SetRowHover(row, true)
-        ShopButtonTooltip(self, row)
-    end)
-    shop:HookScript("OnLeave", function()
-        GameTooltip:Hide()
-        if not row:IsMouseOver() then SetRowHover(row, false) end
-    end)
-    shop:Hide()
-    row.shop = shop
+        if ns.AtlasShopUI and d and d.type == "item" then ns.AtlasShopUI:AddTooltip(btn, d.id) end
+    end
 
-    row:SetScript("OnClick", OnItemClick)
-    row:SetScript("OnEnter", function(self)
-        SetRowHover(self, true)
-        RowTooltip(self)
-    end)
-    row:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
-        -- the cursor went onto the + (still over the row): stay hovered
-        if not (self.plus:IsShown() and self:IsMouseOver()) then SetRowHover(self, false) end
-    end)
-    -- Shift: a craft's materials; Shift + mouse wheel: how many to make; Shift + click / right-click: break down
-    if ns.Tooltip and ns.Tooltip.CraftRow then ns.Tooltip:CraftRow(row, RowTooltip, true) end
-end
+    -- The bag on a craft tile's right: on my shopping list, and how many.
+    local function ShopMark(id)
+        local n = ns.Shop and ns.Shop:GetAmount(id)
+        if not n then return "" end
+        return ns.UI:AtlasIconText(ns.UI.ICON.bag, 10, { 0.85, 0.85, 0.85 }) .. " |cffd8d8d8" .. n .. "|r"
+    end
 
-local function InitItemRow(row, d)
-    if not row.cdl then SetupItemRow(row) end
-    local lay = Layout(d)
-    row.lay = lay
-    local item = d.type == "item"
-    row.icon:SetShown(item)
-    row.name:SetShown(item)
-    row.sub:SetShown(item and lay.subLines > 0)
-    row.mark:SetShown(item and #lay.lines > 0)
-    row.mark2:SetShown(item and #lay.lines > 1)
-    row.header:SetShown(not item)
-    row.dzHover:SetShown(item)          -- (headers and notes take no hover)
-    if not item then
-        row.guide:Hide()
-        row:SetSelected(false)
-        SetRowHover(row, false)
-        row.header:ClearAllPoints()
-        if d.type == "more" then
-            ns.UI:SetTextStyle(row.header, "small", "DIM")
-            row.header:SetWordWrap(true)
-            row.header:SetPoint("LEFT", row, "LEFT", IN, 0)
-            row.header:SetWidth(rowW.item - 2 * IN)
-        else
-            ns.UI:SetTextStyle(row.header, "emph", "GOLD")
-            row.header:SetWordWrap((lay.headLines or 1) > 1)
-            row.header:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", IN, 7)
-            row.header:SetWidth(lay.headW or (rowW.item - 2 * IN))
+    -- The right of a tile, at most two lines: the cost (icons, red while I hold less) / skill, my marks, the council's
+    -- "N want", my shopping list.
+    local function RightLines(d)
+        local id = d.id
+        local lines = {}
+        local parts = CostOf(id)
+        if parts then
+            lines[#lines + 1] = Cur():CostText(parts, 12)
+        elseif d.x then
+            lines[#lines + 1] = "|cffe0e0e0" .. d.x .. "|r"
         end
-        row.header:SetText(d.text or "")
-        row.headCost:SetShown(lay.cost ~= nil)
-        row.headCost:SetText(lay.cost or "")
-        row.headCost:SetWidth(max((lay.costW or 0) - 12, 1) + 2)
-        return
+        local mine = MarksText(id)
+        local bag = ShopMark(id)
+        if bag ~= "" then mine = mine ~= "" and (mine .. "  " .. bag) or bag end
+        if mine ~= "" then lines[#lines + 1] = mine end
+        if IsCouncil() and id > 0 then
+            local n = Wanted(id)
+            if n > 0 then
+                local want = Colorize(n .. " want", "council")
+                if #lines == 2 then lines[2] = lines[2] .. "  " .. want else lines[#lines + 1] = want end
+            end
+        end
+        return lines
     end
-    row.headCost:Hide()
-    local id = d.id
-    row.icon:SetSize(lay.icon, lay.icon)
-    row.icon:ClearAllPoints()
-    row.icon:SetPoint("LEFT", row, "LEFT", lay.iconX, 0)
-    if id > 0 then
-        row.icon:SetItem(id)
-    else
-        row.icon:SetItem(nil)
-        local tex = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(-id))
-            or (GetSpellTexture and GetSpellTexture(-id))
-        row.icon.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
-        row.icon.icon:SetAlpha(1)
-        if row.icon.icon.SetDesaturated then row.icon.icon:SetDesaturated(false) end
+
+    -- The second line: the slot and type, a token's classes, how a following tile relates to the one before it, a set
+    -- piece's source.
+    local function SubText(d)
+        local id = d.id
+        local sub = (id > 0 and TokenLine(id)) or TypeLine(id) or ""
+        local function lead(word) return sub ~= "" and (word .. DOT .. sub) or word end
+        if d.viaKind == "token" then
+            -- (no word: the gold bar says it comes from the token before it)
+        elseif d.viaKind == "upgrade" then
+            sub = lead("Sunmote upgrade")
+        elseif d.viaKind == "base" then
+            sub = lead("Made from")
+        elseif d.viaKind == "makes" then
+            sub = lead("Makes")
+        elseif d.setPage and id > 0 then
+            -- a set piece: its slot and where it comes from ("Token · Prince Malchezaar", "Arena Season 2")
+            local slotText = TypeLine(id):match("^(.-)  ·  ") or TypeLine(id)
+            local from = ns.ItemDB and ns.ItemDB:GetSourceText(id, true)
+            if from then sub = slotText .. DOT .. from end
+        end
+        return sub or ""
     end
-    -- the guide line runs from the item above down through its indented rows (the last one stops short)
-    row.guide:SetShown(d.via ~= nil)
-    if d.via then
-        row.guide:ClearAllPoints()
-        row.guide:SetPoint("TOPLEFT", row, "TOPLEFT", IN + 12, 0)
-        row.guide:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", IN + 12, d.grouped and 0 or 8)
+
+    -- A tile's layout (per refresh): icon, text width and lines, the right column, the hover buttons, the height. A name
+    -- or second line that doesn't fit gets two lines (a taller tile), never "...". A set's header and the "showing the
+    -- first ..." note span the grid.
+    function Layout(d)
+        local lay = layCache[d]
+        if lay then return lay end
+        lay = {}
+        layCache[d] = lay
+        if d.type == "header" then
+            -- a set's header: its total at the right (the amounts alone when the words don't fit), the name on two
+            -- lines rather than cut
+            local avail = rowW.grid - 2 * IN
+            local tw = TextWidth(d.text or "", "emph")
+            lay.cost = d.cost
+            local cw = d.cost and (ceil(CodedWidth(d.cost, "small")) + 12) or 0
+            if cw > 0 and tw + cw > avail and d.costShort then
+                lay.cost = d.costShort
+                cw = ceil(CodedWidth(d.costShort, "small")) + 12
+            end
+            lay.costW = cw
+            lay.headW = avail - cw
+            lay.headLines = tw > lay.headW and 2 or 1
+            lay.h = ROW_SECTION + (lay.headLines - 1) * 14
+            return lay
+        end
+        if d.type ~= "item" then
+            lay.h = d.type == "more" and ROW_MORE or ROW_SECTION
+            return lay
+        end
+        local id = d.id
+        local w = rowW.item
+        lay.icon = d.via and ICON_REWARD or ICON
+        lay.iconX = IN + (d.via and 4 or 0)
+        lay.textX = lay.iconX + lay.icon + 8
+        lay.lines = RightLines(d)
+        local rw = 0
+        for _, l in ipairs(lay.lines) do rw = max(rw, CodedWidth(l, "small")) end
+        lay.rightW = rw > 0 and (ceil(rw) + 2) or 0
+        lay.canAdd = CanAdd(id)
+        lay.canShop = ns.Shop ~= nil and ns.Shop:CanAdd(id)
+        -- (the hover buttons take the right while hovered; the marks keep their place otherwise)
+        lay.textW = w - lay.textX - IN - (rw > 0 and (lay.rightW + 8) or 0)
+        lay.sub = SubText(d)
+        lay.nameLines = CodedWidth(NameText(id), "emph") > lay.textW and 2 or 1
+        lay.subLines = (lay.sub == "" and 0) or (TextWidth(lay.sub, "small") > lay.textW and 2) or 1
+        lay.h = max(CELL_MIN, 10 + lay.nameLines * NAME_LH + max(lay.subLines, 1) * SUB_LH)
+        return lay
     end
-    -- name and second line as one block, centred (a name alone is centred too)
-    local block = lay.nameLines * NAME_LH + (lay.subLines > 0 and (2 + lay.subLines * SUB_LH) or 0)
-    local top = floor((lay.h - block) / 2)
-    row.name:ClearAllPoints()
-    row.name:SetPoint("TOPLEFT", row, "TOPLEFT", lay.textX, -top)
-    row.name:SetWidth(lay.textW)
-    row.name:SetWordWrap(lay.nameLines > 1)
-    row.name:SetText(NameText(id))
-    row.sub:ClearAllPoints()
-    row.sub:SetPoint("TOPLEFT", row, "TOPLEFT", lay.textX, -(top + lay.nameLines * NAME_LH + 2))
-    row.sub:SetWidth(lay.textW)
-    row.sub:SetWordWrap(lay.subLines > 1)
-    row.sub:SetText(lay.sub)
-    row.mark:SetWidth(max(lay.rightW, 1))
-    row.mark:SetText(lay.lines[1] or "")
-    row.mark2:SetWidth(max(lay.rightW, 1))
-    row.mark2:SetText(lay.lines[2] or "")
-    row:SetSelected(state.selected ~= nil and id == state.selected)
-    SetRowHover(row, row:IsMouseOver() and true or false)
+
+    local function RowTooltip(row)
+        local d = row.__cdlData
+        if not d or d.type ~= "item" then return end
+        local id = d.id
+        local function extra(tt)
+            local viaName = d.via and (Atlas():GetName(d.via) or "the item before")
+            local viaText = (d.viaKind == "token" and ("From " .. tostring(viaName)))
+                or (d.viaKind == "upgrade" and ("Upgrade of " .. tostring(viaName) .. ": bring it and a Sunmote to the Sunwell vendor"))
+                or (d.viaKind == "base" and ("Bring this and a Sunmote to the Sunwell vendor for " .. tostring(viaName)))
+                or (d.viaKind == "makes" and ("Made with " .. tostring(viaName)))
+            if viaText then
+                tt:AddLine(" ")
+                tt:AddLine(viaText, 0.7, 0.7, 0.7, true)
+            end
+            local parts, from = CostOf(id)
+            if parts then
+                AddCostLines(tt, parts, from)
+            elseif d.x then
+                tt:AddLine(" ")
+                local gr, gg, gb = S:Color("GOLD")
+                tt:AddLine(d.x, gr, gg, gb, true)
+            end
+            if d.loc then
+                tt:AddLine(" ")
+                tt:AddLine(Atlas():LocationText(d.loc) or "", 0.7, 0.7, 0.7, true)
+            end
+            -- a craft's materials (Shift held), then the hints
+            local matsHint, stepHint
+            if ns.Tooltip then matsHint, stepHint = ns.Tooltip:AddMaterials(tt, id) end
+            local hints = {}
+            -- (while the materials show, clicks break them down instead)
+            local clicksTaken = matsHint ~= nil and IsShiftKeyDown()
+            if id > 0 and #Atlas():GetBiSTargets(id) > 0 and not clicksTaken then
+                hints[#hints + 1] = "Right-click: add to your BiS list"
+            end
+            if d.loc and IsSearching() and not clicksTaken then hints[#hints + 1] = "Click: open its page" end
+            hints[#hints + 1] = matsHint
+            hints[#hints + 1] = stepHint
+            if #hints > 0 then tt:AddLine(" ") end
+            for _, h in ipairs(hints) do tt:AddLine(h, 0.55, 0.8, 1) end
+        end
+        if id > 0 then
+            local T = ns.Tooltip
+            if T then T.noMats = true end   -- the materials go under the tile's own lines (extra)
+            ns.UI:SetItemTooltip(row, id, extra)
+            if T then T.noMats = nil end
+        else
+            GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+            if GameTooltip.SetSpellByID then
+                GameTooltip:SetSpellByID(-id)
+            else
+                GameTooltip:SetHyperlink("spell:" .. -id)
+            end
+            extra(GameTooltip)
+            GameTooltip:Show()
+        end
+    end
+
+    local function OnItemClick(row, mouseButton)
+        local d = row.__cdlData
+        if not d or d.type ~= "item" then return end
+        local id = d.id
+        if mouseButton == "RightButton" then
+            ShowItemMenu(row, d)
+            return
+        end
+        if id > 0 then
+            if ns.UI:HandleModifiedItemClick(id) then return end
+        elseif IsShiftKeyDown() then
+            local link = GetSpellLink and GetSpellLink(-id)
+            local insert = (ChatFrameUtil and ChatFrameUtil.InsertLink) or ChatEdit_InsertLink
+            if link and insert then insert(link) end
+            return
+        end
+        if d.loc and IsSearching() then AtlasUI:GoTo(d.loc) end
+    end
+
+    -- Hovering a tile shows "+ BiS" (when it can add to my BiS list) and "+ List" (a craft: my shopping list) at its
+    -- top right, over the marks.
+    function SetRowHover(row, on)
+        local lay = row.lay
+        local item = lay and lay.textX ~= nil
+        row:SetHover(on and item or false)
+        -- the currency bar shows the hovered item's cost (a tile being drawn while another is hovered leaves it)
+        if on and item then
+            hoverRow = row
+            BarShowCost(row.__cdlData)
+        elseif hoverRow == row then
+            hoverRow = nil
+            BarShowCost(nil)
+        end
+        local plus = on and item and lay.canAdd or false
+        local shop = on and item and lay.canShop or false
+        row.plus:SetShown(plus)
+        row.shop:SetShown(shop)
+        row.shop:ClearAllPoints()
+        row.shop:SetPoint("RIGHT", row, "RIGHT", plus and -(6 + row.plus:GetWidth() + 4) or -6, 0)
+        row.hoverBack:SetShown(plus or shop)
+        local two = item and #lay.lines > 1
+        local busy = plus or shop
+        row.mark:SetShown(item and #lay.lines > 0 and not busy)
+        row.mark2:SetShown(item and two and not busy)
+        row.mark:ClearAllPoints()
+        row.mark:SetPoint("RIGHT", row, "RIGHT", -IN, two and 7 or 0)
+        row.mark2:ClearAllPoints()
+        row.mark2:SetPoint("RIGHT", row, "RIGHT", -IN, -7)
+    end
+
+    -- A tile: a card with the item's icon, name and second line, the marks / cost at the top right, the hover buttons.
+    local function SetupItemRow(row)
+        local UI = ns.UI
+        row.cdl = true
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row.card = UI:Fill(row, "CARD")
+        UI:AddEdges(row, "BORDER")
+        UI:SetEdgeColor(row, 0, 0, 0, 0)
+        -- (the hover buttons sit on a fade of the tile's colour over the text's right end)
+        row.hoverBack = row:CreateTexture(nil, "ARTWORK", nil, 2)
+        row.hoverBack:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
+        row.hoverBack:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+        row.hoverBack:SetWidth(130)
+        local cr, cg, cb = S:Color("SURFACE_WINDOW")
+        UI:Gradient(row.hoverBack, "HORIZONTAL", { cr, cg, cb, 0 }, { cr, cg, cb, 0.97 })
+        row.hoverBack:Hide()
+        -- the shared row looks: hover (SetRowHover holds it while the hover buttons are under the cursor) and the
+        -- picked look (a search result jumped to, the search's cursor: row:SetSelected)
+        UI:DecorateRow(row, { selectable = true })
+
+        row.icon = UI:CreateItemButton(row, ICON)
+        row.icon:EnableMouse(false)   -- the tile handles hover and clicks
+        -- what this tile gives / comes from: a gold bar along its left edge (it follows the tile it belongs to)
+        row.guide = row:CreateTexture(nil, "ARTWORK")
+        row.guide:SetWidth(2)
+        row.guide:SetPoint("TOPLEFT", row, "TOPLEFT", 1, -1)
+        row.guide:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 1, 1)
+        local gr, gg, gb = S:Color("GOLD")
+        row.guide:SetColorTexture(gr, gg, gb, 0.7)
+
+        row.name = UI:Text(row, "emph", "TEXT")
+        if row.name.SetMaxLines then row.name:SetMaxLines(2) end
+        row.sub = UI:Text(row, "small", "SUB")
+        if row.sub.SetMaxLines then row.sub:SetMaxLines(2) end
+        -- the right: one or two lines (cost / skill, my marks, the council's count)
+        row.mark = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
+        row.mark2 = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
+
+        -- "+ BiS" (hover): add to my BiS list
+        local plus = UI:CreateSleekButton(row, "+ BiS", 48, 18, function(self) ShowAddMenu(self, row.__cdlData) end, "primary")
+        plus:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+        plus:SetScript("OnEnter", function() SetRowHover(row, true) end)
+        plus:SetScript("OnLeave", function()
+            if not row:IsMouseOver() then SetRowHover(row, false) end
+        end)
+        UI:AttachTooltip(plus, "Add to your BiS list", "Pick the phase, then best or alt.")
+        plus:Hide()
+        row.plus = plus
+
+        -- "+ List" (hover, a craft): add it to my shopping list
+        local shop = UI:CreateSleekButton(row, "+ List", 48, 18, function()
+            local d = row.__cdlData
+            if d and d.type == "item" then AddToShop(d.id) end
+        end)
+        shop:HookScript("OnEnter", function(self)
+            SetRowHover(row, true)
+            ShopButtonTooltip(self, row)
+        end)
+        shop:HookScript("OnLeave", function()
+            GameTooltip:Hide()
+            if not row:IsMouseOver() then SetRowHover(row, false) end
+        end)
+        shop:Hide()
+        row.shop = shop
+
+        row:SetScript("OnClick", OnItemClick)
+        row:SetScript("OnEnter", function(self)
+            SetRowHover(self, true)
+            RowTooltip(self)
+        end)
+        row:SetScript("OnLeave", function(self)
+            GameTooltip:Hide()
+            -- the cursor went onto a hover button (still over the tile): stay hovered
+            if not ((self.plus:IsShown() or self.shop:IsShown()) and self:IsMouseOver()) then SetRowHover(self, false) end
+        end)
+        -- Shift: a craft's materials; Shift + mouse wheel: how many to make; Shift + click / right-click: break down
+        if ns.Tooltip and ns.Tooltip.CraftRow then ns.Tooltip:CraftRow(row, RowTooltip, true) end
+    end
+
+    function InitItemRow(row, d)
+        if not row.cdl then SetupItemRow(row) end
+        local lay = Layout(d)
+        row.lay = lay
+        local id = d.id
+        -- every tile of the grid is as tall as its tallest one: the icon and the text block sit in the middle
+        local h = d.cellH or lay.h
+        local block = lay.nameLines * NAME_LH + (lay.subLines > 0 and (2 + lay.subLines * SUB_LH) or 0)
+        local top = floor((h - block) / 2)
+        row.icon:SetSize(lay.icon, lay.icon)
+        row.icon:ClearAllPoints()
+        row.icon:SetPoint("LEFT", row, "LEFT", lay.iconX, 0)
+        if id > 0 then
+            row.icon:SetItem(id)
+        else
+            row.icon:SetItem(nil)
+            local tex = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(-id))
+                or (GetSpellTexture and GetSpellTexture(-id))
+            row.icon.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+            row.icon.icon:SetAlpha(1)
+            if row.icon.icon.SetDesaturated then row.icon.icon:SetDesaturated(false) end
+        end
+        row.guide:SetShown(d.via ~= nil)
+        row.name:ClearAllPoints()
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", lay.textX, -top)
+        row.name:SetWidth(lay.textW)
+        row.name:SetWordWrap(lay.nameLines > 1)
+        row.name:SetText(NameText(id))
+        row.sub:SetShown(lay.subLines > 0)
+        row.sub:ClearAllPoints()
+        row.sub:SetPoint("TOPLEFT", row, "TOPLEFT", lay.textX, -(top + lay.nameLines * NAME_LH + 2))
+        row.sub:SetWidth(lay.textW)
+        row.sub:SetWordWrap(lay.subLines > 1)
+        row.sub:SetText(lay.sub)
+        row.mark:SetWidth(max(lay.rightW, 1))
+        row.mark:SetText(lay.lines[1] or "")
+        row.mark2:SetWidth(max(lay.rightW, 1))
+        row.mark2:SetText(lay.lines[2] or "")
+        row:SetSelected((state.selected ~= nil and id == state.selected) or d.hot == true)
+        SetRowHover(row, row:IsMouseOver() and true or false)
+    end
 end
 
 ---------------------------------------------------------------------------
 -- The item menu (right-click) and the + menu
 ---------------------------------------------------------------------------
+do
 
-local function MenuLocked(root)
-    local locked, info = ns.UI:IsMyListLocked()
-    if locked then
-        root:CreateTitle(ns.UI:LockIcon(12) .. " BiS lists are locked by " .. ns.UI:LockByText(info))
+    local function MenuLocked(root)
+        local locked, info = ns.UI:IsMyListLocked()
+        if locked then
+            root:CreateTitle(ns.UI:LockIcon(12) .. " BiS lists are locked by " .. ns.UI:LockByText(info))
+        end
+        return locked
     end
-    return locked
-end
 
--- The "best" / "alt" choices of one phase: one pair per piece (a token can give several) and slot (rings, trinkets
--- and one-handers fit two).
-local function AddPhaseChoices(sub, targets, phase, list, later)
-    local BiS = ns.BiS
-    local A = Atlas()
-    for _, t in ipairs(targets) do
-        for _, sid in ipairs(t.sids) do
-            local prefix = ""
-            if #targets > 1 then prefix = (A:GetName(t.itemID) or "?") .. DOT end
-            if #t.sids > 1 then prefix = prefix .. SlotLabel(sid) .. DOT end
-            for _, which in ipairs({ "main", "alt" }) do
-                local main, alt = BiS:GetSlot(phase, sid, list)
-                local cur = which == "main" and main or alt
-                local text = prefix .. (which == "main" and "As best" or "As alt")
-                if cur == t.itemID then text = text .. "  " .. S:Wrap("DIM", "(already)") end
-                local b = sub:CreateButton(text, function()
-                    local n = A:AddToBiS(t.itemID, sid, which, phase, list, later)
-                    if n > 0 then
-                        local link = ns.ItemDB:GetLink(t.itemID) or A:GetName(t.itemID) or "item"
-                        local label = ns.PhaseLabel and ns.PhaseLabel(phase) or ("P" .. phase)
-                        local where = later and n > 1 and ("P%d-%d"):format(phase, phase + n - 1) or label
-                        ns:Print("%s is now your %s for %s (%s%s).", link, which == "main" and "BiS" or "alt",
-                            SlotLabel(sid), where, list == "os" and ", off spec" or "")
+    -- The "best" / "alt" choices of one phase: one pair per piece (a token can give several) and slot (rings, trinkets
+    -- and one-handers fit two).
+    local function AddPhaseChoices(sub, targets, phase, list, later)
+        local BiS = ns.BiS
+        local A = Atlas()
+        for _, t in ipairs(targets) do
+            for _, sid in ipairs(t.sids) do
+                local prefix = ""
+                if #targets > 1 then prefix = (A:GetName(t.itemID) or "?") .. DOT end
+                if #t.sids > 1 then prefix = prefix .. SlotLabel(sid) .. DOT end
+                for _, which in ipairs({ "main", "alt" }) do
+                    local main, alt = BiS:GetSlot(phase, sid, list)
+                    local cur = which == "main" and main or alt
+                    local text = prefix .. (which == "main" and "As best" or "As alt")
+                    if cur == t.itemID then text = text .. "  " .. S:Wrap("DIM", "(already)") end
+                    local b = sub:CreateButton(text, function()
+                        local n = A:AddToBiS(t.itemID, sid, which, phase, list, later)
+                        if n > 0 then
+                            local link = ns.ItemDB:GetLink(t.itemID) or A:GetName(t.itemID) or "item"
+                            local label = ns.PhaseLabel and ns.PhaseLabel(phase) or ("P" .. phase)
+                            local where = later and n > 1 and ("P%d-%d"):format(phase, phase + n - 1) or label
+                            ns:Print("%s is now your %s for %s (%s%s).", link, which == "main" and "BiS" or "alt",
+                                SlotLabel(sid), where, list == "os" and ", off spec" or "")
+                        end
+                    end)
+                    if cur and cur ~= t.itemID and b and b.SetTooltip then
+                        b:SetTooltip(function(tooltip)
+                            tooltip:AddLine(("Replaces %s"):format(A:GetName(cur) or "?"), 1, 1, 1, true)
+                        end)
                     end
+                end
+            end
+        end
+    end
+
+    -- The phases of one list (main or off spec) as entries of `sub`, each opening its best / alt choices: the Pre-raid
+    -- list first, then Phase 1..5.
+    local function AddPhaseEntries(sub, targets, list)
+        local now = GuildPhase()
+        for _, p in ipairs(ns.LIST_PHASES or { 1, 2, 3, 4, 5 }) do
+            local info = ns.PHASE_INFO and ns.PHASE_INFO[p]
+            local label = info and info.name or ("Phase " .. p)
+            if p == now then label = label .. "  " .. S:Wrap("DIM", "(now)") end
+            local onList = false
+            for _, t in ipairs(targets) do
+                local mk = marks[t.itemID]
+                if mk and ((list == "os" and mk.os and mk.os[p]) or (list ~= "os" and ((mk.main and mk.main[p]) or (mk.alt and mk.alt[p])))) then
+                    onList = true
+                end
+            end
+            if onList then label = label .. "  |T" .. ns.UI:Tex("check") .. ":0|t" end
+            AddPhaseChoices(sub:CreateButton(label), targets, p, list, false)
+        end
+        local from = now or 1
+        if from < (ns.MAX_PHASE or 5) then
+            if sub.CreateDivider then sub:CreateDivider() end
+            local later = sub:CreateButton(("Phase %d and later"):format(from))
+            if later.SetTooltip then
+                later:SetTooltip(function(tooltip)
+                    tooltip:AddLine(("Phase %d and later"):format(from), S:RGB("GOLD"))
+                    tooltip:AddLine(("Sets it in P%d, and in every later phase where that place is still empty."):format(from), 1, 1, 1, true)
                 end)
-                if cur and cur ~= t.itemID and b and b.SetTooltip then
-                    b:SetTooltip(function(tooltip)
-                        tooltip:AddLine(("Replaces %s"):format(A:GetName(cur) or "?"), 1, 1, 1, true)
+            end
+            AddPhaseChoices(later, targets, from, list, true)
+        end
+    end
+
+    local function AddListMenu(root, text, targets, list)
+        AddPhaseEntries(root:CreateButton(text), targets, list)
+    end
+
+    -- "Add to main spec (Ret)" / "Add to off spec (Prot)", or one "Add to my BiS list" without an off spec. bare = the
+    -- + menu: the phases right away when there is one list.
+    local function AddListMenus(root, targets, bare)
+        local BiS = ns.BiS
+        if BiS and BiS.HasOffSpec and BiS:HasOffSpec() then
+            local ms = BiS.GetSpec and BiS:GetSpec() or ""
+            local os = BiS.GetSpec and BiS:GetSpec("os") or ""
+            AddListMenu(root, "Add to main spec" .. (ms ~= "" and (" (" .. ms .. ")") or ""), targets, nil)
+            AddListMenu(root, "Add to off spec" .. (os ~= "" and (" (" .. os .. ")") or ""), targets, "os")
+        elseif bare then
+            AddPhaseEntries(root, targets, nil)
+        else
+            AddListMenu(root, "Add to my BiS list", targets, nil)
+        end
+    end
+
+    function ShowItemMenu(row, d)
+        local id = d.id
+        local A = Atlas()
+        ns.UI:ContextMenu(row, function(root)
+            root:CreateTitle(A:GetName(id) or "?")
+            if ns.Shop and ns.Shop:CanAdd(id) then
+                root:CreateButton("Add to shopping list", function() AddToShop(id) end)
+            end
+            if id > 0 then
+                local targets = A:GetBiSTargets(id)
+                if #targets > 0 then
+                    local locked = MenuLocked(root)
+                    local usable = true
+                    for _, t in ipairs(targets) do
+                        if A:IsUsableByMe(t.itemID) == false then usable = false end
+                    end
+                    if not usable then
+                        root:CreateTitle("Your class can't use this")
+                    elseif not locked and not ClassicShown() then
+                        AddListMenus(root, targets, false)
+                    end
+                    root:CreateButton("Try on", function()
+                        local link = ns.ItemDB:GetLink(targets[1].itemID)
+                        if link and DressUpItemLink then DressUpItemLink(link) end
                     end)
                 end
-            end
-        end
-    end
-end
-
--- The phases of one list (main or off spec) as entries of `sub`, each opening its best / alt choices: the Pre-raid
--- list first, then Phase 1..5.
-local function AddPhaseEntries(sub, targets, list)
-    local now = GuildPhase()
-    for _, p in ipairs(ns.LIST_PHASES or { 1, 2, 3, 4, 5 }) do
-        local info = ns.PHASE_INFO and ns.PHASE_INFO[p]
-        local label = info and info.name or ("Phase " .. p)
-        if p == now then label = label .. "  " .. S:Wrap("DIM", "(now)") end
-        local onList = false
-        for _, t in ipairs(targets) do
-            local mk = marks[t.itemID]
-            if mk and ((list == "os" and mk.os and mk.os[p]) or (list ~= "os" and ((mk.main and mk.main[p]) or (mk.alt and mk.alt[p])))) then
-                onList = true
-            end
-        end
-        if onList then label = label .. "  |T" .. ns.UI:Tex("check") .. ":0|t" end
-        AddPhaseChoices(sub:CreateButton(label), targets, p, list, false)
-    end
-    local from = now or 1
-    if from < (ns.MAX_PHASE or 5) then
-        if sub.CreateDivider then sub:CreateDivider() end
-        local later = sub:CreateButton(("Phase %d and later"):format(from))
-        if later.SetTooltip then
-            later:SetTooltip(function(tooltip)
-                tooltip:AddLine(("Phase %d and later"):format(from), S:RGB("GOLD"))
-                tooltip:AddLine(("Sets it in P%d, and in every later phase where that place is still empty."):format(from), 1, 1, 1, true)
-            end)
-        end
-        AddPhaseChoices(later, targets, from, list, true)
-    end
-end
-
-local function AddListMenu(root, text, targets, list)
-    AddPhaseEntries(root:CreateButton(text), targets, list)
-end
-
--- "Add to main spec (Ret)" / "Add to off spec (Prot)", or one "Add to my BiS list" without an off spec. bare = the
--- + menu: the phases right away when there is one list.
-local function AddListMenus(root, targets, bare)
-    local BiS = ns.BiS
-    if BiS and BiS.HasOffSpec and BiS:HasOffSpec() then
-        local ms = BiS.GetSpec and BiS:GetSpec() or ""
-        local os = BiS.GetSpec and BiS:GetSpec("os") or ""
-        AddListMenu(root, "Add to main spec" .. (ms ~= "" and (" (" .. ms .. ")") or ""), targets, nil)
-        AddListMenu(root, "Add to off spec" .. (os ~= "" and (" (" .. os .. ")") or ""), targets, "os")
-    elseif bare then
-        AddPhaseEntries(root, targets, nil)
-    else
-        AddListMenu(root, "Add to my BiS list", targets, nil)
-    end
-end
-
-function ShowItemMenu(row, d)
-    local id = d.id
-    local A = Atlas()
-    ns.UI:ContextMenu(row, function(root)
-        root:CreateTitle(A:GetName(id) or "?")
-        if ns.Shop and ns.Shop:CanAdd(id) then
-            root:CreateButton("Add to shopping list", function() AddToShop(id) end)
-        end
-        if id > 0 then
-            local targets = A:GetBiSTargets(id)
-            if #targets > 0 then
-                local locked = MenuLocked(root)
-                local usable = true
-                for _, t in ipairs(targets) do
-                    if A:IsUsableByMe(t.itemID) == false then usable = false end
-                end
-                if not usable then
-                    root:CreateTitle("Your class can't use this")
-                elseif not locked and not ClassicShown() then
-                    AddListMenus(root, targets, false)
-                end
-                root:CreateButton("Try on", function()
-                    local link = ns.ItemDB:GetLink(targets[1].itemID)
-                    if link and DressUpItemLink then DressUpItemLink(link) end
+                root:CreateButton("Link in chat", function() ns.UI:LinkInChat(id) end)
+            else
+                root:CreateButton("Link in chat", function()
+                    local link = GetSpellLink and GetSpellLink(-id)
+                    local insert = (ChatFrameUtil and ChatFrameUtil.InsertLink) or ChatEdit_InsertLink
+                    if link and insert and not insert(link) then
+                        local open = (ChatFrameUtil and ChatFrameUtil.OpenChat) or ChatFrame_OpenChat
+                        if open then open(link) end
+                    end
                 end)
             end
-            root:CreateButton("Link in chat", function() ns.UI:LinkInChat(id) end)
-        else
-            root:CreateButton("Link in chat", function()
-                local link = GetSpellLink and GetSpellLink(-id)
-                local insert = (ChatFrameUtil and ChatFrameUtil.InsertLink) or ChatEdit_InsertLink
-                if link and insert and not insert(link) then
-                    local open = (ChatFrameUtil and ChatFrameUtil.OpenChat) or ChatFrame_OpenChat
-                    if open then open(link) end
-                end
-            end)
-        end
-        if d.loc and IsSearching() then
-            root:CreateButton("Open its page", function() AtlasUI:GoTo(d.loc) end)
-        end
-    end)
-end
-
--- The + button's menu: straight to the phases (or main / off spec first).
-function ShowAddMenu(owner, d)
-    if not (d and d.type == "item") then return end
-    local A = Atlas()
-    local targets = A:GetBiSTargets(d.id)
-    if #targets == 0 then return end
-    ns.UI:ContextMenu(owner, function(root)
-        root:CreateTitle(A:GetName(d.id) or "?")
-        if MenuLocked(root) then return end
-        AddListMenus(root, targets, true)
-    end)
-end
-
----------------------------------------------------------------------------
--- Lists
----------------------------------------------------------------------------
-
-local function ColH()
-    -- (a layout region has a 1 x 1 placeholder size until the client lays it out)
-    local h = panel and panel.body and panel.body:GetHeight()
-    return (h and h > 1) and h or BODY_H
-end
-
--- A list's rows fill its column. Its scroll bar: "margin" = in the page's right margin, 4 right of the rows (the
--- item list, like the Raids tab's); "over" = over the rows' own right padding (the sources: their tags keep clear of
--- it); else inside the column, taking room from the rows only while they don't fit (the pages).
-local function PlaceBox(list, scrolls, where)
-    local box, bar = list.box, list.bar
-    box:ClearAllPoints()
-    box:SetPoint("TOPLEFT", list.frame, "TOPLEFT", 0, 0)
-    box:SetPoint("BOTTOMRIGHT", list.frame, "BOTTOMRIGHT", (scrolls and not where) and -BAR_SPACE or 0, 0)
-    local x = (where == "margin" and 4) or (where == "over" and -6) or (BAR_SPACE - 6)
-    bar:ClearAllPoints()
-    bar:SetPoint("TOPLEFT", box, "TOPRIGHT", x, 0)
-    bar:SetPoint("BOTTOMLEFT", box, "BOTTOMRIGHT", x, 0)
-    if where == "over" then bar:SetFrameLevel(box:GetFrameLevel() + 20) end
-end
-
-local function FillList(list, key, rows, fullW, viewH, extent, resetScroll)
-    rowW[key] = fullW
-    local total = 0
-    for _, d in ipairs(rows) do total = total + extent(d) end
-    local scrolls = total > viewH + 0.5
-    if scrolls then rowW[key] = fullW - BAR_SPACE end
-    PlaceBox(list, scrolls, nil)
-    list:SetData(rows, resetScroll)
-end
-
-function AtlasUI:RefreshSources()
-    if not srcList then return end
-    local rows = { { type = "shop" } }
-    for _, cat in ipairs(Atlas():GetCategories()) do
-        local open = state.expanded == cat.key
-        rows[#rows + 1] = { type = "cat", cat = cat, expanded = open }
-        if open then
-            for _, src in ipairs(cat.sources) do rows[#rows + 1] = { type = "src", cat = cat, src = src } end
-        end
+            if d.loc and IsSearching() then
+                root:CreateButton("Open its page", function() AtlasUI:GoTo(d.loc) end)
+            end
+        end)
     end
-    -- the scroll bar lies over the rows' right padding: nothing moves whichever category is open
-    rowW.src = LEFT_W
-    srcList:SetData(rows)
+
+    -- The + button's menu: straight to the phases (or main / off spec first).
+    function ShowAddMenu(owner, d)
+        if not (d and d.type == "item") then return end
+        local A = Atlas()
+        local targets = A:GetBiSTargets(d.id)
+        if #targets == 0 then return end
+        ns.UI:ContextMenu(owner, function(root)
+            root:CreateTitle(A:GetName(d.id) or "?")
+            if MenuLocked(root) then return end
+            AddListMenus(root, targets, true)
+        end)
+    end
 end
+
+---------------------------------------------------------------------------
+-- The grid's rows
+---------------------------------------------------------------------------
 
 -- Does a page list something the filters let through? Show: My class / a spec: something my class can use (so a set
--- source lists my class's sets); a slot: something for that slot (Ring: the bosses that drop rings). Instant data
--- only: the stats a spec is judged by are left to the item list.
+-- source lists my class's sets); a slot: something for that slot. Instant data only: the stats a spec is judged by
+-- are left to the items.
 local function PageVisible(page)
     local mode = ShowMode()
     if mode == "all" and state.slot == nil then return true end
@@ -1406,7 +1340,7 @@ local function PageVisible(page)
     return false
 end
 
--- The pages the middle column lists.
+-- The pages a source shows under the filters.
 local function VisiblePages(src)
     local out = {}
     if not src then return out end
@@ -1416,170 +1350,34 @@ local function VisiblePages(src)
     return out
 end
 
--- The art behind the detail's banner: a raid's key (the banner crops its loading screen), a dungeon zone's loading
--- screen as { file, l, r, t, b }, or nil (other sources: the banner's plain card).
-local function BannerArt(src, w, h)
-    if type(src) ~= "table" then return nil end
-    if src.art and w and h and w > 0 and h > 0 then
-        -- (a 4:3 loading screen: a band across its middle, clear of the logo on top and the frame below)
-        local fh = ART_FW * (4 / 3) * (h / w)
-        local t = 0.5 - fh / 2
-        return { src.art, (1 - ART_FW) / 2, (1 + ART_FW) / 2, t, t + fh }
-    end
-    if src.kind == "dungeon" then
-        local R = ns.DungeonRuns
-        local file, l, r, t, b
-        if R and R.GetArt then file, l, r, t, b = R:GetArt(src.key, w, h, ART_FW) end
-        return file and { file, l, r, t, b } or nil
-    end
-    if src.kind ~= "raid" then return nil end
-    local DB = ns.ItemDB
-    local key = DB and DB.GetRaidByInstance and DB:GetRaidByInstance(src.instanceID or 0)
-    return key or "other"
-end
-
--- "10 players", "You're Revered" (a faction: its pages are the standings). The phase is beside the source already.
-local function SourceSub(src)
-    local sub = {}
-    if src.lv then sub[#sub + 1] = "Levels " .. src.lv end
-    if src.size then sub[#sub + 1] = src.size .. " players" end
-    if src.factionID and GetFactionInfoByID then
-        local name, _, standing = GetFactionInfoByID(src.factionID)
-        standing = tonumber(standing)
-        local label = standing and GearUI.StandingName(standing)
-        if name and type(label) == "string" and label ~= "" then sub[#sub + 1] = "You're " .. label end
-    end
-    return table.concat(sub, DOT)
-end
-
--- The detail's banner (D3: UI:CreatePageBanner, tool size): the page's name under its source as the kicker, the
--- notes as its sub line, over the source's loading screen (a raid or dungeon) or the plain card. No title: hidden.
--- Returns where the item list starts under it.
-local function FillBanner(kicker, title, sub, art)
-    if not title or title == "" then
-        banner:Hide()
-        return 0
-    end
-    banner:SetArt(art)
-    banner:SetKicker(kicker)
-    banner:SetTitle(title)
-    banner:SetSub((sub and sub ~= "") and sub or nil)
-    banner:Show()
-    return BANNER_H + GAP
-end
-
--- The pages column's section header (UI:CreateSectionHeader): the title cut to the column. Returns where the column's
--- content starts under it.
-local function FillHead(h, title)
-    h:SetTitle(title or "")
-    ns.UI:FitText(h.title, title or "", MID_W - 4)
-    h:Show()
-    return HEAD_H + 4
-end
-
-local function PlacePageList(top)
-    pageList.frame:ClearAllPoints()
-    pageList.frame:SetPoint("TOPLEFT", panel.mid, "TOPLEFT", 0, -top)
-    pageList.frame:SetPoint("BOTTOMRIGHT", panel.mid, "BOTTOMRIGHT", 0, 0)
-    return ColH() - top
-end
-
--- The shopping list takes the middle and right columns (UI/AtlasShop.lua) while it's the place picked on the left
--- and nothing is searched.
-local function ShowingShop()
-    return state.cat == SHOP and not IsSearching() and ns.AtlasShopUI ~= nil
-end
-
-function AtlasUI:RefreshPages()
-    if not pageList then return end
-    local A = Atlas()
-    RefreshMarks()
-    if ShowingShop() then
-        midHead:Hide()
-        diffNormal:Hide()
-        diffHeroic:Hide()
-        pageList.frame:Hide()
-        ns.AtlasShopUI:Show()
-        return
-    end
-    if ns.AtlasShopUI then ns.AtlasShopUI:Hide() end
-    if IsSearching() then
-        local res = SearchResults()
-        local rows = {}
-        -- (nothing in this era: only "In TBC" / "In Classic", when the other has some)
-        for _, f in ipairs(res.facets) do
-            if res.facets[1].count > 0 or f.key == ERA_FACET then
-                rows[#rows + 1] = { type = "facet", key = f.key, name = f.name, count = f.count, era = f.era }
-            end
-        end
-        diffNormal:Hide()
-        diffHeroic:Hide()
-        local top = FillHead(midHead, "Found in")
-        pageList:SetEmptyText(#rows == 0 and "No matches" or "")
-        pageList.frame:Show()
-        FillList(pageList, "page", rows, MID_W, PlacePageList(top), PageExtent, true)
-        return
-    end
-    pageList:SetEmptyText("")
-    local src = state.cat and A:GetSource(state.cat, state.src)
-    local rows = VisiblePages(src)
-    -- the shown page was filtered out: open the first one left
-    if #rows > 0 then
-        local still = false
-        for _, r in ipairs(rows) do
-            if r.page.key == state.page then still = true end
-        end
-        if not still then
-            state.page = rows[1].page.key
-            state.selected = nil
-        end
-    end
-    -- the source's name over its pages (its art and sub line are the detail's banner)
-    local top = 0
-    midHead:Hide()
-    if src then top = FillHead(midHead, src.name) end
-    local heroic = A:HasHeroic(src)
-    diffNormal:SetShown(heroic)
-    diffHeroic:SetShown(heroic)
-    if heroic then
-        diffNormal:ClearAllPoints()
-        diffNormal:SetPoint("TOPLEFT", panel.mid, "TOPLEFT", IN - 6, -top)
-        diffNormal:SetActive(not state.heroic)
-        diffHeroic:SetActive(state.heroic)
-        top = top + TABS_H + 4
-    end
-    -- a source with a single page (a vendor, a collection) needs no list: the item list's title names it
-    pageList.frame:SetShown(not (src and #src.pages == 1))
-    FillList(pageList, "page", rows, MID_W, PlacePageList(top), PageExtent, false)
-end
-
--- Item rows of a list of entries: headers kept only when an item follows them. Under an item, indented rows of what
--- it turns into or comes from (they work like any item): a token's pieces for my class (filtered like the page), a
--- Sunwell drop's Sunmote upgrade, a Sunmote item's base drop, what a recipe makes.
-local function EntryRows(entries, x, setPage)
+-- Item rows of a list of entries: headers kept only when an item follows them. After an item, what it turns into or
+-- comes from (they work like any item): a token's pieces for my class (filtered like the page), a Sunwell drop's
+-- Sunmote upgrade, a Sunmote item's base drop, what a recipe makes. kinds (optional) counts the kinds that pass the
+-- other filters, for the chips.
+local function EntryRows(entries, x, setPage, kinds)
     local rows, pendingHeader, count = {}, nil, 0
     local A = Atlas()
     for i, e in ipairs(entries) do
         if type(e) == "string" then
             pendingHeader = { type = "header", text = e }
         elseif type(e) == "number" and Passes(e) then
-            if pendingHeader then
-                rows[#rows + 1] = pendingHeader
-                pendingHeader = nil
-            end
-            local item = { type = "item", id = e, x = type(x) == "table" and x[i] or nil, setPage = setPage }
-            rows[#rows + 1] = item
-            count = count + 1
-            if e > 0 then
-                local last
-                for _, r in ipairs(A:GetRewards(e)) do
-                    if r.kind ~= "token" or Passes(r.id) then
-                        last = { type = "item", id = r.id, via = e, viaKind = r.kind, grouped = true }
-                        rows[#rows + 1] = last
-                        item.grouped = true   -- no rule between an item and its indented rows
+            local k = KindOf(e)
+            if kinds then kinds[k] = (kinds[k] or 0) + 1 end
+            if state.kind == nil or k == state.kind then
+                if pendingHeader then
+                    rows[#rows + 1] = pendingHeader
+                    pendingHeader = nil
+                end
+                local item = { type = "item", id = e, x = type(x) == "table" and x[i] or nil, setPage = setPage }
+                rows[#rows + 1] = item
+                count = count + 1
+                if e > 0 then
+                    for _, r in ipairs(A:GetRewards(e)) do
+                        if r.kind ~= "token" or Passes(r.id) then
+                            rows[#rows + 1] = { type = "item", id = r.id, via = e, viaKind = r.kind }
+                        end
                     end
                 end
-                if last then last.grouped = nil end
             end
         end
     end
@@ -1592,6 +1390,33 @@ local function Prefetch(rows)
         if r.type == "item" and r.id > 0 then ids[#ids + 1] = r.id end
     end
     if ns.ItemDB and ns.ItemDB.Prefetch then ns.ItemDB:Prefetch(ids) end
+end
+
+-- Packs item rows into grid rows: `cols` tiles a row; a set's header or a note spans the grid. Adds to out (and to
+-- flatRows, the item-level order).
+local function Pack(rows, out)
+    local cur
+    local function flush()
+        if cur then
+            local h = CELL_MIN
+            for _, c in ipairs(cur.cells) do h = max(h, Layout(c).h) end
+            cur.h = h
+            out[#out + 1] = cur
+            cur = nil
+        end
+    end
+    for _, r in ipairs(rows) do
+        flatRows[#flatRows + 1] = r
+        if r.type == "item" then
+            cur = cur or { type = "cells", cells = {} }
+            cur.cells[#cur.cells + 1] = r
+            if #cur.cells >= cols then flush() end
+        else
+            flush()
+            out[#out + 1] = r
+        end
+    end
+    flush()
 end
 
 -- Every match of the search that passes the filters, and where they are from: { key, entries, facets = { { key,
@@ -1619,18 +1444,924 @@ function SearchResults()
         facets[#facets + 1] = { key = ERA_FACET, era = otherEra, name = "In " .. A.ERA_NAMES[otherEra],
                                 count = other }
     end
-    searchCache = { key = key, entries = entries, facets = facets, other = other or 0, otherEra = otherEra }
+    searchCache = { key = key, entries = entries, facets = facets, other = other or 0, otherEra = otherEra,
+                    places = A:SearchPlaces(state.search) or {} }
     return searchCache
 end
 
--- The item list's empty state: the illustrated one (title + text) and, under it, the same text as the plain line.
-local function ItemsEmpty(title, text)
-    itemList:SetEmptyText(text)
-    local same = text == title or text == title .. "."
-    itemList:SetEmptyState({ glyph = ns.UI.ICON.notes, title = title, text = (not same) and text or nil })
+-- The grid while searching: the places (both eras) first, then the items in one group per source.
+local function SearchRows(out)
+    local A = Atlas()
+    local res = SearchResults()
+    if state.facet == ERA_FACET then state.facet = nil end
+    local facetOK = state.facet == nil
+    for _, f in ipairs(res.facets) do
+        if f.key ~= nil and f.key == state.facet then facetOK = true end
+    end
+    if not facetOK then state.facet = nil end
+    hits = {}
+    local places = (state.facet == nil) and res.places or {}
+    if #places > 0 then
+        out[#out + 1] = { type = "label", text = "Places" }
+        for i, p in ipairs(places) do
+            if i > PLACES_SHOWN then break end
+            local d = { type = "place", place = p }
+            hits[#hits + 1] = { place = p, row = d }
+            out[#out + 1] = d
+        end
+    end
+    -- the items, grouped by source in result order
+    local groups, byKey = {}, {}
+    local total = 0
+    for _, e in ipairs(res.entries) do
+        if state.facet == nil or e.loc.cat.key == state.facet then
+            local k = e.loc.cat.key .. "\0" .. e.loc.src.key
+            local g = byKey[k]
+            if not g then
+                g = { key = k, cat = e.loc.cat, src = e.loc.src, entries = {} }
+                byKey[k] = g
+                groups[#groups + 1] = g
+            end
+            g.entries[#g.entries + 1] = e
+            total = total + 1
+        end
+    end
+    if total > 0 and #places > 0 then
+        out[#out + 1] = { type = "label", text = "Items" }
+    end
+    local drawn = 0
+    for _, g in ipairs(groups) do
+        if drawn >= MAX_SHOWN then break end
+        local all = state.showSrc == g.key or #groups == 1 or state.facet ~= nil
+        local n = all and #g.entries or min(#g.entries, GROUP_SHOWN)
+        out[#out + 1] = { type = "srchead", group = g, count = #g.entries, more = (n < #g.entries) }
+        local rows = {}
+        for i = 1, n do
+            if drawn >= MAX_SHOWN then break end
+            rows[#rows + 1] = g.entries[i]
+            hits[#hits + 1] = { item = g.entries[i] }
+            drawn = drawn + 1
+        end
+        Pack(rows, out)
+    end
+    if total > drawn then
+        local more = { type = "more",
+            text = ("Showing the first %d of %d: type more of the name, or pick a category."):format(drawn, total) }
+        flatRows[#flatRows + 1] = more
+        out[#out + 1] = more
+    end
+    -- the cursor (↑ ↓): its result highlighted
+    if state.cursor > #hits then state.cursor = #hits end
+    if state.cursor < 1 then state.cursor = 1 end
+    for i, h in ipairs(hits) do
+        local hot = i == state.cursor
+        if h.item then h.item.hot = hot else h.row.hot = hot end
+    end
+    return res, total
 end
 
--- While my BiS lists are locked (§38) a notice above the columns says why the + buttons are gone (display only:
+-- The category view: the recently viewed places of the category, then every place (Classic dungeons: the ones that
+-- fit my level first, then all by level; raids by phase).
+local function CategoryRows(out)
+    local A = Atlas()
+    local cat = A:GetCategory(state.cat)
+    if not cat then return end
+    local function tiles(list, label, sub)
+        if #list == 0 then return end
+        out[#out + 1] = { type = "label", text = label, sub = sub }
+        for i = 1, #list, TILES_PER_ROW do
+            local row = { type = "tiles", tiles = {} }
+            for j = i, min(i + TILES_PER_ROW - 1, #list) do row.tiles[#row.tiles + 1] = { cat = cat, src = list[j] } end
+            out[#out + 1] = row
+        end
+    end
+    local recent = {}
+    for _, r in ipairs(state.recent) do
+        if r.cat == cat.key then recent[#recent + 1] = A:GetSource(r.cat, r.src) end
+    end
+    tiles(recent, "Recently viewed")
+    local function lo(src) return tonumber((src.lv or ""):match("^(%d+)")) or 0 end
+    local function hi(src) return tonumber((src.lv or ""):match("%-(%d+)$")) or lo(src) end
+    local lv = UnitLevel and tonumber(UnitLevel("player")) or 70
+    local all = {}
+    for _, src in ipairs(cat.sources) do all[#all + 1] = src end
+    if all[1] and all[1].lv then
+        table.sort(all, function(a, b)
+            if lo(a) ~= lo(b) then return lo(a) < lo(b) end
+            return (a.name or "") < (b.name or "")
+        end)
+        if lv < 60 then
+            local fit = {}
+            for _, src in ipairs(all) do
+                if lo(src) <= lv + 3 and hi(src) >= lv - 2 then fit[#fit + 1] = src end
+            end
+            tiles(fit, "Right for you", "level " .. lv)
+        end
+        tiles(all, "All " .. (cat.name or ""):lower(), "by level")
+        return
+    end
+    local byPhase, phases = {}, {}
+    for _, src in ipairs(all) do
+        local p = tonumber(src.phase) or 0
+        if not byPhase[p] then
+            byPhase[p] = {}
+            phases[#phases + 1] = p
+        end
+        local list = byPhase[p]
+        list[#list + 1] = src
+    end
+    if #phases > 1 then
+        table.sort(phases)
+        for _, p in ipairs(phases) do tiles(byPhase[p], p > 0 and ("Phase " .. p) or (cat.name or "")) end
+    else
+        tiles(all, "All " .. (cat.name or ""):lower())
+    end
+end
+
+-- A place's rows: one section per boss with its tiles (all its loot), or one page's tiles. kinds: the chips' counts.
+local function ItemRows(out, kinds)
+    local A = Atlas()
+    local src = state.cat and A:GetSource(state.cat, state.src)
+    if not src then return 0, nil, nil end
+    local count = 0
+    if state.view == "source" then
+        local all = {}
+        for _, pr in ipairs(VisiblePages(src)) do
+            local page = pr.page
+            local heroic = state.heroic and page.heroicItems ~= nil
+            local plain = not state.heroic or not page.heroicItems
+            local rows, n = EntryRows(A:GetPageEntries(page, heroic), plain and page.x or nil, false, kinds)
+            if n > 0 then
+                out[#out + 1] = { type = "section", page = page, count = n, stars = PickCount(page) }
+                Pack(rows, out)
+                for _, r in ipairs(rows) do all[#all + 1] = r end
+                count = count + n
+            end
+        end
+        return count, src, all
+    end
+    local page = A:GetPage(state.cat, state.src, state.page)
+    if not page then return 0, src, {} end
+    local heroic = state.heroic and page.heroicItems ~= nil
+    local plain = not state.heroic or not page.heroicItems
+    local rows, n = EntryRows(A:GetPageEntries(page, heroic), plain and page.x or nil, src.kind == "sets", kinds)
+    Pack(rows, out)
+    return n, src, rows, page
+end
+
+---------------------------------------------------------------------------
+-- The grid's row frames
+---------------------------------------------------------------------------
+local GridExtent, InitGridRow
+do
+
+    local function Hide(...)
+        for i = 1, select("#", ...) do
+            local f = select(i, ...)
+            if f then f:Hide() end
+        end
+    end
+
+    function GridExtent(d)
+        local t = d.type
+        if t == "cells" then return d.h + CELL_GAP end
+        if t == "section" then return SECTION_H end
+        if t == "label" then return LABEL_H end
+        if t == "place" then return PLACE_H + 2 end
+        if t == "tiles" then return TILE_H + GAP end
+        if t == "srchead" then return SRCHEAD_H + 4 end
+        return Layout(d).h
+    end
+
+    -- A tile of a place (the category view): its art (or its icon on a card), name, levels / phase, my stars.
+    local function SetupPlaceTile(t)
+        local UI = ns.UI
+        t:RegisterForClicks("LeftButtonUp")
+        t.card = UI:Fill(t, "CARD")
+        t.art = t:CreateTexture(nil, "BACKGROUND", nil, 1)
+        t.art:SetPoint("TOPLEFT", 1, -1)
+        t.art:SetPoint("BOTTOMRIGHT", -1, 1)
+        t.shade = t:CreateTexture(nil, "BORDER")
+        t.shade:SetPoint("TOPLEFT", 1, -1)
+        t.shade:SetPoint("BOTTOMRIGHT", -1, 1)
+        UI:Gradient(t.shade, "VERTICAL", { 0, 0, 0, 0.85 }, { 0, 0, 0, 0 })
+        UI:AddEdges(t, "ARTWORK")
+        t.icon = t:CreateTexture(nil, "ARTWORK")
+        t.icon:SetSize(32, 32)
+        t.icon:SetPoint("TOPLEFT", 8, -8)
+        t.name = UI:Text(t, "emph", "TEXT", { shadow = true })
+        t.name:SetPoint("BOTTOMLEFT", 9, 7)
+        t.name:SetPoint("RIGHT", t, "RIGHT", -8, 0)
+        t.tag = UI:CreatePill(t, nil, nil, 16)
+        t.tag:SetPoint("TOPRIGHT", -6, -6)
+        t.stars = UI:CreatePill(t, nil, nil, 16)
+        t.stars:SetPoint("TOPLEFT", 6, -6)
+        local hl = t:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(S:Color("HOVER"))
+        t:SetScript("OnClick", function(self)
+            if self.place then AtlasUI:OpenSource(self.place.cat.key, self.place.src.key) end
+        end)
+    end
+
+    local function InitPlaceTile(t, p, w)
+        if not t.card then SetupPlaceTile(t) end
+        t.place = p
+        t:SetSize(w, TILE_H)
+        local src = p.src
+        local file, l, r, tt, b = SourceArt(src, w, TILE_H, 0.9)
+        t.art:SetShown(file ~= nil)
+        t.shade:SetShown(file ~= nil)
+        t.icon:SetShown(file == nil)
+        if file then
+            t.art:SetTexture(file)
+            t.art:SetTexCoord(l, r, tt, b)
+        else
+            t.icon:SetTexture(SourceIcon(src, p.cat))
+            t.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        end
+        local here = state.cat == p.cat.key and state.src == src.key
+        ns.UI:SetEdgeColor(t, S:Color(here and "GOLD" or "EDGE_QUIET"))
+        t.name:SetText(src.name or "?")
+        t.name:SetTextColor(S:Color(here and "GOLD" or "TEXT"))
+        local tag = PhaseTag(src)
+        t.tag:SetShown(tag ~= nil)
+        if tag then t.tag:SetPill("mute", tag) end
+        local n = SourceStars(src)
+        t.stars:SetShown(n > 0)
+        if n > 0 then t.stars:SetPill("bis", StarText(9) .. " " .. n) end
+        t:Show()
+    end
+
+    -- One search result that is a place: its picture, name, where it is (a boss: its place), the era.
+    local function InitPlaceRow(row, d)
+        local UI = ns.UI
+        local b = row.placeBtn
+        if not b then
+            b = CreateFrame("Button", nil, row)
+            b:RegisterForClicks("LeftButtonUp")
+            UI:DecorateRow(b, { selectable = true })
+            b.thumb = b:CreateTexture(nil, "ARTWORK")
+            b.thumb:SetSize(64, 34)
+            b.thumb:SetPoint("LEFT", 4, 0)
+            b.port = b:CreateTexture(nil, "ARTWORK", nil, 1)
+            b.port:SetSize(64, 32)
+            b.port:SetPoint("LEFT", 4, 0)
+            b.name = UI:Text(b, "title", "TEXT")
+            b.name:SetPoint("TOPLEFT", 78, -8)
+            b.sub = UI:Text(b, "small", "SUB")
+            b.sub:SetPoint("TOPLEFT", 78, -26)
+            b.tag = UI:CreatePill(b, nil, nil, 16)
+            b.tag:SetPoint("RIGHT", -10, 0)
+            b:SetScript("OnClick", function(self)
+                if self.place then AtlasUI:OpenPlace(self.place) end
+            end)
+            row.placeBtn = b
+        end
+        b:SetAllPoints(row)
+        b:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 2)
+        local p = d.place
+        b.place = p
+        local A = Atlas()
+        local file, l, r, t, bb = SourceArt(p.src, 64, 34, 0.9)
+        b.thumb:SetShown(p.page == nil and file ~= nil)
+        if file then
+            b.thumb:SetTexture(file)
+            b.thumb:SetTexCoord(l, r, t, bb)
+        end
+        b.port:SetShown(p.page ~= nil)
+        if p.page then b.port:SetTexture(PortraitOf(p.page)) end
+        b.name:SetText(p.page and p.page.name or p.src.name)
+        local where = {}
+        if p.page then where[#where + 1] = p.src.name end
+        where[#where + 1] = p.cat.name
+        local sub = SourceSub(p.src)
+        if sub ~= "" then where[#where + 1] = sub end
+        b.sub:SetText(table.concat(where, DOT))
+        b.sub:SetWidth(max(1, rowW.grid - 78 - 90))
+        local otherEra = p.cat.era ~= A:GetEra()
+        -- (the era only when it's the other one: opening it switches)
+        b.tag:SetShown(otherEra)
+        b.tag:SetPill("alt", A.ERA_NAMES[p.cat.era] or "")
+        b:SetSelected(d.hot == true)
+        b:Show()
+    end
+
+    -- A boss section in a place's view: the portrait (when the Journal has one), the name, how many items, my stars;
+    -- the whole header opens the boss.
+    local function InitSection(row, d)
+        local UI = ns.UI
+        local s = row.sec
+        if not s then
+            s = CreateFrame("Button", nil, row)
+            s:RegisterForClicks("LeftButtonUp")
+            s.rule = s:CreateTexture(nil, "ARTWORK")
+            s.rule:SetHeight(1)
+            s.rule:SetPoint("BOTTOMLEFT", 0, 4)
+            s.rule:SetPoint("BOTTOMRIGHT", 0, 4)
+            UI:Gradient(s.rule, "HORIZONTAL", { 1, 0.82, 0.35, 0.35 }, { 1, 0.82, 0.35, 0.03 })
+            local hl = s:CreateTexture(nil, "HIGHLIGHT")
+            hl:SetPoint("TOPLEFT", 0, -4)
+            hl:SetPoint("BOTTOMRIGHT", 0, 5)
+            UI:Gradient(hl, "HORIZONTAL", S:WithAlpha("GOLD", 0.08), S:WithAlpha("GOLD", 0))
+            s.port = s:CreateTexture(nil, "ARTWORK")
+            s.port:SetSize(56, 28)
+            s.port:SetPoint("BOTTOMLEFT", 0, 6)
+            s.title = UI:Text(s, "title", "GOLD", { shadow = true })
+            s.count = UI:Text(s, "small", "SUB")
+            s.count:SetPoint("LEFT", s.title, "RIGHT", 8, 0)
+            s.stars = UI:Text(s, "small", "GOLD")
+            s.stars:SetPoint("LEFT", s.count, "RIGHT", 8, 0)
+            s.chev = s:CreateTexture(nil, "ARTWORK")
+            s.chev:SetSize(10, 10)
+            s.chev:SetPoint("BOTTOMRIGHT", -6, 12)
+            UI:SetChevron(s.chev, true)
+            s.chev:SetVertexColor(S:Color("GOLD"))
+            s.hint = UI:Text(s, "small", "SUB", { text = "Open" })
+            s.hint:SetPoint("RIGHT", s.chev, "LEFT", -4, 0)
+            s.hint:Hide()
+            s:SetScript("OnEnter", function(self) self.hint:Show() end)
+            s:SetScript("OnLeave", function(self) self.hint:Hide() end)
+            s:SetScript("OnClick", function(self)
+                if self.page then AtlasUI:OpenPage(self.page.key) end
+            end)
+            row.sec = s
+        end
+        s:SetAllPoints(row)
+        local page = d.page
+        local tex, own = PortraitOf(page)
+        s.port:SetShown(own)
+        if own then s.port:SetTexture(tex) end
+        s.title:ClearAllPoints()
+        s.title:SetPoint("BOTTOMLEFT", own and 62 or 2, 10)
+        s.title:SetText(page.name or "?")
+        s.count:SetText(d.count == 1 and "1 item" or (d.count .. " items"))
+        s.stars:SetText(d.stars > 0 and (StarText(10) .. " " .. d.stars) or "")
+        s.page = page
+        s:Show()
+    end
+
+    -- A label over a group (Places, Items, Recently viewed, Phase 2, Right for you · level 34).
+    local function InitLabel(row, d)
+        local UI = ns.UI
+        if not row.lab then
+            row.lab = UI:Text(row, "emph", "GOLD", { shadow = true })
+            row.labSub = UI:Text(row, "small", "SUB")
+            row.labSub:SetPoint("LEFT", row.lab, "RIGHT", 8, 0)
+        end
+        row.lab:ClearAllPoints()
+        row.lab:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 2, 6)
+        row.lab:SetText(d.text or "")
+        local sub = d.sub or ((d.count and d.count > 0) and tostring(d.count) or "")
+        row.labSub:SetText(sub)
+        row.lab:Show()
+        row.labSub:Show()
+    end
+
+    -- Search: a source's group header (its art as a band, its name, where, the count, "Show all ›").
+    local function InitSrcHead(row, d)
+        local UI = ns.UI
+        local h = row.srch
+        if not h then
+            h = CreateFrame("Frame", nil, row)
+            h.card = UI:Fill(h, "CARD")
+            h.art = h:CreateTexture(nil, "BACKGROUND", nil, 1)
+            h.art:SetPoint("TOPLEFT", 1, -1)
+            h.art:SetPoint("BOTTOMRIGHT", -1, 1)
+            h.shade = h:CreateTexture(nil, "BORDER")
+            h.shade:SetPoint("TOPLEFT", 1, -1)
+            h.shade:SetPoint("BOTTOMRIGHT", -1, 1)
+            UI:Gradient(h.shade, "HORIZONTAL", { 0, 0, 0, 0.85 }, { 0, 0, 0, 0.35 })
+            UI:AddEdges(h, "ARTWORK")
+            UI:SetEdgeColor(h, S:Color("EDGE_QUIET"))
+            h.icon = h:CreateTexture(nil, "ARTWORK")
+            h.icon:SetSize(20, 20)
+            h.icon:SetPoint("LEFT", 8, 0)
+            h.title = UI:Text(h, "title", "GOLD", { shadow = true })
+            h.title:SetPoint("LEFT", 34, 0)
+            h.sub = UI:Text(h, "small", "TEXT", { shadow = true })
+            h.sub:SetPoint("LEFT", h.title, "RIGHT", 8, 0)
+            h.all = UI:CreateSleekButton(h, "Show all", 80, 18, function(self)
+                state.showSrc = self.key
+                AtlasUI:RefreshItems(false)
+            end)
+            h.all:SetPoint("RIGHT", -8, 0)
+            h.count = UI:CreatePill(h, nil, nil, 16)
+            row.srch = h
+        end
+        h:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+        h:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 2)
+        local g = d.group
+        local file, l, r, t, b = SourceArt(g.src, floor(rowW.grid), SRCHEAD_H, 0.95)
+        h.art:SetShown(file ~= nil)
+        h.shade:SetShown(file ~= nil)
+        if file then
+            h.art:SetTexture(file)
+            h.art:SetTexCoord(l, r, t, b)
+        end
+        h.icon:SetTexture(SourceIcon(g.src, g.cat))
+        h.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        h.title:SetText(g.src.name or "?")
+        h.sub:SetText(g.cat.name or "")
+        h.all.key = g.key
+        h.all:SetShown(d.more)
+        if d.more then h.all:SetText("Show all " .. d.count .. " ›") end
+        h.count:Hide()
+        h:Show()
+    end
+
+    -- A set's header or the "showing the first ..." note (spanning the grid).
+    local function InitWide(row, d)
+        local UI = ns.UI
+        if not row.header then
+            row.header = UI:Text(row, "emph", "GOLD")
+            if row.header.SetMaxLines then row.header:SetMaxLines(2) end
+            row.headCost = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
+            row.headCost:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -IN, 8)
+        end
+        local lay = Layout(d)
+        row.header:ClearAllPoints()
+        if d.type == "more" then
+            ns.UI:SetTextStyle(row.header, "small", "DIM")
+            row.header:SetWordWrap(true)
+            row.header:SetPoint("LEFT", row, "LEFT", IN, 0)
+            row.header:SetWidth(rowW.grid - 2 * IN)
+        else
+            ns.UI:SetTextStyle(row.header, "emph", "GOLD")
+            row.header:SetWordWrap((lay.headLines or 1) > 1)
+            row.header:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", IN, 7)
+            row.header:SetWidth(lay.headW or (rowW.grid - 2 * IN))
+        end
+        row.header:SetText(d.text or "")
+        row.header:Show()
+        row.headCost:SetShown(lay.cost ~= nil)
+        row.headCost:SetText(lay.cost or "")
+        row.headCost:SetWidth(max((lay.costW or 0) - 12, 1) + 2)
+    end
+
+    function InitGridRow(row, d)
+        row:EnableMouse(false)
+        Hide(row.sec, row.placeBtn, row.lab, row.labSub, row.srch, row.header, row.headCost)
+        for _, c in ipairs(row.cells or {}) do c:Hide() end
+        for _, t in ipairs(row.tiles or {}) do t:Hide() end
+        local t = d.type
+        if t == "cells" then
+            row.cells = row.cells or {}
+            for i, cd in ipairs(d.cells) do
+                local c = row.cells[i]
+                if not c then
+                    c = CreateFrame("Button", nil, row)
+                    row.cells[i] = c
+                end
+                c.__cdlData = cd
+                c:ClearAllPoints()
+                c:SetPoint("TOPLEFT", row, "TOPLEFT", (i - 1) * (rowW.item + CELL_GAP), 0)
+                cd.cellH = d.h
+                c:SetSize(rowW.item, d.h)
+                InitItemRow(c, cd)
+                c:Show()
+            end
+        elseif t == "tiles" then
+            row.tiles = row.tiles or {}
+            local w = floor((rowW.grid - (TILES_PER_ROW - 1) * GAP) / TILES_PER_ROW)
+            for i, p in ipairs(d.tiles) do
+                local tile = row.tiles[i]
+                if not tile then
+                    tile = CreateFrame("Button", nil, row)
+                    row.tiles[i] = tile
+                end
+                tile:ClearAllPoints()
+                tile:SetPoint("TOPLEFT", row, "TOPLEFT", (i - 1) * (w + GAP), 0)
+                InitPlaceTile(tile, p, w)
+            end
+        elseif t == "section" then
+            InitSection(row, d)
+        elseif t == "label" then
+            InitLabel(row, d)
+        elseif t == "place" then
+            InitPlaceRow(row, d)
+        elseif t == "srchead" then
+            InitSrcHead(row, d)
+        else
+            InitWide(row, d)
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- The banner over a place or a page
+---------------------------------------------------------------------------
+local CreateHero, FillHero
+do
+
+    local DOT_W, DOT_ON_W, DOT_GAP = 7, 18, 5
+
+    function CreateHero(parent)
+        local UI = ns.UI
+        local h = CreateFrame("Frame", nil, parent)
+        h:SetHeight(HERO_H)
+        h.plain = UI:Fill(h, "CARD")
+        h.art = h:CreateTexture(nil, "BACKGROUND", nil, 1)
+        h.art:SetPoint("TOPLEFT", 1, -1)
+        h.art:SetPoint("BOTTOMRIGHT", -1, 1)
+        h.shade = h:CreateTexture(nil, "BORDER")
+        h.shade:SetPoint("TOPLEFT", 1, -1)
+        h.shade:SetPoint("BOTTOMRIGHT", -1, 1)
+        UI:Gradient(h.shade, "HORIZONTAL", { 0, 0, 0, 0.82 }, { 0, 0, 0, 0.12 })
+        h.foot = h:CreateTexture(nil, "BORDER", nil, 1)
+        h.foot:SetPoint("BOTTOMLEFT", 1, 1)
+        h.foot:SetPoint("BOTTOMRIGHT", -1, 1)
+        h.foot:SetHeight(30)
+        UI:Gradient(h.foot, "VERTICAL", { 0, 0, 0, 0.55 }, { 0, 0, 0, 0 })
+        UI:AddEdges(h, "ARTWORK")
+        UI:SetEdgeColor(h, S:Color("EDGE"))
+        h.port = h:CreateTexture(nil, "ARTWORK", nil, 1)
+        h.port:SetSize(PORTRAIT_W, PORTRAIT_W / 2)
+        h.port:SetPoint("BOTTOMLEFT", 1, 1)
+        h.icon = h:CreateTexture(nil, "ARTWORK", nil, 1)
+        h.icon:SetSize(46, 46)
+        h.icon:SetPoint("LEFT", 16, 0)
+        h.kicker = UI:Text(h, "caps", "GOLD", { shadow = true })
+        h.title = UI:Text(h, "hero", "GOLD", { shadow = true })
+        h.sub = UI:Text(h, "small", "TEXT", { shadow = true })
+        h.stars = UI:CreatePill(h, nil, nil, 18)
+        h.stars:SetPoint("TOPRIGHT", -10, -10)
+        -- the bosses as dots: a click opens one (a place's view: jumps to its section)
+        h.dots = CreateFrame("Frame", nil, h)
+        h.dots:SetHeight(12)
+        h.dotPool = {}
+        -- ‹ › step to the boss before / after
+        h.prev = UI:CreateSleekButton(h, "‹", 120, 22, function(self) if self.page then AtlasUI:OpenPage(self.page.key) end end)
+        h.next = UI:CreateSleekButton(h, "›", 120, 22, function(self) if self.page then AtlasUI:OpenPage(self.page.key) end end)
+        h.next:SetPoint("BOTTOMRIGHT", -10, 10)
+        h.prev:SetPoint("RIGHT", h.next, "LEFT", -6, 0)
+        -- Normal / Heroic (a TBC dungeon)
+        h.diff = UI:CreateSegments(h, { { key = "normal", label = "Normal" }, { key = "heroic", label = "Heroic" } },
+            function(key) AtlasUI:SetHeroic(key == "heroic") end, { h = 20, look = "pill" })
+        -- a crafting place: the guild's crafters of its profession
+        h.who = CreateFrame("Frame", nil, h)
+        h.who:SetSize(10, 22)
+        h.who:SetPoint("BOTTOMRIGHT", -10, 10)
+        h.whoLabel = UI:Text(h.who, "small", "TEXT", { shadow = true, text = "Guild crafters" })
+        h.whoPool = {}
+        return h
+    end
+
+    -- A place without a loading screen of its own (a profession, a vendor, a faction): its world's, dimmed.
+    local WORLD_ART = { tbc = "Interface\\Glues\\LoadingScreens\\LoadScreenOutland",
+                        classic = "Interface\\Glues\\LoadingScreens\\LoadScreenEasternKingdom" }
+
+    local function SetHeroArt(src, w)
+        local file, l, r, t, b = SourceArt(src, w, HERO_H, 0.95)
+        local own = file ~= nil
+        if not own then
+            file = WORLD_ART[Atlas():GetEra()] or WORLD_ART.tbc
+            local fh = 0.95 * (4 / 3) * (HERO_H / w)
+            l, r, t, b = 0.025, 0.975, 0.5 - fh / 2, 0.5 + fh / 2
+        end
+        hero.art:Show()
+        hero.plain:Hide()
+        hero.art:SetTexture(file)
+        hero.art:SetTexCoord(l, r, t, b)
+        local v = own and 1 or 0.45
+        hero.art:SetVertexColor(v, v, v)
+    end
+
+    -- The dots of a place's bosses (the one open wide and gold; gold-ish where I have BiS picks).
+    local function FillDots(src, pages, x, y)
+        local d = hero.dots
+        d:ClearAllPoints()
+        d:SetPoint("BOTTOMLEFT", hero, "BOTTOMLEFT", x, y)
+        local xx = 0
+        for i, pr in ipairs(pages) do
+            local b = hero.dotPool[i]
+            if not b then
+                b = CreateFrame("Button", nil, d)
+                b.tex = b:CreateTexture(nil, "ARTWORK")
+                b.tex:SetPoint("CENTER")
+                b:SetScript("OnClick", function(self)
+                    if state.view == "source" then
+                        AtlasUI:JumpToSection(self.page)
+                    else
+                        AtlasUI:OpenPage(self.page.key)
+                    end
+                end)
+                ns.UI:AttachTooltip(b, function(self, tt)
+                    tt:AddLine(self.page and self.page.name or "?", S:RGB("GOLD"))
+                    local n = PickCount(self.page)
+                    if n > 0 then tt:AddLine(n == 1 and "1 item here is on your BiS list" or (n .. " items here are on your BiS list"), 1, 1, 1) end
+                end)
+                hero.dotPool[i] = b
+            end
+            b.page = pr.page
+            local on = state.view == "page" and pr.page.key == state.page
+            local w = on and DOT_ON_W or DOT_W
+            b:SetSize(w + DOT_GAP, 12)
+            b.tex:SetSize(w, DOT_W)
+            b.tex:SetTexture(on and "Interface\\Buttons\\WHITE8X8" or "Interface\\CharacterFrame\\TempPortraitAlphaMask")
+            if on then
+                b.tex:SetVertexColor(S:Color("GOLD"))
+            elseif PickCount(pr.page) > 0 then
+                b.tex:SetVertexColor(S:Color(S:WithAlpha("GOLD", 0.6)))
+            else
+                b.tex:SetVertexColor(1, 1, 1, 0.3)
+            end
+            b:ClearAllPoints()
+            b:SetPoint("LEFT", d, "LEFT", xx, 0)
+            b:Show()
+            xx = xx + w + DOT_GAP
+        end
+        for i = #pages + 1, #hero.dotPool do hero.dotPool[i]:Hide() end
+        d:SetWidth(max(1, xx))
+        d:SetShown(#pages > 1)
+    end
+
+    local function FillCrafters(prof)
+        local list = GuildCrafters(prof, 3)
+        hero.who:SetShown(#list > 0)
+        if #list == 0 then return end
+        local UI = ns.UI
+        local x = 0
+        for i = #list, 1, -1 do
+            local c = list[i]
+            local chip = hero.whoPool[i]
+            if not chip then
+                chip = UI:CreateChip(hero.who, { kind = "plain" })
+                hero.whoPool[i] = chip
+            end
+            local cf = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(c.key)
+            local text = (ns.Util.ShortName(c.key) or c.key) .. " " .. S:Wrap("SUB", tostring(c.skill))
+            if cf then
+                chip:Set(text, nil, cf)
+            else
+                chip:Set(text, c.online and S.C.OK or S.C.DIM)
+            end
+            chip:SetAlpha(c.online and 1 or 0.7)
+            chip:ClearAllPoints()
+            chip:SetPoint("RIGHT", hero.who, "RIGHT", -x, 0)
+            chip:Show()
+            x = x + chip:GetWidth() + 6
+        end
+        for i = #list + 1, #hero.whoPool do hero.whoPool[i]:Hide() end
+        hero.whoLabel:ClearAllPoints()
+        hero.whoLabel:SetPoint("RIGHT", hero.who, "RIGHT", -x - 2, 0)
+    end
+
+    -- Fills the banner for the view: a place (all its loot) or a page. Returns false when there is none (category,
+    -- search, shop).
+    function FillHero(src, page, extraNote)
+        local A = Atlas()
+        local w = hero:GetWidth()
+        w = (w and w > 1) and w or BODY_W
+        SetHeroArt(src, w)
+        local bosses = HasBosses(src)
+        local onPage = state.view == "page" and page ~= nil
+        local portrait = onPage and bosses
+        hero.port:SetShown(portrait)
+        if portrait then hero.port:SetTexture(PortraitOf(page)) end
+        local prof = ProfessionOf(src)
+        hero.icon:SetShown(prof ~= nil)
+        if prof then
+            hero.icon:SetTexture(prof.icon)
+            hero.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        end
+        local x = portrait and (PORTRAIT_W + 8) or (prof and 74 or 16)
+        -- the texts
+        local kicker, title, sub
+        local pages = VisiblePages(src)
+        if onPage then
+            local idx = 0
+            for i, pr in ipairs(pages) do
+                if pr.page.key == page.key then idx = i end
+            end
+            title = page.title or page.name or ""
+            if bosses then
+                kicker = src.name
+            else
+                kicker = src.name
+            end
+            local note = {}
+            local where = SourceSub(src)
+            if where ~= "" then note[#note + 1] = where end
+            if page.phase and page.phase ~= (src.phase or 1) then note[#note + 1] = "Phase " .. page.phase end
+            if page.title and page.name then note[#note + 1] = page.name end
+            if extraNote then note[#note + 1] = extraNote end
+            sub = table.concat(note, DOT)
+            -- ‹ › (a source with pages)
+            local prev, nxt = pages[idx - 1], pages[idx + 1]
+            hero.prev:SetShown(#pages > 1 and prev ~= nil)
+            hero.next:SetShown(#pages > 1 and nxt ~= nil)
+            hero.prev.page, hero.next.page = prev and prev.page, nxt and nxt.page
+            if prev then hero.prev:SetText("‹  " .. (prev.page.name or "")) end
+            if nxt then hero.next:SetText((nxt.page.name or "") .. "  ›") end
+            for _, b in ipairs({ hero.prev, hero.next }) do
+                local fs = b:GetFontString()
+                local w = min(170, ceil((fs and fs:GetStringWidth() or 60)) + 22)
+                b:SetWidth(w)
+                if fs and (fs:GetStringWidth() or 0) > w - 22 then ns.UI:FitText(fs, fs:GetText(), w - 22) end
+            end
+        else
+            hero.prev:Hide()
+            hero.next:Hide()
+            title = src.name or ""
+            local parts = {}
+            if src.size then parts[#parts + 1] = src.size .. " players" end
+            if src.lv then parts[#parts + 1] = "Levels " .. src.lv end
+            local p = tonumber(src.phase)
+            if p then parts[#parts + 1] = "Phase " .. p end
+            if bosses then parts[#parts + 1] = #src.pages .. " bosses" end
+            kicker = table.concat(parts, DOT)
+            if kicker == "" then kicker = (A:GetCategory(state.cat) or {}).name end
+            sub = extraNote
+        end
+        hero.kicker:ClearAllPoints()
+        hero.kicker:SetPoint("TOPLEFT", hero, "TOPLEFT", x, -16)
+        hero.kicker:SetText((kicker or ""):upper())
+        hero.kicker:SetShown((kicker or "") ~= "")
+        hero.title:ClearAllPoints()
+        hero.title:SetPoint("TOPLEFT", hero, "TOPLEFT", x, -30)
+        hero.title:SetText(title)
+        hero.sub:ClearAllPoints()
+        hero.sub:SetPoint("TOPLEFT", hero, "TOPLEFT", x, -54)
+        hero.sub:SetText(sub or "")
+        hero.sub:SetShown((sub or "") ~= "")
+        -- the boss dots: under the title on a page, at the foot of a place's banner
+        local showDots = bosses and #pages > 1
+        if showDots then
+            FillDots(src, pages, x, (sub and sub ~= "") and 8 or 12)
+        else
+            hero.dots:Hide()
+        end
+        -- my stars over the place / the page
+        local n = onPage and PickCount(page) or SourceStars(src)
+        hero.stars:SetShown(n > 0)
+        if n > 0 then
+            hero.stars:SetPill("bis", StarText(10) .. " " .. n .. " on your BiS list")
+        end
+        -- Normal / Heroic
+        local heroic = A:HasHeroic(src)
+        hero.diff:SetShown(heroic)
+        if heroic then
+            hero.diff:ClearAllPoints()
+            hero.diff:SetPoint("TOPRIGHT", hero, "TOPRIGHT", n > 0 and -(hero.stars:GetWidth() + 18) or -10, -9)
+            hero.diff:Select(state.heroic and "heroic" or "normal")
+        end
+        -- a crafting place: who in the guild makes it
+        if prof and not onPage then
+            FillCrafters(prof)
+        elseif prof then
+            FillCrafters(prof)
+            hero.who:SetShown(hero.who:IsShown() and not (hero.next:IsShown() or hero.prev:IsShown()))
+        else
+            hero.who:Hide()
+        end
+        hero:Show()
+    end
+end
+
+---------------------------------------------------------------------------
+-- The chips row: kinds / categories, "For me ▾", the slot
+---------------------------------------------------------------------------
+local CreateChipsRow, FillChips, KindChips, FacetChips
+do
+
+    local function ShowLabel()
+        local mode = ShowMode()
+        for _, o in ipairs(Atlas():GetShowOptions()) do
+            if o.value == mode then return o.text end
+        end
+        return "All items"
+    end
+
+    local function SlotText()
+        for _, o in ipairs(SlotOptions()) do
+            if o.value == state.slot then return o.text end
+        end
+        return "Any slot"
+    end
+
+    function CreateChipsRow(parent)
+        local UI = ns.UI
+        local r = CreateFrame("Frame", nil, parent)
+        r:SetHeight(CTRL_H)
+        r.left = {}
+        r.forMe = UI:CreateChip(r, { kind = "plain", text = "For me", menu = true, onClick = function(self)
+            UI:ContextMenu(self, function(root)
+                root:CreateTitle("Show")
+                for _, o in ipairs(Atlas():GetShowOptions()) do
+                    root:CreateRadio(o.text, function(v) return ShowMode() == v end, function(v)
+                        SetShowMode(v)
+                        searchCache = nil
+                        AtlasUI:RefreshItems(true)
+                    end, o.value)
+                end
+            end)
+        end })
+        r.forMe:SetIcon(ns.UI:Tex("star"))
+        r.slot = UI:CreateChip(r, { kind = "plain", text = "Any slot", menu = true, onClick = function(self)
+            UI:ContextMenu(self, function(root)
+                for _, o in ipairs(SlotOptions()) do
+                    local b = root:CreateRadio(o.text, function(v) return state.slot == (v ~= "any" and v or nil) end,
+                        function(v)
+                            state.slot = v ~= "any" and v or nil
+                            searchCache = nil
+                            AtlasUI:RefreshItems(true)
+                        end, o.value == nil and "any" or o.value)
+                    if o.tooltip and b and b.SetTooltip then
+                        b:SetTooltip(function(tt) tt:AddLine(o.tooltip, 1, 1, 1, true) end)
+                    end
+                end
+            end)
+        end })
+        r.slot:SetPoint("RIGHT", r, "RIGHT", 0, 0)
+        r.forMe:SetPoint("RIGHT", r.slot, "LEFT", -6, 0)
+        return r
+    end
+
+    -- items: { { key, text, count, selected, onClick, info } ... } on the left.
+    function FillChips(items)
+        local UI = ns.UI
+        local r = chipsRow
+        local x = 0
+        for i, it in ipairs(items) do
+            local c = r.left[i]
+            if not c then
+                c = UI:CreateChip(r, { kind = "plain", onClick = function(self) if self.onPick then self.onPick() end end })
+                r.left[i] = c
+            end
+            c.onPick = it.onClick
+            c:SetLook(it.info and "you" or "plain")
+            c:Set(it.text .. ((it.count and it.count > 0) and ("  " .. S:Wrap("SUB", tostring(it.count))) or ""))
+            c:SetSelected(it.selected and true or false)
+            c:ClearAllPoints()
+            c:SetPoint("LEFT", r, "LEFT", x, 0)
+            c:Show()
+            x = x + c:GetWidth() + 6
+        end
+        for i = #items + 1, #r.left do r.left[i]:Hide() end
+        local mode = ShowMode()
+        r.forMe:Set(mode == "all" and "For me" or ShowLabel())
+        r.forMe:SetSelected(mode ~= "all")
+        r.slot:Set(SlotText())
+        r.slot:SetSelected(state.slot ~= nil)
+        r:Show()
+    end
+
+    function KindChips(kinds)
+        local present, total = {}, 0
+        for _, k in ipairs(KINDS) do
+            if (kinds[k.key] or 0) > 0 then
+                present[#present + 1] = k
+                total = total + kinds[k.key]
+            end
+        end
+        local items = {}
+        if #present < 2 then return items end
+        items[1] = { text = "All", count = total, selected = state.kind == nil, onClick = function()
+            state.kind = nil
+            AtlasUI:RefreshItems(true)
+        end }
+        for _, k in ipairs(present) do
+            items[#items + 1] = { text = k.name, count = kinds[k.key], selected = state.kind == k.key, onClick = function()
+                state.kind = (state.kind == k.key) and nil or k.key
+                AtlasUI:RefreshItems(true)
+            end }
+        end
+        return items
+    end
+
+    function FacetChips(res)
+        local items = {}
+        for _, f in ipairs(res.facets) do
+            if f.key == ERA_FACET then
+                items[#items + 1] = { text = f.name, count = f.count, info = true, onClick = function()
+                    AtlasUI:SetEra(f.era)
+                end }
+            elseif res.facets[1].count > 0 then
+                items[#items + 1] = { text = f.name, count = f.count, selected = state.facet == f.key, onClick = function()
+                    state.facet = f.key
+                    state.showSrc = nil
+                    state.cursor = 1
+                    AtlasUI:RefreshItems(true)
+                end }
+            end
+        end
+        return items
+    end
+end
+
+---------------------------------------------------------------------------
+-- Refresh
+---------------------------------------------------------------------------
+
+-- The grid's empty state: the illustrated one (title + text) and, under it, the same text as the plain line.
+local function ItemsEmpty(title, text)
+    grid:SetEmptyText(text)
+    local same = text == title or text == title .. "."
+    grid:SetEmptyState({ glyph = ns.UI.ICON.notes, title = title, text = (not same) and text or nil })
+end
+
+-- While my BiS lists are locked (§38) a notice above the page says why the + buttons are gone (display only:
 -- CanAdd / the menus decide as before).
 local lockNoticeOn = false
 local function UpdateLockNotice()
@@ -1646,91 +2377,120 @@ local function UpdateLockNotice()
     end
 end
 
+local function ShowingShop()
+    return state.view == "shop" and not IsSearching() and ns.AtlasShopUI ~= nil
+end
+
+-- Places the grid under what is shown above it (the banner, the chips).
+local function PlaceGrid(top)
+    grid.frame:ClearAllPoints()
+    grid.frame:SetPoint("TOPLEFT", panel.body, "TOPLEFT", 0, -top)
+    grid.frame:SetPoint("BOTTOMRIGHT", panel.body, "BOTTOMRIGHT", 0, 0)
+end
+
+local function BodyW()
+    local w = panel and panel.body and panel.body:GetWidth()
+    return (w and w > 1) and w or BODY_W
+end
+
 function AtlasUI:RefreshItems(resetScroll)
-    if not itemList then return end
+    if not grid then return end
+    if Nav() then Nav():Update() end
     if ShowingShop() then
-        banner:Hide()
-        itemList.frame:Hide()
-        ns.AtlasShopUI:Refresh(resetScroll)
+        hero:Hide()
+        chipsRow:Hide()
+        grid.frame:Hide()
+        if ns.AtlasShopUI then ns.AtlasShopUI:Show() end
         barKeys = {}
         LayoutBar()
         return
     end
-    itemList.frame:Show()
+    if ns.AtlasShopUI then ns.AtlasShopUI:Hide() end
+    grid.frame:Show()
     local A = Atlas()
     RefreshMarks()
     wantCache = {}
     layCache = {}
+    flatRows = {}
     listLocked = ns.UI:IsMyListLocked() and true or false
     UpdateLockNotice()
-    local w = panel.right and panel.right:GetWidth()
-    rowW.item = (w and w > 1) and w or (layout and layout.detailW) or RIGHT_W
-    local rows, count = {}, 0
-    local title, sub, kicker, art = "", "", nil, nil
+    rowW.grid = BodyW() - BAR_SPACE
+    local out = {}
+    local top = 0
+    local itemRows = {}
     if IsSearching() then
-        local res = SearchResults()
-        local facetName
-        for _, f in ipairs(res.facets) do
-            if f.key ~= nil and f.key == state.facet then facetName = f.name end
-        end
-        if not facetName or state.facet == ERA_FACET then state.facet = nil end
-        for _, e in ipairs(res.entries) do
-            if state.facet == nil or e.loc.cat.key == state.facet then
-                count = count + 1
-                if count <= MAX_SHOWN then rows[#rows + 1] = e end
-            end
-        end
-        if count > MAX_SHOWN then
-            rows[#rows + 1] = { type = "more",
-                text = ("Showing the first %d of %d: type more of the name, or pick where it's from."):format(MAX_SHOWN, count) }
-        end
-        -- (the counts are beside "Found in")
-        title = facetName or "All results"
-        kicker = "Search"
-        sub = '"' .. state.search .. '"'
-        if count == 0 and res.other > 0 then
-            ItemsEmpty("Not in " .. A.ERA_NAMES[A:GetEra()], ("%d %s in %s: pick \"In %s\" under Found in.")
+        hero:Hide()
+        cols = 3
+        rowW.item = floor((rowW.grid - (cols - 1) * CELL_GAP) / cols)
+        local res, total = SearchRows(out)
+        FillChips(FacetChips(res))
+        chipsRow:ClearAllPoints()
+        chipsRow:SetPoint("TOPLEFT", panel.body, "TOPLEFT", 0, 0)
+        chipsRow:SetPoint("TOPRIGHT", panel.body, "TOPRIGHT", -BAR_SPACE, 0)
+        top = CTRL_H + GAP
+        for _, r in ipairs(flatRows) do itemRows[#itemRows + 1] = r end
+        if total == 0 and #(res.places or {}) == 0 and res.other > 0 then
+            ItemsEmpty("Not in " .. A.ERA_NAMES[A:GetEra()], ("%d %s in %s: pick \"In %s\" above.")
                 :format(res.other, res.other == 1 and "match" or "matches", A.ERA_LONG[res.otherEra],
                         A.ERA_NAMES[res.otherEra]))
         else
             ItemsEmpty("No matches", Filtered()
-                and "Nothing matches with these filters. Try Show: All items, or Any slot."
-                or "No item has that name.")
+                and "Nothing matches with these filters. Try For me: All items, or Any slot."
+                or "No item or place has that name.")
         end
+    elseif state.view == "category" then
+        hero:Hide()
+        chipsRow:Hide()
+        CategoryRows(out)
+        ItemsEmpty("Nothing here", "Nothing here.")
     else
         local src = state.cat and A:GetSource(state.cat, state.src)
-        local page = src and A:GetPage(state.cat, state.src, state.page)
-        if page then
-            local heroic = state.heroic and page.heroicItems ~= nil
-            local plain = not state.heroic or not page.heroicItems
-            rows, count = EntryRows(A:GetPageEntries(page, heroic), plain and page.x or nil, src.kind == "sets")
-            -- the page's name (Normal / Heroic shows beside the pages); a note only for what isn't visible: a set
-            -- page's own name under its set title, a page of a later phase than its source, what the set costs
-            title = page.title or page.name or ""
-            kicker = src.name
-            art = BannerArt(src, rowW.item - 2, BANNER_H - 2)
-            local note = {}
-            local where = SourceSub(src)
-            if where ~= "" then note[#note + 1] = where end
-            if page.phase and page.phase ~= (src.phase or 1) then note[#note + 1] = "Phase " .. page.phase end
-            if page.title and page.name then note[#note + 1] = page.name end
-            local total = src.kind == "sets" and SetTotals(rows)
-            if total then note[#note + 1] = total end
-            sub = table.concat(note, DOT)
+        -- two columns when the page lists costs (they take the tile's right)
+        cols = 3
+        if src and state.view == "page" then
+            local page = A:GetPage(state.cat, state.src, state.page)
+            for _, e in ipairs(page and A:GetPageEntries(page, state.heroic) or {}) do
+                if type(e) == "number" and e > 0 and CostOf(e) then
+                    cols = 2
+                    break
+                end
+            end
+        end
+        rowW.item = floor((rowW.grid - (cols - 1) * CELL_GAP) / cols)
+        local kinds = {}
+        local count, _, rows, page = ItemRows(out, kinds)
+        itemRows = rows or {}
+        if src then
+            local note = src.kind == "sets" and state.view == "page" and SetTotals(itemRows) or nil
+            FillHero(src, page, note or nil)
+            top = HERO_H + GAP
+            FillChips(KindChips(kinds))
+            chipsRow:ClearAllPoints()
+            chipsRow:SetPoint("TOPLEFT", panel.body, "TOPLEFT", 0, -top)
+            chipsRow:SetPoint("TOPRIGHT", panel.body, "TOPRIGHT", -BAR_SPACE, -top)
+            top = top + CTRL_H + GAP
             ItemsEmpty("Nothing here", Filtered()
-                and "Nothing here passes the filters. Try Show: All items, or Any slot."
+                and "Nothing here passes the filters. Try For me: All items, Any slot, or All."
                 or "Nothing here.")
         else
-            ItemsEmpty("Pick a source", "Pick a source on the left.")
+            hero:Hide()
+            chipsRow:Hide()
+            ItemsEmpty("Pick a place", "Pick a place from the path at the top.")
         end
+        if count == 0 then out = {} end
     end
-    local headH = FillBanner(kicker, title, sub, art)
-    itemList.frame:ClearAllPoints()
-    itemList.frame:SetPoint("TOPLEFT", panel.right, "TOPLEFT", 0, -headH)
-    itemList.frame:SetPoint("BOTTOMRIGHT", panel.right, "BOTTOMRIGHT", 0, 0)
-    itemList:SetData(rows, resetScroll)
-    Prefetch(rows)
-    barKeys = ContextKeys(rows)
+    local even = CELL_MIN
+    for _, r in ipairs(out) do
+        if r.type == "cells" then even = max(even, r.h) end
+    end
+    even = min(even, CELL_MAX)
+    for _, r in ipairs(out) do
+        if r.type == "cells" then r.h = max(even, r.h) end
+    end
+    PlaceGrid(top)
+    grid:SetData(out, resetScroll)
+    Prefetch(itemRows)
+    barKeys = ContextKeys(itemRows)
     LayoutBar()
 end
 
@@ -1741,78 +2501,158 @@ function AtlasUI:Refresh()
         return
     end
     panel.dirty = false
-    if not state.cat then
+    if not state.cat and state.view ~= "shop" then
         local cat, src = Atlas():DefaultSource()
         if cat then
-            state.expanded = cat
             SelectSource(cat, src)
             return
         end
     end
-    if showDD and showDD.Refresh then showDD:Refresh() end
-    if slotDD and slotDD.Refresh then slotDD:Refresh() end
-    if eraSeg then eraSeg:Select(Atlas():GetEra()) end
-    self:RefreshSources()
-    self:RefreshPages()
     self:RefreshItems()
 end
 
+-- Opens a place: a raid / dungeon on all its loot (or at a page), another source at a page (the first with something
+-- for my class: a set source opens on my class's set).
 function SelectSource(catKey, srcKey, pageKey)
     local A = Atlas()
     local src = A:GetSource(catKey, srcKey)
     if not src then return end
     -- (a place in the other era: the switch follows)
     local era = A:EraOf(catKey)
-    if era and era ~= A:GetEra() then
-        A:SetEra(era)
-        if eraSeg then eraSeg:Select(era) end
-    end
+    if era and era ~= A:GetEra() then A:SetEra(era) end
     state.cat, state.src = catKey, srcKey
-    state.expanded = catKey
+    if not A:HasHeroic(src) then state.heroic = false end
     local page = pageKey and A:GetPage(catKey, srcKey, pageKey)
-    if not page then
-        -- the first page with something for my class (a set source opens on my class's set)
-        for _, p in ipairs(src.pages) do
-            if A:PageUsable(p, state.heroic) then
-                page = p
-                break
+    if not page and OpensOnAll(src) then
+        state.view = "source"
+        state.page = nil
+    else
+        if not page then
+            for _, p in ipairs(src.pages) do
+                if A:PageUsable(p, state.heroic) then
+                    page = p
+                    break
+                end
             end
         end
+        state.view = "page"
+        state.page = page and page.key or (src.pages[1] and src.pages[1].key)
     end
-    state.page = page and page.key or (src.pages[1] and src.pages[1].key)
-    if not A:HasHeroic(src) then state.heroic = false end
     state.selected = nil
-    AtlasUI:RefreshSources()
-    AtlasUI:RefreshPages()
+    state.kind = nil
+    NoteRecent(catKey, srcKey, state.heroic)
     AtlasUI:RefreshItems(true)
+end
+
+---------------------------------------------------------------------------
+-- Moving around (the path's drop-downs, search results, other tabs)
+---------------------------------------------------------------------------
+
+local function ClearSearch()
+    if toast then toast:Hide() end      -- (the shopping list's note is about the page I leave)
+    if searchBox and (searchBox:GetText() or "") ~= "" then searchBox:SetText("") end
+    if searchBox then searchBox:ClearFocus() end
+    state.search = ""
+    state.facet = nil
+    state.showSrc = nil
+    state.cursor = 1
+end
+
+function AtlasUI:OpenSource(catKey, srcKey, pageKey, heroic)
+    if heroic ~= nil then state.heroic = heroic and true or false end
+    ClearSearch()
+    if Nav() then Nav():Close() end
+    SelectSource(catKey, srcKey, pageKey)
+end
+
+-- One page of the open place (a boss, a class, a standing).
+function AtlasUI:OpenPage(pageKey)
+    if Nav() then Nav():Close() end
+    ClearSearch()
+    if pageKey == nil then
+        SelectSource(state.cat, state.src, nil)
+        return
+    end
+    state.view = "page"
+    state.page = pageKey
+    state.selected = nil
+    state.kind = nil
+    self:RefreshItems(true)
+end
+
+-- All the place's loot again (a raid's / dungeon's "All bosses").
+function AtlasUI:OpenAll()
+    if Nav() then Nav():Close() end
+    ClearSearch()
+    state.view = "source"
+    state.page = nil
+    state.kind = nil
+    self:RefreshItems(true)
+end
+
+-- A place's view scrolled to a boss's section.
+function AtlasUI:JumpToSection(page)
+    if not (grid and page) then return end
+    for i, d in ipairs(grid:GetData()) do
+        if d.type == "section" and d.page == page then
+            if grid.box.ScrollToElementDataIndex then
+                grid.box:ScrollToElementDataIndex(i, ScrollBoxConstants and ScrollBoxConstants.AlignBegin)
+            end
+            return
+        end
+    end
+end
+
+-- A category as art tiles.
+function AtlasUI:OpenCategory(catKey)
+    local A = Atlas()
+    if not A:GetCategory(catKey) then return end
+    if Nav() then Nav():Close() end
+    ClearSearch()
+    local era = A:EraOf(catKey)
+    if era and era ~= A:GetEra() then A:SetEra(era) end
+    state.view = "category"
+    state.cat = catKey
+    self:RefreshItems(true)
+end
+
+-- A search result that is a place: the place (all its loot), or a boss's page.
+function AtlasUI:OpenPlace(p)
+    if type(p) ~= "table" or not (p.cat and p.src) then return end
+    self:OpenSource(p.cat.key, p.src.key, p.page and p.page.key or nil)
+end
+
+function AtlasUI:SetHeroic(on)
+    state.heroic = on and true or false
+    NoteRecent(state.cat, state.src, state.heroic)
+    self:RefreshItems(true)
 end
 
 -- Opens the page of a search result (or any location from Atlas:GetLocations) and highlights the item.
 function AtlasUI:GoTo(loc)
     if type(loc) ~= "table" or not (loc.cat and loc.src and loc.page) then return end
-    state.search = ""
-    if searchBox and (searchBox:GetText() or "") ~= "" then
-        searchBox:SetText("")
-        searchBox:ClearFocus()
-    end
+    ClearSearch()
     state.heroic = loc.heroic and true or false
     SelectSource(loc.cat.key, loc.src.key, loc.page.key)
     state.selected = loc.id
     self:RefreshItems(true)
     -- scroll the item into view (a piece of another class or spec isn't listed: its token is)
-    local data = itemList and itemList:GetData() or {}
     local shown = false
-    for _, r in ipairs(data) do
+    for _, r in ipairs(flatRows) do
         if r.type == "item" and r.id == loc.id then shown = true break end
     end
     if not shown and loc.via then
         state.selected = loc.via
-        itemList:Refresh()
+        grid:Refresh()
     end
-    for i, r in ipairs(data) do
-        if r.type == "item" and r.id == state.selected then
-            if itemList.box and itemList.box.ScrollToElementDataIndex then
-                itemList.box:ScrollToElementDataIndex(i, ScrollBoxConstants and ScrollBoxConstants.AlignCenter)
+    for i, r in ipairs(grid:GetData()) do
+        local hit = false
+        for _, c in ipairs(r.type == "cells" and r.cells or {}) do
+            if c.id == state.selected then hit = true end
+        end
+        if hit then
+            if grid.box and grid.box.ScrollToElementDataIndex then
+                grid.box:ScrollToElementDataIndex(i, ScrollBoxConstants and ScrollBoxConstants.AlignCenter)
             end
             break
         end
@@ -1821,12 +2661,12 @@ end
 
 -- Opens the shopping list (groupId: "all" (default), "you", "nobody", "bop" or a member's key).
 function AtlasUI:OpenShop(groupId)
-    state.cat, state.src, state.page = SHOP, nil, nil
+    if Nav() then Nav():Close() end
+    ClearSearch()
+    state.view = "shop"
     state.selected = nil
     if ns.AtlasShopUI and groupId then ns.AtlasShopUI:GetState().group = groupId end
     if not panel then return end
-    self:RefreshSources()
-    self:RefreshPages()
     self:RefreshItems(true)
 end
 
@@ -1844,128 +2684,241 @@ function AtlasUI:ShowItem(itemID)
     return true
 end
 
+-- Classic | TBC. Where I was in the era I leave is kept for coming back; the other opens where I last was there,
+-- else at its default (Classic: the dungeon for my level). A search stays, now over that era.
+function AtlasUI:SetEra(e)
+    local A = Atlas()
+    if not A:HasEra(e) then return end
+    local cur = A:GetEra()
+    if e == cur then return end
+    if state.cat and state.view ~= "shop" then
+        state.places[cur] = { cat = state.cat, src = state.src, page = state.page, heroic = state.heroic,
+                              view = state.view }
+    end
+    A:SetEra(e)
+    state.facet = nil
+    state.selected = nil
+    state.showSrc = nil
+    searchCache = nil
+    if IsSearching() or state.view == "shop" then
+        local place = state.places[e]
+        if place then state.cat, state.src, state.page, state.view = place.cat, place.src, place.page, place.view end
+        if state.view == "shop" then
+            state.cat = nil
+        end
+        self:RefreshItems(true)
+        return
+    end
+    local place = state.places[e]
+    if place and A:GetSource(place.cat, place.src) then
+        state.heroic = place.heroic and true or false
+        if place.view == "source" then
+            SelectSource(place.cat, place.src, nil)
+        else
+            SelectSource(place.cat, place.src, place.page)
+        end
+    elseif place and place.view == "category" and A:GetCategory(place.cat) then
+        self:OpenCategory(place.cat)
+    else
+        local cat, src = A:DefaultSource()
+        state.cat = nil
+        if cat then SelectSource(cat, src) end
+    end
+end
+
+---------------------------------------------------------------------------
+-- The search field: ↑ ↓ through the results, Enter opens, Shift+Enter adds to my BiS list, Esc leaves
+---------------------------------------------------------------------------
+
+local function CursorTo(i)
+    if #hits == 0 then return end
+    state.cursor = max(1, min(#hits, i))
+    for j, h in ipairs(hits) do
+        local hot = j == state.cursor
+        if h.item then h.item.hot = hot else h.row.hot = hot end
+    end
+    grid:Refresh()
+    -- scroll the cursor's row into view
+    local target = hits[state.cursor]
+    for i2, r in ipairs(grid:GetData()) do
+        local hit = (target.row and r == target.row)
+        for _, c in ipairs(r.type == "cells" and r.cells or {}) do
+            if target.item and c == target.item then hit = true end
+        end
+        if hit then
+            if grid.box.ScrollToElementDataIndex then
+                grid.box:ScrollToElementDataIndex(i2, ScrollBoxConstants and ScrollBoxConstants.AlignNearest)
+            end
+            break
+        end
+    end
+end
+
+local function OpenCursor(addToBiS)
+    local h = hits[state.cursor]
+    if not h then return false end
+    if h.place then
+        if addToBiS then return false end
+        AtlasUI:OpenPlace(h.place)
+        return true
+    end
+    if addToBiS then
+        local owner
+        grid.box:ForEachFrame(function(row)
+            for _, c in ipairs(row.cells or {}) do
+                if c:IsShown() and c.__cdlData == h.item then owner = c end
+            end
+        end)
+        ShowAddMenu(owner or panel, h.item)
+        return true
+    end
+    AtlasUI:GoTo(h.item.loc)
+    return true
+end
+
+local function SetupSearchKeys(eb)
+    eb:SetScript("OnArrowPressed", function(_, key)
+        if not IsSearching() then return end
+        if key == "UP" then CursorTo(state.cursor - 1) elseif key == "DOWN" then CursorTo(state.cursor + 1) end
+    end)
+    eb:SetScript("OnEnterPressed", function(self)
+        if IsSearching() then
+            OpenCursor(IsShiftKeyDown())
+        else
+            self:ClearFocus()
+        end
+    end)
+    eb:SetScript("OnEscapePressed", function()
+        ClearSearch()
+        AtlasUI:RefreshItems(true)
+    end)
+    eb:HookScript("OnEditFocusGained", function() if Nav() then Nav():SetSearching(true) end end)
+    eb:HookScript("OnEditFocusLost", function()
+        if Nav() and not IsSearching() then Nav():SetSearching(false) end
+    end)
+end
+
+---------------------------------------------------------------------------
+-- The note after adding a craft to my shopping list
+---------------------------------------------------------------------------
+
+local function CreateToast(parent)
+    local UI = ns.UI
+    local t = CreateFrame("Frame", nil, parent)
+    t:SetHeight(32)
+    t:SetFrameLevel(parent:GetFrameLevel() + 30)
+    t.bg = UI:Fill(t, "DROP_BG")
+    UI:AddEdges(t, "BORDER")
+    UI:SetEdgeColor(t, S:Color("OK"))
+    t.text = UI:Text(t, "body", "TEXT")
+    t.text:SetPoint("LEFT", 12, 0)
+    t.undo = UI:CreateSleekButton(t, "Undo", 54, 20, function()
+        if t.id and ns.Shop then ns.Shop:Remove(t.id) end
+        t:Hide()
+    end)
+    t.open = UI:CreateSleekButton(t, "Open list ›", 84, 20, function()
+        t:Hide()
+        AtlasUI:OpenShop()
+    end, "primary")
+    t.open:SetPoint("RIGHT", -6, 0)
+    t.undo:SetPoint("RIGHT", t.open, "LEFT", -6, 0)
+    function t:Layout()
+        local w = ceil(self.text:GetStringWidth() or 200) + 12 + 12 + 54 + 6 + 84 + 6
+        self:SetWidth(w)
+    end
+    t:SetScript("OnUpdate", function(self, el)
+        if self.left then
+            self.left = self.left - (el or 0)
+            if self.left <= 0 and not self:IsMouseOver() then
+                self.left = nil
+                self:Hide()
+            end
+        end
+    end)
+    t:Hide()
+    return t
+end
+
 ---------------------------------------------------------------------------
 -- Panel
 ---------------------------------------------------------------------------
 
--- (the detail's banner and the pages column's header are the shared ones: FillBanner / FillHead fill them)
 function AtlasUI:CreatePanel(parent)
     if panel then return panel end
     local UI = ns.UI
     panel = CreateFrame("Frame", nil, parent)
     panel:SetAllPoints(parent)
-    -- (List + detail, 3 columns: nav = the sources, list = the pages, detail = the items)
-    layout = UI:CreateLayout("listdetail", panel, { navWidth = LEFT_W, listWidth = MID_W, banner = false,
-                                                    bottom = BOTTOM })
+    -- (a board: the toolbar row holds the path (UI/AtlasNav.lua), the search and the bag; the body the banner, the
+    -- chips and the grid; the currency bar sits in the layout's bottom margin)
+    layout = UI:CreateLayout("board", panel, { bottom = BOTTOM })
     panel.layout = layout
     local bar = layout.toolbar
+    LoadRecent()
 
-    -- the toolbar: Classic | TBC over the sources (what they list), the search over the pages column, the filters
-    -- over the item column. Without the Classic data (an old client file set) the search takes both columns.
-    local A = Atlas()
-    local hasClassic = A:HasEra("classic")
-    if hasClassic then
-        eraSeg = UI:CreateSegments(bar, {
-            { key = "classic", label = A.ERA_NAMES.classic,
-              tip = "Levels 1-60: the old world's raids, dungeons, professions, factions, battlegrounds and sets." },
-            { key = "tbc", label = A.ERA_NAMES.tbc,
-              tip = "The Burning Crusade: Outland's raids, dungeons, professions, factions, PvP and sets." },
-        }, function(key) AtlasUI:SetEra(key) end, { width = LEFT_W, h = CTRL_H, selected = A:GetEra() })
-        eraSeg:SetPoint("LEFT", bar, "TOPLEFT", PAD, -UI.LAYOUT.ROW_MID)
-        panel.eraSeg = eraSeg
-    end
-    searchBox = UI:CreateSearchBox(bar, hasClassic and MID_W or (LEFT_W + GAP + MID_W), function(text)
+    searchBox = UI:CreateSearchBox(bar, 150, function(text)
         state.search = text or ""
         state.selected = nil
         state.facet = nil
-        AtlasUI:RefreshSources()
-        AtlasUI:RefreshPages()
+        state.showSrc = nil
+        state.cursor = 1
+        if Nav() then Nav():SetSearching(IsSearching() or (searchBox and searchBox:HasFocus())) end
         AtlasUI:RefreshItems(true)
-    end, "Search every item by name")
+    end, "Search  (Ctrl+F)")
     searchBox:SetHeight(CTRL_H)
-    searchBox:SetPoint("LEFT", bar, "TOPLEFT", PAD + (hasClassic and (LEFT_W + GAP) or 0), -UI.LAYOUT.ROW_MID)
-    searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    SetupSearchKeys(searchBox)
+    panel.searchBox = searchBox
 
-    slotDD = UI:CreateSleekDropdown(bar, SLOT_W, SlotOptions, function() return state.slot end, function(v)
-        state.slot = v
-        AtlasUI:RefreshPages()
-        AtlasUI:RefreshItems(true)
-    end)
-    slotDD:SetHeight(CTRL_H)
+    panel.body = layout.body
+    hero = CreateHero(panel.body)
+    hero:SetPoint("TOPLEFT", panel.body, "TOPLEFT", 0, 0)
+    hero:SetPoint("TOPRIGHT", panel.body, "TOPRIGHT", -BAR_SPACE, 0)   -- (its right edge = the tiles')
+    hero:Hide()
+    panel.hero = hero
+    chipsRow = CreateChipsRow(panel.body)
+    chipsRow:Hide()
+    panel.chips = chipsRow
 
-    showDD = UI:CreateSleekDropdown(bar, RIGHT_W - SLOT_W - UI.LAYOUT.CTRL_GAP,
-        function() return Atlas():GetShowOptions() end, ShowMode, function(v)
-            SetShowMode(v)
-            AtlasUI:RefreshPages()
-            AtlasUI:RefreshItems(true)
-        end)
-    showDD:SetHeight(CTRL_H)
-    bar:SetFilters({ showDD, slotDD })
-    -- "Show" inside the dropdown, in front of the choice
-    local showLabel = UI:Text(showDD, "small", "DIM", { text = "Show" })
-    showLabel:SetPoint("LEFT", showDD, "LEFT", 8, 0)
-    local fs = showDD:GetFontString()
-    if fs then
-        fs:ClearAllPoints()
-        fs:SetPoint("LEFT", showDD, "LEFT", 8 + ceil(TextWidth("Show", "small")) + 6, 0)
-        fs:SetPoint("RIGHT", showDD, "RIGHT", -20, 0)
-    end
-
-    -- the columns (the layout's), the currency bar under them (in the layout's bottom margin)
-    panel.body = layout.content
+    grid = UI:CreateScrollList(panel.body, 60, InitGridRow, GridExtent)
+    grid.frame:SetPoint("TOPLEFT", panel.body, "TOPLEFT", 0, 0)
+    grid.frame:SetPoint("BOTTOMRIGHT", panel.body, "BOTTOMRIGHT", 0, 0)
+    grid.box:ClearAllPoints()
+    grid.box:SetPoint("TOPLEFT", grid.frame, "TOPLEFT", 0, 0)
+    grid.box:SetPoint("BOTTOMRIGHT", grid.frame, "BOTTOMRIGHT", -BAR_SPACE, 0)
+    grid.bar:ClearAllPoints()
+    grid.bar:SetPoint("TOPLEFT", grid.box, "TOPRIGHT", 4, 0)
+    grid.bar:SetPoint("BOTTOMLEFT", grid.box, "BOTTOMRIGHT", 4, 0)
+    panel.grid = grid
 
     curBar = CreateCurrencyBar(panel)
     curBar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PAD, PAD)
     curBar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, PAD)
     panel.currencyBar = curBar
 
-    local left, mid, right = layout.nav, layout.list, layout.detail
-    panel.left, panel.mid, panel.right = left, mid, right
+    toast = CreateToast(panel)
+    toast:SetPoint("BOTTOM", panel, "BOTTOM", 0, PAD + BAR_H + 6)
+    panel.toast = toast
 
-    srcList = UI:CreateScrollList(left, ROW_SRC, InitSourceRow, SourceExtent)
-    srcList.frame:SetAllPoints(left)
-    PlaceBox(srcList, false, "over")
+    -- the path of drop-downs on the toolbar's left, the search and the bag on its right
+    if Nav() then Nav():Create(panel, bar, searchBox) end
 
-    midHead = UI:CreateSectionHeader(mid, "", { style = "title" })
-    midHead:SetPoint("TOPLEFT", mid, "TOPLEFT", 0, 0)
-    midHead:SetPoint("TOPRIGHT", mid, "TOPRIGHT", 0, 0)
-    midHead:Hide()
-
-    diffNormal = UI:CreateUnderlineTab(mid, "Normal", function()
-        state.heroic = false
-        AtlasUI:RefreshPages()
-        AtlasUI:RefreshItems(true)
-    end, "small")
-    diffHeroic = UI:CreateUnderlineTab(mid, "Heroic", function()
-        state.heroic = true
-        AtlasUI:RefreshPages()
-        AtlasUI:RefreshItems(true)
-    end, "small")
-    diffHeroic:SetPoint("LEFT", diffNormal, "RIGHT", 4, 0)
-    diffNormal:Hide()
-    diffHeroic:Hide()
-
-    pageList = UI:CreateScrollList(mid, ROW_PAGE, InitPageRow, PageExtent)
-    pageList.frame:SetPoint("TOPLEFT", mid, "TOPLEFT", 0, 0)
-    pageList.frame:SetPoint("BOTTOMRIGHT", mid, "BOTTOMRIGHT", 0, 0)
-    PlaceBox(pageList, false, nil)
-
-    -- D3: the detail opens with a banner (the page, its source's art)
-    banner = UI:CreatePageBanner(right, { size = "tool", width = RIGHT_W, artFw = ART_FW })
-    banner:SetPoint("TOPLEFT", right, "TOPLEFT", 0, 0)
-    banner:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, 0)
-    banner:Hide()
-    panel.banner = banner
-    itemList = UI:CreateScrollList(right, ROW_ITEM, InitItemRow, ItemExtent)
-    itemList.frame:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -(BANNER_H + GAP))
-    itemList.frame:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
-    PlaceBox(itemList, true, "margin")
-
-    -- the shopping list: the other two columns while it's picked
+    -- the shopping list: the body while it's open
     if ns.AtlasShopUI then
-        ns.AtlasShopUI:Create({ TextWidth = TextWidth, CodedWidth = CodedWidth, NameText = NameText, HEAD_H = HEAD_H,
-                                BANNER_H = BANNER_H, DETAIL_W = layout.detailW or RIGHT_W }, mid, right)
+        ns.AtlasShopUI:Create({ TextWidth = TextWidth, CodedWidth = CodedWidth, NameText = NameText,
+                                BODY_W = BODY_W }, panel.body)
     end
+
+    -- Ctrl+F: the search (every other key goes on to the game)
+    panel:EnableKeyboard(true)
+    if panel.SetPropagateKeyboardInput then panel:SetPropagateKeyboardInput(true) end
+    panel:SetScript("OnKeyDown", function(self, key)
+        if key == "F" and IsControlKeyDown() and not InCombatLockdown() then
+            self:SetPropagateKeyboardInput(false)
+            searchBox:SetFocus()
+            C_Timer.After(0, function()
+                if not InCombatLockdown() then self:SetPropagateKeyboardInput(true) end
+            end)
+        end
+    end)
 
     panel:SetScript("OnShow", function(self)
         if self.dirty then AtlasUI:Refresh() end
@@ -1977,73 +2930,133 @@ function AtlasUI:CreatePanel(parent)
     return panel
 end
 
--- Classic | TBC: the switch's choice. Where I was in the era I leave is kept for coming back; the other opens where
--- I last was there, else at its default (Classic: the dungeon for my level). A search stays, now over that era.
-function AtlasUI:SetEra(e)
-    local A = Atlas()
-    if not A:HasEra(e) then return end
-    local cur = A:GetEra()
-    if eraSeg then eraSeg:Select(e) end
-    if e == cur then return end
-    if state.cat and state.cat ~= SHOP then
-        state.places[cur] = { cat = state.cat, src = state.src, page = state.page, expanded = state.expanded,
-                              heroic = state.heroic }
-    end
-    A:SetEra(e)
-    state.facet = nil
-    state.selected = nil
-    local place = state.places[e]
-    if state.cat == SHOP then
-        self:RefreshSources()
-        self:RefreshPages()
-        self:RefreshItems(true)
-        return
-    end
-    if place and A:GetSource(place.cat, place.src) then
-        state.heroic = place.heroic and true or false
-        SelectSource(place.cat, place.src, place.page)
-        state.expanded = place.expanded
-        self:RefreshSources()
-    else
-        local cat, src = A:DefaultSource()
-        state.cat = nil
-        if cat then SelectSource(cat, src) end
-    end
-end
+---------------------------------------------------------------------------
+-- For the path (UI/AtlasNav.lua), tests and the UI audit
+---------------------------------------------------------------------------
 
--- For tests and the UI audit.
 function AtlasUI:GetState()
     return state
 end
 
+function AtlasUI:GetPanel() return panel end
+AtlasUI.SourceArt = function(_, ...) return SourceArt(...) end
+AtlasUI.PortraitOf = function(_, page) return PortraitOf(page) end
+AtlasUI.CatIcon = function(_, cat) return CatIcon(cat) end
+AtlasUI.SourceIcon = function(_, src, cat) return SourceIcon(src, cat) end
+AtlasUI.PhaseTag = function(_, src) return PhaseTag(src) end
+AtlasUI.SourceStars = function(_, src) return SourceStars(src) end
+AtlasUI.PickCount = function(_, page) return PickCount(page) end
+AtlasUI.HasBosses = function(_, src) return HasBosses(src) end
+AtlasUI.OpensOnAll = function(_, src) return OpensOnAll(src) end
+AtlasUI.StarText = function(_, size) return StarText(size) end
+AtlasUI.VisiblePages = function(_, src) return VisiblePages(src) end
+function AtlasUI:IsSearching() return IsSearching() end
+
 function AtlasUI:SetSearch(text, facet)
+    if toast then toast:Hide() end
     if searchBox then searchBox:SetText(text or "") end
     state.search = text or ""
     state.selected = nil
     state.facet = facet
-    self:RefreshSources()
-    self:RefreshPages()
+    state.showSrc = nil
+    state.cursor = 1
+    if Nav() then Nav():SetSearching(IsSearching()) end
     self:RefreshItems(true)
 end
 
+-- Moves the search's cursor / opens what it is on (tests, the UI audit): delta, or "enter" / "shift-enter".
+function AtlasUI:SearchKey(key)
+    if key == "enter" then return OpenCursor(false) end
+    if key == "shift-enter" then return OpenCursor(true) end
+    CursorTo(state.cursor + (tonumber(key) or 0))
+end
+
 function AtlasUI:Select(catKey, srcKey, pageKey, heroic)
-    if heroic ~= nil then state.heroic = heroic and true or false end
-    ClearSearch()
-    SelectSource(catKey, srcKey, pageKey)
+    self:OpenSource(catKey, srcKey, pageKey, heroic)
 end
 
 function AtlasUI:SetSlotFilter(sid)
     state.slot = sid
-    if slotDD and slotDD.Refresh then slotDD:Refresh() end
-    self:RefreshPages()
+    searchCache = nil
     self:RefreshItems(true)
 end
 
-function AtlasUI:GetLists()
-    return srcList, pageList, itemList
+function AtlasUI:SetKind(kind)
+    state.kind = kind
+    self:RefreshItems(true)
 end
 
--- Opens the item menu (right-click) / the + button's menu of a row's data (tests, the UI audit).
+-- The lists the old three-column Atlas had, as views over the new page (tests): the places of the open category
+-- (cat / src rows), its pages or the search's categories (page / facet rows), and the items (item / header / more
+-- rows; .box:GetFrames() / ForEachFrame give the item tiles).
+local function ListView(getData, frames)
+    local v = {}
+    function v:GetData() return getData() end
+    v.box = {
+        GetFrames = function() return frames() end,
+        ForEachFrame = function(_, fn) for _, f in ipairs(frames()) do fn(f) end end,
+        ScrollToElementDataIndex = function() end,
+    }
+    function v:Refresh() if grid then grid:Refresh() end end
+    return v
+end
+
+local srcView, pageView, itemView
+function AtlasUI:GetLists()
+    if not srcView then
+        srcView = ListView(function()
+            local rows = {}
+            for _, cat in ipairs(Atlas():GetCategories()) do
+                local open = cat.key == state.cat
+                rows[#rows + 1] = { type = "cat", cat = cat, expanded = open }
+                if open then
+                    for _, src in ipairs(cat.sources) do rows[#rows + 1] = { type = "src", cat = cat, src = src } end
+                end
+            end
+            return rows
+        end, function() return {} end)
+        pageView = ListView(function()
+            if IsSearching() then
+                local res = SearchResults()
+                local rows = {}
+                for _, f in ipairs(res.facets) do
+                    if res.facets[1].count > 0 or f.key == ERA_FACET then
+                        rows[#rows + 1] = { type = "facet", key = f.key, name = f.name, count = f.count, era = f.era }
+                    end
+                end
+                return rows
+            end
+            local src = state.cat and Atlas():GetSource(state.cat, state.src)
+            return VisiblePages(src)
+        end, function() return {} end)
+        -- (shown: the source has more than one page, so the path has a page part)
+        pageView.frame = { IsShown = function()
+            local src = state.cat and Atlas():GetSource(state.cat, state.src)
+            return src ~= nil and #src.pages > 1
+        end }
+        itemView = ListView(function() return flatRows end, function()
+            local out = {}
+            if grid then
+                grid.box:ForEachFrame(function(row)
+                    for _, c in ipairs(row.cells or {}) do
+                        if c:IsShown() then out[#out + 1] = c end
+                    end
+                    -- (a set's header, a note: the grid's own row)
+                    local d = row.__cdlData
+                    if d and (d.type == "header" or d.type == "more") then out[#out + 1] = row end
+                end)
+            end
+            return out
+        end)
+    end
+    if grid then
+        itemView.emptyText = grid.emptyText
+        itemView.frame = grid.frame
+    end
+    return srcView, pageView, itemView
+end
+
+-- Opens the item menu (right-click) / the + button's menu of a tile's data (tests, the UI audit).
 function AtlasUI:OpenMenu(d, owner)
     ShowItemMenu(owner or panel, d)
 end
@@ -2052,14 +3065,19 @@ function AtlasUI:OpenAddMenu(d, owner)
     ShowAddMenu(owner or panel, d)
 end
 
--- Shows an item row as hovered (its + button), for the UI audit.
+-- Shows a tile as hovered (its hover buttons), for the UI audit.
 function AtlasUI:HoverItem(itemID)
-    if not itemList then return end
-    itemList.box:ForEachFrame(function(row)
-        local d = row.__cdlData
-        if d and d.type == "item" and d.id == itemID then SetRowHover(row, true) end
+    if not grid then return end
+    grid.box:ForEachFrame(function(row)
+        for _, c in ipairs(row.cells or {}) do
+            local d = c.__cdlData
+            if c:IsShown() and d and d.type == "item" and d.id == itemID then SetRowHover(c, true) end
+        end
     end)
 end
+
+-- The "added to your shopping list" note (the UI audit).
+function AtlasUI:ShowShopNote(id) ShowShopToast(id) end
 
 ---------------------------------------------------------------------------
 -- Registration & messages
@@ -2067,22 +3085,17 @@ end
 
 if ns.MainFrame and ns.MainFrame.RegisterTab then
     ns.MainFrame:RegisterTab("atlas", "Atlas", 1.5, function(parent) return AtlasUI:CreatePanel(parent) end, nil,
-        { layout = "listdetail" })
+        { layout = "board" })
 end
 
--- The item list (and the star counts beside the pages) a moment later; facets = the search's "Found in" too.
-local facetsPending = false
-local function RefreshLater(sec, facets)
-    facetsPending = facetsPending or facets
+-- The grid a moment later (the stars, marks and names).
+local function RefreshLater(sec)
     Debounce("atlas-items", sec, function()
         if not panel:IsVisible() then
             panel.dirty = true
             return
         end
-        if facetsPending and IsSearching() then AtlasUI:RefreshPages() end
-        facetsPending = false
         AtlasUI:RefreshItems()
-        if pageList then pageList:Refresh() end
     end)
 end
 
@@ -2093,16 +3106,15 @@ local function RequestItems()
         panel.dirty = true
         return
     end
-    RefreshLater(0.05, false)
+    RefreshLater(0.05)
 end
 
 -- Item names / stats arrived: names may need other line breaks, and the spec filter may judge more items now.
 local function ItemInfoReady()
-    if not (panel and panel:IsVisible() and itemList) then return end
+    if not (panel and panel:IsVisible() and grid) then return end
     local mode = ShowMode()
-    local spec = mode == "spec" or mode == "os"
-    if spec then searchCache = nil end
-    RefreshLater(0.1, spec)
+    if mode == "spec" or mode == "os" then searchCache = nil end
+    RefreshLater(0.1)
 end
 
 ns:On("MYLIST_CHANGED", RequestItems)
@@ -2114,10 +3126,10 @@ end)
 ns:On("CONFIG_UPDATED", RequestItems)
 ns:On("BIS_LOCK_CHANGED", RequestItems)
 ns:On("ITEMINFO_READY", ItemInfoReady)
--- my shopping list changed: its count on the left, the bag marks on the rows
+-- my shopping list changed: its count on the bag, the bag marks on the tiles
 ns:On("SHOP_UPDATED", function()
     if not panel then return end
-    if srcList then srcList:Refresh() end
+    if Nav() then Nav():Update() end
     RequestItems()
 end)
 -- what I hold changed (honor, arena points, badges, marks, money): the bar and the red / white costs

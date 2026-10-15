@@ -463,6 +463,49 @@ end
 
 Atlas.MIN_SEARCH = MIN_SEARCH
 
+-- What a place is also called (searched with its name): a wing's whole instance, the usual short names (a TBC
+-- raid's come from its meta: "Kara", "SSC" ...).
+local PLACE_ALIASES = {
+    SMGraveyard = "scarlet monastery", SMLibrary = "scarlet monastery", SMArmory = "scarlet monastery",
+    SMCathedral = "scarlet monastery", AQ20 = "ruins of ahn'qiraj aq20", AQ40 = "temple of ahn'qiraj aq40",
+    LBRS = "lbrs blackrock", UBRS = "ubrs blackrock", BlackrockDepths = "brd", DireMaulEast = "dm",
+    DireMaulWest = "dm", DireMaulNorth = "dm tribute", BlackwingLair = "bwl", MoltenCore = "mc", ZulGurub = "zg",
+    Onyxia = "ony", Naxxramas = "naxx",
+}
+
+-- The places whose name (or other name) holds every word of text, in both eras: { { cat, src, page? }, ... }, the
+-- shown era's first; a source before the bosses (a raid's or dungeon's pages, not its trash) that match. nil for a
+-- text shorter than MIN_SEARCH.
+function Atlas:SearchPlaces(text)
+    text = strmatch(tostring(text or ""), "^%s*(.-)%s*$") or ""
+    if #text < MIN_SEARCH or tonumber(text) then return nil end
+    local words = Words(text)
+    local cur = self:GetEra()
+    local sources, bosses = {}, {}
+    for pass = 1, 2 do
+        for _, cat in ipairs(Build()) do
+            if (cat.era == cur) == (pass == 1) then
+                for _, src in ipairs(cat.sources) do
+                    local meta = src.kind == "raid" and Data().RaidMeta and Data().RaidMeta[src.key]
+                    local hay = strlower(src.name or "") .. " " .. (PLACE_ALIASES[src.key] or "") .. " "
+                        .. strlower(meta and meta.short or "") .. " " .. (meta and meta.planKey or "")
+                    if MatchesAll(hay, words) then sources[#sources + 1] = { cat = cat, src = src } end
+                    if src.kind == "raid" or src.kind == "dungeon" then
+                        for _, page in ipairs(src.pages) do
+                            if page.key ~= "Trash" and page.name ~= src.name
+                                and MatchesAll(strlower(page.name or ""), words) then
+                                bosses[#bosses + 1] = { cat = cat, src = src, page = page }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for _, b in ipairs(bosses) do sources[#sources + 1] = b end
+    return sources
+end
+
 ---------------------------------------------------------------------------
 -- My BiS list
 ---------------------------------------------------------------------------
