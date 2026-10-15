@@ -396,7 +396,8 @@ end
 
 local function LayoutSide(run, x, y, height)
     sh.side:ClearAllPoints()
-    sh.side:SetPoint("TOPLEFT", sh, "TOPLEFT", x, y)
+    -- (on the hero's right edge: both hang from the sheet's right side)
+    sh.side:SetPoint("TOPRIGHT", sh, "TOPRIGHT", -PAD, y)
     sh.side:SetSize(SIDE_W, height)
     sh.side:Show()
     local inner = SIDE_W - 28
@@ -541,9 +542,10 @@ function GL:Refresh()
         self:Close()
         return
     end
+    -- (the sheet's own size: the hero and the columns hang from it)
     local panel = DUI():GetPanel()
-    local width = (panel and panel:GetWidth() or 780)
-    local height = (panel and panel:GetHeight() or 540)
+    local width = sh:GetWidth() or (panel and panel:GetWidth()) or 780
+    local height = sh:GetHeight() or (panel and panel:GetHeight()) or 540
     if width < 300 then width = 780 end
     if height < 300 then height = 540 end
     -- the hero
