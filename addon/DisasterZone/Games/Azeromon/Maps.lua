@@ -72,8 +72,9 @@ Maps.town = {
     stamps = {
         { kind = "house", x = 3, y = 3 },       -- home, door (6, 8)
         { kind = "house", x = 25, y = 3 },      -- Huntmaster Aldric's lodge, door (28, 8)
-        { kind = "cottage", x = 9, y = 3 },     -- the Maclures' cottage, door (12, 8)
-        { kind = "inn", x = 3, y = 15 },        -- the Lion's Pride Inn, double door (7..8, 22)
+        -- inside = the room behind the door: its windows glow and its chimneys smoke as people come home (UI.lua)
+        { kind = "cottage", x = 9, y = 3, inside = "cottage" },     -- the Maclures' cottage, door (12, 8)
+        { kind = "inn", x = 3, y = 15, inside = "post" },           -- the Lion's Pride Inn, double door (7..8, 22)
         { kind = "stable", x = 12, y = 17 },    -- the inn's stable
         { kind = "smithy", x = 24, y = 17 },    -- Smith Argus' smithy, open to the lane
         { kind = "well", x = 20, y = 11 },      -- the well in the market square

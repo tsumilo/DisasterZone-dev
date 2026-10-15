@@ -3158,16 +3158,20 @@ function Amb.Smoke(m, px, py)
         m.chimneys = {}
         for _, s in ipairs(m.def.stamps or {}) do
             for _, c in ipairs(Amb.CHIMNEY_KINDS[s.kind] or {}) do
-                m.chimneys[#m.chimneys + 1] = { s.x * 16 + c[1], s.y * 16 + c[2] }
+                m.chimneys[#m.chimneys + 1] = { s.x * 16 + c[1], s.y * 16 + c[2], s.inside }
             end
         end
     end
     local sin = math.sin
+    local Routine = ns.AzeroRoutine
     for ci, ch in ipairs(m.chimneys) do
+        -- a house with a room behind it (the inn, the cottage): thin smoke when empty, thick when full
+        local thin = 0
+        if ch[3] and Routine then thin = math.max(0, 0.6 - Routine.InsideCount(ch[3]) * 0.1) end
         for k = 0, 6 do
             local age = (now * 0.32 + k / 7) % 1
             -- puffs thin out as they rise (a few skipped, changing six times a second)
-            local skip = ((floor(now * 6) * 7 + k * 13 + ci * 31) % 100) / 100 < age * 0.55
+            local skip = ((floor(now * 6) * 7 + k * 13 + ci * 31) % 100) / 100 < age * 0.55 + thin
             if not skip then
                 local sz = age < 0.3 and 2 or 3
                 local gr = (220 - age * 60) / 255
@@ -3316,6 +3320,25 @@ function Amb.NpcPixels(n)
     return nx * 16, ny * 16
 end
 
+-- The room behind a window light (a stamp with `inside` on the map: the inn, the cottage), if any.
+function Amb.WindowRoom(m, g, l)
+    if m.windowRooms == nil then
+        m.windowRooms = false
+        for _, s in ipairs(m.def.stamps or {}) do
+            if s.inside then
+                m.windowRooms = m.windowRooms or {}
+                m.windowRooms[s.kind] = s.inside
+            end
+        end
+    end
+    if not m.windowRooms then return nil end
+    local tx, ty = floor(l[1] / 16) - g.mx, floor(l[2] / 16) - g.my
+    if tx < 0 or ty < 0 or tx >= m.w or ty >= m.h then return nil end
+    local o = m.over[m.key(tx, ty)]
+    local kind = type(o) == "string" and o:match("^(.-)_%d+_%d+$")
+    return kind and m.windowRooms[kind]
+end
+
 -- An unlit lamp post's pool of light, covered (Ground/lampcover_<d|n>.tga multiplied over it: the baker's
 -- lamp_cover). Returns true when it drew one.
 Amb.coverTex = {}
@@ -3385,7 +3408,13 @@ function Amb.Night(m, g, px, py)
                 if not off and sx > -TILE * 2 and sy > -TILE * 2 and sx < SW + TILE * 2 and sy < SH + TILE * 2 then
                     local fl = (l[4] == 1) and (0.75 + 0.25 * math.sin(now * 9 + l[1]) * math.sin(now * 5.3 + l[2])) or 1
                     gn = gn + 1
-                    Glow(gn, sx, sy, l[3] * 1.5 * S, 1, 0.66, 0.31, (l[5] == 1 and 0.3 or 0.45) * fl * k)
+                    local a, size = (l[5] == 1 and 0.3 or 0.45), 1.5
+                    local room = l[5] == 1 and Routine and Amb.WindowRoom(m, g, l)
+                    if room then                          -- the inn's windows: brighter the more people are in
+                        local full = math.min(1, Routine.InsideCount(room) / 6)
+                        a, size = 0.14 + 0.36 * full, 1.2 + 0.6 * full
+                    end
+                    Glow(gn, sx, sy, l[3] * size * S, 1, 0.66, 0.31, a * fl * k)
                 end
             end
             for i = cn + 1, #Amb.coverTex do Amb.coverTex[i]:Hide() end

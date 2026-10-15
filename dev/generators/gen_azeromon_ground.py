@@ -18,6 +18,7 @@ The maths (hash, value noise, masks) matches the mockup's JavaScript, so the gam
 Run: luaenv\\Scripts\\python.exe generators\\gen_azeromon_ground.py [map ...]     (default: GROUND_THEMES' maps)
 """
 import hashlib
+import re
 import math
 import json
 import os
@@ -48,8 +49,12 @@ SHADE = 0.74                     # forest floor (gen_azeromon_art.SHADE: the atl
 
 # small props that stand on a pool of shadow (their foot) instead of casting a silhouette
 FEET = {"sign", "wantedboard", "lamppost", "anvil", "forge", "alchemy", "chest", "mailbox_0_1", "totem_0_1",
+        "well_0_2", "well_1_2", "stall_0_2", "stall_1_2", "stallshut_0_2", "stallshut_1_2",
         "scarecrow_0_1", "gravestone", "crate", "barrel", "pumpkin", "hay", "cannon", "plinth", "plinthempty",
         "trophyboard"}
+
+# stamps whose foot gets the pool above instead of an offset silhouette (the rest of their tiles cast none)
+NO_SILHOUETTE = re.compile(r"^(well|stall|stallshut)_\d+_\d+$")
 
 # the margin baked round each map (tiles): the camera sees up to HX + 1, HY + 1 tiles past an edge (UI.lua HX = 6.5,
 # HY = 4). Past the edge the map goes on: a road or water at the edge carries straight on, the rest is forest.
@@ -461,7 +466,7 @@ def bake(m, atlas, walls):
             o = over[y][x]
             if o and o in FEET:
                 feet.append((x, y, atlas.tile(o)))
-            elif o:
+            elif o and not NO_SILHOUETTE.match(o):
                 stamp_sil(atlas.tile(o), x * 16 + 3, y * 16 + 2)
             if rows[y][x] in wallk:
                 stamp_sil(walls[wallk[rows[y][x]]][wall_mask(T, x, y, wallk)], x * 16 + 3, y * 16 + 2)

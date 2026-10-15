@@ -298,6 +298,11 @@ def well_rows():
                     add.append((x, y)); break
     for x, y in add:
         g[y][x] = "K"
+    # no black line under the curb: it stands on the ground, it isn't a sticker on it
+    for x in range(W):
+        col = [y for y in range(H) if g[y][x] != "."]
+        if col and g[col[-1]][x] == "K":
+            g[col[-1]][x] = "."
     return g
 
 
@@ -388,7 +393,7 @@ def _stall(open_):
         front.rect(10, 29, 21, 35, PAPER[2]); front.rect(10, 29, 21, 29, PAPER[3]); front.rect(10, 35, 21, 35, PAPER[1])
         for x in (12, 13, 14, 15, 17, 18, 19):
             front.put(x, 32, RED[1])
-    back.outline(); front.outline()
+    back.outline(skip_bottom=True); front.outline(skip_bottom=True)    # (no black line under the posts and counter)
     img = np.zeros((48, 32, 4), dtype=np.uint8)               # the stall standing on the stamp's bottom edge
     paste(img, np.array(back.image()), 0, 8)
     paste(img, np.array(front.image()), 0, 8)

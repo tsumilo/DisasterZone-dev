@@ -232,6 +232,21 @@ function R.LampAt(mapId, x, y)
     for i, l in ipairs(def and def.lamps or {}) do if l[1] == x and l[2] == y then return i end end
 end
 
+-- How many people's day has them inside a room now (counted once a second per room).
+local counts = {}
+function R.InsideCount(mapId, now)
+    now = now or R.Now()
+    local c = counts[mapId]
+    if c and math.abs(now - c.at) < 1 / 60 then return c.n end
+    local n = 0
+    for _, p in ipairs(R.People()) do
+        local st = R.State(p.def, now)
+        if st and st.inside == mapId then n = n + 1 end
+    end
+    counts[mapId] = { at = now, n = n }
+    return n
+end
+
 -- Is the map's stall open (its keeper selling)?
 function R.StallOpen(mapId, now)
     local def = Maps[mapId]

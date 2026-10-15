@@ -257,6 +257,17 @@ def maybells_stall_opens_at_eight_and_shuts_at_six():
 
 
 @case
+def the_inn_and_cottage_know_how_many_are_home():
+    # (UI.lua: the inn's windows glow brighter and its chimneys smoke thicker the fuller it is)
+    w, c = solo("Alice", tick=2)
+    r = c.eval_py("""local R = ns.AzeroRoutine
+      return { R.InsideCount('post', 12 * 60), R.InsideCount('post', 22 * 60), R.InsideCount('cottage', 23 * 60),
+               R.InsideCount('cottage', 12 * 60) }""")
+    assert r == [2, 6, 2, 0], r
+    no_errors(w)
+
+
+@case
 def lines_come_at_their_minute():
     w, c = solo("Alice", tick=2)
     r = c.eval_py("""
