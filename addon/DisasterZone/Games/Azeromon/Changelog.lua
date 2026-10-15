@@ -19,6 +19,8 @@ ns.AzeroChangelog = {
           "Beasts can drop crafting materials when you win.",
           "Gryphons to Lakeshire, Morgan's Vigil, Thorium Point.",
           "New text font and cream window style.",
+          "START menu: a sun or moon shows the time of day.",
+          "The world map fills the whole screen like the world.",
       } },
     { version = "0.25", date = "15 October 2026", title = "A painted world map",
       lines = {

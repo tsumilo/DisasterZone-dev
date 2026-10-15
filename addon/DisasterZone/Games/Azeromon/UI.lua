@@ -4992,6 +4992,91 @@ local function OnKeyUp(self, key)
 end
 
 ---------------------------------------------------------------------------
+-- Sky icon: the realm clock's sun or moon, drawn as an 11x11 grid of coloured squares
+---------------------------------------------------------------------------
+
+local SKY_N, SKY_PX = 11, 2
+local SKY_INK = {
+    Y = { 1.00, 0.84, 0.24 }, W = { 1.00, 0.97, 0.72 }, O = { 0.96, 0.55, 0.14 }, R = { 0.82, 0.28, 0.20 },
+    P = { 0.92, 0.45, 0.50 }, H = { 0.36, 0.43, 0.62 }, M = { 0.80, 0.83, 0.92 }, S = { 0.60, 0.64, 0.78 },
+    E = { 0.33, 0.37, 0.55 }, K = { 0.88, 0.66, 0.18 },
+}
+-- one stage per stretch of the day: { from hour, name, rows }; rows read top to bottom, "." is empty. Every shape
+-- has a dark rim (O / R round a sun, E round a moon): the panel behind is cream, pale fills alone vanish on it.
+local SKY_STAGES = {
+    { 0, "Night (full moon)", {
+        "K..........", "....EEE....", "..EEMMMEE..", "..EMSMMME..", ".EMMMMMSME.", ".EMMMMMMME.",
+        ".EMSSMMMME.", "..EMMMMSE..", "..EEMMMEE..", "....EEE...K", "..........." } },
+    { 3, "Night (setting moon)", {
+        ".K.........", "....EEE....", "....EMMEE..", "......EMME.", ".......EME.", ".K.....EME.",
+        ".......EME.", "......EMME.", "....EMMEE..", "....EEE....", "..........." } },
+    { 5, "Dawn", {
+        "...........", "...........", ".....P.....", ".P.......P.", "....OOO....", "...OYYYO...",
+        "..OYWYYYO..", ".OYYYYYYYO.", "HHHHHHHHHHH", "...OO.OOO..", ".H...HH...." } },
+    { 7, "Morning", {
+        ".....O.....", "...........", "....OOO....", "...OWYYO...", "..OWYYYYO..", "O.OYYYYYO.O",
+        "..OYYYYYO..", "...OYYYO...", "....OOO....", "...........", ".....O....." } },
+    { 10, "Midday", {
+        ".....O.....", ".O.......O.", "....OOO....", "...OWYYO...", "..OWYYYYO..", "OOOYYYYYOOO",
+        "..OYYYYYO..", "...OYYYO...", "....OOO....", ".O.......O.", ".....O....." } },
+    { 15, "Afternoon", {
+        "...........", ".R.......R.", "....RRR....", "...RYYOR...", "..RYYYOOR..", "..RYYOOOR..",
+        "..ROOOOOR..", "...ROOOR...", "....RRR....", ".R.......R.", "..........." } },
+    { 18, "Dusk", {
+        "...........", "...........", "...........", "...........", "...........", "....RRR....",
+        "..RROOORR..", ".ROOOYOOOR.", "HHHHHHHHHHH", "..RR.HH.RR.", "....R..R..." } },
+    { 21, "Night (rising moon)", {
+        ".........K.", "....EEE....", "..EEMME....", ".EMME......", ".EME.......", ".EME.....K.",
+        ".EME.......", ".EMME......", "..EEMME....", "....EEE....", "..........." } },
+}
+
+function Scr.BuildSkyIcon(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(SKY_N * SKY_PX, SKY_N * SKY_PX)
+    f.px = {}
+    for i = 1, SKY_N * SKY_N do
+        local t = Tex(f, "OVERLAY")
+        t:SetSize(SKY_PX, SKY_PX)
+        t:SetPoint("TOPLEFT", ((i - 1) % SKY_N) * SKY_PX, -floor((i - 1) / SKY_N) * SKY_PX)
+        t:Hide()
+        f.px[i] = t
+    end
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", function(self)
+        if not (self.stage and GameTooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.stage[2], 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    f:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    f:SetScript("OnMouseDown", function(_, button)
+        if button == "RightButton" and UI.Press then UI.Press("B") end
+    end)
+    return f
+end
+
+function Scr.SetSkyIcon(f, hour)
+    local stage = SKY_STAGES[1]
+    for _, s in ipairs(SKY_STAGES) do
+        if hour >= s[1] then stage = s end
+    end
+    if f.stage == stage then return end
+    f.stage = stage
+    for r = 1, SKY_N do
+        local row = stage[3][r]
+        for c = 1, SKY_N do
+            local t, ink = f.px[(r - 1) * SKY_N + c], SKY_INK[row:sub(c, c)]
+            if ink then
+                t:SetColorTexture(ink[1], ink[2], ink[3], 1)
+                t:Show()
+            else
+                t:Hide()
+            end
+        end
+    end
+end
+
+---------------------------------------------------------------------------
 -- Frame update
 ---------------------------------------------------------------------------
 
@@ -5041,8 +5126,9 @@ local function OnUpdate(self, elapsed)
             or (cls:sub(1, 1) .. cls:sub(2):lower()))
         R.money.perk:SetText(p and string.format("%s: %s", className, p.name) or "")
         if cc then R.money.perk:SetTextColor(cc.r * 0.8, cc.g * 0.8, cc.b * 0.8) end
-        R.money.fs:SetText(string.format("Money: %s\nBadges: %d\nRealm time %02d:%02d (%s)", D.Money(G.save.money),
-            G:BadgeCount(), math.floor(hr), math.floor((hr % 1) * 60), G:Period()))
+        R.money.fs:SetText(string.format("Money: %s\nBadges: %d", D.Money(G.save.money), G:BadgeCount()))
+        R.money.time:SetText(string.format("Realm time %02d:%02d", math.floor(hr), math.floor((hr % 1) * 60)))
+        Scr.SetSkyIcon(R.money.sky, hr)
         if #stack == 0 then R.money:Hide() end
     end
     if R.bagDesc:IsShown() and #stack == 0 then R.bagDesc:Hide() end
@@ -5281,9 +5367,14 @@ function UI:CreatePanel(parent)
     R.money:SetPoint("TOPLEFT", 8, -8)
     R.money.fs = Font(R.money, 15)
     R.money.fs:SetPoint("TOPLEFT", 16, -14)
+    -- the realm clock, with a pixel sun or moon for the time of day after it (Scr.SetSkyIcon)
+    R.money.time = Font(R.money, 15)
+    R.money.time:SetPoint("TOPLEFT", R.money.fs, "BOTTOMLEFT", 0, 0)
+    R.money.sky = Scr.BuildSkyIcon(R.money)
+    R.money.sky:SetPoint("LEFT", R.money.time, "RIGHT", 6, 1)
     -- the class perk: one line in the class colour, the whole story on hover
     R.money.perk = Font(R.money, 15)
-    R.money.perk:SetPoint("TOPLEFT", R.money.fs, "BOTTOMLEFT", 0, -2)
+    R.money.perk:SetPoint("TOPLEFT", R.money.time, "BOTTOMLEFT", 0, -2)
     R.money:SetScript("OnEnter", function(self)
         local p = G:PerkInfo()
         if not (p and GameTooltip) then return end
@@ -5551,7 +5642,7 @@ function UI:CreatePanel(parent)
 
     -- focus overlay
     focusOverlay = CreateFrame("Button", nil, root)
-    focusOverlay:SetAllPoints(screen)
+    focusOverlay:SetAllPoints(root)                                -- (the whole stage, not the fitted screen)
     focusOverlay:SetFrameLevel(screen:GetFrameLevel() + 120)
     local dim = Tex(focusOverlay, "BACKGROUND")
     dim:SetAllPoints()
@@ -5612,6 +5703,7 @@ function UI:CreatePanel(parent)
             world:SetScale(k)
             R.battle:SetScale(k)
             R.title:SetScale(k)
+            if ns.AzeroWorld.frame then ns.AzeroWorld:Fit(w / (fit * k), h / (fit * k), k) end
         end
         KH.PlaceKeyStrip(h)
     end

@@ -409,6 +409,22 @@ def azero_at(map_id, x, y, lua=None):
     return fn
 
 
+def azero_menu(hour):
+    """Azeromon's start menu over Goldshire at `hour` (the money box: money, badges, realm clock + sky icon)"""
+    def fn(w, c):
+        g = azero_at("town", 12, 11, "ns.AzeroUI.tipsOff = true")(w, c)
+        for _ in range(6):                                 # a tip from before tipsOff: read it away
+            st = g.eval_py("return ns.AzeroUI._State()")
+            if not st.get("msg") and not st.get("text") and not st.get("stack"):
+                break
+            g.eval("ns.AzeroUI._HandleKey('%s')" % ('B' if st.get("stack") else 'A'))
+            w.tick(0.6)
+        g.eval("ns.Azero.clockHour = %d ns.AzeroUI._HandleKey('START') ns.AzeroUI._Focus(true)" % hour)
+        w.tick(0.2)
+        return g
+    return fn
+
+
 def azero_poster(shot, t=3):
     """The Games hub with Azeromon's poster in front, its film (Games/Azeromon/Poster.lua) t s into shot `shot`"""
     seek = ("ns.GamesUI:ShowFront('azeromon') ns.GamesUI:PauseAnim(true) "
@@ -1876,6 +1892,10 @@ STATES = [
     ("Games - Azeromon world map reveal", azero_at("route1", 11, 20, "ns.AzeroWorld:Open() ns.AzeroUI._HandleKey('B') ns.Azero:EnterMap('forestedge', 5, 5, 'down', true) ns.AzeroUI._HandleKey('START') ns.AzeroWorld:Open() ns.AzeroWorld.frame.clock = ns.AzeroWorld.frame.clock + 1.1 ns.AzeroWorld:Animate(0) ns.AzeroUI._Focus(true)")),
     ("Games - Azeromon Goldshire", azero_at("town", 12, 11)),
     ("Games - Azeromon Goldshire edge", azero_at("town", 2, 8)),
+    ("Games - Azeromon start menu night", azero_menu(1)),
+    ("Games - Azeromon start menu dawn", azero_menu(6)),
+    ("Games - Azeromon start menu midday", azero_menu(12)),
+    ("Games - Azeromon start menu dusk", azero_menu(19)),
     ("Games - Azeromon Goldshire north road", azero_at("town", 10, 1)),
     ("Games - Azeromon Goldshire night", azero_at("town", 13, 10, "ns.Azero.clockHour = 23")),
     ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),

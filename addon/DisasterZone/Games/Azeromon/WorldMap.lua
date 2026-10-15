@@ -620,7 +620,7 @@ end
 function W:Build(K)
     local f = CreateFrame("Frame", nil, K.Screen())
     f:SetSize(K.SW, K.SH)
-    f:SetPoint("TOPLEFT")
+    f:SetPoint("CENTER")                  -- like the world: scaled a little past the screen to fill the stage (W:Fit)
     f:SetFrameLevel(100)
     f.noPool = true
     f:EnableMouse(true)
@@ -635,7 +635,21 @@ function W:Build(K)
     f.clock, f.smokeHidden, f.h = 0, {}, K.SH
     f:SetScript("OnUpdate", function(_, elapsed) W:Animate(elapsed or 0) end)
     W.frame = f
+    local UI = ns.AzeroUI
+    if UI._Fit then UI._Fit() end
     return f
+end
+
+-- The stage's visible size in map units and the bleed scale (UI FitScreen): the picture meets all four edges like
+-- the world does, and the card moves in by what the bleed cuts off so it stays whole.
+function W:Fit(visW, visH, k)
+    local f = W.frame
+    f:SetScale(k)
+    local w, h = f:GetWidth(), f:GetHeight()
+    local cutX, cutY = math.max(0, (w - visW) / 2), math.max(0, (h - visH) / 2)
+    local y = math.min(CARD_Y + cutY, h - cutY - CARD_H - 4)             -- (a short stage: the bottom wins)
+    f.card:ClearAllPoints()
+    f.card:SetPoint("TOPLEFT", f, "TOPLEFT", CARD_X - cutX, -y)
 end
 
 ---------------------------------------------------------------------------
