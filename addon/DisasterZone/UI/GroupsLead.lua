@@ -75,7 +75,7 @@ local function Create(panel)
     -- the hero
     local h = CreateFrame("Frame", nil, sh)
     h:SetPoint("TOPLEFT", PAD, -8)
-    h:SetPoint("TOPRIGHT", -PAD - 30, -8)   -- (the sheet's X beside it)
+    h:SetPoint("TOPRIGHT", -PAD, -8)
     h:SetHeight(HERO_H)
     h.art = h:CreateTexture(nil, "BACKGROUND")
     h.art:SetAllPoints()
@@ -98,7 +98,12 @@ local function Create(panel)
     h.loot = UI():CreatePill(h, "bis", "")
     h.more = UI():CreateTipIconButton(h, 28, UI().ICON.more, "Your group", "Edit it, start the raid session, "
         .. "post it in the LookingForGroup channel, or take it off the board.")
-    h.more:SetPoint("TOPRIGHT", -10, -10)
+    -- (the sheet's close sits in the hero, after share and ···: the hero keeps the page's full width)
+    sh.close:SetParent(h)
+    sh.close:ClearAllPoints()
+    sh.close:SetPoint("TOPRIGHT", h, "TOPRIGHT", -10, -13)
+    sh.close:SetFrameLevel(h:GetFrameLevel() + 5)
+    h.more:SetPoint("RIGHT", sh.close, "LEFT", -10, 0)
     h.more:SetScript("OnClick", function(self) DUI():OpenMineMenu(self) end)
     if ns.Share and ns.Share.CreateButton then
         h.share = ns.Share:CreateButton(h, 28, function() return runId and ns.Share:RunRef(runId) or nil end,
@@ -108,7 +113,8 @@ local function Create(panel)
     h.meters = G().NewMeters(h)
     h.meters:SetPoint("BOTTOMRIGHT", -14, 14)
     h.tabs = {}
-    for _, t in ipairs({ { "roster", "Roster" }, { "reserves", "Reserves" }, { "groups", "Groups" } }) do
+    for _, t in ipairs({ { "roster", "Roster" }, { "reserves", "Reserves" }, { "groups", "Groups" },
+                         { "message", "LFG message" } }) do
         local key = t[1]
         local b = UI():CreateUnderlineTab(h, t[2], function()
             tab = key
@@ -574,7 +580,8 @@ function GL:Refresh()
     end
     local labels = { roster = "Roster  " .. S:Wrap("SUB", filled .. "/" .. R():GetSize(run)),
                      reserves = "Reserves" .. (run.lo == "sr" and ("  " .. S:Wrap("SUB", tostring(reserved))) or ""),
-                     groups = "Groups" }
+                     groups = "Groups",
+                     message = "LFG message" .. ((ns.GroupsLFG and ns.GroupsLFG:IsRepeating()) and ("  " .. S:Wrap("OK", "on")) or "") }
     local x = 96
     for _, b in ipairs(h.tabs) do
         b:SetLabel(labels[b.key])
@@ -599,7 +606,10 @@ function GL:Refresh()
     for _, c in ipairs(sh.cells) do c:Hide() end
     for _, hd in ipairs(sh.heads) do hd:Hide() end
     local used
-    if tab == "reserves" and run.k == "raid" then
+    if tab ~= "message" and ns.GroupsMessage then ns.GroupsMessage:Hide() end
+    if tab == "message" and ns.GroupsMessage then
+        used = ns.GroupsMessage:Layout(sh.body, bodyW - 12)
+    elseif tab == "reserves" and run.k == "raid" then
         used = LayoutReserves(run, bodyW - 12)
     elseif tab == "groups" then
         used = LayoutGroups(run, bodyW - 12)
@@ -611,13 +621,13 @@ function GL:Refresh()
     LayoutSide(run, width - PAD - SIDE_W, top, bodyH)
 end
 
-function GL:Open(id)
+function GL:Open(id, startTab)
     local panel = DUI():GetPanel()
     if not panel then return end
     runId = id or (R():GetMyGroup() and R():GetMyGroup().id)
     if not MyGroup() then return end
     if not sh then Create(panel) end
-    tab = "roster"
+    tab = startTab or "roster"
     sh:Open()
     panel.layout.toolbar:Hide()
     if panel.tabsRow then panel.tabsRow:Hide() end

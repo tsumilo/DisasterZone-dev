@@ -541,10 +541,17 @@ function DungeonsUI:OpenMineMenu(owner)
             entry(Ui.ICON.play or 16, "Start raid session", "Starts the raid session with your group's loot: "
                 .. LOOT_WORDS[group.lo or "roll"] .. ".", function() DungeonsUI:StartSession() end)
         end
-        entry(18, "Post in LFG", "Posts the open places in the LookingForGroup channel: "
-            .. (R():GetChannelText() or "nothing is open") .. ".", function()
-                local ok, why = R():PostToChannel()
+        -- (1.5, feedback #8) the message as built on the LFG message tab
+        local LFG = ns.GroupsLFG
+        local msg = LFG and LFG:Compose()
+        entry(18, "Post in LFG", "Posts your message in the LookingForGroup channel: "
+            .. (msg or "nothing is open") .. ".", function()
+                local ok, why = LFG:Post()
                 if not ok and why then ns:Print("%s", why) end
+            end)
+        entry(18, "LFG message", "Build the message: what you need, the specs you're after, the order of its parts; "
+            .. "and post it again every 30 s.", function()
+                if ns.GroupsLead then ns.GroupsLead:Open(group and group.id, "message") end
             end)
         -- listed in the Group Finder (the eye on the card): search again, and the note only the player can type
         local GF, mine = ns.GroupFinder, R():GetMine()

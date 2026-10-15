@@ -7,4 +7,7 @@
 	<Binding name="DISASTERZONE_WARDROBENEXT" category="ADDONS">
 		DisasterZone_WardrobeNext()
 	</Binding>
+	<Binding name="DISASTERZONE_LFGPOST" category="ADDONS">
+		DisasterZone_PostLFG()
+	</Binding>
 </Bindings>
