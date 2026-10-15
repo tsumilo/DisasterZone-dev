@@ -7,6 +7,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Fishing.lua", ...) 
 --   Bauble (a lure: faster bites for ten minutes), and sometimes a water beast that takes the bait - a wild battle.
 --   Schools of fish (ripples on one stretch of shore, moving every 20 realm minutes, the same for the whole guild)
 --   bite twice as fast and give the better fish.
+--   Something big on the line (a water beast, or a water's prize fish: big = true) has to be reeled in: a marker
+--   sweeps a bar while a gold patch drifts with the fish's pull; Space with the marker in the gold is a good pull.
+--   REEL_NEED good pulls land it, REEL_MISSES misses (or REEL_TIME seconds) snap the line.
 --   Fish feed beasts outside battle (a little HP; water beasts love it: twice as much) or sell at any shop.
 -- Skill runs 1 - 175 like the others: Lee Brown teaches Apprentice and Journeyman, Old Man Heming on Booty Bay's
 -- docks Expert. Water above your skill still bites, but most of what you hook gets away.
@@ -81,18 +84,18 @@ D.fishWaters = {
         { item = "smallfish", weight = 42 }, { item = "mudsnapper", weight = 24 }, { item = "sicklyfish", weight = 10 },
         { item = "boot", weight = 8 }, { item = "bauble", weight = 4 }, { beast = "murkling", weight = 12, min = 4, max = 7 } } },
     westfall = { skill = 25, catch = {
-        { item = "mudsnapper", weight = 30 }, { item = "catfish", weight = 22, skill = 50 }, { item = "blackmouth", weight = 18 },
+        { item = "mudsnapper", weight = 30 }, { item = "catfish", weight = 22, skill = 50, big = true }, { item = "blackmouth", weight = 18 },
         { item = "sicklyfish", weight = 8 }, { item = "boot", weight = 8 }, { item = "bauble", weight = 4 },
         { beast = "coastrunner", weight = 10 } } },
     duskwood = { skill = 50, catch = {
         { item = "catfish", weight = 36 }, { item = "mudsnapper", weight = 18 }, { item = "sicklyfish", weight = 14 },
         { item = "boot", weight = 12 }, { item = "bauble", weight = 6 }, { beast = "lurkling", weight = 14 } } },
     jungle = { skill = 100, catch = {
-        { item = "rockscale", weight = 26 }, { item = "albacore", weight = 22 }, { item = "firefin", weight = 14, skill = 120 },
+        { item = "rockscale", weight = 26 }, { item = "albacore", weight = 22 }, { item = "firefin", weight = 14, skill = 120, big = true },
         { item = "blackmouth", weight = 14 }, { item = "boot", weight = 8 }, { item = "bauble", weight = 4 },
         { beast = "saltwatercroc", weight = 12 } } },
     redridge = { skill = 100, catch = {
-        { item = "mithrilhead", weight = 30 }, { item = "catfish", weight = 18 }, { item = "redgill", weight = 16, skill = 140 },
+        { item = "mithrilhead", weight = 30 }, { item = "catfish", weight = 18 }, { item = "redgill", weight = 16, skill = 140, big = true },
         { item = "boot", weight = 10 }, { item = "bauble", weight = 6 }, { beast = "netter", weight = 20 } } },
 }
 D.fishWaters.arena = D.fishWaters.jungle
@@ -100,6 +103,9 @@ D.fishWaters.arena = D.fishWaters.jungle
 F.WINDOW = 1.1           -- seconds the bobber stays under: press Space in time
 F.WAIT = { 3.5, 9 }      -- seconds before a bite (a school: half that; a lure: 0.6 of it)
 F.SCHOOL_MINUTES = 20    -- a school moves on every 20 minutes (realm time)
+F.REEL_NEED, F.REEL_MISSES, F.REEL_TIME = 3, 2, 12
+F.REEL_SWEEP = 0.75      -- the marker's sweeps a second (a beast: faster), there and back
+F.REEL_ZONE = 0.24       -- the gold patch's width, as a share of the bar (a beast: narrower)
 F.rng, F.clock = nil, nil    -- tests
 
 local function Rng(a, b) return (F.rng or G.rng or math.random)(a, b) end
@@ -283,9 +289,19 @@ function F:Cast(g, x, y)
         return
     end
     local e = F.Roll(water, eff, school)
+    local beast = e.beast and ns.AzeroMon.FirstUsable(g.save.party)
+    if beast or e.big then
+        local r = g:Wait({ kind = "reel", t = 0, hits = 0, misses = 0, beast = beast and true or false,
+                           sweep = F.REEL_SWEEP * (beast and 1.3 or 1), zone = F.REEL_ZONE * (beast and 0.8 or 1) })
+        if r ~= "landed" then
+            g:Sfx("fishreel")
+            g:Say(r == "letgo" and "You let it go." or "The line snaps! Whatever it was, it got away.")
+            return
+        end
+    end
     local rose = F:SkillUp(water)
     local up = rose and string.format("\nYour skill in Fishing has increased to %d.", rose) or ""
-    if e.beast and ns.AzeroMon.FirstUsable(g.save.party) then
+    if beast then
         local sp = D.species[e.beast]
         g:Emit("fish", { beast = e.beast })
         g:Say(string.format("Something big is on the line...\nIt's a wild %s!%s", sp and sp.name or "beast", up))
@@ -384,6 +400,36 @@ function F:Tick(g, p, dt)
         g:Sfx("fishbite")
     elseif p.biting and p.t >= p.bite + p.window then
         g:Advance("late")
+    end
+end
+
+-- Reeling: where the marker (0 - 1) and the middle of the gold patch are, `t` seconds in.
+function F.ReelAt(p, t)
+    local ph = (t * p.sweep) % 2
+    local pos = ph < 1 and ph or 2 - ph                       -- there and back along the bar
+    local mid = 0.5 + 0.3 * math.sin(t * 0.9) + 0.08 * math.sin(t * 2.3)
+    return pos, mid
+end
+
+function F:ReelTick(g, p, dt)
+    p.t = p.t + dt
+    if p.flash then p.flash = p.flash - dt if p.flash <= 0 then p.flash = nil end end
+    if p.t >= F.REEL_TIME then g:Advance("snapped") end
+end
+
+-- Space: a pull. In the gold it counts; outside it's a miss.
+function F:ReelKey(g, p, key)
+    if key == "B" then g:Advance("letgo") return end
+    if key ~= "A" then return end
+    local pos, mid = F.ReelAt(p, p.t)
+    if math.abs(pos - mid) <= p.zone / 2 then
+        p.hits, p.flash, p.good = p.hits + 1, 0.25, true
+        g:Sfx("fishreel")
+        if p.hits >= F.REEL_NEED then g:Advance("landed") end
+    else
+        p.misses, p.flash, p.good = p.misses + 1, 0.25, false
+        g:Sfx("bump")
+        if p.misses >= F.REEL_MISSES then g:Advance("snapped") end
     end
 end
 

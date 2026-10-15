@@ -4646,6 +4646,7 @@ KH.KEY_HINTS = {
     watch = { { "A", "Next", "next" }, { "B", "Stop watching", "stopwatch" } },
     evolve = { { "B", "Stop it evolving", "stopevo" } },
     fish = { { "A", "Hook it (when it dips)", "hook" }, { "B", "Reel in", "reel" } },
+    reel = { { "A", "Pull (marker in the gold)", "pull" }, { "B", "Let it go", "letgo" } },
 }
 KH.keyState = { ctx = false, since = 0, input = 0 }
 
@@ -4663,6 +4664,7 @@ function KH.KeyContext()
         if p.kind == "netwait" then return "netwait" end
         if p.kind == "evolve" then return "evolve" end
         if p.kind == "fish" then return "fish" end
+        if p.kind == "reel" then return "reel" end
         return nil
     end
     return "world"
@@ -5015,7 +5017,7 @@ function Scr.UpdateMusic()
     local key
     if R.title:IsShown() then key = "title"
     elseif BT.battle then key = "battle"
-    elseif G.started and G.map then key = G.map.def.music end
+    elseif G.started and G.map then key = ns.AzeroSound:InnMusic() or G.map.def.music end    -- (the lute by a busy inn)
     ns.AzeroSound:Music(key)
 end
 
@@ -5291,6 +5293,64 @@ function KH.BuildChat()
     R.chatLog = lg
 end
 
+-- The reel bar (Fishing.lua, pending kind "reel"): a box over the bottom of the stage with the bar, the gold patch
+-- drifting with the fish, the sweeping marker and a pip for each good pull.
+function KH.DrawReel()
+    local p = G.pending
+    local box = R.reel
+    if not (p and p.kind == "reel") then
+        if box then box:Hide() end
+        return
+    end
+    local W = 300
+    if not box then
+        box = Box(screen, W + 40, 78, screen:GetFrameLevel() + 120)
+        box.title = Font(box, 13, nil, true)
+        box.title:SetPoint("TOP", 0, -10)
+        box.title:SetJustifyH("CENTER")
+        box.track = Tex(box, "ARTWORK", 0)
+        box.track:SetSize(W, 14)
+        box.track:SetPoint("TOP", 0, -34)
+        box.track:SetColorTexture(0.24, 0.35, 0.53, 1)
+        box.zone = Tex(box, "ARTWORK", 1)
+        box.zone:SetColorTexture(0.95, 0.76, 0.24, 1)
+        box.mark = Tex(box, "ARTWORK", 3)
+        box.mark:SetSize(4, 22)
+        box.mark:SetColorTexture(0.12, 0.13, 0.16, 1)
+        box.flash = Tex(box, "ARTWORK", 2)
+        box.flash:SetAllPoints(box.track)
+        box.pips = {}
+        for i = 1, ns.AzeroFish.REEL_NEED do
+            local t = Tex(box, "ARTWORK", 1)
+            t:SetSize(12, 12)
+            t:SetPoint("TOP", box.track, "BOTTOM", (i - (ns.AzeroFish.REEL_NEED + 1) / 2) * 18, -6)
+            box.pips[i] = t
+        end
+        R.reel = box
+    end
+    box:ClearAllPoints()                          -- (over a text box if one is open: a tip, a message)
+    box:SetPoint("BOTTOM", screen, "BOTTOM", 0, uiMessage and (BOX_H + 26) or 24)
+    local F = ns.AzeroFish
+    local pos, mid = F.ReelAt(p, p.t)
+    local zw = W * p.zone
+    box.title:SetText(p.beast and "Something big! Reel it in!" or "A big one! Reel it in!")
+    box.zone:ClearAllPoints()
+    box.zone:SetSize(zw, 14)
+    box.zone:SetPoint("LEFT", box.track, "LEFT", max(0, min(W - zw, mid * W - zw / 2)), 0)
+    box.mark:ClearAllPoints()
+    box.mark:SetPoint("CENTER", box.track, "LEFT", pos * W, 0)
+    if p.flash then
+        box.flash:SetColorTexture(p.good and 1 or 0.9, p.good and 1 or 0.25, p.good and 0.7 or 0.2, 0.45 * p.flash / 0.25)
+        box.flash:Show()
+    else
+        box.flash:Hide()
+    end
+    for i, t in ipairs(box.pips) do
+        if i <= p.hits then t:SetColorTexture(0.95, 0.76, 0.24, 1) else t:SetColorTexture(0.66, 0.77, 0.9, 1) end
+    end
+    box:Show()
+end
+
 -- One log line as shown: [Place] Name: text (mine gold, others white-blue, the game's notes grey).
 function KH.ChatLine(l)
     if l.system then return "|cffa8a8b0" .. l.text .. "|r" end
@@ -5410,6 +5470,8 @@ local function HandleKey(key)
             G:Advance("cancel")
         elseif p.kind == "fish" then
             ns.AzeroFish:Key(G, p, key)
+        elseif p.kind == "reel" then
+            ns.AzeroFish:ReelKey(G, p, key)
         end
         return
     end
@@ -5548,6 +5610,7 @@ local function OnUpdate(self, elapsed)
     FitScenes(elapsed)
     KH.UpdateKeyStrip()
     KH.DrawChat()
+    KH.DrawReel()
     ns.AzeroMarks:Update(elapsed)
     Scr.UpdateMusic()
     ns.AzeroSound:UpdateAmbience(elapsed, G.started and not R.title:IsShown() and not BT.battle)
@@ -6265,6 +6328,10 @@ function UI:RegisterScreen(kind, fn) UI.screens[kind] = fn end
 -- For tests
 UI._HandleKey = function(k) HandleKey(k) end
 UI._ChatBox = function() return R.chatBox end
+UI._Reel = function()
+    local b = R.reel
+    return b and b:IsShown() and { title = b.title:GetText() } or nil
+end
 UI._DrawChat = function() KH.DrawChat() end
 UI._GuildDrawn = function()
     local n, marks = 0, {}

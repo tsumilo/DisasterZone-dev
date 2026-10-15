@@ -249,6 +249,31 @@ S.TICK = 0.25                               -- seconds between ambience updates
 
 function S:AmbienceOn() return G:Data().ambience ~= false end
 
+-- The inn's lute: by the door of a room with S.CROWD or more people in it, the zone's music gives way to the
+-- tavern's tune spilling out (the inn's own music: Maps def.music of the room). Starts within LUTE_IN tiles of the
+-- door, stops past LUTE_OUT, so standing at the edge doesn't flip it back and forth.
+S.LUTE_IN, S.LUTE_OUT = 4, 6
+local luteOn = false
+function S:InnMusic()
+    local m, s, Routine, Maps = G.map, G.save, ns.AzeroRoutine, ns.AzeroMaps
+    if not (G.started and m and s and Routine and m.def.outdoor) then luteOn = false return nil end
+    local best, music
+    for _, st in ipairs(m.def.stamps or {}) do
+        local id = st.inside or st.inn                 -- (inn: an inn whose house stamp other buildings share)
+        local room = id and Maps[id]
+        if room and room.music and Routine.InsideCount(id) >= S.CROWD then
+            for _, wp in pairs(m.warp) do
+                if wp.map == id then
+                    local d = math.max(math.abs(wp.x - s.x), math.abs(wp.y - s.y))
+                    if not best or d < best then best, music = d, room.music end
+                end
+            end
+        end
+    end
+    luteOn = best ~= nil and best <= (luteOn and S.LUTE_OUT or S.LUTE_IN)
+    return luteOn and music or nil
+end
+
 local playing = {}          -- key -> { id, handle, at }
 local shotAt = {}
 local tickAcc = 0
@@ -351,10 +376,11 @@ function S:AmbienceWants()
     -- a full room's door
     if Routine then
         for _, st in ipairs(m.def.stamps or {}) do
-            if st.inside and Routine.InsideCount(st.inside) >= S.CROWD then
+            local room = st.inside or st.inn
+            if room and Routine.InsideCount(room) >= S.CROWD then
                 local doors = {}
                 for _, wp in pairs(m.warp) do
-                    if wp.map == st.inside then doors[#doors + 1] = { x = wp.x, y = wp.y } end
+                    if wp.map == room then doors[#doors + 1] = { x = wp.x, y = wp.y } end
                 end
                 local d = Nearest(s, doors)
                 if d and d <= S.SOURCES.inn.radius then wants.inn = S.SOURCES.inn.id end
@@ -423,6 +449,7 @@ end
 
 -- For tests
 S._Reset = function()
+    luteOn = false
     current, currentKey = nil, nil
     lastAt, warned = {}, false
     playing, shotAt, tickAcc = {}, {}, 0

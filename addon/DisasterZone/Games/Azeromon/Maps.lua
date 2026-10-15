@@ -1365,7 +1365,7 @@ Maps.darkshire = {
         { x = 12, y = 18, cond = function(G) return not G:Flag("badge_nightwatch") end, script = function(G) G:StranglethornGate() end },
     },
     stamps = {
-        { kind = "darkhouse", x = 3, y = 1 },       -- the Scarlet Raven Tavern, door (6, 6)
+        { kind = "darkhouse", x = 3, y = 1, inn = "darkshireinn" },       -- the Scarlet Raven Tavern, door (6, 6)
         { kind = "darkhouse", x = 14, y = 1 },      -- the town hall
         { kind = "tent", x = 4, y = 14 },           -- Madame Eva's wagon
     },

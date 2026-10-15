@@ -142,7 +142,7 @@ Maps.lakeshire = {
     },
     edges = { west = { map = "threecorners", dy = -1 }, east = { map = "everstill", dy = -1 } },
     stamps = {
-        { kind = "rrhouse", x = 3, y = 3 },         -- the Lakeshire Inn, door (6, 8)
+        { kind = "rrhouse", x = 3, y = 3, inn = "lakeshireinn" },         -- the Lakeshire Inn, door (6, 8)
         { kind = "stonehouse", x = 9, y = 3 },      -- the town hall
         { kind = "rrhouse", x = 15, y = 3 },
         { kind = "rrhouse", x = 3, y = 13 },

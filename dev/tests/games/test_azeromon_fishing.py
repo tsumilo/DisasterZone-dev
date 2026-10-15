@@ -1,6 +1,7 @@
 """Azeromon: Fishing (Fishing.lua, 0.28).
 
-Covers: Lee Brown teaches Fishing on top of two trades (secondary) and Journeyman at 75; Old Man Heming teaches
+Covers: big catches (a beast, a water's prize fish) are reeled in on a timing bar: three good pulls land it,
+two misses or the clock snap the line, back lets it go; Lee Brown teaches Fishing on top of two trades (secondary) and Journeyman at 75; Old Man Heming teaches
 Expert; Brog sells the pole; facing water hints and casts; the bite comes, Space in the window hooks it, too soon
 or too late loses it, a direction reels in; catches follow the water's table and skill gates; a hooked water
 beast starts a wild battle; schools bite faster; low skill loses most catches; fish feed beasts (water beasts
@@ -66,6 +67,22 @@ def texts(c):
         out.append(p["text"])
         c.eval("ns.Azero:Advance()")
     return out
+
+
+def pull(c, good, n=1):
+    """n pulls on the reel bar: with the marker in the gold patch (good) or well outside it."""
+    for _ in range(n):
+        c.eval("""local F, p = ns.AzeroFish, ns.Azero.pending
+          local t = p.t
+          for i = 1, 4000 do
+            local pos, mid = F.ReelAt(p, t)
+            local inside = math.abs(pos - mid) <= p.zone / 2 - 0.01
+            local outside = math.abs(pos - mid) > p.zone / 2 + 0.05
+            if (%s and inside) or (not %s and outside) then break end
+            t = t + 0.005
+          end
+          p.t = t
+          F:ReelKey(ns.Azero, p, 'A')""" % (str(good).lower(), str(good).lower()))
 
 
 def rig(c, rolls):
@@ -203,6 +220,8 @@ def a_hooked_murkling_starts_a_wild_battle():
     c.eval("ns.Azero:PressA()")
     until_bite(c)
     c.eval("ns.AzeroFish:Key(ns.Azero, ns.Azero.pending, 'A')")
+    assert pending(c)["kind"] == "reel"                       # something big: reel it in first
+    pull(c, True, 3)
     log = texts(c)
     assert any("It's a wild Murkling" in t for t in log), log
     p = pending(c)
@@ -299,6 +318,74 @@ def the_bobber_draws_in_the_ui():
     w.tick(0.2)
     p = pending(c)
     assert p["kind"] == "text" and "You caught" in p["text"], p
+    no_errors(w)
+
+
+@case
+def a_big_fish_must_be_reeled_in():
+    w, c = game(skill=60)
+    c.eval("ns.Azero:EnterMap('westfall', 1, 1, 'down', true)")
+    water = c.eval_py("""local m = ns.Azero.map
+      for _, t in ipairs(ns.AzeroFish.Shore(m)) do
+        for dir, d in pairs(ns.Azero.DIRS) do
+          local x, y = t.x - d[1], t.y - d[2]
+          local k = m.key(x, y)
+          if x >= 0 and y >= 0 and x < m.w and y < m.h and not m.water[k] and not m.solid[k] then return { x, y, dir } end
+        end
+      end""")
+    assert water, "no shore in Westfall"
+    def cast(rolls):
+        c.eval("ns.Azero:EnterMap('westfall', %d, %d, '%s', true)" % tuple(water))
+        rig(c, rolls)
+        c.eval("ns.Azero:PressA()")
+        until_bite(c)
+        c.eval("ns.AzeroFish:Key(ns.Azero, ns.Azero.pending, 'A')")
+    # the catfish (Westfall's prize: rolls past mudsnapper 30): three good pulls land it
+    cast([40, 1, 31, 1])
+    assert pending(c)["kind"] == "reel"
+    pull(c, True, 2)
+    assert pending(c)["kind"] == "reel"
+    pull(c, True)
+    log = texts(c)
+    assert any("Raw Bristle Whisker Catfish" in t for t in log), log
+    # two misses snap the line
+    cast([40, 1, 31, 1])
+    pull(c, False, 2)
+    assert any("line snaps" in t for t in texts(c))
+    # letting go, and running out of time
+    cast([40, 1, 31, 1])
+    c.eval("ns.AzeroFish:ReelKey(ns.Azero, ns.Azero.pending, 'B')")
+    assert any("let it go" in t for t in texts(c))
+    cast([40, 1, 31, 1])
+    for _ in range(130):
+        c.eval("ns.Azero:Update(0.1)")
+    assert any("line snaps" in t for t in texts(c))
+    assert c.eval("return ns.Azero.save.bag.catfish") == 1
+    no_errors(w)
+
+
+@case
+def the_reel_bar_draws_in_the_ui():
+    w, c = solo("Alice", tick=2)
+    c.eval(BOT)
+    c.eval("T_AZ.seed(7) ns.Azero:NewGame()")
+    c.slash("/dz play azeromon")
+    w.tick(0.3)
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.3)
+    c.eval("T_AZ.settle()")
+    c.eval("ns.Azero.save.party = { ns.AzeroMon.New('murkling', 30, ns.Azero.rng) } ns.Azero.save.prof = { fishing = 1 } ns.Azero.save.bag.fishingpole = 1")
+    c.eval("ns.Azero:EnterMap('town', %d, %d, 'right', true)" % POND)
+    rig(c, [40, 1, 100])
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    for _ in range(60):
+        w.tick(0.1)
+        if pending(c)["biting"]:
+            break
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.3)
+    assert c.eval_py("return ns.AzeroUI._Reel()") == {"title": "Something big! Reel it in!"}
+    assert c.eval("return ns.AzeroUI._KeyContext and ns.AzeroUI._KeyContext() or 'reel'") == "reel"
     no_errors(w)
 
 

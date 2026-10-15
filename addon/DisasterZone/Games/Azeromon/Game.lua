@@ -1397,6 +1397,8 @@ function G:Update(dt)
         if p.t <= 0 then self:Advance() end
     elseif p and p.kind == "fish" then
         ns.AzeroFish:Tick(self, p, dt)
+    elseif p and p.kind == "reel" then
+        ns.AzeroFish:ReelTick(self, p, dt)
     end
 
     if self.moving then

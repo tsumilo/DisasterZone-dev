@@ -14,6 +14,8 @@ ns.AzeroChangelog = {
           "People step round you instead of waiting in your way.",
           "In a doorway, they go back in until you've passed.",
           "Wind in the trees by the forest's edge; frogs at the pond.",
+          "By a busy inn's door, the lute inside drifts out.",
+          "Big catches fight back: reel them in on a timing bar.",
       } },
     { version = "0.30", date = "15 October 2026", title = "The guild in town",
       lines = {

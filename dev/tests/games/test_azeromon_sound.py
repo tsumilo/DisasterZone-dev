@@ -250,6 +250,22 @@ def wind_at_the_forest_edge_and_frogs_by_the_pond():
 
 
 @case
+def the_inns_lute_spills_out_by_the_door_when_it_is_busy():
+    w, c = game()
+    enter(w, c)
+    at(w, c, "'town', 8, 25, 'up'", hour=12)                          # by the Lion's Pride at noon: quiet inside
+    assert music(c) in FOREST_DAY, music(c)
+    at(w, c, "'town', 8, 25, 'up'", hour=20)                          # supper time: the inn is full
+    assert music(c) in TAVERN, music(c)
+    c.eval("ns.Azero.save.x, ns.Azero.save.y = 8, 27")               # 5 tiles off: still heard (it stops past 6)
+    w.tick(0.3)
+    assert music(c) in TAVERN, music(c)
+    at(w, c, "'town', 17, 12, 'down'", hour=20)                       # across town: the forest's evening
+    assert music(c) not in TAVERN, music(c)
+    no_errors(w)
+
+
+@case
 def loops_restart_as_they_end_and_ambience_switches_off():
     w, c = game()
     enter(w, c)

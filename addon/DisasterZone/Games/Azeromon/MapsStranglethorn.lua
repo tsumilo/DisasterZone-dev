@@ -605,7 +605,7 @@ Maps.bootybay = {
     },
     edges = { north = { map = "wildshore", dx = 0 } },
     stamps = {
-        { kind = "bbhouse", x = 2, y = 1 },        -- the Salty Sailor Tavern, door (5, 6)
+        { kind = "bbhouse", x = 2, y = 1, inn = "bootybayinn" },        -- the Salty Sailor Tavern, door (5, 6)
         { kind = "bbhouse", x = 15, y = 1 },       -- the Baron's hall, door (18, 6)
         { kind = "bbhouse", x = 2, y = 10 },       -- warehouses, door (5, 15)
         { kind = "bbhouse", x = 15, y = 10 },      -- door (18, 15)
