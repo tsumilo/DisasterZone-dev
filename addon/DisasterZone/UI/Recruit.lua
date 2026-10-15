@@ -805,9 +805,11 @@ function H.PartLabel(p)
     if p.k == "text" then
         local t = ns.Util.Trim(p.t or "") or ""
         if t == "" then return "Your words (empty)" end
-        return "\"" .. (#t > 24 and (t:sub(1, 22) .. "...") or t) .. "\""
+        t = #t > 24 and (t:sub(1, 22):gsub("{[^}]*$", "") .. "...") or t
+        return "\"" .. M():Render(t, 12) .. "\""
     elseif p.k == "need" then return "Classes: " .. (p.teamName or "team gone")
-    elseif p.k == "nights" then return "Nights: " .. (p.teamName or "team gone") end
+    elseif p.k == "nights" then return "Nights: " .. (p.teamName or "team gone")
+    elseif p.k == "icon" then return M().ICONS[p.m or 1].name end
     return p.label
 end
 
@@ -825,6 +827,11 @@ function H.AddPartMenu(owner)
             if view and view.message then view.message.w.words:SetFocus() end
         end)
         root:CreateButton(M().KINDS.tag.label, function() added(M():AddPart("tag")) end)
+        local icons = root:CreateButton(M().KINDS.icon.label)
+        for _, i in ipairs(M().ICONS) do
+            icons:CreateButton("|T" .. M():IconTexture(i.m) .. ":14:14|t  " .. i.name,
+                function() added(M():AddPart("icon", { m = i.m, after = state.part })) end)
+        end
         root:CreateDivider()
         if #teams == 0 then
             root:CreateButton(S:Wrap("DIM", "Classes and nights need a team (Raids > Teams)"), function() end)
@@ -944,11 +951,38 @@ function H.PartChip(w, i)
         local p = M():GetPart(self.partId)
         if not p then return nil end
         local said = M():PartText(p)
-        return { M().KINDS[p.k].label, said and ("Says: " .. said) or S:Wrap("SUB", "Says nothing now."),
+        return { M().KINDS[p.k].label, said and ("Says: " .. M():Render(said)) or S:Wrap("SUB", "Says nothing now."),
                  S:Wrap("SUB", "Click to change it. Drag to move it. Right-click: leave out, move, remove.") }
     end, { anchor = "ANCHOR_TOP" })
     w.chips[i] = c
     return c
+end
+
+-- A raid icon clicked: into the picked words at the cursor, or the picked icon swapped, or a new icon part after the
+-- picked part.
+function H.IconClick(m)
+    local w = view.message.w
+    local p = w.partId and M():GetPart(w.partId)
+    local code = M():IconCode(m)
+    if p and p.k == "text" then
+        local t = p.t or ""
+        local at = math.min(#t, w.wordsCursor or #t)
+        local before = t:sub(1, at)
+        local new = before .. ((before ~= "" and not before:find("%s$")) and " " or "") .. code
+        local after = t:sub(at + 1)
+        if after ~= "" and not after:find("^%s") then new = new .. " " end
+        M():SetPart(p.id, { t = new .. after })
+        w.words:SetText(new .. after)
+        w.words:SetCursorPosition(#new)
+        w.wordsCursor = #new
+        w.words:SetFocus()
+    elseif p and p.k == "icon" then
+        M():SetPart(p.id, { m = m })
+    else
+        local ok, id = M():AddPart("icon", { m = m, after = p and p.id })
+        if H.Try(ok, id) then state.part = id end
+    end
+    RU:Refresh()
 end
 
 -- A "leave out" chip of a Classes part: one open place (spec or class).
@@ -1083,6 +1117,35 @@ function H.CreateWrite(m)
         if user and w.partId then M():SetPart(w.partId, { t = self:GetText() }) end
     end)
     w.words:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    w.words:HookScript("OnCursorChanged", function(self) w.wordsCursor = self:GetCursorPosition() end)
+    -- the raid icons: a click puts one in (H.IconClick)
+    w.iconLabel = UI:Text(w, "small", "SUB")
+    w.iconLabel:SetText("Raid icons")
+    w.icons = {}
+    for i, ic in ipairs(M().ICONS) do
+        local b = CreateFrame("Button", nil, w)
+        b:SetSize(20, 20)
+        b.tex = b:CreateTexture(nil, "ARTWORK")
+        b.tex:SetPoint("CENTER")
+        b.tex:SetSize(16, 16)
+        b.tex:SetTexture(M():IconTexture(ic.m))
+        b.hl = b:CreateTexture(nil, "BACKGROUND")
+        b.hl:SetAllPoints()
+        b.hl:SetColorTexture(S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.18)
+        b.hl:Hide()
+        b:SetScript("OnEnter", function(self) self.hl:Show() end)
+        b:HookScript("OnLeave", function(self) self.hl:SetShown(self.on == true) end)
+        b:SetScript("OnClick", function() H.IconClick(ic.m) end)
+        UI:AttachTooltip(b, nil, function()
+            local p = w.partId and M():GetPart(w.partId)
+            local what = (p and p.k == "text") and "Puts it in your words, where the cursor is."
+                or (p and p.k == "icon") and "Swaps the picked icon for this one."
+                or "Adds it as a part, after the picked one."
+            return { "|T" .. M():IconTexture(ic.m) .. ":14:14|t  " .. ic.name, what,
+                     S:Wrap("SUB", "It costs 5 of the 255 ({rt" .. ic.m .. "}); chat shows the icon.") }
+        end, { anchor = "ANCHOR_TOP" })
+        w.icons[i] = b
+    end
     w.team = UI:CreateSleekButton(w, "Team", 170, 22, function(self)
         local p = w.partId and M():GetPart(w.partId)
         if p then H.TeamMenu(self, p) end
@@ -1173,7 +1236,7 @@ end
 function H.FillPreview()
     local m = view.message
     local text, n, long = M():Compose()
-    m.prevText:SetText("[2. Trade] [" .. Name(Me()) .. "|cffffbfbf]: " .. (text or S:Wrap("SUB", "(add a part to the message)")))
+    m.prevText:SetText("[2. Trade] [" .. Name(Me()) .. "|cffffbfbf]: " .. (text and M():Render(text) or S:Wrap("SUB", "(add a part to the message)")))
     m.prev:SetHeight(math.max(60, (m.prevText:GetStringHeight() or 14) + 2 * S.IN + 4))
     m.count:SetText((long and S:Wrap("BAD", "too long  ") or "") .. n .. " / " .. M().MAX_LEN)
     m.post:SetEnabled(text ~= nil and not long)
@@ -1212,7 +1275,8 @@ function H.FillWrite()
         local c = H.PartChip(w, i)
         c.partId = p.id
         local says = p.on and p.text ~= nil
-        c:Set(H.PartLabel(p), says and S.C.GOLD or nil)
+        c:SetIcon(p.k == "icon" and M():IconTexture(p.m or 1) or nil)
+        c:Set(H.PartLabel(p), (says and p.k ~= "icon") and S.C.GOLD or nil)
         c:SetSelected(pick and pick.id == p.id)
         c:SetAlpha(p.on and 1 or 0.45)
         if cx > 0 and cx + c:GetWidth() > MSG_LW then cx, cy = 0, cy + 26 end
@@ -1224,8 +1288,19 @@ function H.FillWrite()
     w.empty:SetShown(#parts == 0)
     w.empty:ClearAllPoints()
     w.empty:SetPoint("TOPLEFT", 0, -y)
-    y = (#parts == 0) and (y + (w.empty:GetStringHeight() or 28) + 16) or (cy + 34)
+    y = (#parts == 0) and (y + (w.empty:GetStringHeight() or 28) + 16) or (cy + 32)
+    -- the raid icons
+    w.iconLabel:ClearAllPoints()
+    w.iconLabel:SetPoint("TOPLEFT", 0, -(y + 4))
+    for i, b in ipairs(w.icons) do
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", w, "TOPLEFT", 64 + (i - 1) * 24, -y)
+        b.on = pick and pick.k == "icon" and pick.m == i or false
+        b.hl:SetShown(b.on)
+    end
+    y = y + 32
     -- the editor
+    if w.partId ~= (pick and pick.id or nil) then w.wordsCursor = nil end
     w.partId = pick and pick.id or nil
     w.edHead:SetShown(pick ~= nil)
     w.words:SetShown(pick ~= nil and pick.k == "text")
@@ -1243,6 +1318,12 @@ function H.FillWrite()
             w.words:SetPoint("TOPLEFT", 0, -y)
             if not w.words:HasFocus() then w.words:SetText(pick.t or "") end
             y = y + 32
+        elseif pick.k == "icon" then
+            w.info:ClearAllPoints()
+            w.info:SetPoint("TOPLEFT", 0, -y)
+            w.info:SetText("Says " .. S:Wrap("TEXT", pick.text) .. ": chat shows it as the " .. M().ICONS[pick.m or 1].name:lower()
+                .. " icon " .. M():Render(pick.text) .. ". Click another raid icon above to swap it.")
+            y = y + (w.info:GetStringHeight() or 14) + 10
         elseif pick.k == "tag" then
             w.info:ClearAllPoints()
             w.info:SetPoint("TOPLEFT", 0, -y)
