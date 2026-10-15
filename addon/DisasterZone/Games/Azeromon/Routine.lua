@@ -99,16 +99,31 @@ function R.Of(def)
     return def._routine
 end
 
--- The clock in minutes since midnight. Tests set G.clockHour (exact); in game the realm's minute plus the seconds
--- this client has seen of it, so walks move smoothly between minutes.
-local lastMin, minAt
+-- The clock in minutes since midnight. Tests set G.clockHour (exact). In game the realm only tells the minute, so a
+-- local clock runs on GetTime and keeps step with the realm's minute without ever jumping: a little faster while
+-- it is behind the realm's minute, a little slower while it is more than a minute ahead. Only when it is far off
+-- (the realm clock changed, a long pause) does it take the realm's minute at once.
+R.CLOCK_CATCH = 1.5          -- the local clock's pace while behind the realm's minute
+R.CLOCK_HOLD = 0.6           -- its pace while more than a minute ahead
+local clock, clockAt
 function R.Now()
     if G.clockHour then return (G.clockHour * 60) % 1440 end
-    local m = floor(G:Hour() * 60 + 0.5) % 1440
-    local now = GetTime and GetTime() or 0
-    if m ~= lastMin then lastMin, minAt = m, now end
-    return m + math.min(59, now - (minAt or now)) / 60
+    local realm = floor(G:Hour() * 60 + 0.5) % 1440
+    local t = GetTime and GetTime() or 0
+    if not clock then clock, clockAt = realm, t return clock end
+    local dt = math.max(0, t - clockAt)
+    clockAt = t
+    local diff = ((clock - realm + 720) % 1440) - 720                -- local minus realm (minutes, round midnight)
+    if diff < -5 or diff > 5 then
+        clock = realm
+    else
+        local rate = (diff < 0 and R.CLOCK_CATCH) or (diff > 1 and R.CLOCK_HOLD) or 1
+        clock = (clock + dt * rate / 60) % 1440
+    end
+    return clock
 end
+
+function R._ResetClock() clock, clockAt = nil, nil end
 
 -- The segment at a time, and the seconds since it began.
 function R.SegAt(rt, now)
@@ -257,59 +272,106 @@ local function Occupied(x, y, self)
     return other ~= nil and other ~= self
 end
 
--- Puts a routine NPC where the clock says (on entering a map, or when it fell far behind).
+-- Puts a routine NPC where the clock says (on entering a map, or when it is very far behind).
 function R.Place(n, now)
     local st = R.State(n.def, now)
     if not st then return end
     n.routine = true
     n.act, n.label = st.act, st.label
+    n.seg, n.ti = st.seg, st.i
     if st.hidden then n.hidden = true return end
     n.hidden = false
     n.x, n.y, n.face = st.x, st.y, st.face or n.face
     n.moving = nil
 end
 
+R.HURRY = 0.55          -- a step's time (share of STEP) while the walker is more than a tile behind the clock
+R.SNAP = 60             -- tiles behind beyond which it is simply placed where the clock says
+
+local function TilesOf(seg) return seg and (seg.tiles or seg.loop) end
+
+-- On its old segment, the index a walker still has to reach before the clock's segment can begin: the end of a
+-- path (a door, the end of a walk), or round a loop to the tile where the next walk starts. nil: nothing left.
+local function Unfinished(n, nextFirst)
+    local seg = n.seg
+    if not (seg and n.ti) then return nil end
+    if seg.tiles then
+        return n.ti < #seg.tiles and #seg.tiles or nil
+    end
+    if seg.loop and nextFirst then
+        for k = 1, #seg.loop - 1 do
+            local t = seg.loop[k]
+            if t.x == nextFirst.x and t.y == nextFirst.y then return k ~= n.ti and k or nil end
+        end
+    end
+    return nil
+end
+
+-- A walker keeps its own place on its path (n.seg, n.ti) and walks it tile by tile, never jumping: it hurries while
+-- it is behind the clock (the player stood in the way, someone talked, a slow frame), goes all the way round a loop,
+-- finishes a walk to a door before it goes in, and only then starts the clock's next segment.
 function R.Step(n, dt, now)
     local st = R.State(n.def, now)
     if not st then return end
-    n.act, n.label = st.act, st.label
-    if st.hidden then
-        n.hidden = true                     -- walked in through a door, or off the map
-        return
-    end
+    n.label = st.label
     if n.hidden then                        -- comes out of a door / back on the road
-        if Occupied(st.x, st.y, n) then return end
+        if st.hidden or Occupied(st.x, st.y, n) then return end
         n.hidden = false
-        n.x, n.y, n.face = st.x, st.y, st.face or n.face
+        n.x, n.y, n.face, n.seg, n.ti = st.x, st.y, st.face or n.face, st.seg, st.i
+        n.act = st.act
         return
     end
-    if n.x == st.x and n.y == st.y then
-        n.blocked = nil
-        if not st.walking or st.act == "light" then n.face = st.face or n.face end
-        return
-    end
-    if not G:IsFree() then return end       -- someone is talking: the town waits
-    -- the next tile toward where the clock says: along the path when the NPC is on it, else straight there
-    local tx, ty = st.x, st.y
-    local tiles = st.seg and (st.seg.tiles or st.seg.loop)
-    if tiles and st.i then
-        for k = st.i - 1, max(1, st.i - 12), -1 do
-            if tiles[k].x == n.x and tiles[k].y == n.y then tx, ty = tiles[k + 1].x, tiles[k + 1].y break end
+    -- what to walk: the rest of the segment it is on, then the clock's
+    local seg, want = n.seg, nil
+    if st.seg == n.seg then
+        want = st.i or (n.seg and n.seg.tiles and n.ti and n.ti < #n.seg.tiles and #n.seg.tiles) or nil
+    else
+        local nt = TilesOf(st.seg)
+        local first = nt and nt[1]
+        local rest = Unfinished(n, first)
+        if rest then
+            want = rest                     -- finish this part of the day first
+        elseif first and first.x == n.x and first.y == n.y then
+            seg, want, n.seg, n.ti = st.seg, st.i, st.seg, 1
+        elseif st.hidden then
+            n.hidden = true                 -- walked in through its door, or off the map
+            return
+        else
+            R.Place(n, now)
+            return
         end
     end
-    if abs(tx - n.x) + abs(ty - n.y) ~= 1 then
-        if not Occupied(st.x, st.y, n) then R.Place(n, now) end          -- far behind: catch up at once
+    if not want then                        -- the clock has it inside / away, and the walk is done
+        if st.hidden then n.hidden = true end
         return
     end
-    if Occupied(tx, ty, n) or G.map.solid[G.map.key(tx, ty)] and not G.map.warp[G.map.key(tx, ty)] then
-        n.blocked = (n.blocked or 0) + dt  -- the player stands in the way: wait for them
+    local tiles = TilesOf(seg)
+    local L = seg.loop and (#seg.loop - 1)
+    local lag = L and ((want - n.ti) % L) or (want - n.ti)
+    if lag <= 0 then
+        n.blocked = nil
+        if seg == st.seg then
+            n.act = st.act
+            if not st.walking or st.act == "light" then n.face = st.face or n.face end
+        end
+        if st.hidden and seg == st.seg then n.hidden = true end
+        return
+    end
+    n.act = nil
+    if lag > R.SNAP then R.Place(n, now) return end
+    if not G:IsFree() then return end       -- someone is talking: the town waits
+    local nx = tiles[n.ti + 1]
+    if not nx then R.Place(n, now) return end
+    if Occupied(nx.x, nx.y, n) then
+        n.blocked = (n.blocked or 0) + dt   -- the player stands in the way: wait for them, then hurry on
         return
     end
     n.blocked = nil
-    n.face = Dir(n.x, n.y, tx, ty)
+    n.face = Dir(n.x, n.y, nx.x, nx.y)
     n.fromX, n.fromY = n.x, n.y
-    n.x, n.y = tx, ty
-    n.moving = { t = 0, dur = R.STEP }
+    n.x, n.y = nx.x, nx.y
+    n.ti = (L and n.ti + 1 > L) and 1 or n.ti + 1
+    n.moving = { t = 0, dur = lag > 1 and R.STEP * R.HURRY or R.STEP }
 end
 
 ---------------------------------------------------------------------------

@@ -128,6 +128,93 @@ def a_player_in_the_way_makes_them_wait():
     no_errors(w)
 
 
+def walk_track(c, who, steps, dt=0.08, block=None):
+    """steps of the clock and the NPC update; the spots `who` stands on, in order (block = (from, to, x, y): the
+    player stands on x, y between those steps)"""
+    seen = []
+    for k in range(steps):
+        if block and k == block[0]:
+            c.eval("ns.Azero.save.x, ns.Azero.save.y = %d, %d" % block[2:])
+        if block and k == block[1]:
+            c.eval("ns.Azero.save.x, ns.Azero.save.y = 30, 23")
+        c.eval("ns.Azero.clockHour = ns.Azero.clockHour + %r / 3600 ns.Azero:UpdateNpcs(%r)" % (dt, dt))
+        p = people(c)[who]
+        if not p["hidden"] and (not seen or seen[-1] != (p["x"], p["y"])):
+            seen.append((p["x"], p["y"]))
+    return seen
+
+
+def no_jumps(seen):
+    for a, b in zip(seen, seen[1:]):
+        assert abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1, ("jumped", a, b, seen)
+
+
+@case
+def billy_runs_lap_after_lap_without_jumping_back():
+    # regression: at the start of each lap a walker a few tiles behind was put back at the loop's start
+    w, c = town(10, 30, 23)
+    seen = walk_track(c, "kid", 400)                     # 32 s: several laps of his 12-tile loop
+    assert len(seen) > 30, seen
+    no_jumps(seen)
+    no_errors(w)
+
+
+@case
+def a_walker_held_up_on_its_loop_hurries_on_instead_of_jumping():
+    w, c = town(10, 30, 23)
+    seen = walk_track(c, "kid", 300, block=(20, 120, 5, 13))     # the player stands on his loop for 8 s
+    no_jumps(seen)
+    a = c.eval_py("local n for _, x in ipairs(ns.Azero.npcs) do if x.id == 'kid' then n = x end end "
+                  "local st = ns.AzeroRoutine.State(n.def) return { ti = n.ti, i = st.i }")
+    assert (a["i"] - a["ti"]) % 12 <= 1, a                        # caught up with the clock again (or mid-step)
+    no_errors(w)
+
+
+@case
+def the_night_patrol_goes_round_without_jumping():
+    w, c = town(22, 30, 20)
+    seen = walk_track(c, "nightguard", 500, dt=0.1)               # 50 s: most of a lap of 70 tiles
+    assert len(seen) > 40, seen
+    no_jumps(seen)
+    no_errors(w)
+
+
+@case
+def a_walk_into_the_inn_ends_at_the_door_even_when_late():
+    w, c = town(18, 15, 22)                                       # Argus heads for the inn at 18:00
+    seen = walk_track(c, "argus", 120, block=(10, 45, 18, 23))    # the player blocks the lane for 3.5 s
+    no_jumps(seen)
+    assert seen[-1] in ((8, 22), (8, 23)), seen
+    assert people(c)["argus"]["hidden"], people(c)["argus"]       # in through the door, not before
+    no_errors(w)
+
+
+@case
+def the_clock_runs_smoothly_through_the_realms_minutes():
+    w, c = solo("Alice", tick=2)
+    r = c.eval_py("""
+      local G, R = ns.Azero, ns.AzeroRoutine
+      G.clockHour = nil
+      local realm = 12 * 60 + 30.9                    -- the realm's minute ticks over 6 s after we first look
+      G.Hour = function() return math.floor(realm) / 60 end
+      R._ResetClock()
+      local t = 1000
+      GetTime = function() return t end
+      local out, last = {}, R.Now()
+      local biggest = 0
+      for _ = 1, 600 do
+        t = t + 0.1
+        realm = realm + 0.1 / 60
+        local now = R.Now()
+        biggest = math.max(biggest, (now - last) * 60)
+        last = now
+      end
+      return { biggest = biggest, behind = (realm - last) * 60 }""")
+    assert r["biggest"] < 0.2, r                         # never more than a step of 0.15 s at a time
+    assert abs(r["behind"]) < 60, r                      # within the realm's minute
+    no_errors(w)
+
+
 @case
 def lamps_burn_from_the_dusk_round_to_the_dawn_round():
     w, c = solo("Alice", tick=2)
