@@ -4440,12 +4440,8 @@ function SettingsUI:BuildRecruit(sec)
     choice("nn", "Not now comes back", "Someone you said Not now to shows up again as a reminder.")
     -- mine (every recruiter): the friends list
     self:Switch(sec, "Add people to my friends list", "So you see when they're online. Taken off again when they join. Only this character.",
-        function() local m = ns.db and ns.db.recruitMine return not (m and m.friends == false) end,
-        function(a, b)
-            ns.db.recruitMine = ns.db.recruitMine or {}
-            ns.db.recruitMine.friends = Bool(a, b)
-            ns:Fire("RECRUIT_UPDATED")
-        end)
+        function() return ns.Recruit:FriendsOn() end,
+        function(a, b) ns.Recruit:SetFriendsOn(Bool(a, b)) end)
     self:EndSection(sec)
 end
 

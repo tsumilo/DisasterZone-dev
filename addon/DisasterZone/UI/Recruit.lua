@@ -485,6 +485,11 @@ function H.Story(r)
     end
     local MS = { [58] = "Hit level 58 · off to Outland", [70] = "Hit level 70", d = "First dungeon with the guild", r = "First raid with the guild" }
     for k, at in pairs(r.ms or {}) do out[#out + 1] = { kind = "mile", at = at, t = MS[k] or "" } end
+    if r.iv and r.iv.r ~= "sent" then
+        local IV = { declined = "Declined the guild invite", ignored = "Didn't answer the guild invite",
+                     guild = "Guild invite: still in another guild", offline = "Guild invite waits: they were offline" }
+        out[#out + 1] = { kind = "met", at = r.iv.at, t = IV[r.iv.r] .. (r.iv.by and (" · " .. Short(r.iv.by)) or "") }
+    end
     if r.ja then out[#out + 1] = { kind = "met", at = r.ja, t = "Joined the guild" .. (r.jb and (" · invited by " .. Short(r.jb)) or "") } end
     if r.at and not r.ib then out[#out + 1] = { kind = "met", at = r.at, t = "Added: " .. (H.SRC[r.src] or "by name"):lower() } end
     tsort(out, function(a, b) if a.at ~= b.at then return a.at > b.at end return a.kind < b.kind end)
@@ -645,6 +650,10 @@ function H.FillPerson()
         local days = floor((ns.Util.Now() - (r.at or r.rev)) / DAY)
         note = { "locked", "Nobody is talking with them yet." .. (r.ib and (" " .. Short(r.ib) .. " introduced them " ..
             (days < 1 and "today." or days == 1 and "yesterday." or (days .. " days ago."))) or "") }
+    elseif R():InviteQueued(r.key) then
+        note = { "info", "Invite waiting: they're offline. You'll get a reminder when they come online." }
+    elseif r.iv and r.iv.r == "guild" and r.st == "talk" then
+        note = { "locked", "Still in another guild: the game won't invite them. Whisper first." }
     elseif r.fu then
         note = { "info", "Follow up " .. H.Day(r.fu.at) .. (r.fu.t ~= "" and (": " .. r.fu.t) or "") ..
             S:Wrap("SUB", "  ·  " .. Short(r.w or r.jb or Me())) }
@@ -1023,12 +1032,47 @@ function RU:BringAlongMenu(root)
     if RU.AskMemberMenu then RU:AskMemberMenu(root, key) end
 end
 
--- The invite (Core/Recruit.lua step 3); without it, the game's own command.
+-- Invite to the guild: one dialog (the welcome line can be changed or emptied); the game's invite goes out on its
+-- button (a click: the game wants one). What happens when they accept is listed in it.
 function RU:Invite()
-    local key = state.sel
-    if not key then return end
-    if RU.ConfirmInvite then return RU:ConfirmInvite(key) end
-    if GuildInvite then GuildInvite((Ambiguate and Ambiguate(key, "none")) or Short(key)) end
+    if state.sel then RU:ConfirmInvite(state.sel) end
+end
+
+function RU:ConfirmInvite(key, queued)
+    local Rc = R()
+    local r = Rc:Get(key)
+    if not r then return end
+    local d = queued or Rc:InviteDefaults(r.key)
+    local guild = (GetGuildInfo and GetGuildInfo("player")) or "the guild"
+    local lines = { "The guild invite goes out now. When they accept:",
+        "- the welcome line below goes to guild chat (empty: none)",
+        "- officer note: " .. S:Wrap("TEXT", "\"" .. (d.note or "") .. "\"") }
+    if d.team then
+        lines[#lines + 1] = "- onto " .. S:Wrap("GOLD", d.teamName or "the team") .. "'s bench; its raid leaders hear about it"
+    end
+    lines[#lines + 1] = "- check-ins after a week and a month, for you"
+    ns.Popup:Prompt({ title = "Invite " .. Short(r.key) .. " to " .. guild .. "?", text = tconcat(lines, "\n"),
+        default = d.welcome or "", ok = "Invite", maxLetters = 255, width = 420,
+        onAccept = function(v)
+            d.welcome = v or ""
+            local ok, res = Rc:Invite(r.key, d)
+            if not ok then ns:Print("%s", tostring(res))
+            elseif res == "queued" then ns:Print("%s is offline: you'll get a reminder to invite them when they come online.", Short(r.key)) end
+        end })
+end
+
+-- A queued invite's player came online: a toast with Invite (the click sends it).
+function RU:InviteReady(key)
+    local Rc = R()
+    local r = Rc:Get(key)
+    if not r or r.st ~= "talk" then Rc:CancelQueued(key) return end
+    UI:Toast({ key = "recruit-invite-" .. key, title = Short(key) .. " is online",
+        text = "Click to send the guild invite you prepared.", keepTime = 60,
+        onClick = function()
+            local opts = Rc:QueuedOpts(key)
+            local ok, err = Rc:Invite(key, opts)
+            if not ok then ns:Print("%s", tostring(err)) end
+        end })
 end
 
 ---------------------------------------------------------------------------
@@ -1045,6 +1089,7 @@ function RU:OnInit()
             if view and view:IsVisible() then ns.Util.Debounce("recruit-ui", 0.1, function() RU:Refresh() end) end
         end)
     end
+    ns:On("RECRUIT_INVITE_READY", function(key) RU:InviteReady(key) end)
     ns:RegisterSlash("recruit", function() RU:Open() end, "open Guild > Recruitment")
 end
 

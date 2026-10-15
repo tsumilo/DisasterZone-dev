@@ -1553,7 +1553,7 @@ end
 Guild.RECRUIT_RULES = { wk = { o = true, l = false }, it = true, uc = 2, ck = 1,
     ms = { [58] = true, [70] = true, d = true, r = true }, q = 14, nn = 90, rl = true,
     tg = { "Chill", "Returning", "New to WoW", "Wants to raid", "Social", "Has friends here", "Helpful", "Night owl" },
-    wl = "Everyone say hi to {name}! Welcome to {guild} :)", on = "Joined {date} · met by {by}" }
+    wl = "Everyone say hi to {name}! Welcome to {guild} :)", on = "Joined {date}, met by {by}" }
 local function CleanRecruitRules(rc)
     if type(rc) ~= "table" then return nil end
     local D = Guild.RECRUIT_RULES

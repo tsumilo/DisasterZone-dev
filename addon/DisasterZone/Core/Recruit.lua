@@ -54,6 +54,9 @@ local demo                        -- demo mode's people (memory only)
 local function Guild() return ns.Guild end
 local function Me() return Util.PlayerKey() end
 
+-- The last guild invite's outcome (iv.r): sent, declined, ignored (no answer), in a guild, offline.
+H.INVITE_RESULTS = { sent = true, declined = true, ignored = true, guild = true, offline = true }
+
 function H.WireKey(s)
     if type(s) ~= "string" or s == "" or #s > MAX_KEY or s:find("[%c|]") then return nil end
     return Util.NormalizeName(s)
@@ -221,6 +224,9 @@ function Recruit:Clean(r)
         if next(ms) then o.ms = ms end
     end
     o.nn = IsInt(r.nn, 1, MAX_REV) and r.nn or nil
+    if type(r.iv) == "table" and IsInt(r.iv.at, 1, MAX_REV) and H.INVITE_RESULTS[r.iv.r] then
+        o.iv = { at = r.iv.at, r = r.iv.r, by = H.WireKey(r.iv.by) }
+    end
     if o.it == "" then o.it = nil end
     if o.sd == "" then o.sd = nil end
     if o.nt == "" then o.nt = nil end
@@ -237,6 +243,7 @@ function H.Digest(r)
     for _, t in ipairs(r.tg or {}) do parts[#parts + 1] = t end
     for _, e in ipairs(r.n or {}) do parts[#parts + 1] = e.by .. e.at .. e.t end
     if r.fu then parts[#parts + 1] = r.fu.at .. r.fu.t end
+    if r.iv then parts[#parts + 1] = r.iv.at .. r.iv.r end
     return tconcat(parts, "\31")
 end
 
@@ -706,6 +713,335 @@ function H.Tidy()
 end
 
 ---------------------------------------------------------------------------
+-- The friends list: the only way the game tells me when someone outside the guild comes online, their level and
+-- zone. The people I talk with go on my friends list (note "DZ recruit"); only those the addon added come off it,
+-- when they join, go to Not now, are passed on or removed. Per character; Settings: "Add people to my friends list".
+---------------------------------------------------------------------------
+
+H.live = {}                       -- [key] = { online, lv, zone } from my friends list
+local FRIEND_NOTE = "DZ recruit"
+local FRIENDS_MAX = 100
+
+function H.Mine()
+    local db = ns.db
+    if type(db) ~= "table" then return {} end
+    if type(db.recruitMine) ~= "table" then db.recruitMine = {} end
+    local m = db.recruitMine
+    if type(m.added) ~= "table" then m.added = {} end
+    if type(m.queue) ~= "table" then m.queue = {} end
+    return m
+end
+
+function H.GameName(key)
+    return (Ambiguate and Ambiguate(key, "none")) or Util.ShortName(key) or key
+end
+
+function H.FriendsOn() return H.Mine().friends ~= false end
+
+-- Settings: "Add people to my friends list" (this character only).
+function Recruit:FriendsOn() return H.FriendsOn() end
+function Recruit:SetFriendsOn(on)
+    H.Mine().friends = on and true or false
+    H.Reconcile()
+    ns:Fire("RECRUIT_UPDATED")
+end
+
+-- What the friends list says about someone: { online, lv, zone } or nil. Demo mode: made-up states.
+function Recruit:Live(key)
+    if type(key) ~= "string" then return nil end
+    if Util.DemoOn() then
+        local n = key:match("^([^%-]+)")
+        local on = { Kaelthorn = true, Aurelith = true, Nortok = true, Bramble = true }
+        local zones = { Kaelthorn = "Shattrath City", Aurelith = "Hellfire Peninsula", Nortok = "Shattrath City",
+                        Bramble = "Terokkar Forest" }
+        if on[n] then return { online = true, zone = zones[n] } end
+        return { online = false }
+    end
+    return H.live[Util.NormalizeName(key)]
+end
+
+function H.ScanFriends()
+    local FL = C_FriendList
+    if not (FL and FL.GetNumFriends and FL.GetFriendInfoByIndex) then return end
+    local seen, changed, cameOnline = {}, false, {}
+    for i = 1, FL.GetNumFriends() or 0 do
+        local info = FL.GetFriendInfoByIndex(i)
+        if type(info) == "table" and type(info.name) == "string" then
+            local key = Util.NormalizeName(info.name)
+            local on = info.connected and true or false
+            local old = H.live[key]
+            local lv = tonumber(info.level)
+            if lv == 0 then lv = nil end
+            if not old or old.online ~= on or old.lv ~= lv or old.zone ~= info.area then changed = true end
+            if on and old and not old.online then cameOnline[#cameOnline + 1] = key end
+            H.live[key] = { online = on, lv = lv, zone = on and info.area or nil }
+            seen[key] = true
+        end
+    end
+    for key in pairs(H.live) do
+        if not seen[key] then H.live[key], changed = nil, true end
+    end
+    -- what I learn about the people I talk with: their level, when I last saw them online
+    local me = Me()
+    for key, l in pairs(H.live) do
+        local r = H.People()[key]
+        if r and l.online and r.w == me and r.st == "talk" and (r.lv ~= l.lv or (r.la or 0) < Now() - DAY / 2) then
+            Recruit:Note(key, { lv = l.lv or r.lv, la = Now() })
+        end
+    end
+    for _, key in ipairs(cameOnline) do
+        ns:Fire("RECRUIT_ONLINE", key)
+        if H.Mine().queue[key] then ns:Fire("RECRUIT_INVITE_READY", key) end
+    end
+    if changed then ns:Fire("RECRUIT_LIVE") end
+end
+
+function H.IsFriend(key)
+    local FL = C_FriendList
+    return FL and FL.GetFriendInfo and FL.GetFriendInfo(H.GameName(key)) ~= nil or false
+end
+
+-- The people I talk with on my friends list; the ones the addon added and I no longer talk with off it.
+function H.Reconcile()
+    local FL = C_FriendList
+    if Util.DemoOn() or not H.AmIRealRecruiter() or not (FL and FL.AddFriend) then return end
+    local mine, me = H.Mine(), Me()
+    local want = {}
+    if H.FriendsOn() then
+        for key, r in pairs(H.People()) do
+            if r.st == "talk" and r.w == me then want[key] = true end
+        end
+    end
+    for key in pairs(mine.added) do
+        if not want[key] then
+            if H.IsFriend(key) then FL.RemoveFriend(H.GameName(key)) end
+            mine.added[key] = nil
+        end
+    end
+    local n = FL.GetNumFriends and FL.GetNumFriends() or 0
+    for key in pairs(want) do
+        if not mine.added[key] and not H.IsFriend(key) then
+            if n >= FRIENDS_MAX then
+                mine.full = true
+                break
+            end
+            FL.AddFriend(H.GameName(key), FRIEND_NOTE)
+            mine.added[key], n = true, n + 1
+        end
+    end
+end
+
+function Recruit:IsFriendsListFull() return H.Mine().full == true end
+
+---------------------------------------------------------------------------
+-- The guild invite. Invite (from a click: the game wants a hardware event) sends GuildInvite and keeps what to do
+-- when they join; the game's answers come as system messages. Offline: kept until they come online (a reminder
+-- with Invite then). When they join: Joined on their card, the welcome line in guild chat, the officer note, the
+-- team's bench, a word to that team's raid leaders, and they come off my friends list.
+---------------------------------------------------------------------------
+
+H.pending = {}                    -- [key] = { at, opts }
+local INVITE_WAIT = 120
+
+-- A Lua pattern from a GlobalStrings format with one %s (the name).
+function H.Pattern(fmt)
+    if type(fmt) ~= "string" then return nil end
+    local p = fmt:gsub("([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1"):gsub("%%s", "(.+)")
+    return "^" .. p .. "$"
+end
+
+function H.Fill(tmpl, key, by)
+    local G = Guild()
+    local s = tostring(tmpl or "")
+    s = s:gsub("{name}", Util.ShortName(key) or key):gsub("{date}", date("%d %b", Now())):gsub("{by}", Util.ShortName(by or Me()) or "")
+    s = s:gsub("{guild}", (GetGuildInfo and GetGuildInfo("player")) or "the guild")
+    return s
+end
+
+-- The welcome line and the officer note the rules suggest for someone (a copy the invite dialog may change).
+function Recruit:InviteDefaults(key)
+    local rules = self:GetRules()
+    local r = self:Get(key) or {}
+    local _, best = self:Fits(r)
+    return { welcome = H.Fill(rules.wl, key), note = H.Fill(rules.on, key, r.w or Me()), team = best and best.team.id or nil,
+             teamName = best and best.team.name or nil }
+end
+
+-- Sends the guild invite (opts: welcome text or "", note, team id). Returns ok, err | "queued".
+function Recruit:Invite(key, opts)
+    if not self:CanUse() then return false, "only the Guild Master and officers work on recruits" end
+    local r = self:Get(key)
+    if not r then return false, "not in Recruitment" end
+    opts = opts or self:InviteDefaults(r.key)
+    if Util.DemoOn() then
+        ns:Print("Demo: would invite %s to the guild.", H.GameName(r.key))
+        return true
+    end
+    if CanGuildInvite and not CanGuildInvite() then return false, "your guild rank can't invite" end
+    local live = self:Live(r.key)
+    if live and live.online == false then
+        H.Mine().queue[r.key] = opts
+        self:Note(r.key, { iv = { at = Now(), r = "offline", by = Me() } })
+        return true, "queued"
+    end
+    H.pending[r.key] = { at = Now(), opts = opts }
+    H.Mine().queue[r.key] = nil
+    if GuildInvite then GuildInvite(H.GameName(r.key)) end
+    Util.After(INVITE_WAIT, function()
+        local p = H.pending[r.key]
+        if p and p.at <= Now() - INVITE_WAIT + 1 then
+            H.pending[r.key] = nil
+            Recruit:Note(r.key, { iv = { at = Now(), r = "ignored", by = Me() } })
+        end
+    end)
+    return true
+end
+
+function Recruit:InviteQueued(key) return H.Mine().queue[key] ~= nil end
+function Recruit:CancelQueued(key) H.Mine().queue[key] = nil end
+function Recruit:QueuedOpts(key) return H.Mine().queue[key] end
+
+function H.KeyOf(name)
+    if type(name) ~= "string" or name == "" then return nil end
+    name = name:gsub("|H[^|]*|h", ""):gsub("|h", ""):gsub("[%[%]\"]", "")
+    return Util.NormalizeName(name)
+end
+
+-- After they joined: the officer note on the roster (the game's, when my rank may write it; else DisasterZone's own).
+function H.WriteNote(key, note, tries)
+    note = tostring(note or "")
+    if note == "" then return end
+    local found
+    for i = 1, (GetNumGuildMembers and GetNumGuildMembers()) or 0 do
+        local name = GetGuildRosterInfo(i)
+        if name and Util.NormalizeName(name) == key then found = i break end
+    end
+    if not found then
+        if (tries or 0) < 5 then Util.After(3, function() H.WriteNote(key, note, (tries or 0) + 1) end) end
+        return
+    end
+    if CanEditOfficerNote and CanEditOfficerNote() and GuildRosterSetOfficerNote then
+        local short = note
+        while #short > 31 do short = short:sub(1, -2) end      -- (the game keeps 31 bytes)
+        GuildRosterSetOfficerNote(found, short)
+    elseif ns.OfficerNotes and ns.OfficerNotes.Set then
+        ns.OfficerNotes:Set(key, note)
+    end
+end
+
+function H.OnJoined(key)
+    local p = H.pending[key]
+    H.pending[key] = nil
+    local r = H.People()[key]
+    if not (p and r) then return end
+    local opts = p.opts or {}
+    local live = Recruit:Live(key) or {}
+    Recruit:MarkJoined(key, { lv = live.lv or r.lv, by = Me(), team = opts.team })
+    if type(opts.welcome) == "string" and opts.welcome ~= "" and SendChatMessage then
+        SendChatMessage(opts.welcome:sub(1, 255), "GUILD")
+    end
+    Util.After(2, function() H.WriteNote(key, opts.note) end)
+    if opts.team then H.ToBench(key, opts.team) end
+    ns:Fire("RECRUIT_JOINED", key)
+end
+
+-- Onto a team's bench (a team member outside its lineups' groups) and a word to the raid leaders.
+function H.ToBench(key, teamId)
+    local RP = ns.RaidPlan
+    local team = RP and RP.GetTeam and RP:GetTeam(teamId)
+    if not team then return end
+    if RP.CanManageTeams and RP:CanManageTeams() then
+        local members = {}
+        for _, m in ipairs(team.members or {}) do members[#members + 1] = m end
+        local there = false
+        for _, m in ipairs(members) do if m == key then there = true end end
+        if not there then
+            members[#members + 1] = key
+            RP:SaveTeam(team.id, team.name, members, {})
+        end
+    end
+    H.TellRaidLeaders(key, team)
+end
+
+-- The guild's raid leaders and the GM (online, not me): "<name> joined, on <team>'s bench".
+function H.TellRaidLeaders(key, team)
+    local G = Guild()
+    if not (G and G.GetRaidLeaders) then return end
+    local to = {}
+    for _, k in ipairs(G:GetRaidLeaders() or {}) do to[k] = true end
+    local gm = G.GetGM and G:GetGM()
+    if gm then to[gm] = true end
+    local online = {}
+    for _, k in ipairs(G:GetOnlineMembers() or {}) do online[k] = true end
+    local r = H.People()[key] or {}
+    for k in pairs(to) do
+        if online[k] and not Util.IsMe(k) then
+            H.Send({ t = "RCR", k = key, tm = team.id, c = r.c, sp = r.sp, why = "joined" }, k)
+        end
+    end
+end
+
+-- A word for a raid leader (from a recruiter only): kept for the notification center (UI/NotifySources.lua).
+function H.OnTeamNews(sender, msg, dist)
+    if dist ~= "WHISPER" or not Recruit:IsRecruiter(sender) then return end
+    local key = H.WireKey(msg.k)
+    if not key or type(msg.tm) ~= "string" or #msg.tm > 32 then return end
+    local news = ns.db and ns.DB:GuildBucket("recruitNews", true)
+    if not news then return end
+    local why = (msg.why == "joined" or msg.why == "70") and msg.why or "joined"
+    news[key .. ":" .. why] = { k = key, tm = msg.tm, c = H.Spec(msg.c, msg.sp), sp = select(2, H.Spec(msg.c, msg.sp)),
+                                why = why, by = sender, at = Now() }
+    ns:Fire("RECRUIT_TEAM_NEWS", key)
+end
+
+function Recruit:GetTeamNews()
+    local out = {}
+    local news = ns.db and ns.DB:GuildBucket("recruitNews", false)
+    for id, n in pairs(news or {}) do
+        if type(n) == "table" and (n.at or 0) > Now() - 14 * DAY then
+            out[#out + 1] = { id = id, key = n.k, team = n.tm, c = n.c, sp = n.sp, why = n.why, by = n.by, at = n.at }
+        end
+    end
+    tsort(out, function(a, b) return a.at > b.at end)
+    return out
+end
+
+function Recruit:DismissTeamNews(id)
+    local news = ns.db and ns.DB:GuildBucket("recruitNews", false)
+    if news then news[id] = nil end
+    ns:Fire("RECRUIT_TEAM_NEWS")
+end
+
+function H.OnSystem(text)
+    if type(text) ~= "string" then return end
+    local function match(fmt)
+        local p = H.Pattern(fmt)
+        return p and text:match(p)
+    end
+    local name = match(_G.ERR_GUILD_JOIN_S)
+    if name then
+        local key = H.KeyOf(name)
+        if key and H.pending[key] then H.OnJoined(key) end
+        if key then ns:Fire("RECRUIT_GUILD_JOIN", key) end
+        return
+    end
+    for _, x in ipairs({ { _G.ERR_GUILD_DECLINE_S, "declined" }, { _G.ERR_ALREADY_IN_GUILD_S, "guild" },
+                         { _G.ERR_ALREADY_INVITED_TO_GUILD_S, "guild" }, { _G.ERR_GUILD_PLAYER_NOT_FOUND_S, "offline" } }) do
+        name = match(x[1])
+        if name then
+            local key = H.KeyOf(name)
+            local p = key and H.pending[key]
+            if p then
+                H.pending[key] = nil
+                if x[2] == "offline" then H.Mine().queue[key] = p.opts end
+                Recruit:Note(key, { iv = { at = Now(), r = x[2], by = Me() } })
+            end
+            return
+        end
+    end
+end
+
+---------------------------------------------------------------------------
 -- Demo mode: made-up people, in memory only, never sent
 ---------------------------------------------------------------------------
 
@@ -768,7 +1104,16 @@ function Recruit:OnInit()
         Comm:Register("RC", H.OnPerson)
         Comm:Register("RCI", H.OnIndex)
         Comm:Register("RCX", H.OnRemove)
+        Comm:Register("RCR", H.OnTeamNews)
     end
+    local ev = CreateFrame("Frame")
+    ev:RegisterEvent("FRIENDLIST_UPDATE")
+    ev:RegisterEvent("CHAT_MSG_SYSTEM")
+    ev:SetScript("OnEvent", function(_, event, text)
+        if event == "CHAT_MSG_SYSTEM" then H.OnSystem(text)
+        else Util.Debounce("recruit-friends", 0.5, H.ScanFriends) end
+    end)
+    ns:On("RECRUIT_UPDATED", function() Util.Debounce("recruit-reconcile", 3, H.Reconcile) end)
     ns:On("DEMO_TOGGLED", function()
         demo = nil
         ns:Fire("RECRUIT_UPDATED")
@@ -782,6 +1127,8 @@ function Recruit:OnLogin()
         H.Tidy()
         H.Purge()
         H.Share()
+        H.ScanFriends()
+        H.Reconcile()
     end)
     ns:On("ROSTER_UPDATED", function()
         Util.Debounce("recruit-roster", 5, function()
