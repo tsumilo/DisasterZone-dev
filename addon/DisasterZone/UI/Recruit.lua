@@ -965,14 +965,6 @@ function H.PartChip(w, i)
     return c
 end
 
--- A raid icon clicked: a new icon part after the picked part (picked then, so more clicks add more after it).
-function H.IconClick(m)
-    local w = view.message.w
-    local ok, id = M():AddPart("icon", { m = m, after = w.partId })
-    if H.Try(ok, id) then state.part = id end
-    RU:Refresh()
-end
-
 -- A "leave out" chip of a Classes part: one open place (spec or class).
 function H.EntryChip(w, i)
     local c = w.entries[i]
@@ -1105,31 +1097,6 @@ function H.CreateWrite(m)
         if user and w.partId then M():SetPart(w.partId, { t = self:GetText() }) end
     end)
     w.words:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    -- the raid icons: a click puts one in (H.IconClick)
-    w.iconLabel = UI:Text(w, "small", "SUB")
-    w.iconLabel:SetText("Raid icons")
-    w.icons = {}
-    for i, ic in ipairs(M().ICONS) do
-        local b = CreateFrame("Button", nil, w)
-        b:SetSize(20, 20)
-        b.tex = b:CreateTexture(nil, "ARTWORK")
-        b.tex:SetPoint("CENTER")
-        b.tex:SetSize(16, 16)
-        b.tex:SetTexture(M():IconTexture(ic.m))
-        b.hl = b:CreateTexture(nil, "BACKGROUND")
-        b.hl:SetAllPoints()
-        b.hl:SetColorTexture(S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.18)
-        b.hl:Hide()
-        b:SetScript("OnEnter", function(self) self.hl:Show() end)
-        b:HookScript("OnLeave", function(self) self.hl:SetShown(self.on == true) end)
-        b:SetScript("OnClick", function() H.IconClick(ic.m) end)
-        UI:AttachTooltip(b, nil, function()
-            return { "|T" .. M():IconTexture(ic.m) .. ":14:14|t  " .. ic.name,
-                     "Adds it to the message as a part, after the picked one: click again for more.",
-                     S:Wrap("SUB", "It costs 5 of the 255 ({rt" .. ic.m .. "}); chat shows the icon.") }
-        end, { anchor = "ANCHOR_TOP" })
-        w.icons[i] = b
-    end
     w.team = UI:CreateSleekButton(w, "Team", 170, 22, function(self)
         local p = w.partId and M():GetPart(w.partId)
         if p then H.TeamMenu(self, p) end
@@ -1272,17 +1239,7 @@ function H.FillWrite()
     w.empty:SetShown(#parts == 0)
     w.empty:ClearAllPoints()
     w.empty:SetPoint("TOPLEFT", 0, -y)
-    y = (#parts == 0) and (y + (w.empty:GetStringHeight() or 28) + 16) or (cy + 32)
-    -- the raid icons
-    w.iconLabel:ClearAllPoints()
-    w.iconLabel:SetPoint("TOPLEFT", 0, -(y + 4))
-    for i, b in ipairs(w.icons) do
-        b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", w, "TOPLEFT", 64 + (i - 1) * 24, -y)
-        b.on = false
-        b.hl:Hide()
-    end
-    y = y + 32
+    y = (#parts == 0) and (y + (w.empty:GetStringHeight() or 28) + 16) or (cy + 34)
     -- the editor
     w.partId = pick and pick.id or nil
     w.edHead:SetShown(pick ~= nil)
