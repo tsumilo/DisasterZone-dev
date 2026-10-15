@@ -4,7 +4,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RecruitMessage.lua", ...) the
 --   Parts, in their order, each on or off: the officers' own words, and helpers that only fill in facts: the guild's
 --   name, the classes a team's comp still needs (one team or every team; as specs, short names or classes; any of them
 --   left out),
---   a team's raid nights. Nothing is written for them: the message starts empty. The parts are joined with a space
+--   a team's raid nights, a raid icon ({rt1}: chat draws it). Nothing is written for them: the message starts empty. The parts are joined with a space
 --   (or " - ", ", ", " / "); one chat line, 255 bytes at most.
 --   Places: Say, Yell, or a chat channel by name (Trade, LookingForGroup, GuildRecruitment, General, LocalDefense, or
 --   any channel I'm in), each with its own interval (30 seconds to 12 hours) and an optional "major cities only" tick.
@@ -13,9 +13,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RecruitMessage.lua", ...) the
 -- since the last post there, by any officer) brings a toast whose click posts to every place that is due; the bound
 -- key (Key Bindings > AddOns) does the same. Posts are told to the recruiters online (RCP, with the place), so
 -- officers take turns per place instead of posting twice.
--- Saved (per guild): db.recruitMsg[guildKey] = { v = 3, parts = { { id, k = "text" | "tag" | "need" | "nights", t,
--- team, by = "spec" | "short" | "class", skip = { [entry] = true }, off }, ... }, nid, sep, rep, places = { { id, kind = "SAY" |
--- "YELL" | "CHANNEL", name, every = seconds, u = "s" | "m", on, city }, ... }, posts = { [place id] = { at, ... } } }.
+-- Saved (per guild): db.recruitMsg[guildKey] = { v = 3, parts = { { id, k = "text" | "tag" | "need" | "nights" |
+-- "icon", t, team, by = "spec" | "short" | "class", m (an icon part's raid icon 1..8), skip = { [entry] = true }, off },
+-- ... }, nid, sep, rep, places = { { id, kind = "SAY" | "YELL" | "CHANNEL", name, every = seconds, u = "s" | "m", on,
+-- city }, ... }, posts = { [place id] = { at, ... } } }.
 local addonName, ns = ...
 
 local Msg = ns:NewModule("RecruitMessage")
@@ -47,7 +48,28 @@ Msg.KINDS = {
     need = { label = "Classes we need", tip = "What a team's comp still has open: specs or classes, filled in as the "
         .. "comp changes. Leave any of them out." },
     nights = { label = "Raid nights", tip = "A team's raid nights and their start time, e.g. Thu + Sun 19:30." },
+    icon = { label = "Raid icon", tip = "A raid target icon (star, skull...): the game shows it in chat." },
 }
+
+-- The raid target icons, as chat writes them: {rt1} .. {rt8} (5 bytes, any client language; {star} etc. work too).
+Msg.ICONS = { { m = 1, name = "Star" }, { m = 2, name = "Circle" }, { m = 3, name = "Diamond" },
+              { m = 4, name = "Triangle" }, { m = 5, name = "Moon" }, { m = 6, name = "Square" },
+              { m = 7, name = "Cross" }, { m = 8, name = "Skull" } }
+local ICON_BY_NAME = { x = 7, rt1 = 1, rt2 = 2, rt3 = 3, rt4 = 4, rt5 = 5, rt6 = 6, rt7 = 7, rt8 = 8 }
+for _, i in ipairs(Msg.ICONS) do ICON_BY_NAME[i.name:lower()] = i.m end
+
+function Msg:IconTexture(m) return "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. m end
+function Msg:IconCode(m) return "{rt" .. m .. "}" end
+
+-- The text as chat shows it: the icon codes ({rt1}, {star}, ...) drawn as the icons (size: the icons' height).
+function Msg:Render(text, size)
+    if not text then return text end
+    size = size or 14
+    return (text:gsub("{([%w]+)}", function(word)
+        local m = ICON_BY_NAME[word:lower()]
+        return m and ("|T" .. self:IconTexture(m) .. ":" .. size .. ":" .. size .. "|t") or nil
+    end))
+end
 
 -- The places offered in "Add a place" (custom channels I'm in are added to the menu as they are).
 Msg.SUGGESTED = {
@@ -96,8 +118,8 @@ end
 local demoStore
 local function DemoStore()
     local now = Now()
-    return { v = 3, nid = 7, sep = " ",
-        parts = { { id = 1, k = "tag" }, { id = 2, k = "text", t = "chill guild for new, returning and raiding players." },
+    return { v = 3, nid = 8, sep = " ",
+        parts = { { id = 8, k = "icon", m = 8 }, { id = 1, k = "tag" }, { id = 2, k = "text", t = "chill guild for new, returning and raiding players." },
                   { id = 3, k = "text", t = "SSC/TK on" }, { id = 4, k = "nights", team = "demo-main" },
                   { id = 5, k = "text", t = "- looking for" }, { id = 6, k = "need", team = "demo-main", by = "spec" },
                   { id = 7, k = "text", t = "/w me for a chat!" } },
@@ -219,6 +241,8 @@ function Msg:PartText(p)
     elseif p.k == "tag" then
         local g = GuildName()
         return g and ("<" .. g .. ">") or nil
+    elseif p.k == "icon" then
+        return self:IconCode(p.m or 1)
     elseif p.k == "nights" then
         return self:NightsText(R():GetTeam(p.team))
     elseif p.k == "need" then
@@ -245,7 +269,7 @@ function Msg:GetParts()
     for _, p in ipairs(DB().parts) do
         local skip = {}
         for k in pairs(p.skip or {}) do skip[k] = true end
-        out[#out + 1] = { id = p.id, k = p.k, t = p.t, team = p.team, by = p.by or "spec", skip = skip,
+        out[#out + 1] = { id = p.id, k = p.k, t = p.t, m = p.m, team = p.team, by = p.by or "spec", skip = skip,
                           on = not p.off, label = Msg.KINDS[p.k] and Msg.KINDS[p.k].label or p.k,
                           teamName = self:PartTeamName(p), text = self:PartText(p) }
     end
@@ -256,7 +280,8 @@ function Msg:GetPart(id)
     for i, p in ipairs(DB().parts) do if p.id == id then return p, i end end
 end
 
--- Adds a part (kind: "text" | "tag" | "need" | "nights"; opts: t, team, by). Returns ok, id | why.
+-- Adds a part (kind: "text" | "tag" | "need" | "nights" | "icon"; opts: t, team, by, m (icon 1..8), after (a part's
+-- id: put it right after that one)). Returns ok, id | why.
 function Msg:AddPart(kind, opts)
     if not Msg.KINDS[kind] then return false, "not a part" end
     local d = DB()
@@ -264,6 +289,7 @@ function Msg:AddPart(kind, opts)
     opts = opts or {}
     local p = { k = kind }
     if kind == "text" then p.t = Words(opts.t)
+    elseif kind == "icon" then p.m = Util.IsInt(opts.m, 1, 8) and opts.m or 1
     elseif kind == "need" or kind == "nights" then
         local team = opts.team
         if kind == "need" and team == "all" then p.team = "all"
@@ -277,16 +303,19 @@ function Msg:AddPart(kind, opts)
     end
     d.nid = d.nid + 1
     p.id = d.nid
-    d.parts[#d.parts + 1] = p
+    local at
+    if opts.after then at = select(2, self:GetPart(opts.after)) end
+    table.insert(d.parts, at and (at + 1) or (#d.parts + 1), p)
     ns:Fire("RECRUIT_MSG_CHANGED")
     return true, p.id
 end
 
--- Changes a part: t (words), team, by, on, skip = entry (switches that entry).
+-- Changes a part: t (words), m (an icon's 1..8), team, by, on, skip = entry (switches that entry).
 function Msg:SetPart(id, f)
     local p = self:GetPart(id)
     if not p then return false end
     if f.t ~= nil and p.k == "text" then p.t = Words(f.t) end
+    if f.m ~= nil and p.k == "icon" and Util.IsInt(f.m, 1, 8) then p.m = f.m end
     if f.team ~= nil and (p.k == "need" or p.k == "nights") then
         if (f.team == "all" and p.k == "need") or R():GetTeam(f.team) then
             if p.team ~= f.team then p.skip = nil end
