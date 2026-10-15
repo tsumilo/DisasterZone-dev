@@ -271,6 +271,28 @@ def the_leaders_page_shows_its_roster_and_request_hints():
 
 
 @case
+def editing_from_my_groups_page_swaps_the_page_for_the_sheet_and_back():
+    w, c = guild([("Gina", "PALADIN")])
+    g = c["Gina"]
+    g.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(1)
+    list_group(g, k="raid", a=["GruulsLair"], role="healer")
+    w.tick(1)
+    g.eval("ns.GroupsLead:Open(nil, 'reserves')")
+    g.eval("ns.DungeonsUI:OpenSheet(true)")
+    shown = "return { ns.GroupsLead:IsOpen(), ns.DungeonsUI:GetPanel().sheet:IsShown() }"
+    assert g.eval_py(shown) == [False, True]
+    # closing the sheet brings the page back on its tab; opening the page closes the sheet
+    g.eval("ns.DungeonsUI:CloseSheet()")
+    assert g.eval_py(shown) == [True, False]
+    assert g.eval_py("return ns.GroupsLead:GetTab()") == "reserves"
+    g.eval("ns.DungeonsUI:OpenSheet(true)")
+    g.eval("ns.GroupsLead:Open()")
+    assert g.eval_py(shown) == [True, False]
+    w.assert_no_errors()
+
+
+@case
 def the_raid_session_starts_as_the_group_listed_its_loot():
     w, c = guild([("Gina", "PALADIN"), ("Bert", "WARRIOR")])
     g = c["Gina"]
