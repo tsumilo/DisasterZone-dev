@@ -448,7 +448,8 @@ local function AboutLine(run)
         local bosses = run.bo and (#run.bo .. (#run.bo == 1 and " boss" or " bosses")) or "Full clear"
         return S:Wrap("TEXT", LootText(run) or "Rolls") .. S:Wrap("SUB", " · " .. bosses)   -- (the note: its icon)
     end
-    return run.no and S:Wrap("SUB", run.no) or nil
+    -- (the leader's own words: in quotes, as on the opened card)
+    return run.no and S:Wrap("SUB", "\"" .. run.no .. "\"") or nil
 end
 
 -- The one hint under a run: what stops me, else what drops my BiS, else (a group of another kind) what it is about.
@@ -875,14 +876,19 @@ local function NewSeat(parent)
     s:SetSize(SEAT_W, SEAT_H)
     s.face = UI():CreateFace(s, SEAT_FACE)
     s.face:SetPoint("TOP", 0, -3)
-    s.role = s:CreateTexture(nil, "OVERLAY", nil, 2)
+    -- (the role badge and the crown on a frame over the face: the face is a frame of its own, drawn over the seat's
+    -- own textures whatever their layer)
+    s.badges = CreateFrame("Frame", nil, s)
+    s.badges:SetAllPoints(s.face)
+    s.badges:SetFrameLevel(s.face:GetFrameLevel() + 2)
+    s.role = s.badges:CreateTexture(nil, "OVERLAY", nil, 2)
     s.role:SetSize(15, 15)
     s.role:SetPoint("CENTER", s.face, "BOTTOMRIGHT", -4, 4)
-    s.crown = s:CreateTexture(nil, "OVERLAY", nil, 3)
+    s.crown = s.badges:CreateTexture(nil, "OVERLAY", nil, 3)
     s.crown:SetSize(13, 13)
     s.crown:SetPoint("CENTER", s.face, "TOPRIGHT", -5, -2)
     UI():SetGlyph(s.crown, "crown", "GOLD")
-    s.open = s:CreateTexture(nil, "OVERLAY", nil, 1)
+    s.open = s.badges:CreateTexture(nil, "OVERLAY", nil, 1)
     s.open:SetSize(18, 18)
     s.open:SetPoint("CENTER", s.face, "CENTER")
     s.name = UI():Text(s, "small", "TEXT", { justify = "CENTER" })
@@ -1302,6 +1308,49 @@ local function FillBosses(c, run, right)
         x = x - 66 - 4
     end
     for i = #list + 1, #c.bossPics do c.bossPics[i]:Hide() end
+    -- more bosses than the three pictures (a long pick, Karazhan's full clear): "+n", every name in its tooltip
+    local names = {}
+    local picked = {}
+    for _, key in ipairs(run.bo or {}) do picked[key] = true end
+    for _, rk in ipairs(run.k == "raid" and run.a or {}) do
+        local raid = ns.ItemDB and ns.ItemDB.GetRaid and ns.ItemDB:GetRaid(rk)
+        for _, b in ipairs(raid and raid.bosses or {}) do
+            if not b.isTrash and (run.bo == nil or picked[rk .. ":" .. tostring(b.key)]) then names[#names + 1] = b.name end
+        end
+    end
+    local more = #names - #list
+    local m = c.bossMore
+    if more > 0 and #list > 0 then
+        if not m then
+            m = CreateFrame("Frame", nil, c)
+            m:SetSize(34, 33)
+            m.bg = UI():Fill(m, "CARD", "BACKGROUND")
+            UI():AddEdges(m, "OVERLAY")
+            UI():SetEdgeColor(m, 0, 0, 0, 0.9)
+            m.text = UI():Text(m, "emph", "TEXT")
+            m.text:SetPoint("CENTER")
+            m:EnableMouse(true)
+            m:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip, "ANCHOR_TOP") end end)
+            m:SetScript("OnLeave", HideTip)
+            c.bossMore = m
+        end
+        m.text:SetText("+" .. more)
+        local tip = { run.bo and (#names .. " bosses picked") or ("Full clear: " .. #names .. " bosses") }
+        for _, n in ipairs(names) do tip[#tip + 1] = n end
+        m.tip = tip
+        m:ClearAllPoints()
+        m:SetPoint("RIGHT", c, "TOPLEFT", right, -CARD_H / 2)
+        m:Show()
+        -- (the pictures move left to make room)
+        for i = 1, #list do
+            local f = c.bossPics[i]
+            local _, _, _, px = f:GetPoint(1)
+            f:ClearAllPoints()
+            f:SetPoint("RIGHT", c, "TOPLEFT", (px or right) - 38, -CARD_H / 2)
+        end
+    elseif m then
+        m:Hide()
+    end
 end
 
 -- The hint after a request on my own card: fn(key, classFile) -> text or nil. On the guild's blacklist (orange); a raid
@@ -1412,9 +1461,10 @@ local function FillCard(c, run, opts)
     end
     if open and kind == "raid" then
         FillBosses(c, run, slotsRight)
-        slotsW = #R():GetGroupBosses(run) * 70
+        slotsW = #R():GetGroupBosses(run) * 70 + ((c.bossMore and c.bossMore:IsShown()) and 38 or 0)
     elseif c.bossPics then
         for _, f in ipairs(c.bossPics) do f:Hide() end
+        if c.bossMore then c.bossMore:Hide() end
     end
 
     -- texts

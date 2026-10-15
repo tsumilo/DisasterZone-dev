@@ -376,11 +376,12 @@ local function Opts(s)
         o.lo = s.lo or "roll"
         o.lr = o.lo == "sr" and (s.lr or 1) or nil
         if s.bo then
-            local bo = {}
-            for _, b in ipairs(RaidBosses(s.ra)) do
+            local all, bo = RaidBosses(s.ra), {}
+            for _, b in ipairs(all) do
                 if s.bo[b.key] then bo[#bo + 1] = b.key end
             end
-            o.bo = #bo > 0 and bo or nil
+            -- (none, or every one of them: a full clear)
+            o.bo = (#bo > 0 and #bo < #all) and bo or nil
         end
     elseif kind == "quest" then
         if #(s.qs or {}) == 0 then return nil end
@@ -1551,11 +1552,13 @@ local function DungeonRows(s, width)
             end
         end
         local first = c.dungeons[1] and c.dungeons[1].key
+        -- (the picture alone: no icon tile on its corner; cropped under the loading screen's logo band)
         r:SetData({ art = function(tex, w, h)
                 local file, l, rr, t, b = R():GetArt(first, w, h)
+                if file and t < 0.3 then t, b = 0.3, min(0.98, b + 0.3 - t) end
                 tex:SetTexture(file)
                 if file then tex:SetTexCoord(l, rr, t, b) end
-            end, icon = c.icon, title = c.name, sub = whyAll and S:Wrap("WARN", whyAll) or nil })
+            end, title = c.name, sub = whyAll and S:Wrap("WARN", whyAll) or nil })
         r.title:SetTextColor(S:Color("GOLD"))
         r.whyTip = whyTip
         r:SetRightWidth(tilesW)

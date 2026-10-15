@@ -40,15 +40,15 @@ ns.Data.GroupKinds = {
     -- anything else: what it is for (the note says the rest)
     other = {
         -- (icon: shown round, its edge cut off; hint: the note's placeholder)
-        { key = "attune", name = "Attunement", icon = "Interface\Icons\INV_Misc_Key_10",
+        { key = "attune", name = "Attunement", icon = "Interface\\Icons\\INV_Misc_Key_10",
           hint = "Which one, e.g. \"Arcatraz key\"" },
-        { key = "worldboss", name = "World boss", icon = "Interface\Icons\Spell_Fire_FelFlameRing",
+        { key = "worldboss", name = "World boss", icon = "Interface\\Icons\\Spell_Fire_FelFlameRing",
           hint = "Which one, e.g. \"Doom Lord Kazzak\"" },
-        { key = "farm", name = "Farming", icon = "Interface\Icons\INV_Misc_Herb_Felweed",
+        { key = "farm", name = "Farming", icon = "Interface\\Icons\\INV_Misc_Herb_Felweed",
           hint = "What and where, e.g. \"Motes of Fire, Shadowmoon\"" },
-        { key = "rep", name = "Reputation", icon = "Interface\Icons\INV_Misc_Note_02",
+        { key = "rep", name = "Reputation", icon = "Interface\\Icons\\INV_Misc_Note_02",
           hint = "Which faction, e.g. \"Sha'tari Skyguard\"" },
-        { key = "any", name = "Anything else", icon = "Interface\Icons\INV_Misc_QuestionMark",
+        { key = "any", name = "Anything else", icon = "Interface\\Icons\\INV_Misc_QuestionMark",
           hint = "What the group is for (needed)" },
     },
 
