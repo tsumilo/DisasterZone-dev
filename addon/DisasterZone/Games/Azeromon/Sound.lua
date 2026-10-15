@@ -186,7 +186,9 @@ end
 --   sources  loops that start within a radius and fade out past it: still water by the shore, a school of fish,
 --            the smithy while Argus works it, the inn's crowd at the door when it's full
 --   one-shots that come more often the nearer you are: the anvil's ring, an owl at night
--- Played on the game's Ambience channel (its volume slider applies). Each loop is restarted as it ends: LEN holds
+-- Played on the game's Ambience channel (its volume slider applies) - but some clients refuse every sound on it
+-- (PlaySoundFile returns nothing; seen 2026-10-15 with the slider at 60%), and then on Master for the rest of the
+-- session, like the effects. Each loop is restarted as it ends: LEN holds
 -- every file's length, measured from the installed client's files (Ogg granule / rate).
 ---------------------------------------------------------------------------
 
@@ -249,10 +251,24 @@ S.trace = nil               -- tests: a list that gets { "play" | "stop", key, i
 
 local function Clock() return GetTime and GetTime() or 0 end
 
+-- Plays an ambience file; returns its handle. The Ambience channel until it refuses a file that Master plays.
+S.ambChannel = "Ambience"
+function S.PlayAmbient(id)
+    if not PlaySoundFile then return nil end
+    local ok, willPlay, handle = pcall(PlaySoundFile, id, S.ambChannel)
+    if (not ok or not willPlay) and S.ambChannel ~= "Master" then
+        local ok2, will2, handle2 = pcall(PlaySoundFile, id, "Master")
+        if ok2 and will2 then
+            S.ambChannel = "Master"
+            return handle2
+        end
+    end
+    return ok and willPlay and handle or nil
+end
+
 local function Start(key, id)
     if not PlaySoundFile then return end
-    local ok, willPlay, handle = pcall(PlaySoundFile, id, "Ambience")
-    playing[key] = { id = id, handle = ok and willPlay and handle or nil, at = Clock() }
+    playing[key] = { id = id, handle = S.PlayAmbient(id), at = Clock() }
     if S.trace then S.trace[#S.trace + 1] = { "play", key, id } end
 end
 
@@ -352,7 +368,7 @@ function S:UpdateAmbience(dt, active)
         elseif now - shotAt[key] >= gap then
             shotAt[key] = now
             local id = def.ids[math.random(#def.ids)]
-            if PlaySoundFile then pcall(PlaySoundFile, id, "Ambience") end
+            S.PlayAmbient(id)
             if S.trace then S.trace[#S.trace + 1] = { "shot", key, id } end
         end
     end
@@ -375,4 +391,5 @@ S._Reset = function()
     current, currentKey = nil, nil
     lastAt, warned = {}, false
     playing, shotAt, tickAcc = {}, {}, 0
+    S.ambChannel = "Ambience"
 end

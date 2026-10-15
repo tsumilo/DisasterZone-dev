@@ -249,6 +249,22 @@ def loops_restart_as_they_end_and_ambience_switches_off():
 
 
 @case
+def a_client_that_refuses_the_ambience_channel_hears_it_on_master():
+    # seen in game 2026-10-15: PlaySoundFile(id, "Ambience") returned nothing, the same file on Master played
+    w, c = game()
+    c.eval("local real = PlaySoundFile __AZ_CH = {} PlaySoundFile = function(f, ch) __AZ_CH[#__AZ_CH + 1] = ch"
+           " if ch == 'Ambience' then return end return real(f, ch) end")
+    enter(w, c)
+    at(w, c, "'town', 10, 10, 'down'")
+    r = c.eval_py("return { ns.AzeroSound.ambChannel, ns.AzeroSound:Playing().bed }")
+    assert r == ["Master", 539131], r
+    at(w, c, "'town', 28, 14, 'right'")                             # the next loop goes straight to Master
+    chans = c.eval_py("return __AZ_CH")
+    assert chans.count("Ambience") == 1, chans
+    no_errors(w)
+
+
+@case
 def every_ambience_file_has_a_length():
     w, c = game()
     missing = c.eval_py("""local S, o = ns.AzeroSound, {}
