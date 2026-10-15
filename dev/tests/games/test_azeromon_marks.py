@@ -199,7 +199,7 @@ def a_guild_raid_kill_brings_the_crier_pennants_and_standard_for_a_week():
     kinds = c.eval_py("local o = {} for _, p in ipairs(ns.AzeroMarks.Props(ns.Azero.map)) do o[#o + 1] = p.kind end return o")
     assert kinds.count("pennant") == 6 and kinds.count("standard_red") == 1, kinds
     news = c.eval_py("return ns.AzeroMarks.News()")
-    assert news and news[0].startswith("Hear ye! The guild slew ") and news[0].endswith(" in Karazhan!"), news
+    assert news == ["A guild first! Prince Malchezaar has fallen in Karazhan!"], news      # (its first kill ever)
     lines = talk_texts(c, 21, 10, "up")
     assert lines and lines[0] == "Town Crier: " + news[0], lines
     # the crier's day: the inn at night
@@ -262,6 +262,45 @@ def the_chronicle_draws_in_the_ui():
         w.tick(0.2)
     tiles = c.eval_py("return ns.AzeroUI._PropTiles()") or []
     assert "pennant" in tiles and "standard_red_0_1" in tiles, tiles
+    no_errors(w)
+
+
+def raid_week(c, raid_key, count=None, days_ago=1, old_days=30):
+    """the guild's kills of `count` bosses of a raid (all when None) `days_ago`, each also killed `old_days` ago"""
+    c.eval("""local H = ns.AzeroHideout H.Build()
+      local now, bosses = GetServerTime(), {}
+      for _, r in ipairs(H.RAIDS) do if r.key == %r then
+        for i, b in ipairs(r.bosses) do if i <= (%s or #r.bosses) then
+          bosses[#bosses + 1] = { enc = b.enc, ts = now - %d - i * 300, dur = 200 }
+          if %d > 0 then bosses[#bosses + 1] = { enc = b.enc, ts = now - %d - i * 300, dur = 220 } end
+        end end
+      end end
+      ns.db.raids['w' .. %r] = { id = 'w' .. %r, start = now - %d - 9000, stop = now - %d, zone = 'x', att = {}, bosses = bosses }
+      H.Invalidate()""" % (raid_key, "nil" if count is None else count, days_ago * 86400, old_days, old_days * 86400,
+                           raid_key, raid_key, days_ago * 86400, days_ago * 86400))
+
+
+@case
+def a_raid_week_is_one_headline_not_a_roll_call():
+    w, c = solo("Alice", tick=2)
+    c.eval("ns.Azero:NewGame() ns.Azero.started = true ns.db.raids = {}")
+    kara = c.eval_py("local H = ns.AzeroHideout H.Build() for _, r in ipairs(H.RAIDS) do if #r.bosses > 5 then return { r.key, r.name, #r.bosses } end end")
+    gruul = c.eval_py("local H = ns.AzeroHideout for _, r in ipairs(H.RAIDS) do if #r.bosses == 2 then return { r.key, r.name } end end")
+    raid_week(c, kara[0])                                   # a full clear, every boss killed before
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert news == ["Hear ye! The guild cleared %s!" % kara[1]], news
+    raid_week(c, gruul[0], count=1, days_ago=0)              # tonight: one boss of another raid
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert len(news) == 2 and news[1] == "Hear ye! The guild cleared %s!" % kara[1], news
+    assert news[0].startswith("Hear ye! The guild slew ") and news[0].endswith(" in %s!" % gruul[1]), news
+    c.eval("ns.db.raids = {}")
+    raid_week(c, kara[0], count=4)                          # a part of the raid
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert news == ["Hear ye! The guild felled 4 bosses in %s!" % kara[1]], news
+    raid_week(c, gruul[0], days_ago=2, old_days=0)           # killed for the very first time
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert len(news) == 3 and news[0].startswith("A guild first! ") and news[1].startswith("A guild first! "), news
+    assert news[2] == "Hear ye! The guild felled 4 bosses in %s!" % kara[1], news
     no_errors(w)
 
 

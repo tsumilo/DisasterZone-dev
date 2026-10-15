@@ -8,7 +8,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Marks.lua", ...) th
 --              the plinth with a block being carved after it, the finished knight once the top tier is reached. A
 --              finished statue stands on through the next week until that week's goal is done too.
 --   The chronicle: for CHRONICLE_DAYS after a guild raid kill (the raid log, as the Guild Hall's trophies count
---              them) Goldshire celebrates: a town crier by the bounty board cries the kills and the guild's other
+--              them) Goldshire celebrates: a town crier by the bounty board cries the raid news as headlines (a
+--              guild first on its own line, otherwise one line per raid: cleared, or how many bosses) and the other
 --              news (a boss's echo roaming, the weekly statue done, guildmates' shinies), pennants fly from the lamp
 --              posts, a standard stands by the statue, a toast says so on arrival, and the townsfolk mention it once
 --              each. Everyone in the guild sees the same: it all comes from the shared raid log and guild news.
@@ -170,7 +171,8 @@ function Marks.RecentKills()
     for enc, t in pairs(H.Trophies()) do
         local ts = tonumber(t.last)
         if ts and now - ts <= Marks.CHRONICLE_DAYS * 86400 and ts <= now + 300 then
-            out[#out + 1] = { enc = enc, name = t.boss.name, raid = t.boss.raidName, ts = ts, id = enc .. ":" .. ts }
+            out[#out + 1] = { enc = enc, name = t.boss.name, raid = t.boss.raidName, raidKey = t.boss.raid, ts = ts,
+                              id = enc .. ":" .. ts, first = t.first ~= nil and tonumber(t.first.ts) == ts }
         end
     end
     table.sort(out, function(a, b) return a.ts > b.ts end)
@@ -187,12 +189,56 @@ function Marks.AddNews(text)
     while #d.guildNews > Marks.NEWS_KEEP do table.remove(d.guildNews) end
 end
 
+local function Cap(text) return (text:gsub("^%l", string.upper)) end
+
+-- The week's raid news as headlines, not a roll call of every boss: a guild first (a boss killed for the first time
+-- ever) gets its own line; the rest is one line per raid ("cleared Karazhan", "felled 7 bosses in Gruul's Lair").
+-- { text (the crier's line), topic (for people's words), id (new for each raid night or first) }, newest first.
+function Marks.Headlines()
+    local H = ns.AzeroHideout
+    local firsts, byRaid, order = {}, {}, {}
+    for _, k in ipairs(Marks.RecentKills()) do
+        if k.first then firsts[#firsts + 1] = k end
+        local key = k.raid or "?"
+        local r = byRaid[key]
+        if not r then
+            r = { raid = k.raid, raidKey = k.raidKey, kills = {}, ts = k.ts, onlyFirsts = true }
+            byRaid[key] = r
+            order[#order + 1] = r
+        end
+        r.kills[#r.kills + 1] = k
+        r.ts = math.max(r.ts, k.ts)
+        if not k.first then r.onlyFirsts = false end
+    end
+    local out = {}
+    for _, k in ipairs(firsts) do
+        out[#out + 1] = { ts = k.ts, id = "first:" .. k.enc,
+            text = string.format("A guild first! %s has fallen%s!", k.name, k.raid and (" in " .. k.raid) or ""),
+            topic = string.format("the guild slew %s for the very first time", k.name) }
+    end
+    local rows = {}
+    for _, r in ipairs(order) do
+        if not r.onlyFirsts then
+            local total = 0
+            for _, raid in ipairs(H and H.RAIDS or {}) do if raid.key == r.raidKey then total = #raid.bosses end end
+            local n, where = #r.kills, r.raid or "a raid"
+            local topic
+            if total > 1 and n >= total then topic = string.format("the guild cleared %s", where)
+            elseif n > 1 then topic = string.format("the guild felled %d bosses in %s", n, where)
+            else topic = string.format("the guild slew %s in %s", r.kills[1].name, where) end
+            rows[#rows + 1] = { ts = r.ts, id = (r.raidKey or where) .. ":" .. r.ts, text = "Hear ye! " .. Cap(topic) .. "!",
+                                topic = topic }
+        end
+    end
+    table.sort(rows, function(a, b) return a.ts > b.ts end)
+    for _, h in ipairs(rows) do out[#out + 1] = h end
+    return out
+end
+
 -- Everything the crier has to cry, in order.
 function Marks.News()
     local out, now = {}, Now()
-    for _, k in ipairs(Marks.RecentKills()) do
-        out[#out + 1] = string.format("Hear ye! The guild slew %s%s!", k.name, k.raid and (" in " .. k.raid) or "")
-    end
+    for _, h in ipairs(Marks.Headlines()) do out[#out + 1] = h.text end
     local D, store = ns.AzeroData, G.RaidRareStore and G:RaidRareStore() or {}
     for _, r in ipairs(D.raidRares or {}) do
         local untilT, sp, def = tonumber(store[r.sp]), D.species[r.sp], Maps[r.map]
@@ -239,39 +285,40 @@ function Marks.Props(m)
     return out
 end
 
--- The townsfolk mention the newest kill, once each (Goldshire and the Lion's Pride; not trainers, not the crier).
+-- The townsfolk mention the week's top headline, once each (Goldshire and the Lion's Pride; not trainers, not the
+-- crier). %s is the headline's topic ("the guild cleared Karazhan").
 Marks.GOSSIP = {
-    "Did you hear? The guild slew %s!",
-    "%s, dead! Your guild's the talk of Goldshire.",
-    "They say %s fell to your guild. Is it true?",
-    "The crier's been shouting about %s all day. Well done, the lot of you.",
+    "Did you hear? %s!",
+    "Word is %s. Goldshire talks of nothing else.",
+    "They say %s. Is it true?",
+    "The crier's been at it all day: %s! Well done, the lot of you.",
 }
 function Marks.Gossip(g, def)
     local m = g.map
     if not (m and (m.id == "town" or m.id == "post") and def and not def.trainer and def.gossip ~= false) then return end
-    local kill = Marks.RecentKills()[1]
-    if not kill then return end
+    local h = Marks.Headlines()[1]
+    if not h then return end
     local d = G:Data()
     if type(d.gossipSeen) ~= "table" then d.gossipSeen = {} end
-    local key = (def.id or def.name or "?") .. "@" .. kill.id
+    local key = (def.id or def.name or "?") .. "@" .. h.id
     if d.gossipSeen[key] then return end
     d.gossipSeen[key] = true
     local who = G.NpcName(def) or def.name or "Someone"
-    local i = (#(def.id or "") + kill.enc) % #Marks.GOSSIP + 1
-    g:Say(who .. ": " .. string.format(Marks.GOSSIP[i], kill.name))
+    local i = #(def.id or "") % #Marks.GOSSIP + 1
+    g:Say(who .. ": " .. Cap(string.format(Marks.GOSSIP[i], h.topic)))
 end
 
--- Arriving in Goldshire after a new kill: a toast, once per kill.
+-- Arriving in Goldshire after new raid news: a toast, once per headline (a raid night, a guild first).
 function Marks.Arrived(m)
     if not (m and (m.id == "town" or m.id == "post")) then return end
-    local kill = Marks.RecentKills()[1]
-    if not kill then return end
+    local h = Marks.Headlines()[1]
+    if not h then return end
     local d = G:Data()
-    if d.crierToast == kill.id then return end
-    d.crierToast = kill.id
+    if d.crierToast == h.id then return end
+    d.crierToast = h.id
     if ns.AzeroAch and ns.AzeroAch.Notify then
-        ns.AzeroAch:Notify({ label = "Guild news", name = string.format("%s has fallen. Goldshire celebrates for %d days.",
-            kill.name, Marks.CHRONICLE_DAYS), icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" })
+        ns.AzeroAch:Notify({ label = "Guild news", name = string.format("%s. Goldshire celebrates for %d days.",
+            Cap(h.topic), Marks.CHRONICLE_DAYS), icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" })
     end
 end
 
