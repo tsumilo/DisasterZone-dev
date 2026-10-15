@@ -471,11 +471,11 @@ def sell_up_to_takes_gear_of_that_quality_but_keeps_bis_shirts_and_trade_goods()
     w.tick(1)
     # grey + green bracers; not the blue axe (above), the shirt, the gem / cloth / potion, the BiS gloves
     assert sorted(c.eval_py("return __sold")) == ["0:5", "1:2"], c.eval_py("return __sold")
-    # rare and below: the axe too; Check my bags lists the same, selling nothing
+    # uncommon is the top: a saved 3 (an older Rare step) still never sells the blue axe; Check my bags sells nothing
     c.eval("__MOCK.close_merchant(); for k in pairs(__sold) do __sold[k] = nil end")
     c.eval("ns.DB:SetSetting('vendor.sellUpTo', 3)")
     ids = c.eval_py("local o = {} for _, e in ipairs(ns.LookBags:PreviewSell()) do o[#o + 1] = e.id end return o")
-    assert sorted(ids) == [3300, 30001, 30002], ids
+    assert sorted(ids) == [3300, 30001], ids
     assert c.eval_py("return __sold") == []
     w.assert_no_errors()
 

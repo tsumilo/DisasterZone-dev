@@ -1399,7 +1399,8 @@ function SettingsUI:QualityLadder(sec, title, desc, path, default, tiers, tips, 
     c.name:SetPoint("RIGHT", c, "RIGHT", -(stepsW + 10), 0)
     c.name:SetWidth(LADDER_NAME_W)
     c.enabled = true
-    local function Pick() return tonumber(Get(path, default)) or default end
+    -- (a saved step past the top one, from an older ladder, reads as the top)
+    local function Pick() return math.min(tonumber(Get(path, default)) or default, n) end
     c.steps = {}
     for i = 0, n do
         local q = LADDER_Q[i]
@@ -3353,8 +3354,7 @@ function SettingsUI:BuildPart(sec, p)
                 _, row = self:QualityLadder(sec, o[2], o[3], path, o[4], B and B.SELL_TIERS or { [0] = "Junk" }, {
                     [0] = "Grey items, nothing else.",
                     "Grey items, and white weapons and armour.",
-                    "Grey items, and white and green weapons and armour.",
-                    "Grey items, and white, green and blue weapons and armour." }, o.tip)
+                    "Grey items, and white and green weapons and armour." }, o.tip)
             elseif type(o[4]) == "boolean" then _, row = self:SwitchSetting(sec, o[2], o[3], path, o[4], o.tip)
             else _, row = self:DropdownSetting(sec, o[2], o[3], path, o[4], o[5], o.tip) end
             -- (a choice only while the switch it hangs on is on)

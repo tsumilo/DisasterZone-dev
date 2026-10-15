@@ -71,7 +71,7 @@ ns.CHANGELOG = {
           { heading = "Vendor visits", area = "look", kind = "new", open = "settings/looks",
             lead = "Junk sells and your gear mends as soon as you talk to a vendor.", lines = {
               { "Settings > Looks > Bags: sell junk and repair, each its own switch, off until you turn it on.", fb = { 21 }, by = { "Vicnado" }, k = "idea" },
-              { "Pick how far up it sells on a rarity ladder: junk only, or up to common, uncommon or rare gear.", fb = { 21 }, by = { "Vicnado" }, k = "idea" },
+              { "Pick how far up it sells on a rarity ladder: junk only, or up to common or uncommon gear.", fb = { 21 }, by = { "Vicnado" }, k = "idea" },
               "Above grey only weapons and armour sell, soulbound ones unless you say otherwise.",
               "Gear in an outfit or on your BiS lists never sells; Check my bags shows what would.",
               { "Repairs come from your own gold, never the guild bank; chat says what it cost.", fb = { 21 }, by = { "Vicnado" }, k = "idea" },

@@ -673,7 +673,10 @@ def bags_page_sells_up_to_a_rarity_on_its_ladder():
     c.eval("(...).steps[2]:Click()", ladder)
     assert setting(c, "vendor.sellUpTo") == 2
     assert c.eval("return (...).name:GetText()", ladder) == "Uncommon & below"
-    assert c.eval("return (...).steps[2].mark:IsShown() and not (...).steps[3].mark:IsShown()", ladder) is True
+    assert c.eval("return (...).steps[2].mark:IsShown() and (...).steps[3] == nil", ladder) is True     # (uncommon is the top)
+    c.eval("ns.DB:SetSetting('vendor.sellUpTo', 3)")       # (an older Rare pick reads as Uncommon)
+    w.tick(0.2)
+    assert c.eval("return (...).name:GetText()", ladder) == "Uncommon & below"
     assert c.eval("return ns.SettingsUI:ChangedIn('part:bags')") == 2
     no_errors(w)
 

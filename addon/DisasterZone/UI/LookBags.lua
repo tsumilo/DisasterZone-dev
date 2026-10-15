@@ -1329,9 +1329,9 @@ end
 
 ---------------------------------------------------------------------------
 -- At a vendor: junk sold and gear repaired on their own (Settings > Looks > Bags; whatever look the bags wear,
--- the game's own too). vendor.sell / vendor.sellUpTo (0 grey .. 3 rare) / vendor.boundOnly / vendor.repair.
+-- the game's own too). vendor.sell / vendor.sellUpTo (0 grey .. 2 uncommon) / vendor.boundOnly / vendor.repair.
 ---------------------------------------------------------------------------
-Bags.SELL_TIERS = { [0] = "Junk", "Common", "Uncommon", "Rare" }
+Bags.SELL_TIERS = { [0] = "Junk", "Common", "Uncommon" }     -- (uncommon at most: blues never sell)
 local SELL_BATCH, SELL_EVERY = 10, 0.2         -- (the server drops sales made too fast: ten at a time)
 local NEVER_SELL_LOC = { INVTYPE_BODY = true, INVTYPE_TABARD = true }       -- shirts and tabards stay
 
@@ -1368,7 +1368,7 @@ end
 -- weapons and armour too (soulbound ones only with boundOnly), never a shirt or tabard, an item in an outfit or on my
 -- BiS lists, a locked one or one the vendor won't pay for.
 function Bags:SellList(upTo, boundOnly)
-    upTo = tonumber(upTo) or 0
+    upTo = min(tonumber(upTo) or 0, #Bags.SELL_TIERS)
     local keep = upTo > 0 and Kept() or {}
     local out = {}
     for _, bag in ipairs(BAG_IDS) do
