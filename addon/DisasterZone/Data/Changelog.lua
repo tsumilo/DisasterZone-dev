@@ -19,7 +19,7 @@ ns.CHANGELOG = {
               "Bring them along: a group invite, a guest seat in a raid, or a member.",
               "Invite: a welcome in guild chat, the officer note, the team's bench, its leaders told.",
               "Then check-ins after a week and a month, level 58 and 70, first raid, gone quiet.",
-              "Message: the guild's recruitment line from blocks, posted in turns.",
+              "Message: your own text, posted to any channel, Say or Yell, each on its own interval.",
               "Every member can introduce a friend from Guild > Members.",
               "The Guild Master sets it up in Settings > Guild > Recruitment.",
           } },

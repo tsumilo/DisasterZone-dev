@@ -1,13 +1,14 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RecruitMessage.lua", ...) then return end -- DisasterZone: Core/RecruitMessage.lua
--- Recruitment > Message (1.6): the guild's recruitment line for Trade, LookingForGroup and GuildRecruitment, built
--- from blocks like the Groups LFG message (Core/GroupsLFG.lua): the guild tag, who we are, what we do, the raid
--- nights, the classes we're after (one team's open places; the team is never named), my own words, Discord, "/w us".
--- Each block on or off; who / what / my words / Discord are texts I can change. 255 bytes at most.
--- Posting needs a click (the client posts to public channels only inside a hardware event): Post now sends it; with
--- the repeat on, the message is ready again every N minutes (RECRUIT_MSG_READY: a toast with Post) after the last post
--- by any officer: posts are told to the recruiters online (RCP), so officers take turns instead of posting twice.
--- Saved (account-wide, per guild): db.recruitMsg[guildKey] = { off, text = { who, what, custom, discord }, team,
--- skip = { ["CLASS:sp"] = true }, every, chans = { trade, lfg, gr }, posts = { at, ... } }.
+-- Recruitment > Message (1.6): the guild's recruitment message, written by the officers themselves (255 bytes at
+-- most), and where it goes: a list of places, each with its own interval and an optional "major cities only" tick.
+-- A place is Say, Yell, or a chat channel by name (Trade, LookingForGroup, GuildRecruitment, General, LocalDefense,
+-- or any custom channel I'm in).
+-- Posting needs a click (the game sends to channels, Say and Yell only inside a hardware event): Post now sends it to
+-- every place that's on (and allowed where I stand); with Reminders on, a place that is due (its interval since the
+-- last post there, by any officer) brings a toast whose click posts to every place that is due. Posts are told to the
+-- recruiters online (RCP, with the place), so officers take turns per place instead of posting twice.
+-- Saved (per guild): db.recruitMsg[guildKey] = { v = 2, text, rep, places = { { id, kind = "SAY" | "YELL" |
+-- "CHANNEL", name, every = minutes, on, city }, ... }, posts = { [place id] = { at, ... } } }.
 local addonName, ns = ...
 
 local Msg = ns:NewModule("RecruitMessage")
@@ -17,264 +18,310 @@ local floor, max, min = math.floor, math.max, math.min
 local tconcat, tsort = table.concat, table.sort
 
 local MAX_LEN = 255
-local EVERY = { 1800, 3600, 7200 }
+local MAX_PLACES = 12
+local MIN_EVERY, MAX_EVERY = 1, 720          -- minutes
 local DAY = 86400
-
-Msg.BLOCKS = {
-    { key = "tag", label = "Guild tag" },
-    { key = "who", label = "Who we are", text = "chill guild for raiders and new or returning players" },
-    { key = "what", label = "What we do", text = "raids, dungeons and levelling together" },
-    { key = "nights", label = "Raid nights" },
-    { key = "classes", label = "Classes we're after" },
-    { key = "custom", label = "Your words", text = "", off = true },
-    { key = "discord", label = "Discord", text = "", off = true },
-    { key = "wme", label = "/w us" },
-}
 Msg.MAX_LEN = MAX_LEN
-Msg.EVERY = EVERY
-Msg.CHANNELS = { { key = "trade", label = "Trade", name = "Trade" }, { key = "lfg", label = "LookingForGroup", name = "LookingForGroup" },
-                 { key = "gr", label = "GuildRecruitment", name = "GuildRecruitment" } }
-local BLOCK = {}
-for _, b in ipairs(Msg.BLOCKS) do BLOCK[b.key] = b end
+Msg.MIN_EVERY, Msg.MAX_EVERY = MIN_EVERY, MAX_EVERY
+
+-- The places offered in "Add a place" (custom channels I'm in are added to the menu as they are).
+Msg.SUGGESTED = {
+    { kind = "CHANNEL", name = "Trade" }, { kind = "CHANNEL", name = "LookingForGroup" },
+    { kind = "CHANNEL", name = "GuildRecruitment" }, { kind = "CHANNEL", name = "General" },
+    { kind = "CHANNEL", name = "LocalDefense" }, { kind = "YELL", name = "Yell" }, { kind = "SAY", name = "Say" },
+}
+
+-- The capitals (uiMapID, and the zone name as a fallback): Stormwind, Ironforge, Darnassus, The Exodar, Orgrimmar,
+-- Thunder Bluff, Undercity, Silvermoon, Shattrath.
+local CITY_MAPS = { [1453] = true, [1455] = true, [1457] = true, [1947] = true, [1454] = true, [1456] = true,
+                    [1458] = true, [1954] = true, [1955] = true }
+local CITY_NAMES = { ["Stormwind City"] = true, ["Ironforge"] = true, ["Darnassus"] = true, ["The Exodar"] = true,
+                     ["Orgrimmar"] = true, ["Thunder Bluff"] = true, ["Undercity"] = true, ["Silvermoon City"] = true,
+                     ["Shattrath City"] = true }
 
 local function R() return ns.Recruit end
 local Now = Util.Now
+
+local function PlaceId(kind, name) return kind == "CHANNEL" and ("ch:" .. tostring(name):lower()) or kind:lower() end
+
+local function DefaultPlaces()
+    return { { id = "ch:trade", kind = "CHANNEL", name = "Trade", every = 60, on = true, city = true },
+             { id = "ch:guildrecruitment", kind = "CHANNEL", name = "GuildRecruitment", every = 60, on = true, city = true } }
+end
 
 local demoStore
 local function DB()
     local d
     if Util.DemoOn() then
-        demoStore = demoStore or { posts = { Now() - 2400, Now() - 2 * DAY - 1800, Now() - 4 * DAY - 600 } }
+        if not demoStore then
+            local now = Now()
+            demoStore = { v = 2, text = "<Casual Disaster> chill guild for new, returning and raiding players. Thu + Sun "
+                .. "19:30, SSC/TK. Looking for a holy paladin and a resto druid. /w me for a chat!",
+                places = { { id = "ch:trade", kind = "CHANNEL", name = "Trade", every = 60, on = true, city = true },
+                           { id = "ch:guildrecruitment", kind = "CHANNEL", name = "GuildRecruitment", every = 30, on = true,
+                             city = true },
+                           { id = "yell", kind = "YELL", name = "Yell", every = 120, on = false, city = true } },
+                posts = { ["ch:trade"] = { now - 2400, now - 2 * DAY - 1800 }, ["ch:guildrecruitment"] = { now - 4 * DAY - 600 } } }
+        end
         d = demoStore
     else
         d = ns.DB:GuildBucket("recruitMsg", true) or {}
     end
-    d.off = type(d.off) == "table" and d.off or {}
-    d.text = type(d.text) == "table" and d.text or {}
-    d.skip = type(d.skip) == "table" and d.skip or {}
-    d.chans = type(d.chans) == "table" and d.chans or { trade = true, lfg = true, gr = true }
-    d.posts = type(d.posts) == "table" and d.posts or {}
-    d.every = (d.every == 1800 or d.every == 7200) and d.every or 3600
-    for _, b in ipairs(Msg.BLOCKS) do
-        if d.off[b.key] == nil and b.off then d.off[b.key] = true end
+    if d.v ~= 2 then                       -- (the first, block-built message: started over)
+        for k in pairs(d) do d[k] = nil end
+        d.v = 2
     end
+    if type(d.text) ~= "string" then d.text = "" end
+    if type(d.places) ~= "table" then d.places = DefaultPlaces() end
+    if type(d.posts) ~= "table" then d.posts = {} end
     return d
 end
 
 ---------------------------------------------------------------------------
--- The blocks
+-- The message
 ---------------------------------------------------------------------------
 
--- The team the classes come from: the one picked, else the first with open places; "none" = no classes line.
-function Msg:GetTeam()
-    local d = DB()
-    if d.team == "none" then return nil end
-    local teams = R():GetTeams()
-    for _, t in ipairs(teams) do if t.id == d.team then return t end end
-    for _, t in ipairs(teams) do if #self:OpenOf(t) > 0 then return t end end
-    return teams[1]
-end
+function Msg:GetText() return DB().text end
 
-function Msg:SetTeam(id)
-    DB().team = id
+-- Saves the message (line breaks become spaces: a chat line is one line). Kept whole past 255: the counter says.
+function Msg:SetText(text)
+    text = tostring(text or ""):gsub("[\r\n]+", " "):gsub("|", "")
+    DB().text = text:sub(1, 400)
     ns:Fire("RECRUIT_MSG_CHANGED")
 end
 
--- A team's open places as { { c, sp, key = "CLASS:sp", name = "Holy Paladin" } } (one per spec).
-function Msg:OpenOf(team)
-    local out, seen = {}, {}
-    local list = team and team.demoOpen
-    if not list and team then
-        local RP = ns.RaidPlan
-        list = RP and RP.GetTeamOpenSlots and (RP:GetTeamOpenSlots(team)) or {}
-    end
-    for _, o in ipairs(list or {}) do
-        local key = tostring(o.c) .. ":" .. tostring(o.sp)
-        if o.c and not seen[key] then
-            seen[key] = true
-            local spec = o.sp and ns.SPECS[o.c] and ns.SPECS[o.c][o.sp]
-            out[#out + 1] = { c = o.c, sp = o.sp, key = key, name = (spec and (spec.label .. " ") or "") .. ns.ClassName(o.c) }
-        end
-    end
-    return out
-end
-
-function Msg:IsSkipped(key) return DB().skip[key] == true end
-function Msg:SetSkipped(key, on)
-    DB().skip[key] = on and true or nil
-    ns:Fire("RECRUIT_MSG_CHANGED")
-end
-
-function Msg:GetText(key)
-    local t = DB().text[key]
-    if t == nil then t = BLOCK[key] and BLOCK[key].text or "" end
-    return t
-end
-
-function Msg:SetText(key, text)
-    if not BLOCK[key] then return end
-    text = Util.Trim((tostring(text or ""):gsub("[%c|]", " "))) or ""
-    DB().text[key] = text:sub(1, 160)
-    ns:Fire("RECRUIT_MSG_CHANGED")
-end
-
-function Msg:IsOn(key) return not DB().off[key] end
-function Msg:SetOn(key, on)
-    DB().off[key] = not on      -- (false, not nil: a block that starts off stays on once switched on)
-    ns:Fire("RECRUIT_MSG_CHANGED")
-end
-
-function Msg:BlockText(key)
-    if key == "tag" then
-        local g = (GetGuildInfo and GetGuildInfo("player")) or "Guild"
-        local f = UnitFactionGroup and UnitFactionGroup("player")
-        return "<" .. g .. ">" .. (f == "Horde" and " (H)" or f == "Alliance" and " (A)" or "")
-    elseif key == "nights" then
-        local team = self:GetTeam()
-        if not team or not team.nights or #team.nights == 0 then return nil end
-        local days = ns.RaidNights:DaysText(team.nights)
-        local first = team.nights[1]
-        local start = first and ns.RaidNights:Clock((tonumber(first.w) or 0) % 1440) or nil
-        return "raids " .. days .. (start and (" " .. start) or "")
-    elseif key == "classes" then
-        local want = {}
-        for _, o in ipairs(self:OpenOf(self:GetTeam())) do
-            if not self:IsSkipped(o.key) then want[#want + 1] = o.name end
-        end
-        return #want > 0 and ("especially after " .. tconcat(want, ", ")) or "all classes welcome"
-    elseif key == "wme" then
-        return "/w " .. (Util.ShortName(Util.PlayerKey()) or "me") .. " or any officer for a chat"
-    end
-    local t = self:GetText(key)
-    return t ~= "" and t or nil
-end
-
--- The message: text (nil when empty), its length, too long?
+-- The message: text (nil when empty), its length in bytes, too long?
 function Msg:Compose()
-    local parts = {}
-    for _, b in ipairs(Msg.BLOCKS) do
-        if self:IsOn(b.key) then
-            local t = self:BlockText(b.key)
-            if t and t ~= "" then parts[#parts + 1] = t end
-        end
-    end
-    local text = tconcat(parts, " · ")
+    local text = Util.Trim(DB().text or "") or ""
     if text == "" then return nil, 0, false end
     return text, #text, #text > MAX_LEN
 end
 
 ---------------------------------------------------------------------------
--- Posting, the channels, turns
+-- Places
 ---------------------------------------------------------------------------
 
-function Msg:GetChannels() return DB().chans end
-function Msg:SetChannel(key, on)
-    DB().chans[key] = on and true or nil
-    ns:Fire("RECRUIT_MSG_CHANGED")
-end
-
-function Msg:GetEvery() return DB().every end
-function Msg:SetEvery(sec)
-    DB().every = (sec == 1800 or sec == 7200) and sec or 3600
-    ns:Fire("RECRUIT_MSG_CHANGED")
-end
-
--- Posts (mine and the other officers'), newest first.
-function Msg:GetPosts()
-    local list = {}
-    for _, at in ipairs(DB().posts) do list[#list + 1] = at end
-    tsort(list, function(a, b) return a > b end)
-    return list
-end
-
-function Msg:LastPost() return self:GetPosts()[1] end
-
-function Msg:NextDue()
-    local last = self:LastPost()
-    return last and (last + self:GetEvery()) or Now()
-end
-
-function Msg:Record(at)
-    local d = DB()
-    d.posts[#d.posts + 1] = at
-    tsort(d.posts, function(a, b) return a > b end)
-    for i = #d.posts, 1, -1 do
-        if i > 60 or d.posts[i] < Now() - 14 * DAY then table.remove(d.posts, i) end
+-- The places, in their order (copies).
+function Msg:GetPlaces()
+    local out = {}
+    for _, p in ipairs(DB().places) do
+        out[#out + 1] = { id = p.id, kind = p.kind, name = p.name, every = p.every, on = p.on and true or false,
+                          city = p.city and true or false }
     end
+    return out
+end
+
+function Msg:GetPlace(id)
+    for _, p in ipairs(DB().places) do if p.id == id then return p end end
+end
+
+function Msg:CleanEvery(v)
+    v = floor(tonumber(v) or 60)
+    return min(MAX_EVERY, max(MIN_EVERY, v))
+end
+
+-- Adds a place (kind "SAY" | "YELL" | "CHANNEL" and a channel's name). Returns ok, err / id.
+function Msg:AddPlace(kind, name, every)
+    if kind ~= "SAY" and kind ~= "YELL" and kind ~= "CHANNEL" then return false, "not a place" end
+    if kind == "CHANNEL" then
+        name = Util.Trim((tostring(name or ""):gsub("[%c|]", ""))) or ""
+        if name == "" or #name > 32 then return false, "a channel needs a name" end
+    else
+        name = kind == "YELL" and "Yell" or "Say"
+    end
+    local d = DB()
+    local id = PlaceId(kind, name)
+    if self:GetPlace(id) then return false, "already in the list" end
+    if #d.places >= MAX_PLACES then return false, "that's enough places" end
+    local lower = name:lower()
+    d.places[#d.places + 1] = { id = id, kind = kind, name = name, every = self:CleanEvery(every or 60), on = true,
+                                city = kind ~= "CHANNEL" or lower == "trade" or lower == "guildrecruitment" }
+    ns:Fire("RECRUIT_MSG_CHANGED")
+    return true, id
+end
+
+function Msg:RemovePlace(id)
+    local d = DB()
+    for i, p in ipairs(d.places) do
+        if p.id == id then
+            table.remove(d.places, i)
+            ns:Fire("RECRUIT_MSG_CHANGED")
+            return true
+        end
+    end
+    return false
+end
+
+-- Changes a place: fields on, city, every (minutes).
+function Msg:SetPlace(id, f)
+    local p = self:GetPlace(id)
+    if not p then return false end
+    if f.on ~= nil then p.on = f.on and true or false end
+    if f.city ~= nil then p.city = f.city and true or false end
+    if f.every ~= nil then p.every = self:CleanEvery(f.every) end
+    ns:Fire("RECRUIT_MSG_CHANGED")
+    return true
+end
+
+-- The channels I'm in now (for "Add a place"): their names, without the numbers.
+function Msg:JoinedChannels()
+    local out = {}
+    if not GetChannelList then return out end
+    local list = { GetChannelList() }
+    for i = 1, #list, 3 do
+        local name = list[i + 1]
+        if type(name) == "string" and name ~= "" then out[#out + 1] = (name:gsub(" %- .*$", "")) end
+    end
+    return out
+end
+
+function Msg:InMajorCity()
+    if Util.DemoOn() then return true end
+    local map = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if map and CITY_MAPS[map] then return true end
+    local z = GetRealZoneText and GetRealZoneText()
+    return (z and CITY_NAMES[z]) and true or false
+end
+
+-- Why I can't post there now ("only in major cities", "you're not in <channel>"), or nil.
+function Msg:Blocker(p)
+    if p.city and not self:InMajorCity() then return "only in major cities" end
+    if p.kind == "CHANNEL" and not Util.DemoOn() then
+        local id = GetChannelName and tonumber((GetChannelName(p.name)))
+        if not (id and id > 0) then return "you're not in " .. p.name end
+    end
+    return nil
+end
+
+---------------------------------------------------------------------------
+-- Posting, turns, reminders
+---------------------------------------------------------------------------
+
+function Msg:LastPost(id)
+    local best
+    for _, at in ipairs(DB().posts[id] or {}) do if not best or at > best then best = at end end
+    return best
+end
+
+function Msg:NextDue(id)
+    local p = self:GetPlace(id)
+    if not p then return nil end
+    local last = self:LastPost(id)
+    return last and (last + p.every * 60) or Now()
+end
+
+function Msg:Record(id, at)
+    local d = DB()
+    local list = d.posts[id] or {}
+    list[#list + 1] = at
+    tsort(list, function(a, b) return a > b end)
+    for i = #list, 1, -1 do
+        if i > 40 or list[i] < Now() - 14 * DAY then table.remove(list, i) end
+    end
+    d.posts[id] = list
     ns:Fire("RECRUIT_MSG_CHANGED")
 end
 
--- Sends the message to the channels I picked that I'm in (from a click). Returns ok, why / the channels it went to.
-function Msg:Post()
+-- The places that are on, due now and allowed where I stand (ids).
+function Msg:DuePlaces()
+    local out = {}
+    for _, p in ipairs(DB().places) do
+        if p.on and Now() >= (self:NextDue(p.id) or 0) and not self:Blocker(p) then out[#out + 1] = p.id end
+    end
+    return out
+end
+
+local function SendTo(p, text)
+    if p.kind == "CHANNEL" then
+        local id = GetChannelName and tonumber((GetChannelName(p.name)))
+        if id and id > 0 then SendChatMessage(text, "CHANNEL", nil, id) end
+        return
+    end
+    SendChatMessage(text, p.kind)
+end
+
+-- Posts (from a click) to the places given (ids), or to every place that is on. Returns ok, why | the places' names,
+-- the ones skipped ("Trade: only in major cities").
+function Msg:Post(ids)
     if not (R() and R():CanUse()) then return false, "only the Guild Master and officers post it" end
     local text, _, long = self:Compose()
-    if not text then return false, "The message is empty: switch a block on." end
-    if long then text = text:sub(1, MAX_LEN) end
-    local sent = {}
-    if Util.DemoOn() then
-        ns:Print("Demo mode, not sent: %s", text)
-        sent[1] = "demo"
-    else
-        for _, ch in ipairs(Msg.CHANNELS) do
-            if self:GetChannels()[ch.key] then
-                local id = GetChannelName and tonumber((GetChannelName(ch.name)))
-                if id and id > 0 then
-                    SendChatMessage(text, "CHANNEL", nil, id)
-                    sent[#sent + 1] = ch.label
-                end
+    if not text then return false, "Write the message first." end
+    if long then return false, "The message is longer than 255: shorten it first." end
+    local want = {}
+    for _, id in ipairs(ids or {}) do want[id] = true end
+    local sent, skipped = {}, {}
+    for _, p in ipairs(DB().places) do
+        if (ids and want[p.id]) or (not ids and p.on) then
+            local why = self:Blocker(p)
+            if why then
+                skipped[#skipped + 1] = p.name .. ": " .. why
+            else
+                if Util.DemoOn() then ns:Print("Demo mode, not sent to %s: %s", p.name, text) else SendTo(p, text) end
+                sent[#sent + 1] = p
             end
         end
-        if #sent == 0 then return false, "You're not in any of the picked channels (Trade and GuildRecruitment are in cities)." end
     end
+    if #sent == 0 then return false, #skipped > 0 and tconcat(skipped, "; ") or "No place is on." end
     local at = Now()
-    self:Record(at)
-    self.ready = false
-    -- the other officers online hear it: their turn waits
+    local names = {}
+    for _, p in ipairs(sent) do
+        self:Record(p.id, at)
+        names[#names + 1] = p.name
+    end
+    self.ready, self.readyKey = nil, nil
     if not Util.DemoOn() then
         local G = ns.Guild
         for _, k in ipairs(G and G.GetOnlineMembers and G:GetOnlineMembers() or {}) do
             if not Util.IsMe(k) and R():IsRecruiter(k) then
-                ns.Comm:Send({ t = "RCP", at = at }, "WHISPER", k, "data")
+                for _, p in ipairs(sent) do ns.Comm:Send({ t = "RCP", at = at, p = p.id }, "WHISPER", k, "data") end
             end
         end
     end
     ns:Fire("RECRUIT_MSG_POSTED")
-    return true, sent
+    return true, names, skipped
 end
 
 function Msg:IsRepeating() return DB().rep == true end
 function Msg:SetRepeat(on)
     DB().rep = on and true or nil
-    self.ready = false
+    self.ready, self.readyKey = nil, nil
     ns:Fire("RECRUIT_MSG_CHANGED")
 end
-function Msg:IsReady() return self.ready == true end
+-- The places waiting for a click (the toast's), or nil.
+function Msg:Ready() return self.ready end
 
 local function OnPost(sender, msg, dist)
     if dist ~= "WHISPER" or not (R() and R():IsRecruiter(sender) and R():CanUse()) then return end
     local at = tonumber(msg.at)
-    if not Util.IsInt(at, Now() - DAY, Now() + 60) then return end
-    Msg:Record(at)
+    if not Util.IsInt(at, Now() - DAY, Now() + 60) or type(msg.p) ~= "string" or #msg.p > 40 then return end
+    Msg:Record(msg.p, at)
 end
 
 local function Tick()
-    if not Msg:IsRepeating() or Msg.ready or not (R() and R():CanUse()) then return end
-    if Now() >= Msg:NextDue() then
-        Msg.ready = true
-        ns:Fire("RECRUIT_MSG_READY")
+    if not Msg:IsRepeating() or not (R() and R():CanUse()) then return end
+    local due = Msg:DuePlaces()
+    if #due == 0 then
+        Msg.ready, Msg.readyKey = nil, nil
+        return
+    end
+    local key = tconcat(due, ",")
+    if Msg.readyKey ~= key then
+        Msg.ready, Msg.readyKey = due, key
+        ns:Fire("RECRUIT_MSG_READY", due)
     end
 end
 
--- Lately: posts this week, the people who whispered within 2 hours of a post (added from a whisper or trade), and
--- how many of those joined.
+-- Lately: posts this week (every place), and the people who whispered within 2 hours of a post.
 function Msg:Lately()
-    local posts = self:GetPosts()
+    local all = {}
+    for _, list in pairs(DB().posts) do for _, at in ipairs(list) do all[#all + 1] = at end end
+    tsort(all, function(a, b) return a > b end)
     local week = 0
-    for _, at in ipairs(posts) do if at >= Now() - 7 * DAY then week = week + 1 end end
+    for _, at in ipairs(all) do if at >= Now() - 7 * DAY then week = week + 1 end end
     local came, joined = {}, 0
     for _, r in ipairs(R():GetPeople()) do
         if (r.src == "whisper" or r.src == "trade") and r.at then
-            for _, at in ipairs(posts) do
+            for _, at in ipairs(all) do
                 if r.at >= at and r.at <= at + 7200 then
                     came[#came + 1] = r
                     if r.st == "joined" or r.st == "gone" then joined = joined + 1 end
@@ -284,13 +331,14 @@ function Msg:Lately()
         end
     end
     tsort(came, function(a, b) return a.at > b.at end)
-    return { week = week, last = posts[1], came = came, joined = joined }
+    return { week = week, last = all[1], came = came, joined = joined }
 end
 
 function Msg:OnInit()
     if ns.Comm and ns.Comm.Register then ns.Comm:Register("RCP", OnPost) end
     if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(5, Tick) end
-    ns:On("DEMO_TOGGLED", function() demoStore = nil end)
+    ns:On("DEMO_TOGGLED", function() demoStore = nil; Msg.ready, Msg.readyKey = nil, nil end)
 end
 
-function Msg:_Due() DB().posts = {}; self.ready = false; Tick() end
+-- (tests) check now
+function Msg:_Tick() Tick() end
