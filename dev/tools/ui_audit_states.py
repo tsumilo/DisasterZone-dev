@@ -2140,6 +2140,7 @@ STATES = [
     ("Recruit - not now", demo("ns.RecruitUI:Open(); ns.RecruitUI:SetFilter('notnow')", "recruit")),
     ("Recruit - add a name", demo("ns.RecruitUI:Open(); ns.RecruitUI:SetSearch('Shadowfang')", "recruit")),
     ("Recruit - invite", demo("ns.RecruitUI:Open(); ns.RecruitUI:Select('Kaelthorn-Thunderstrike'); ns.RecruitUI:Invite()", "recruit")),
+    ("Recruit - message", demo("ns.RecruitUI:Open(); ns.RecruitUI:SetView('message')", "recruit")),
     ("Recruit - settings", demo("ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('recruit')", "settings")),
     ("Recruit - guild menu", demo("__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == 'grp:guild' then "
                                   "t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:guild') end end; "

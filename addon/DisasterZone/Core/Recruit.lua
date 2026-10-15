@@ -570,7 +570,7 @@ function H.DemoTeams()
     local function night(d, h, m, o) return { w = (d - 1) * 1440 + h * 60 + m, m = 210, o = o } end
     return {
         { id = "demo-main", name = "Main team", nights = { night(4, 19, 30), night(7, 19, 30, true) },
-          demoOpen = { { c = "PALADIN", sp = 1 }, { c = "DRUID", sp = 3 }, { c = "HUNTER", sp = 3 } } },
+          demoOpen = { { c = "PALADIN", sp = 1 }, { c = "DRUID", sp = 4 }, { c = "HUNTER", sp = 3 } } },
         { id = "demo-owls", name = "Night Owls", nights = { night(1, 21, 0), night(3, 21, 0) },
           demoOpen = { { c = "PALADIN", sp = 1 }, { c = "WARRIOR", sp = 3 } } },
     }
@@ -1164,7 +1164,7 @@ function Recruit:BuildDemo()
     p[key("Nortok")] = { st = "joined", c = "SHAMAN", sp = 3, src = "whisper", wa = 1, ni = { 4, 7 }, lv = 70, la = now,
         ja = floor(d(15)), jl = 52, jb = m(2), tm = team1, tg = { "Returning" }, at = floor(d(24)), ms = { [58] = floor(d(12)), [70] = floor(d(1)), r = floor(d(4)) },
         ck = { w = true }, n = { note(m(2), 22, "Met him in a Ramparts pug, healed it like a champ at 52. Came back after 10 years away.") } }
-    p[key("Bramble")] = { st = "joined", c = "DRUID", sp = 3, src = "whisper", wa = 10, lv = 48, la = now,
+    p[key("Bramble")] = { st = "joined", c = "DRUID", sp = 4, src = "whisper", wa = 10, lv = 48, la = now,
         ja = floor(d(7)), jl = 41, jb = me, tg = { "Returning", "Social" }, at = floor(d(10)),
         n = { note(me, 9, "Came back after Wrath. Loves healing, wants to learn TBC dungeons.") } }
     p[key("Fennick")] = { st = "joined", c = "ROGUE", sp = 2, src = "name", wa = 4, lv = 61, la = d(16), ja = floor(d(25)),

@@ -724,7 +724,8 @@ function RU:CreatePanel(parent)
     local L = UI:CreateLayout("listdetail", v, { listWidth = LIST_W, width = S.PAGE_W,
         banner = { size = "hero", artFw = 0.98, artUnder = true } })
     v.layout = L
-    L.toolbar:SetTabs({ { key = "people", text = "People" }, selected = "people" }, function(key) RU:SetView(key) end)
+    L.toolbar:SetTabs({ { key = "people", text = "People" }, { key = "message", text = "Message" }, selected = "people" },
+        function(key) RU:SetView(key) end)
     L.toolbar:SetPrimary({ text = "Add someone", icon = UI.ICON.plus, onClick = function() RU:AddByName() end })
     local lc = L.list
     v.search = UI:CreateSearchBox(lc, LIST_W, function(text)
@@ -771,14 +772,206 @@ function RU:CreatePanel(parent)
         .. "and pick Add to Recruitment, or use Add someone.", action = { text = "Add someone", onClick = function() RU:AddByName() end } })
     v.empty:SetPoint("TOP", L.detail, "TOP", 0, -80)
     v.empty:Hide()
+    v.message = H.CreateMessage(v)
     v:SetScript("OnShow", function() RU:Refresh() end)
     return v
+end
+
+---------------------------------------------------------------------------
+-- Message (Core/RecruitMessage.lua): blocks, the classes from a team, posting; how it reads in Trade, lately
+---------------------------------------------------------------------------
+
+local MSG_LW = 430
+local EDITABLE = { who = true, what = true, custom = true, discord = true }
+
+function H.EditBlock(key)
+    local M = ns.RecruitMessage
+    local label
+    for _, b in ipairs(M.BLOCKS) do if b.key == key then label = b.label end end
+    ns.Popup:Prompt({ title = label or "Block", text = "What this block says in the message.", default = M:GetText(key),
+        maxLetters = 160, trim = true, onAccept = function(v)
+            M:SetText(key, v)
+            if v ~= "" then M:SetOn(key, true) end
+        end })
+end
+
+function H.CreateMessage(v)
+    local M = ns.RecruitMessage
+    local m = CreateFrame("Frame", nil, v)
+    m:SetPoint("TOPLEFT", S.PAD, -36)
+    m:SetPoint("BOTTOMRIGHT", -S.PAD, 4)
+    m.blocksHead = UI:CreateSectionHeader(m, "Blocks", { style = "caps", rule = true })
+    m.blocksHead:SetPoint("TOPLEFT", 0, 0)
+    m.blocksHead:SetWidth(MSG_LW)
+    m.chips = {}
+    local x, y = 0, -24
+    for _, b in ipairs(M.BLOCKS) do
+        local key = b.key
+        local ch = UI:CreateChip(m, { text = b.label, onClick = function(_, button)
+            if button == "RightButton" and EDITABLE[key] then return H.EditBlock(key) end
+            if EDITABLE[key] and not M:IsOn(key) and M:GetText(key) == "" then return H.EditBlock(key) end
+            M:SetOn(key, not M:IsOn(key))
+        end })
+        if ch.RegisterForClicks then ch:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+        if EDITABLE[key] then UI:AttachTooltip(ch, b.label, { "Click: on or off. Right-click: change what it says." }) end
+        if x + ch:GetWidth() > MSG_LW then x, y = 0, y - 26 end
+        ch:SetPoint("TOPLEFT", x, y)
+        x = x + ch:GetWidth() + 5
+        m.chips[key] = ch
+    end
+    m.classY0 = y - 36
+    m.classHead = UI:CreateSectionHeader(m, "Classes we're after", { style = "caps", rule = true })
+    m.classHead:SetPoint("TOPLEFT", 0, m.classY0)
+    m.classHead:SetWidth(MSG_LW)
+    m.classNote = UI:Text(m, "small", "SUB")
+    m.classNote:SetPoint("TOPLEFT", 0, m.classY0 - 24)
+    m.classNote:SetText("From a team's open places. The team isn't named in the message.")
+    m.teamHost = CreateFrame("Frame", nil, m)
+    m.teamHost:SetPoint("TOPLEFT", 0, m.classY0 - 40)
+    m.teamHost:SetSize(MSG_LW, 22)
+    m.classChips = {}
+    m.postHead = UI:CreateSectionHeader(m, "Posting", { style = "caps", rule = true })
+    m.postHead:SetWidth(MSG_LW)
+    m.post = UI:CreateSleekButton(m, "Post now", 110, S.BTN_H, function()
+        local ok, why = M:Post()
+        if not ok then ns:Print("%s", tostring(why)) end
+    end, "primary")
+    m.again = UI:CreateSwitch(m, function() return M:IsRepeating() end, function(a, b)
+        if type(a) == "table" then a = b end
+        M:SetRepeat(a)
+    end)
+    m.againT = UI:Text(m, "body", "TEXT")
+    m.againT:SetText("Again every")
+    m.every = UI:CreateSegments(m, { { key = 1800, label = "30 min" }, { key = 3600, label = "1 h" }, { key = 7200, label = "2 h" } },
+        function(key) M:SetEvery(key) end, { selected = M:GetEvery() })
+    m.chanChips = {}
+    for _, chn in ipairs(M.CHANNELS) do
+        local key = chn.key
+        m.chanChips[key] = UI:CreateChip(m, { text = chn.label, onClick = function() M:SetChannel(key, not M:GetChannels()[key]) end })
+    end
+    m.postNote = UI:Text(m, "small", "SUB", { wrap = true, width = MSG_LW })
+    m.postNote:SetText("The game posts only from a click. With Again on, a reminder pops up when it's time; officers take turns.")
+    -- right: how it reads, and lately
+    local RX = MSG_LW + 20
+    local RW = S.INNER_W - RX
+    m.prevHead = UI:CreateSectionHeader(m, "In Trade chat", { style = "caps", rule = true })
+    m.prevHead:SetPoint("TOPLEFT", RX, 0)
+    m.prevHead:SetWidth(RW)
+    m.prev = UI:CreateCard(m, { tone = "inset", width = RW, height = 96 })
+    m.prev:SetPoint("TOPLEFT", RX, -24)
+    m.prevText = UI:Text(m.prev.body, "body", { 1, 0.75, 0.75 }, { wrap = true, width = RW - 2 * S.IN })
+    m.prevText:SetPoint("TOPLEFT", 0, 0)
+    m.bytes = UI:Text(m, "small", "SUB", { justify = "RIGHT" })
+    m.bytes:SetPoint("TOPRIGHT", m.prev, "BOTTOMRIGHT", 0, -4)
+    m.latelyHead = UI:CreateSectionHeader(m, "Lately", { style = "caps", rule = true })
+    m.latelyHead:SetPoint("TOPLEFT", RX, -24 - 96 - 26)
+    m.latelyHead:SetWidth(RW)
+    m.lately = {}
+    for i = 1, 3 do
+        local a = UI:Text(m, "body", "TEXT")
+        a:SetPoint("TOPLEFT", RX, -24 - 96 - 26 - 26 - (i - 1) * 38)
+        local b = UI:Text(m, "small", "DIM", { wrap = true, width = RW })
+        b:SetPoint("TOPLEFT", a, "BOTTOMLEFT", 0, -2)
+        m.lately[i] = { a, b }
+    end
+    m:Hide()
+    return m
+end
+
+function H.FillMessage()
+    local M = ns.RecruitMessage
+    local m = view.message
+    for key, ch in pairs(m.chips) do ch:SetSelected(M:IsOn(key)) end
+    -- the team picker: every team, and No team
+    local items = {}
+    for _, t in ipairs(R():GetTeams()) do items[#items + 1] = { key = t.id, label = t.name } end
+    items[#items + 1] = { key = "none", label = "No team" }
+    local sig = {}
+    for _, it in ipairs(items) do sig[#sig + 1] = it.key end
+    sig = tconcat(sig, ",")
+    if m.teamSig ~= sig then
+        if m.teams then m.teams:Hide() end
+        m.teams = UI:CreateSegments(m.teamHost, items, function(key) M:SetTeam(key) end, {})
+        m.teams:SetPoint("TOPLEFT")
+        m.teamSig = sig
+    end
+    local team = M:GetTeam()
+    m.teams:Select(team and team.id or "none")
+    for _, ch in ipairs(m.classChips) do ch:Hide() end
+    local x = 0
+    local cy = m.classY0 - 70
+    for i, o in ipairs(M:OpenOf(team)) do
+        local ch = m.classChips[i]
+        if not ch then
+            ch = UI:CreateChip(m, { text = o.name, onClick = function(self) M:SetSkipped(self.spec, not M:IsSkipped(self.spec)) end })
+            m.classChips[i] = ch
+        end
+        ch.spec = o.key
+        ch:Set(o.name, nil, nil)
+        ch:SetSelected(not M:IsSkipped(o.key))
+        if x + ch:GetWidth() > MSG_LW then x, cy = 0, cy - 26 end
+        ch:ClearAllPoints()
+        ch:SetPoint("TOPLEFT", x, cy)
+        x = x + ch:GetWidth() + 5
+        ch:Show()
+    end
+    local py = cy - 40
+    m.postHead:ClearAllPoints()
+    m.postHead:SetPoint("TOPLEFT", 0, py)
+    m.post:ClearAllPoints()
+    m.post:SetPoint("TOPLEFT", 0, py - 28)
+    m.again:ClearAllPoints()
+    m.again:SetPoint("LEFT", m.post, "RIGHT", 14, 0)
+    m.againT:ClearAllPoints()
+    m.againT:SetPoint("LEFT", m.again, "RIGHT", 8, 0)
+    m.every:ClearAllPoints()
+    m.every:SetPoint("LEFT", m.againT, "RIGHT", 10, 0)
+    m.every:Select(M:GetEvery())
+    local cx = 0
+    for _, chn in ipairs(M.CHANNELS) do
+        local ch = m.chanChips[chn.key]
+        ch:SetSelected(M:GetChannels()[chn.key] and true or false)
+        ch:ClearAllPoints()
+        ch:SetPoint("TOPLEFT", cx, py - 62)
+        cx = cx + ch:GetWidth() + 5
+    end
+    m.postNote:ClearAllPoints()
+    m.postNote:SetPoint("TOPLEFT", 0, py - 90)
+    local text, n, long = M:Compose()
+    m.prevText:SetText("[2. Trade] [" .. Name(Me()) .. "|cffffbfbf]: " .. (text or S:Wrap("SUB", "(switch a block on)")))
+    m.bytes:SetText((long and S:Wrap("BAD", "too long  ") or "") .. n .. " / " .. M.MAX_LEN)
+    local l = M:Lately()
+    local names = {}
+    for i, r in ipairs(l.came) do
+        if i > 4 then break end
+        names[#names + 1] = Short(r.key)
+    end
+    local lines = {
+        { (l.week == 1 and "Posted once" or ("Posted " .. l.week .. " times")) .. " this week",
+          l.last and ("last " .. date("%a %H:%M", l.last) .. (M:IsRepeating() and (" · next " .. date("%H:%M", M:NextDue())) or "")) or "not posted yet" },
+        { #l.came .. (#l.came == 1 and " person" or " people") .. " whispered after a post", #names > 0 and tconcat(names, ", ") or "nobody yet" },
+        { l.joined .. " joined after a post", "from the people above" },
+    }
+    for i, x2 in ipairs(lines) do
+        m.lately[i][1]:SetText(x2[1])
+        m.lately[i][2]:SetText(x2[2])
+    end
 end
 
 function RU:Refresh()
     if not view or not view:IsShown() and not view.forceRefresh then return end
     local Rc = R()
     view.layout.toolbar:SetText(H.MonthLine())
+    local people = state.view ~= "message"
+    view.layout.toolbar:SelectTab(state.view)
+    view.lc:SetShown(people)
+    view.message:SetShown(not people)
+    if not people then
+        view.detail:Hide()
+        view.empty:Hide()
+        H.FillMessage()
+        return
+    end
     local rows, counts = H.Rows()
     for key, t in pairs(view.tabs) do
         t:SetActive(key == state.filter)
@@ -1119,12 +1312,21 @@ function RU:OnInit()
         ns.MainFrame:RegisterTab("recruit", "Recruitment", 3.577, function(parent) return RU:CreatePanel(parent) end,
             function() return R():CanUse() end, { layout = "listdetail" })
     end
-    for _, e in ipairs({ "RECRUIT_UPDATED", "RECRUIT_RULES_CHANGED", "RAIDPLAN_CHANGED", "GUESTBOOK_CHANGED", "RECRUIT_LIVE" }) do
+    for _, e in ipairs({ "RECRUIT_UPDATED", "RECRUIT_RULES_CHANGED", "RAIDPLAN_CHANGED", "GUESTBOOK_CHANGED", "RECRUIT_LIVE",
+                         "RECRUIT_MSG_CHANGED", "RECRUIT_MSG_POSTED" }) do
         ns:On(e, function()
             if view and view:IsVisible() then ns.Util.Debounce("recruit-ui", 0.1, function() RU:Refresh() end) end
         end)
     end
     ns:On("RECRUIT_INVITE_READY", function(key) RU:InviteReady(key) end)
+    -- the recruitment message is due again: a toast whose click posts it (the game needs a click)
+    ns:On("RECRUIT_MSG_READY", function()
+        UI:Toast({ key = "recruit-msg", title = "Recruitment message", text = "Time to post it again. Click to post.",
+            keepTime = 120, onClick = function()
+                local ok, why = ns.RecruitMessage:Post()
+                if not ok then ns:Print("%s", tostring(why)) end
+            end })
+    end)
     ns:RegisterSlash("recruit", function() RU:Open() end, "open Guild > Recruitment")
 end
 

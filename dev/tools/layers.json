@@ -48,6 +48,7 @@
   "Core/OfficerNotes.lua": 3,
   "Core/Recruit.lua": 3,
   "Core/RecruitIntro.lua": 3,
+  "Core/RecruitMessage.lua": 3,
   "Core/Feedback.lua": 3,
 
   "Core/RaidPlan.lua": 3,
@@ -118,7 +119,7 @@
   ["^Core/(ItemDB|Gems|Currency|Materials|ShoppingList|Atlas|WornGems)\\.lua$", "Items"],
   ["^UI/(Atlas|AtlasShop|Tooltip|GemEditor|Picker)\\.lua$", "Items"],
 
-  ["^Core/(Professions|GuildMap|OfficerNotes|Feedback|Recruit|RecruitIntro)\\.lua$", "Guild"],
+  ["^Core/(Professions|GuildMap|OfficerNotes|Feedback|Recruit|RecruitIntro|RecruitMessage)\\.lua$", "Guild"],
   ["^UI/(Members|GuildMapUI|Feedback|FeedbackSheet)\\.lua$", "Guild"],
 
   ["^Data/(BiSLists|SimItems|SimAPL)\\.lua$", "Gear"],
