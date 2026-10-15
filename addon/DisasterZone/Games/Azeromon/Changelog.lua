@@ -6,6 +6,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.33", date = "15 October 2026", title = "The guild's chronicle",
+      lines = {
+          "A guild raid kill? Goldshire celebrates for a week.",
+          "A town crier by the bounty board cries the kill.",
+          "He also cries echoes, the statue and guildmates' shinies.",
+          "Pennants on the lamp posts, a standard by the statue.",
+          "The townsfolk mention it when you talk to them.",
+          "A toast tells you the news when you arrive.",
+      } },
     { version = "0.32", date = "15 October 2026", title = "Azeroth remembers",
       lines = {
           "Places heal over real days after you win there.",

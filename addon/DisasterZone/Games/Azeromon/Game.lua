@@ -482,6 +482,7 @@ function G:EnterMap(id, x, y, face, silent)
     -- daily routines (Routine.lua): people where the clock puts them, visitors in a room's seats, a stall's hours
     if ns.AzeroRoutine then ns.AzeroRoutine.Enter(self, m) end
     if ns.AzeroAftermath then ns.AzeroAftermath.Covers(m) end            -- (the field's stage; its fence is solid)
+    if ns.AzeroMarks and not silent then ns.AzeroMarks.Arrived(m) end      -- (guild news: a toast, once per kill)
     if not silent then
         self.fade = 0.3
         if m.def.outdoor then
@@ -1265,7 +1266,11 @@ function G:PressA()
         elseif id then
             self:Run(function(g) g:TrainerAgain(npc) end)
         elseif npc.def.script then
-            self:Run(npc.def.script, npc)
+            -- (the week after a guild raid kill, the townsfolk mention it first: Marks.lua)
+            self:Run(function(g, n)
+                if ns.AzeroMarks then ns.AzeroMarks.Gossip(g, n.def) end
+                n.def.script(g, n)
+            end, npc)
         end
         return
     end

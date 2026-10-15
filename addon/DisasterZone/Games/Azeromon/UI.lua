@@ -3929,6 +3929,12 @@ function Amb.Acts(m, px, py)
                     Amb.Pix(px, py, x + d[1] * 16 + 8 + math.sin(age * 6 + k) * 2, y + d[2] * 16 + 4 - age * 16, 1, 1,
                             0.62, 0.88, 0.54, 1 - age * 0.6)
                 end
+            elseif n.act == "cry" then                    -- the crier's hand bell, swinging
+                local sw = math.sin(now * 7) > 0 and 1 or -1
+                local bx, by = x + 12 + sw, y + 6
+                Amb.Pix(px, py, bx, by, 3, 3, 0.86, 0.68, 0.2, 1)
+                Amb.Pix(px, py, bx + 1, by - 1, 1, 1, 0.55, 0.42, 0.12, 1)
+                Amb.Pix(px, py, bx, by + 3, 3, 1, 0.6, 0.45, 0.12, 1)
             elseif n.act == "fish" then
                 for k = 0, 17 do                              -- the line, sagging out over the water, and the bobber
                     Amb.Pix(px, py, x + 12 + k * d[1] + (d[1] == 0 and 8 or 0), y + 6 - math.sin(k / 18 * math.pi) * 6 + k * 0.3,
@@ -4065,7 +4071,9 @@ end
 -- (2 x 2, flames over the logs), drawn behind or in front of the player by their foot.
 Amb.propTex = {}
 function Amb.Props(m, g, px, py)
-    local list = ns.AzeroAftermath and ns.AzeroAftermath.Props(m) or {}
+    local list = {}
+    for _, p in ipairs(ns.AzeroAftermath and ns.AzeroAftermath.Props(m) or {}) do list[#list + 1] = p end
+    for _, p in ipairs(ns.AzeroMarks and ns.AzeroMarks.Props(m) or {}) do list[#list + 1] = p end    -- (the chronicle)
     local n = 0
     local foot = py * 16 + 16
     local function tile(name, tx, ty, layer)
@@ -4088,6 +4096,11 @@ function Amb.Props(m, g, px, py)
         if p.kind == "standard" then
             tile("standard_0_0", p.x, p.y - 1, front)
             tile("standard_0_1", p.x, p.y, front)
+        elseif p.kind == "standard_red" then
+            tile("standard_red_0_0", p.x, p.y - 1, front)
+            tile("standard_red_0_1", p.x, p.y, front)
+        elseif p.kind == "pennant" then                      -- hung from the lamp post's arm
+            tile("pennant", p.x + 9 / 16, p.y + 1 / 16, front)
         elseif p.kind == "bonfire" then
             for dy = 0, 1 do for dx = 0, 1 do tile(string.format("bonfire_%d_%d", dx, dy), p.x + dx, p.y - 1 + dy, front) end end
             tile("flame_" .. (floor(now * 8) % 4), p.x + 0.5, p.y - 1 + 0.5, front)
@@ -4440,6 +4453,7 @@ local function DrawWorld()
             sp.bang:SetPoint("BOTTOM", sp.name, "TOP", 0, -2)
             sp.bang:SetShown(npc.exclaim ~= nil)
             local line = npc.def.says and G:IsFree() and ns.AzeroRoutine and ns.AzeroRoutine.Says(npc.def)
+            if not line and npc.def.shout and npc.act == "cry" and not npc.moving and G:IsFree() then line = npc.def.shout(G) end
             if line then
                 if sp.say.text ~= line then
                     sp.say.text = line

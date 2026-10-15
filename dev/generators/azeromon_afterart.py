@@ -6,16 +6,19 @@
   standard              1 x 2  the People's Militia's blue standard on a pole, stone foot
   bonfire               2 x 2  a ring of stones round a log stack (the harvest feast)
   flame_0 .. flame_3    1 x 1  its flames, four frames drawn over the logs
+  standard_red          1 x 2  the guild's red standard (Goldshire, a week after a raid kill: Marks.lua)
+  pennant               1 x 1  a guild pennant, hung from a lamp post's arm (7 x 12 at the tile's top left)
 
 Used by gen_azeromon_art.py: tiles() -> [(name, 16 x 16 RGBA Image)], appended so earlier slots never move."""
 import numpy as np
 from PIL import Image
 
-from azeromon_props import Spr, H
+from azeromon_props import Spr, H, IRON, RED
 
 SOIL = [(46, 30, 20), (74, 50, 32), (102, 72, 46), (130, 96, 62)]
 WHEAT = [(96, 70, 26), (150, 116, 40), (198, 162, 60), (230, 204, 104)]
 GREEN = [(20, 56, 30), (34, 96, 46), (60, 140, 62), (110, 184, 86)]
+GOLD = [(96, 62, 14), (164, 116, 30), (220, 172, 52), (250, 218, 110), (255, 246, 196)]
 
 # the people sheet's DawnBringer 16 (pixels.py), with the few in-between tones the mockup used
 DB = {"K": (20, 12, 28), "B": (133, 76, 48), "Y": (218, 212, 94), "M": (117, 113, 97), "s": (176, 186, 196),
@@ -60,12 +63,27 @@ FLAMES = [
 ]
 
 
-def grid(rows, w, h, top=0):
+def grid(rows, w, h, top=0, pal=None):
     img = np.zeros((h, w, 4), dtype=np.uint8)
+    pal = dict(DB, **(pal or {}))
     for y, row in enumerate(rows):
         for x, ch in enumerate(row):
             if ch != ".":
-                img[top + y, x] = DB[ch] + (255,)
+                img[top + y, x] = pal[ch] + (255,)
+    return img
+
+
+def pennant():
+    """a guild pennant: red with a gilt lion and a swallowtail, on an iron bar"""
+    s = Spr(7, 12)
+    s.rect(0, 0, 6, 0, IRON[2])
+    s.poly([(0.5, 1), (6.5, 1), (6.5, 11.5), (3.5, 8.5), (0.5, 11.5)], lambda x, y: RED[3] if x < 2 else RED[2] if x < 5 else RED[1])
+    for x, y in ((3, 3), (2, 4), (3, 4), (4, 4), (3, 5), (2, 6), (4, 6)):
+        s.put(x, y, GOLD[3])
+    s.rect(1, 1, 5, 1, GOLD[2])
+    s.outline(0.45)
+    img = np.zeros((16, 16, 4), dtype=np.uint8)
+    img[0:12, 0:7] = np.array(s.image())
     return img
 
 
@@ -106,4 +124,7 @@ def tiles():
     out += cut(grid(BONFIRE, 32, 32), "bonfire", 2, 2)
     for i, f in enumerate(FLAMES):
         out.append(("flame_%d" % i, Image.fromarray(grid(f, 16, 16, top=2), "RGBA")))
+    # the guild's chronicle (0.33, Marks.lua)
+    out += cut(grid(STANDARD, 16, 32, pal={"A": (208, 70, 72), "a": (160, 44, 52)}), "standard_red", 1, 2)
+    out.append(("pennant", Image.fromarray(pennant(), "RGBA")))
     return out

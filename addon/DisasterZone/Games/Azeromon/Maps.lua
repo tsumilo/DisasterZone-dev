@@ -186,6 +186,20 @@ Maps.town = {
           script = function(G)
               G:Say("Billy Maclure: When I grow up I'm gonna tame a dragon whelp! Or a murloc! Mrgllglgl!")
           end },
+        -- The town crier (Marks.lua): only for the week after a guild raid kill. He cries the guild's news by the
+        -- bounty board from eight till eight, then has a drink at the inn.
+        { id = "crier", name = "Town Crier", x = 21, y = 9, sprite = "bald", tint = { 1, 0.75, 0.6 }, face = "down",
+          gossip = false,
+          when = function(G) return ns.AzeroMarks ~= nil and ns.AzeroMarks.CrierOn() end,
+          shout = function(G) return ns.AzeroMarks.CrierLine() end,
+          day = {
+              { "00:00", inside = "post", label = "Asleep at the inn" },
+              { "08:00", path = { { 8, 22 }, { 8, 23 }, { 17, 23 }, { 17, 10 }, { 21, 10 }, { 21, 9 } }, face = "down",
+                act = "cry", label = "Crying the guild's news", walk = "Off to the square" },
+              { "20:00", path = { { 21, 9 }, { 21, 10 }, { 17, 10 }, { 17, 23 }, { 8, 23 }, { 8, 22 } }, enter = "post",
+                label = "A drink at the inn", walk = "Heading to the inn" },
+          },
+          script = function(G) ns.AzeroMarks.CrierTalk(G) end },
         -- Lee Brown fishes the pond from dawn and teaches Fishing; evenings at the inn.
         { id = "leebrown", name = "Lee Brown", role = "profession", x = 34, y = 14, sprite = "bald", tint = { 0.7, 0.85, 0.75 },
           face = "left",      -- Fishing

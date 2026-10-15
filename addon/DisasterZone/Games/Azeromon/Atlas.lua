@@ -813,4 +813,7 @@ ns.AzeroAtlas = {
     flame_1 = 807,
     flame_2 = 808,
     flame_3 = 809,
+    standard_red_0_0 = 810,
+    standard_red_0_1 = 811,
+    pennant = 812,
 }

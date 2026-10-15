@@ -154,5 +154,116 @@ def the_statue_and_markers_draw():
     no_errors(w)
 
 
+PRINCE = 661
+
+
+def kill(c, days_ago, enc=PRINCE):
+    """a guild kill in the raid log (no roster: the log dropped it, so it counts as the guild's)"""
+    c.eval("""local now = GetServerTime()
+      ns.db.raids.ck = { id = 'ck', start = now - %d, stop = now - %d + 7200, zone = 'Karazhan', att = {},
+        bosses = { { enc = %d, ts = now - %d, dur = 245 } } }
+      ns.AzeroHideout.Invalidate()""" % (days_ago * 86400 + 600, days_ago * 86400 + 600, enc, days_ago * 86400))
+
+
+def town(c, hour=12, x=21, y=11, face="up"):
+    c.eval("ns.AzeroMarks.clock = nil ns.Azero.clockHour = %r ns.Azero:EnterMap('town', %d, %d, '%s', true)" % (hour, x, y, face))
+
+
+def npc(c, nid):
+    return c.eval_py("for _, n in ipairs(ns.Azero.npcs) do if n.id == %r then return { x = n.x, y = n.y, hidden = n.hidden == true, act = n.act or false } end end" % nid)
+
+
+def talk_texts(c, x, y, face):
+    c.eval("ns.Azero:EnterMap('town', %d, %d, '%s', true) ns.Azero:PressA()" % (x, y, face))
+    out = []
+    for _ in range(8):
+        p = c.eval_py("local p = ns.Azero.pending return p and { p.kind, p.text }")
+        if not p or p[0] != "text":
+            break
+        out.append(p[1])
+        c.eval("ns.Azero:Advance()")
+    c.eval("ns.Azero.pending = nil ns.Azero.co = nil")
+    return out
+
+
+@case
+def a_guild_raid_kill_brings_the_crier_pennants_and_standard_for_a_week():
+    w, c = solo("Alice", tick=2)
+    c.eval("ns.Azero:NewGame() ns.Azero.started = true ns.db.raids = ns.db.raids or {}")
+    town(c)
+    assert npc(c, "crier")["hidden"] and c.eval_py("return #ns.AzeroMarks.Props(ns.Azero.map)") == 0
+    kill(c, 2)
+    town(c)
+    cr = npc(c, "crier")
+    assert cr == {"x": 21, "y": 9, "hidden": False, "act": "cry"}, cr
+    kinds = c.eval_py("local o = {} for _, p in ipairs(ns.AzeroMarks.Props(ns.Azero.map)) do o[#o + 1] = p.kind end return o")
+    assert kinds.count("pennant") == 6 and kinds.count("standard_red") == 1, kinds
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert news and news[0].startswith("Hear ye! The guild slew ") and news[0].endswith(" in Karazhan!"), news
+    lines = talk_texts(c, 21, 10, "up")
+    assert lines and lines[0] == "Town Crier: " + news[0], lines
+    # the crier's day: the inn at night
+    town(c, hour=23)
+    assert npc(c, "crier")["hidden"]
+    who = c.eval_py("local o = {} for _, e in ipairs(ns.AzeroRoutine.Town('town', 23 * 60)) do o[#o + 1] = e.name .. ':' .. e.where end return o")
+    assert "Town Crier:Lion's Pride Inn" in who, who
+    # eight days on: gone again
+    kill(c, 8)
+    town(c)
+    assert npc(c, "crier")["hidden"] and c.eval_py("return #ns.AzeroMarks.Props(ns.Azero.map)") == 0
+    no_errors(w)
+
+
+@case
+def townsfolk_mention_the_kill_once_each_and_a_toast_says_so_once():
+    w, c = solo("Alice", tick=2)
+    c.eval("ns.Azero:NewGame() ns.Azero.started = true ns.db.raids = ns.db.raids or {}")
+    kill(c, 1)
+    boss = c.eval("return ns.AzeroMarks.RecentKills()[1].name")
+    c.eval("__TOASTS = 0 local real = ns.AzeroAch.Notify ns.AzeroAch.Notify = function(self, t) __TOASTS = __TOASTS + 1 end")
+    c.eval("ns.Azero.clockHour = 12 ns.Azero:EnterMap('town', 20, 18, 'down')")
+    c.eval("ns.Azero:EnterMap('town', 20, 18, 'down')")
+    assert c.eval("return __TOASTS") == 1
+    first = talk_texts(c, 20, 16, "down")                      # Maybell at her stall
+    assert first and boss in first[0] and first[0].startswith("Maybell Maclure: "), first
+    again = talk_texts(c, 20, 16, "down")
+    assert again and boss not in again[0], again
+    no_errors(w)
+
+
+@case
+def the_crier_also_cries_echoes_the_statue_and_shinies():
+    w, c = solo("Alice", tick=2)
+    c.eval("ns.Azero:NewGame() ns.Azero.started = true ns.db.raids = ns.db.raids or {}")
+    kill(c, 1)
+    c.eval("ns.Azero:RaidRareStore().midnight = GetServerTime() + 3600")
+    c.eval("ns.AzeroMarks.AddNews('Grakk tamed a shiny Raptor!')")
+    c.eval("ns.AzeroBounty.Tier = function() return 3 end")
+    news = c.eval_py("return ns.AzeroMarks.News()")
+    assert any(n.startswith("The echo of ") and n.endswith("roams Elwynn Forest!") for n in news), news
+    assert "The statue's done! Gold for the guild this week!" in news, news
+    assert "Hear ye! Grakk tamed a shiny Raptor!" in news, news
+    no_errors(w)
+
+
+@case
+def the_chronicle_draws_in_the_ui():
+    w, c = solo("Alice", tick=2)
+    c.eval(BOT)
+    c.eval("T_AZ.seed(7) ns.Azero:NewGame()")
+    c.slash("/dz play azeromon")
+    w.tick(0.3)
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.3)
+    c.eval("T_AZ.settle() ns.db.raids = ns.db.raids or {}")
+    kill(c, 1)
+    c.eval("ns.AzeroUI.tipsOff = true ns.Azero.clockHour = 12 ns.Azero:EnterMap('town', 21, 11, 'up', true)")
+    for _ in range(6):
+        w.tick(0.2)
+    tiles = c.eval_py("return ns.AzeroUI._PropTiles()") or []
+    assert "pennant" in tiles and "standard_red_0_1" in tiles, tiles
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

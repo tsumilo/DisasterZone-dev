@@ -431,6 +431,7 @@ local function OnNews(sender, msg)
     if not (fmt and sp) then return end
     local text = string.format(fmt, ns.Util.ShortName(sender, true), sp.name)
     GB.lastNews = text
+    if ns.AzeroMarks and ns.AzeroMarks.AddNews then ns.AzeroMarks.AddNews(text) end   -- (the crier cries it too)
     ns:Print("|cffffd200Azeromon:|r %s", text)
     if G.started then G.banner = { text = text, t = 4, total = 4 } end
 end
