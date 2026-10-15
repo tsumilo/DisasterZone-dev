@@ -724,7 +724,8 @@ function RU:CreatePanel(parent)
     local L = UI:CreateLayout("listdetail", v, { listWidth = LIST_W, width = S.PAGE_W,
         banner = { size = "hero", artFw = 0.98, artUnder = true } })
     v.layout = L
-    L.toolbar:SetTabs({ { key = "people", text = "People" }, { key = "message", text = "Message" }, selected = "people" },
+    L.toolbar:SetTabs({ { key = "people", text = "People" }, { key = "message", text = "Message" }, { key = "post", text = "Posting" },
+        selected = "people" },
         function(key) RU:SetView(key) end)
     L.toolbar:SetPrimary({ text = "Add someone", icon = UI.ICON.plus, onClick = function() RU:AddByName() end })
     local lc = L.list
@@ -778,33 +779,213 @@ function RU:CreatePanel(parent)
 end
 
 ---------------------------------------------------------------------------
--- Message (Core/RecruitMessage.lua): blocks, the classes from a team, posting; how it reads in Trade, lately
+-- Message (Core/RecruitMessage.lua). Two tabs on the left, one column on the right:
+--   Message: the parts as chips in their order (gold while on; click to pick one, drag to move it, right-click for
+--     its menu), "+ Add a part", the picked part's editor (your words; or the team, specs / classes and the open places
+--     to leave out; or the team's nights), and what joins the parts.
+--   Posting: the places, each on / off with its interval (seconds or minutes) and Cities only, when it's next due;
+--     the reminder; how posting works (a click or the bound key).
+--   Right: the message as it reads in chat, its length, Post now; lately.
 ---------------------------------------------------------------------------
 
 local MSG_LW = 450
 local ROW_H = 30
+local CHIP_GAP = 6
 
--- One place's row: on/off, its name, "every [n] min", Cities only, when it's next due, remove.
+local function M() return ns.RecruitMessage end
+
+-- The picked part (state.part, else the first).
+function H.PickedPart(parts)
+    for _, p in ipairs(parts) do if p.id == state.part then return p end end
+    state.part = parts[1] and parts[1].id or nil
+    return parts[1]
+end
+
+function H.PartLabel(p)
+    if p.k == "text" then
+        local t = ns.Util.Trim(p.t or "") or ""
+        if t == "" then return "Your words (empty)" end
+        return "\"" .. (#t > 24 and (t:sub(1, 22) .. "...") or t) .. "\""
+    elseif p.k == "need" then return "Classes: " .. (p.teamName or "team gone")
+    elseif p.k == "nights" then return "Nights: " .. (p.teamName or "team gone") end
+    return p.label
+end
+
+-- "+ Add a part": your words, the guild's name, the classes a team needs (a team or every team), a team's nights.
+function H.AddPartMenu(owner)
+    local teams = R():GetTeams()
+    local function added(ok, id)
+        if H.Try(ok, id) then state.part = id end
+        RU:Refresh()
+    end
+    UI:ContextMenu(owner, function(root)
+        root:CreateTitle("Add a part")
+        root:CreateButton(M().KINDS.text.label, function()
+            added(M():AddPart("text"))
+            if view and view.message then view.message.w.words:SetFocus() end
+        end)
+        root:CreateButton(M().KINDS.tag.label, function() added(M():AddPart("tag")) end)
+        root:CreateDivider()
+        if #teams == 0 then
+            root:CreateButton(S:Wrap("DIM", "Classes and nights need a team (Raids > Teams)"), function() end)
+            return
+        end
+        local need = root:CreateButton(M().KINDS.need.label)
+        for _, t in ipairs(teams) do
+            need:CreateButton(t.name, function() added(M():AddPart("need", { team = t.id })) end)
+        end
+        need:CreateDivider()
+        need:CreateButton("Every team", function() added(M():AddPart("need", { team = "all" })) end)
+        local nights = root:CreateButton(M().KINDS.nights.label)
+        for _, t in ipairs(teams) do
+            nights:CreateButton(t.name, function() added(M():AddPart("nights", { team = t.id })) end)
+        end
+    end)
+end
+
+function H.PartMenu(owner, id)
+    local p = M():GetPart(id)
+    if not p then return end
+    local _, i = M():GetPart(id)
+    local n = #M():GetParts()
+    UI:ContextMenu(owner, function(root)
+        root:CreateTitle(M().KINDS[p.k].label)
+        root:CreateButton(p.off and "Put it back in" or "Leave it out", function() M():SetPart(id, { on = p.off and true or false }) end)
+        if i > 1 then root:CreateButton("Move left", function() M():MovePart(id, i - 1) end) end
+        if i < n then root:CreateButton("Move right", function() M():MovePart(id, i + 1) end) end
+        root:CreateDivider()
+        root:CreateButton(S:Wrap("BAD", "Remove"), function() M():RemovePart(id) end)
+    end)
+end
+
+function H.TeamMenu(owner, p)
+    UI:ContextMenu(owner, function(root)
+        root:CreateTitle("Which team")
+        for _, t in ipairs(R():GetTeams()) do
+            root:CreateButton((p.team == t.id and S:Wrap("GOLD", t.name)) or t.name, function() M():SetPart(p.id, { team = t.id }) end)
+        end
+        if p.k == "need" then
+            root:CreateDivider()
+            root:CreateButton(p.team == "all" and S:Wrap("GOLD", "Every team") or "Every team",
+                function() M():SetPart(p.id, { team = "all" }) end)
+        end
+    end)
+end
+
+-- Where a dragged chip lands: its index in the order, and the chip it goes before (nil: at the end).
+function H.DropAt(w)
+    local x, y = GetCursorPosition()
+    local scale = w:GetEffectiveScale()
+    x, y = x / scale, y / scale
+    local best, bestD, before
+    for i, c in ipairs(w.chips) do
+        if c:IsShown() and c.partId then
+            local l, b, cw, ch = c:GetRect()
+            if l then
+                local cx, cy = l + cw / 2, b + ch / 2
+                local d = math.abs(cy - y) * 4 + math.abs(cx - x)
+                if not bestD or d < bestD then
+                    bestD = d
+                    best = (x < cx) and i or i + 1
+                    before = (x < cx) and c or w.chips[i + 1]
+                    if before and not before:IsShown() then before = nil end
+                end
+            end
+        end
+    end
+    return best, before
+end
+
+function H.PartChip(w, i)
+    local c = w.chips[i]
+    if c then return c end
+    c = UI:CreateChip(w, { kind = "track", onClick = function(self, button)
+        if w.drag then return end
+        if button == "RightButton" then
+            H.PartMenu(self, self.partId)
+        else
+            state.part = self.partId
+            RU:Refresh()
+        end
+    end })
+    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    c:RegisterForDrag("LeftButton")
+    c:SetScript("OnDragStart", function(self)
+        w.drag = self.partId
+        self:SetAlpha(0.45)
+        w:SetScript("OnUpdate", function()
+            local _, before = H.DropAt(w)
+            w.dropBar:ClearAllPoints()
+            if before then
+                w.dropBar:SetPoint("RIGHT", before, "LEFT", -2, 0)
+            else
+                local last
+                for _, x in ipairs(w.chips) do if x:IsShown() then last = x end end
+                if last then w.dropBar:SetPoint("LEFT", last, "RIGHT", 2, 0) end
+            end
+            w.dropBar:Show()
+        end)
+    end)
+    c:SetScript("OnDragStop", function(self)
+        w:SetScript("OnUpdate", nil)
+        w.dropBar:Hide()
+        local to = H.DropAt(w)
+        local id = w.drag
+        w.drag = nil
+        if id and to then
+            local from
+            for j, x in ipairs(w.chips) do if x.partId == id then from = j end end
+            if from and to > from then to = to - 1 end
+            M():MovePart(id, to)
+        end
+        RU:Refresh()
+    end)
+    UI:AttachTooltip(c, nil, function(self)
+        local p = M():GetPart(self.partId)
+        if not p then return nil end
+        local said = M():PartText(p)
+        return { M().KINDS[p.k].label, said and ("Says: " .. said) or S:Wrap("SUB", "Says nothing now."),
+                 S:Wrap("SUB", "Click to change it. Drag to move it. Right-click: leave out, move, remove.") }
+    end, { anchor = "ANCHOR_TOP" })
+    w.chips[i] = c
+    return c
+end
+
+-- A "leave out" chip of a Classes part: one open place (spec or class).
+function H.EntryChip(w, i)
+    local c = w.entries[i]
+    if c then return c end
+    c = UI:CreateChip(w, { kind = "track", onClick = function(self)
+        if w.partId and self.entryKey then M():SetPart(w.partId, { skip = self.entryKey }) end
+    end })
+    UI:AttachTooltip(c, nil, function(self)
+        return { self.entryName or "", S:Wrap("SUB", self.skipped and "Left out: click to put it back in." or
+            "In the message: click to leave it out.") }
+    end, { anchor = "ANCHOR_TOP" })
+    w.entries[i] = c
+    return c
+end
+
+-- One place's row: on/off, its name, "every [n] [s | min]", Cities, when it's next due, remove.
 function H.PlaceRow(m, i)
     local row = m.rows[i]
     if row then return row end
-    local M = ns.RecruitMessage
     row = CreateFrame("Frame", nil, m.placesHost)
     row:SetSize(MSG_LW, ROW_H)
     row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_H)
     UI:Rule(row, { bottom = 0, alpha = 0.06 })
-    row.sw = UI:CreateSwitch(row, function() local p = row.id and M:GetPlace(row.id) return p and p.on or false end,
+    row.sw = UI:CreateSwitch(row, function() local p = row.id and M():GetPlace(row.id) return p and p.on or false end,
         function(a, b)
             if type(a) == "table" then a = b end
-            if row.id then M:SetPlace(row.id, { on = a }) end
+            if row.id then M():SetPlace(row.id, { on = a }) end
         end)
     row.sw:SetPoint("LEFT", 0, 0)
     row.name = UI:Text(row, "body", "TEXT")
     row.name:SetPoint("LEFT", row.sw, "RIGHT", 8, 0)
-    row.name:SetWidth(118)
+    row.name:SetWidth(112)
     row.name:SetJustifyH("LEFT")
     row.every = UI:Text(row, "small", "SUB")
-    row.every:SetPoint("LEFT", 168, 0)
+    row.every:SetPoint("LEFT", 160, 0)
     row.every:SetText("every")
     row.box = UI:CreateSleekEditBox(row, 40, 20, "GameFontHighlightSmall")
     row.box:SetPoint("LEFT", row.every, "RIGHT", 5, 0)
@@ -812,107 +993,154 @@ function H.PlaceRow(m, i)
     row.box:SetMaxLetters(3)
     if row.box.SetNumeric then row.box:SetNumeric(true) end
     local function save(self)
-        if row.id then M:SetPlace(row.id, { every = tonumber(self:GetText()) }) end
-        self:ClearFocus()
+        local p = row.id and M():GetPlace(row.id)
+        local n = tonumber(self:GetText())
+        if p and n then M():SetPlace(row.id, { every = n * ((p.u or "m") == "m" and 60 or 1) }) end
     end
-    row.box:SetScript("OnEnterPressed", save)
-    row.box:HookScript("OnEditFocusLost", function(self) if row.id then M:SetPlace(row.id, { every = tonumber(self:GetText()) }) end end)
-    row.min = UI:Text(row, "small", "SUB")
-    row.min:SetPoint("LEFT", row.box, "RIGHT", 5, 0)
-    row.min:SetText("min")
-    row.city = UI:CreateCheckbox(row, "Cities only", function() local p = row.id and M:GetPlace(row.id) return p and p.city or false end,
+    row.box:SetScript("OnEnterPressed", function(self) save(self); self:ClearFocus() end)
+    row.box:HookScript("OnEditFocusLost", save)
+    row.unit = UI:CreateSegments(row, { { key = "s", label = "s" }, { key = "m", label = "min" } }, function(key)
+        local p = row.id and M():GetPlace(row.id)
+        if not p then return end
+        local n = tonumber(row.box:GetText()) or 1
+        M():SetPlace(row.id, { u = key, every = n * (key == "m" and 60 or 1) })
+    end, { h = 20, itemW = 32 })
+    row.unit:SetPoint("LEFT", row.box, "RIGHT", 5, 0)
+    UI:AttachTooltip(row.unit, "Seconds or minutes", { "30 seconds at the least, 12 hours at the most." })
+    row.city = UI:CreateCheckbox(row, "Cities", function() local p = row.id and M():GetPlace(row.id) return p and p.city or false end,
         function(a, b)
             if type(a) == "table" then a = b end
-            if row.id then M:SetPlace(row.id, { city = a }) end
+            if row.id then M():SetPlace(row.id, { city = a }) end
         end)
-    row.city:SetPoint("LEFT", 278, 0)
+    row.city:SetPoint("LEFT", 316, 0)
     UI:AttachTooltip(row.city, "Major cities only", { "Posts only while you're in a capital: Stormwind, Orgrimmar, "
         .. "Shattrath and the others." })
     row.next = UI:Text(row, "small", "DIM", { justify = "RIGHT" })
     row.next:SetPoint("RIGHT", -24, 0)
     row.del = UI:CreateRemoveButton(row, "Remove this place")
     row.del:SetPoint("RIGHT", 0, 0)
-    row.del:SetScript("OnClick", function() if row.id then M:RemovePlace(row.id) end end)
+    row.del:SetScript("OnClick", function() if row.id then M():RemovePlace(row.id) end end)
     m.rows[i] = row
     return row
 end
 
 function H.AddPlaceMenu(owner)
-    local M = ns.RecruitMessage
     UI:ContextMenu(owner, function(root)
         root:CreateTitle("Add a place")
         local have = {}
-        for _, p in ipairs(M:GetPlaces()) do have[p.id] = true end
+        for _, p in ipairs(M():GetPlaces()) do have[p.id] = true end
         local seen = {}
         local function add(kind, name, note)
             local id = kind == "CHANNEL" and ("ch:" .. name:lower()) or kind:lower()
             if have[id] or seen[id] then return end
             seen[id] = true
-            root:CreateButton(name .. (note and S:Wrap("SUB", "  " .. note) or ""), function() H.Try(M:AddPlace(kind, name)) end)
+            root:CreateButton(name .. (note and S:Wrap("SUB", "  " .. note) or ""), function() H.Try(M():AddPlace(kind, name)) end)
         end
-        for _, s in ipairs(M.SUGGESTED) do add(s.kind, s.name) end
-        local joined = M:JoinedChannels()
+        for _, s in ipairs(M().SUGGESTED) do add(s.kind, s.name) end
+        local joined = M():JoinedChannels()
         if #joined > 0 then root:CreateDivider() end
         for _, name in ipairs(joined) do add("CHANNEL", name, "you're in it") end
         root:CreateDivider()
         root:CreateButton("Another channel...", function()
             ns.Popup:Prompt({ title = "A channel", text = "The channel's name, as in /join.", maxLetters = 32, trim = true,
-                validate = function(v) return v ~= "" end, onAccept = function(v) H.Try(M:AddPlace("CHANNEL", v)) end })
+                validate = function(v) return v ~= "" end, onAccept = function(v) H.Try(M():AddPlace("CHANNEL", v)) end })
         end)
     end)
 end
 
-function H.CreateMessage(v)
-    local M = ns.RecruitMessage
-    local m = CreateFrame("Frame", nil, v)
-    m:SetPoint("TOPLEFT", S.PAD, -36)
-    m:SetPoint("BOTTOMRIGHT", -S.PAD, 4)
-    m.textHead = UI:CreateSectionHeader(m, "Your message", { style = "caps", rule = true })
-    m.textHead:SetPoint("TOPLEFT", 0, 0)
-    m.textHead:SetWidth(MSG_LW)
-    m.area = UI:CreateTextArea(m, 84, { width = MSG_LW - 24 })
-    m.area:SetPoint("TOPLEFT", 0, -24)
-    m.area:SetWidth(MSG_LW)
-    m.area.eb:SetMaxLetters(400)
-    m.area.eb:SetScript("OnTextChanged", function(self, user)
-        if user then
-            M:SetText(self:GetText())
-            if view and view.message then H.FillPreview() end
-        end
+function H.PostNow()
+    local ok, why, skipped = M():Post()
+    if not ok then ns:Print("%s", tostring(why))
+    elseif skipped and #skipped > 0 then ns:Print("Not posted: %s", table.concat(skipped, "; ")) end
+end
+
+function H.CreateWrite(m)
+    local w = CreateFrame("Frame", nil, m)
+    w:SetPoint("TOPLEFT", 0, 0)
+    w:SetSize(MSG_LW, 400)
+    w.head = UI:CreateSectionHeader(w, "Your message", { style = "caps", rule = true,
+        action = { text = "+ Add a part", onClick = function(self) H.AddPartMenu(self) end,
+                   tip = { "Add a part", "Your own words, or a helper that fills in the facts: the guild's name, the "
+                       .. "classes a team still needs, a team's raid nights." } } })
+    w.head:SetPoint("TOPLEFT", 0, 0)
+    w.head:SetWidth(MSG_LW)
+    w.chips, w.entries = {}, {}
+    w.dropBar = w:CreateTexture(nil, "OVERLAY")
+    w.dropBar:SetColorTexture(S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 1)
+    w.dropBar:SetSize(2, 20)
+    w.dropBar:Hide()
+    w.empty = UI:Text(w, "body", "SUB", { wrap = true, width = MSG_LW })
+    w.empty:SetText("Nothing yet. + Add a part: your own words, and helpers that fill in the facts for you (the "
+        .. "guild's name, the classes a team still needs, a team's raid nights). They go out in the order you put them.")
+    w.edHead = UI:CreateSectionHeader(w, "", { style = "caps", rule = true,
+        action = { text = "Remove", onClick = function() if w.partId then M():RemovePart(w.partId) end end,
+                   tip = { "Remove", "Takes this part out of the message." } } })
+    w.edHead:SetWidth(MSG_LW)
+    w.words = UI:CreateSleekEditBox(w, MSG_LW, 24, "GameFontHighlightSmall")
+    w.words:SetMaxLetters(200)
+    UI:SetEditPlaceholder(w.words, "Your words, as they should read in chat")
+    w.words:SetScript("OnTextChanged", function(self, user)
+        if user and w.partId then M():SetPart(w.partId, { t = self:GetText() }) end
     end)
-    m.count = UI:Text(m, "small", "SUB", { justify = "RIGHT" })
-    m.count:SetPoint("TOPRIGHT", m.area, "BOTTOMRIGHT", 0, -3)
-    m.hint = UI:Text(m, "small", "DIM")
-    m.hint:SetPoint("TOPLEFT", m.area, "BOTTOMLEFT", 0, -3)
-    m.hint:SetText("One chat line: write it the way you want it to read.")
-    m.placesHead = UI:CreateSectionHeader(m, "Where and how often", { style = "caps", rule = true,
+    w.words:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    w.team = UI:CreateSleekButton(w, "Team", 170, 22, function(self)
+        local p = w.partId and M():GetPart(w.partId)
+        if p then H.TeamMenu(self, p) end
+    end, "secondary")
+    w.by = UI:CreateSegments(w, { { key = "spec", label = "Specs" }, { key = "class", label = "Classes" } }, function(key)
+        if w.partId then M():SetPart(w.partId, { by = key }) end
+    end, { h = 22, itemW = 64 })
+    w.info = UI:Text(w, "small", "SUB", { wrap = true, width = MSG_LW })
+    w.sepHead = UI:CreateSectionHeader(w, "Join the parts with", { style = "caps", rule = true })
+    w.sepHead:SetWidth(MSG_LW)
+    local items = {}
+    for _, s in ipairs(M().SEPS) do items[#items + 1] = { key = s.key, label = s.label } end
+    w.sep = UI:CreateSegments(w, items, function(key) M():SetSep(key) end, { h = 22, itemW = 56 })
+    return w
+end
+
+function H.CreatePosting(m)
+    local p = CreateFrame("Frame", nil, m)
+    p:SetPoint("TOPLEFT", 0, 0)
+    p:SetSize(MSG_LW, 400)
+    m.placesHead = UI:CreateSectionHeader(p, "Where and how often", { style = "caps", rule = true,
         action = { text = "+ Add a place", onClick = function(self) H.AddPlaceMenu(self) end,
                    tip = { "Add a place", "Say, Yell, a channel (Trade, General, LookingForGroup, GuildRecruitment...) or "
                        .. "any channel you're in." } } })
-    m.placesHead:SetPoint("TOPLEFT", 0, -24 - 84 - 26)
+    m.placesHead:SetPoint("TOPLEFT", 0, 0)
     m.placesHead:SetWidth(MSG_LW)
-    m.placesHost = CreateFrame("Frame", nil, m)
+    m.placesHost = CreateFrame("Frame", nil, p)
     m.placesHost:SetPoint("TOPLEFT", m.placesHead, "BOTTOMLEFT", 0, -2)
     m.placesHost:SetSize(MSG_LW, ROW_H)
     m.rows = {}
     m.noPlaces = UI:Text(m.placesHost, "body", "SUB")
     m.noPlaces:SetPoint("TOPLEFT", 0, -6)
     m.noPlaces:SetText("No place yet: + Add a place.")
-    m.post = UI:CreateSleekButton(m, "Post now", 110, S.BTN_H, function()
-        local ok, why, skipped = M:Post()
-        if not ok then ns:Print("%s", tostring(why))
-        elseif skipped and #skipped > 0 then ns:Print("Not posted: %s", table.concat(skipped, "; ")) end
-    end, "primary")
-    m.again = UI:CreateSwitch(m, function() return M:IsRepeating() end, function(a, b)
+    m.again = UI:CreateSwitch(p, function() return M():IsRepeating() end, function(a, b)
         if type(a) == "table" then a = b end
-        M:SetRepeat(a)
+        M():SetRepeat(a)
     end)
-    m.againT = UI:Text(m, "body", "TEXT")
+    m.againT = UI:Text(p, "body", "TEXT")
     m.againT:SetText("Remind me when a place is due")
-    m.postNote = UI:Text(m, "small", "SUB", { wrap = true, width = MSG_LW })
-    m.postNote:SetText("The game posts only from a click: Post now, or the reminder's click when a place is due. "
-        .. "Officers take turns per place.")
-    -- right: how it reads, and lately
+    m.postNote = UI:Text(p, "small", "SUB", { wrap = true, width = MSG_LW })
+    -- the due times count down
+    p.elapsed = 0
+    p:SetScript("OnUpdate", function(self, dt)
+        self.elapsed = self.elapsed + dt
+        if self.elapsed < 1 then return end
+        self.elapsed = 0
+        H.FillDue()
+    end)
+    return p
+end
+
+function H.CreateMessage(v)
+    local m = CreateFrame("Frame", nil, v)
+    m:SetPoint("TOPLEFT", S.PAD, -36)
+    m:SetPoint("BOTTOMRIGHT", -S.PAD, 4)
+    m.w = H.CreateWrite(m)
+    m.p = H.CreatePosting(m)
+    -- right: how it reads, Post now, lately
     local RX = MSG_LW + 20
     local RW = S.INNER_W - RX
     m.prevHead = UI:CreateSectionHeader(m, "In chat", { style = "caps", rule = true })
@@ -922,13 +1150,17 @@ function H.CreateMessage(v)
     m.prev:SetPoint("TOPLEFT", RX, -24)
     m.prevText = UI:Text(m.prev.body, "body", { 1, 0.75, 0.75 }, { wrap = true, width = RW - 2 * S.IN })
     m.prevText:SetPoint("TOPLEFT", 0, 0)
+    m.count = UI:Text(m, "small", "SUB", { justify = "RIGHT" })
+    m.count:SetPoint("TOPRIGHT", m.prev, "BOTTOMRIGHT", 0, -10)
+    m.post = UI:CreateSleekButton(m, "Post now", 110, S.BTN_H, function() H.PostNow() end, "primary")
+    m.post:SetPoint("TOPLEFT", m.prev, "BOTTOMLEFT", 0, -6)
     m.latelyHead = UI:CreateSectionHeader(m, "Lately", { style = "caps", rule = true })
-    m.latelyHead:SetPoint("TOPLEFT", RX, -24 - 96 - 26)
+    m.latelyHead:SetPoint("TOPLEFT", m.post, "BOTTOMLEFT", 0, -18)
     m.latelyHead:SetWidth(RW)
     m.lately = {}
     for i = 1, 3 do
         local a = UI:Text(m, "body", "TEXT")
-        a:SetPoint("TOPLEFT", RX, -24 - 96 - 26 - 26 - (i - 1) * 38)
+        a:SetPoint("TOPLEFT", m.latelyHead, "BOTTOMLEFT", 0, -6 - (i - 1) * 38)
         local b = UI:Text(m, "small", "DIM", { wrap = true, width = RW })
         b:SetPoint("TOPLEFT", a, "BOTTOMLEFT", 0, -2)
         m.lately[i] = { a, b }
@@ -938,26 +1170,136 @@ function H.CreateMessage(v)
 end
 
 function H.FillPreview()
-    local M = ns.RecruitMessage
     local m = view.message
-    local text, n, long = M:Compose()
-    m.prevText:SetText("[2. Trade] [" .. Name(Me()) .. "|cffffbfbf]: " .. (text or S:Wrap("SUB", "(write your message)")))
-    m.count:SetText((long and S:Wrap("BAD", "too long  ") or "") .. n .. " / " .. M.MAX_LEN)
+    local text, n, long = M():Compose()
+    m.prevText:SetText("[2. Trade] [" .. Name(Me()) .. "|cffffbfbf]: " .. (text or S:Wrap("SUB", "(add a part to the message)")))
+    m.prev:SetHeight(math.max(60, (m.prevText:GetStringHeight() or 14) + 2 * S.IN + 4))
+    m.count:SetText((long and S:Wrap("BAD", "too long  ") or "") .. n .. " / " .. M().MAX_LEN)
+    m.post:SetEnabled(text ~= nil and not long)
 end
 
 function H.Due(at)
     local d = at - ns.Util.Now()
     if d <= 0 then return S:Wrap("OK", "due now") end
-    if d < 3600 then return "in " .. math.max(1, floor(d / 60)) .. " min" end
+    if d < 60 then return "in " .. d .. " s" end
+    if d < 3600 then return "in " .. math.ceil(d / 60) .. " min" end
     return "at " .. date("%H:%M", at)
 end
 
-function H.FillMessage()
-    local M = ns.RecruitMessage
+function H.FillDue()
+    local m = view and view.message
+    if not (m and m:IsVisible()) then return end
+    for _, row in ipairs(m.rows) do
+        local p = row:IsShown() and row.id and M():GetPlace(row.id)
+        if p then
+            local why = M():Blocker(p)
+            row.next:SetText(not p.on and S:Wrap("DIM", "off") or why and S:Wrap("WARN", why == "only in major cities"
+                and "not in a city" or "not joined") or H.Due(M():NextDue(p.id)))
+        end
+    end
+end
+
+-- The Message tab: chips, the picked part's editor, the separator.
+function H.FillWrite()
+    local w = view.message.w
+    local parts = M():GetParts()
+    local pick = H.PickedPart(parts)
+    local y = 26
+    local cx, cy = 0, y
+    for _, c in ipairs(w.chips) do c:Hide() end
+    for i, p in ipairs(parts) do
+        local c = H.PartChip(w, i)
+        c.partId = p.id
+        local says = p.on and p.text ~= nil
+        c:Set(H.PartLabel(p), says and S.C.GOLD or nil)
+        c:SetSelected(pick and pick.id == p.id)
+        c:SetAlpha(p.on and 1 or 0.45)
+        if cx > 0 and cx + c:GetWidth() > MSG_LW then cx, cy = 0, cy + 26 end
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", w, "TOPLEFT", cx, -cy)
+        c:Show()
+        cx = cx + c:GetWidth() + CHIP_GAP
+    end
+    w.empty:SetShown(#parts == 0)
+    w.empty:ClearAllPoints()
+    w.empty:SetPoint("TOPLEFT", 0, -y)
+    y = (#parts == 0) and (y + (w.empty:GetStringHeight() or 28) + 16) or (cy + 34)
+    -- the editor
+    w.partId = pick and pick.id or nil
+    w.edHead:SetShown(pick ~= nil)
+    w.words:SetShown(pick ~= nil and pick.k == "text")
+    w.team:SetShown(pick ~= nil and (pick.k == "need" or pick.k == "nights"))
+    w.by:SetShown(pick ~= nil and pick.k == "need")
+    w.info:SetShown(pick ~= nil and pick.k ~= "text")
+    for _, c in ipairs(w.entries) do c:Hide() end
+    if pick then
+        w.edHead:ClearAllPoints()
+        w.edHead:SetPoint("TOPLEFT", 0, -y)
+        w.edHead:SetTitle(M().KINDS[pick.k].label .. (pick.on and "" or "  (left out)"))
+        y = y + 26
+        if pick.k == "text" then
+            w.words:ClearAllPoints()
+            w.words:SetPoint("TOPLEFT", 0, -y)
+            if not w.words:HasFocus() then w.words:SetText(pick.t or "") end
+            y = y + 32
+        elseif pick.k == "tag" then
+            w.info:ClearAllPoints()
+            w.info:SetPoint("TOPLEFT", 0, -y)
+            w.info:SetText(pick.text and ("Says " .. S:Wrap("TEXT", pick.text) .. ": the guild's name, as the game has it.")
+                or "Says nothing: you're not in a guild.")
+            y = y + (w.info:GetStringHeight() or 14) + 10
+        else
+            w.team:ClearAllPoints()
+            w.team:SetPoint("TOPLEFT", 0, -y)
+            w.team:SetText((pick.teamName and (pick.team == "all" and "Every team" or pick.teamName) or "Pick a team") .. "  v")
+            if pick.k == "need" then
+                w.by:ClearAllPoints()
+                w.by:SetPoint("LEFT", w.team, "RIGHT", 10, 0)
+                w.by:Select(pick.by)
+            end
+            y = y + 30
+            local info
+            if pick.k == "nights" then
+                info = pick.text and ("Says " .. S:Wrap("TEXT", pick.text) .. ", from the team's raid nights.")
+                    or "Says nothing: the team has no raid nights yet (Raids > Teams)."
+            else
+                local list = M():NeedList(M():GetPart(pick.id))
+                local ex, ey = 0, y
+                for i, e in ipairs(list) do
+                    local c = H.EntryChip(w, i)
+                    c.entryKey, c.entryName, c.skipped = e.key, e.name, e.skip
+                    c:Set(e.name, nil, e.c)
+                    c:SetSelected(not e.skip)
+                    c:SetAlpha(e.skip and 0.45 or 1)
+                    if ex > 0 and ex + c:GetWidth() > MSG_LW then ex, ey = 0, ey + 24 end
+                    c:ClearAllPoints()
+                    c:SetPoint("TOPLEFT", w, "TOPLEFT", ex, -ey)
+                    c:Show()
+                    ex = ex + c:GetWidth() + CHIP_GAP
+                end
+                if #list > 0 then y = ey + 28 end
+                info = #list == 0 and "Says nothing: nothing is open in the comp (Raids > Teams > Comp)."
+                    or "Open in the comp now; it follows the comp as it changes. Click one to leave it out."
+            end
+            w.info:ClearAllPoints()
+            w.info:SetPoint("TOPLEFT", 0, -y)
+            w.info:SetText(info)
+            y = y + (w.info:GetStringHeight() or 14) + 10
+        end
+    end
+    -- what joins them
+    y = y + 6
+    w.sepHead:ClearAllPoints()
+    w.sepHead:SetPoint("TOPLEFT", 0, -y)
+    w.sep:ClearAllPoints()
+    w.sep:SetPoint("TOPLEFT", 0, -(y + 26))
+    w.sep:Select(M():GetSep())
+end
+
+-- The Posting tab: the places, the reminder, how posting works.
+function H.FillPosting()
     local m = view.message
-    if not m.area.eb:HasFocus() then m.area.eb:SetText(M:GetText()) end
-    H.FillPreview()
-    local places = M:GetPlaces()
+    local places = M():GetPlaces()
     for _, r in ipairs(m.rows) do r:Hide() end
     for i, p in ipairs(places) do
         local row = H.PlaceRow(m, i)
@@ -965,25 +1307,36 @@ function H.FillMessage()
         row.sw:Refresh()
         row.city:SetChecked(p.city)
         row.name:SetText(p.kind == "CHANNEL" and p.name or S:Wrap("GOLD", "/" .. p.name:lower()))
-        if not row.box:HasFocus() then row.box:SetText(tostring(p.every)) end
-        local why = M:Blocker(p)
-        row.next:SetText(not p.on and S:Wrap("DIM", "off") or why and S:Wrap("WARN", why == "only in major cities" and "not in a city" or "not joined")
-            or H.Due(M:NextDue(p.id)))
+        if not row.box:HasFocus() then row.box:SetText(tostring(p.u == "s" and p.every or floor(p.every / 60))) end
+        row.unit:Select(p.u)
         row:SetAlpha(p.on and 1 or 0.6)
         row:Show()
     end
     m.noPlaces:SetShown(#places == 0)
-    local h = math.max(1, #places) * ROW_H
-    m.placesHost:SetHeight(h)
-    m.post:ClearAllPoints()
-    m.post:SetPoint("TOPLEFT", m.placesHost, "BOTTOMLEFT", 0, -14)
+    m.placesHost:SetHeight(math.max(1, #places) * ROW_H)
     m.again:ClearAllPoints()
-    m.again:SetPoint("LEFT", m.post, "RIGHT", 14, 0)
+    m.again:SetPoint("TOPLEFT", m.placesHost, "BOTTOMLEFT", 0, -16)
+    m.again:Refresh()
     m.againT:ClearAllPoints()
     m.againT:SetPoint("LEFT", m.again, "RIGHT", 8, 0)
+    local key = H.KeyText()
     m.postNote:ClearAllPoints()
-    m.postNote:SetPoint("TOPLEFT", m.post, "BOTTOMLEFT", 0, -10)
-    local l = M:Lately()
+    m.postNote:SetPoint("TOPLEFT", m.again, "BOTTOMLEFT", 0, -10)
+    m.postNote:SetText("The game posts in channels only from a click or a key: Post now, the reminder's click when a "
+        .. "place is due, or " .. (key and ("your key, " .. S:Wrap("GOLD", key)) or
+        "a key you bind in Key Bindings > AddOns > DisasterZone") .. " (it posts to the places that are due). "
+        .. "Officers take turns per place.")
+    H.FillDue()
+end
+
+function H.FillMessage()
+    local m = view.message
+    local write = state.view == "message"
+    m.w:SetShown(write)
+    m.p:SetShown(not write)
+    if write then H.FillWrite() else H.FillPosting() end
+    H.FillPreview()
+    local l = M():Lately()
     local names = {}
     for i, r in ipairs(l.came) do
         if i > 4 then break end
@@ -1005,7 +1358,7 @@ function RU:Refresh()
     if not view or not view:IsShown() and not view.forceRefresh then return end
     local Rc = R()
     view.layout.toolbar:SetText(H.MonthLine())
-    local people = state.view ~= "message"
+    local people = state.view == "people"
     view.layout.toolbar:SelectTab(state.view)
     view.lc:SetShown(people)
     view.message:SetShown(not people)
@@ -1089,7 +1442,8 @@ function RU:AddByName(name, opts)
 end
 
 -- From the guest book or a player menu: adds the player with what the guest book or the unit knows.
-function RU:AddFrom(key, src, unit)
+-- (stay: add without opening the page, e.g. from Raids > Guests' Recruit)
+function RU:AddFrom(key, src, unit, stay)
     local opts = { src = src or "whisper" }
     local GB = ns.GuestBook
     local e = GB and GB.GetEntry and GB:GetEntry(key)
@@ -1102,11 +1456,11 @@ function RU:AddFrom(key, src, unit)
         opts.c = opts.c or select(2, UnitClass(unit))
         opts.lv = UnitLevel(unit)
     end
-    if R():Get(key) then return self:Open(key) end
+    if R():Get(key) and R():Get(key).st ~= "gone" then return (not stay) and self:Open(key) or nil end
     local ok, err = R():Add(key, opts)
     if not ok then ns:Print("%s", tostring(err)) return end
     ns:Print("%s added to Recruitment.", Short(key))
-    self:Open(key)
+    if not stay then self:Open(key) end
 end
 
 function RU:ToggleWant(what)
@@ -1346,6 +1700,22 @@ function RU:InviteReady(key)
         end })
 end
 
+-- (the key binding: a key press may post in a channel) the places that are due, or every place when no reminder is on
+function DisasterZone_PostRecruit()
+    local M = ns.RecruitMessage
+    if not (M and R() and R():CanUse()) then return end
+    local ok, why, skipped = M:PostByKey()
+    if not ok then ns:Print("%s", tostring(why))
+    elseif skipped and #skipped > 0 then ns:Print("Not posted: %s", table.concat(skipped, "; ")) end
+end
+BINDING_HEADER_DISASTERZONE = BINDING_HEADER_DISASTERZONE or "DisasterZone"
+BINDING_NAME_DISASTERZONE_RECRUITPOST = "Post the recruitment message"
+
+function H.KeyText()
+    local k = GetBindingKey and GetBindingKey("DISASTERZONE_RECRUITPOST")
+    return k and (GetBindingText and GetBindingText(k) or k) or nil
+end
+
 ---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
@@ -1371,7 +1741,8 @@ function RU:OnInit()
             if pl then names[#names + 1] = pl.kind == "CHANNEL" and pl.name or ("/" .. pl.name:lower()) end
         end
         UI:Toast({ key = "recruit-msg", title = "Recruitment message",
-            text = "Due in " .. table.concat(names, ", ") .. ". Click to post.", keepTime = 120, onClick = function()
+            text = "Due in " .. table.concat(names, ", ") .. ". Click to post" .. (H.KeyText() and (" or press "
+                .. H.KeyText()) or "") .. ".", keepTime = 120, onClick = function()
                 local ok, why = M:Post(M:Ready() or due)
                 if not ok then ns:Print("%s", tostring(why)) end
             end })

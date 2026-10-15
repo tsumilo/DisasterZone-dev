@@ -107,6 +107,8 @@
   {"kind": "kit", "from": "UI/Widgets.lua", "to": "UI/RaidPlanUI.lua", "why": "L5->L5 Kit->Raids", "syms": ["RaidPlanUI.RaidArt"]},
   {"kind": "order", "from": "Core/Atlas.lua", "to": "Core/BiS.lua", "why": "L3->L3 Items->Gear", "syms": ["BiS", "BiS.DetectSpec", "BiS.GetData", "BiS.GetPhaseItems", "BiS.GetSlot", "BiS.GetSpec", "BiS.HasOffSpec", "BiS.SetSlot"]},
   {"kind": "order", "from": "Core/Recruit.lua", "to": "Core/RaidPlan.lua", "why": "L3->L3 Guild->Raids: a recruit's fit with the teams (nights, open places)", "syms": ["RaidPlan.CanManageTeams", "RaidPlan.GetTeam", "RaidPlan.GetTeamOpenSlots", "RaidPlan.GetTeams", "RaidPlan.SaveTeam"]},
+  {"kind": "order", "from": "Core/Recruit.lua", "to": "Core/GuestBook.lua", "why": "L3->L3 Guild->Raids: Raids > Guests' Recruit mark brings a guest into Recruitment", "syms": ["GuestBook.GetEntries", "GuestBook.GetNote", "GuestBook.SetNote"]},
+  {"kind": "order", "from": "Core/RecruitMessage.lua", "to": "Core/RaidPlan.lua", "why": "L3->L3 Guild->Raids: the message's Classes we need helper (a team's open comp places)", "syms": ["RaidPlan.GetTeamOpenSlots"]},
   {"kind": "order", "from": "Core/Attendance.lua", "to": "Core/Ledger.lua", "why": "L3->L3 Raids->Loot", "syms": ["Ledger.GetEntries", "Ledger.GetViewToken"]},
   {"kind": "order", "from": "Core/BiSExport.lua", "to": "Core/Professions.lua", "why": "L3->L3 Gear->Guild", "syms": ["Professions.GetMember"]},
   {"kind": "order", "from": "Core/BiSImport.lua", "to": "Core/Loon.lua", "why": "L3->L3 Gear->Loot", "syms": ["Loon.GetTemplate", "Loon.IsAvailable"]},

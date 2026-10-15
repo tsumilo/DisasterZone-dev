@@ -1,14 +1,20 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RecruitMessage.lua", ...) then return end -- DisasterZone: Core/RecruitMessage.lua
--- Recruitment > Message (1.6): the guild's recruitment message, written by the officers themselves (255 bytes at
--- most), and where it goes: a list of places, each with its own interval and an optional "major cities only" tick.
--- A place is Say, Yell, or a chat channel by name (Trade, LookingForGroup, GuildRecruitment, General, LocalDefense,
--- or any custom channel I'm in).
--- Posting needs a click (the game sends to channels, Say and Yell only inside a hardware event): Post now sends it to
--- every place that's on (and allowed where I stand); with Reminders on, a place that is due (its interval since the
--- last post there, by any officer) brings a toast whose click posts to every place that is due. Posts are told to the
--- recruiters online (RCP, with the place), so officers take turns per place instead of posting twice.
--- Saved (per guild): db.recruitMsg[guildKey] = { v = 2, text, rep, places = { { id, kind = "SAY" | "YELL" |
--- "CHANNEL", name, every = minutes, on, city }, ... }, posts = { [place id] = { at, ... } } }.
+-- Recruitment > Message (1.6): the guild's recruitment message, built by the officers from parts (like the LFG
+-- message), and where it goes.
+--   Parts, in their order, each on or off: the officers' own words, and helpers that only fill in facts: the guild's
+--   name, the classes a team's comp still needs (one team or every team; as specs or classes; any of them left out),
+--   a team's raid nights. Nothing is written for them: the message starts empty. The parts are joined with a space
+--   (or " - ", ", ", " / "); one chat line, 255 bytes at most.
+--   Places: Say, Yell, or a chat channel by name (Trade, LookingForGroup, GuildRecruitment, General, LocalDefense, or
+--   any channel I'm in), each with its own interval (30 seconds to 12 hours) and an optional "major cities only" tick.
+-- Posting needs a click or a key (the game sends to channels, Say and Yell only inside a hardware event): Post now
+-- sends it to every place that's on (and allowed where I stand); with Reminders on, a place that is due (its interval
+-- since the last post there, by any officer) brings a toast whose click posts to every place that is due; the bound
+-- key (Key Bindings > AddOns) does the same. Posts are told to the recruiters online (RCP, with the place), so
+-- officers take turns per place instead of posting twice.
+-- Saved (per guild): db.recruitMsg[guildKey] = { v = 3, parts = { { id, k = "text" | "tag" | "need" | "nights", t,
+-- team, by = "spec" | "class", skip = { [entry] = true }, off }, ... }, nid, sep, rep, places = { { id, kind = "SAY" |
+-- "YELL" | "CHANNEL", name, every = seconds, u = "s" | "m", on, city }, ... }, posts = { [place id] = { at, ... } } }.
 local addonName, ns = ...
 
 local Msg = ns:NewModule("RecruitMessage")
@@ -19,10 +25,28 @@ local tconcat, tsort = table.concat, table.sort
 
 local MAX_LEN = 255
 local MAX_PLACES = 12
-local MIN_EVERY, MAX_EVERY = 1, 720          -- minutes
+local MAX_PARTS = 12
+local MAX_WORDS = 200
+local MIN_EVERY, MAX_EVERY = 30, 12 * 3600   -- seconds
 local DAY = 86400
 Msg.MAX_LEN = MAX_LEN
+Msg.MAX_PARTS = MAX_PARTS
 Msg.MIN_EVERY, Msg.MAX_EVERY = MIN_EVERY, MAX_EVERY
+
+-- What joins the parts.
+Msg.SEPS = { { key = " ", label = "Space" }, { key = " - ", label = "-" }, { key = ", ", label = "," },
+             { key = " / ", label = "/" } }
+local SEP_OK = {}
+for _, s in ipairs(Msg.SEPS) do SEP_OK[s.key] = true end
+
+-- The kinds of parts, for the "+ Add" menu and the chips.
+Msg.KINDS = {
+    text = { label = "Your words", tip = "Anything you want to say, in your own words." },
+    tag = { label = "Guild name", tip = "The guild's name in < >." },
+    need = { label = "Classes we need", tip = "What a team's comp still has open: specs or classes, filled in as the "
+        .. "comp changes. Leave any of them out." },
+    nights = { label = "Raid nights", tip = "A team's raid nights and their start time, e.g. Thu + Sun 19:30." },
+}
 
 -- The places offered in "Add a place" (custom channels I'm in are added to the menu as they are).
 Msg.SUGGESTED = {
@@ -39,61 +63,273 @@ local CITY_NAMES = { ["Stormwind City"] = true, ["Ironforge"] = true, ["Darnassu
                      ["Orgrimmar"] = true, ["Thunder Bluff"] = true, ["Undercity"] = true, ["Silvermoon City"] = true,
                      ["Shattrath City"] = true }
 
+local DAY_SHORT = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
+
 local function R() return ns.Recruit end
 local Now = Util.Now
 
 local function PlaceId(kind, name) return kind == "CHANNEL" and ("ch:" .. tostring(name):lower()) or kind:lower() end
 
 local function DefaultPlaces()
-    return { { id = "ch:trade", kind = "CHANNEL", name = "Trade", every = 60, on = true, city = true },
-             { id = "ch:guildrecruitment", kind = "CHANNEL", name = "GuildRecruitment", every = 60, on = true, city = true } }
+    return { { id = "ch:trade", kind = "CHANNEL", name = "Trade", every = 3600, u = "m", on = true, city = true },
+             { id = "ch:guildrecruitment", kind = "CHANNEL", name = "GuildRecruitment", every = 3600, u = "m", on = true,
+               city = true } }
+end
+
+local function Words(s)
+    s = tostring(s or ""):gsub("[\r\n]+", " "):gsub("[%c|]", "")
+    return s:sub(1, MAX_WORDS)
 end
 
 local demoStore
+local function DemoStore()
+    local now = Now()
+    return { v = 3, nid = 7, sep = " ",
+        parts = { { id = 1, k = "tag" }, { id = 2, k = "text", t = "chill guild for new, returning and raiding players." },
+                  { id = 3, k = "text", t = "SSC/TK on" }, { id = 4, k = "nights", team = "demo-main" },
+                  { id = 5, k = "text", t = "- looking for" }, { id = 6, k = "need", team = "demo-main", by = "spec" },
+                  { id = 7, k = "text", t = "/w me for a chat!" } },
+        places = { { id = "ch:trade", kind = "CHANNEL", name = "Trade", every = 3600, u = "m", on = true, city = true },
+                   { id = "ch:guildrecruitment", kind = "CHANNEL", name = "GuildRecruitment", every = 1800, u = "m",
+                     on = true, city = true },
+                   { id = "yell", kind = "YELL", name = "Yell", every = 90, u = "s", on = false, city = true } },
+        posts = { ["ch:trade"] = { now - 2400, now - 2 * DAY - 1800 }, ["ch:guildrecruitment"] = { now - 4 * DAY - 600 } } }
+end
+
 local function DB()
     local d
     if Util.DemoOn() then
-        if not demoStore then
-            local now = Now()
-            demoStore = { v = 2, text = "<Casual Disaster> chill guild for new, returning and raiding players. Thu + Sun "
-                .. "19:30, SSC/TK. Looking for a holy paladin and a resto druid. /w me for a chat!",
-                places = { { id = "ch:trade", kind = "CHANNEL", name = "Trade", every = 60, on = true, city = true },
-                           { id = "ch:guildrecruitment", kind = "CHANNEL", name = "GuildRecruitment", every = 30, on = true,
-                             city = true },
-                           { id = "yell", kind = "YELL", name = "Yell", every = 120, on = false, city = true } },
-                posts = { ["ch:trade"] = { now - 2400, now - 2 * DAY - 1800 }, ["ch:guildrecruitment"] = { now - 4 * DAY - 600 } } }
-        end
+        demoStore = demoStore or DemoStore()
         d = demoStore
     else
         d = ns.DB:GuildBucket("recruitMsg", true) or {}
     end
-    if d.v ~= 2 then                       -- (the first, block-built message: started over)
+    if d.v == 2 then                       -- (1.6 beta: one text, minutes) -> parts, seconds
+        local text = Util.Trim(Words(d.text)) or ""
+        d.parts = text ~= "" and { { id = 1, k = "text", t = text } } or {}
+        d.nid = #d.parts
+        d.text = nil
+        for _, p in ipairs(type(d.places) == "table" and d.places or {}) do
+            p.every, p.u = (tonumber(p.every) or 60) * 60, "m"
+        end
+        d.v = 3
+    elseif d.v ~= 3 then                   -- (the first, block-built message: started over)
         for k in pairs(d) do d[k] = nil end
-        d.v = 2
+        d.v = 3
     end
-    if type(d.text) ~= "string" then d.text = "" end
+    if type(d.parts) ~= "table" then d.parts = {} end
+    if type(d.nid) ~= "number" then d.nid = 0 end
+    if not SEP_OK[d.sep] then d.sep = " " end
     if type(d.places) ~= "table" then d.places = DefaultPlaces() end
     if type(d.posts) ~= "table" then d.posts = {} end
     return d
 end
 
 ---------------------------------------------------------------------------
--- The message
+-- The helpers' facts
 ---------------------------------------------------------------------------
 
-function Msg:GetText() return DB().text end
-
--- Saves the message (line breaks become spaces: a chat line is one line). Kept whole past 255: the counter says.
-function Msg:SetText(text)
-    text = tostring(text or ""):gsub("[\r\n]+", " "):gsub("|", "")
-    DB().text = text:sub(1, 400)
-    ns:Fire("RECRUIT_MSG_CHANGED")
+local function HM(w)
+    local m = floor(w) % 1440
+    return ("%d:%02d"):format(floor(m / 60), m % 60)
 end
 
--- The message: text (nil when empty), its length in bytes, too long?
+-- A team's nights: "Thu + Sun 19:30" (one start time), "Thu 19:30 + Sun 20:00" (more); nil without nights.
+function Msg:NightsText(team)
+    local list = {}
+    for _, n in ipairs(team and team.nights or {}) do
+        local w = tonumber(n.w)
+        if w and w >= 0 and w < 7 * 1440 then list[#list + 1] = w end
+    end
+    if #list == 0 then return nil end
+    tsort(list)
+    local same = true
+    for _, w in ipairs(list) do if HM(w) ~= HM(list[1]) then same = false end end
+    local out = {}
+    for _, w in ipairs(list) do
+        local d = DAY_SHORT[floor(w / 1440) + 1]
+        out[#out + 1] = same and d or (d .. " " .. HM(w))
+    end
+    return tconcat(out, " + ") .. (same and (" " .. HM(list[1])) or "")
+end
+
+local function SlotName(o, by)
+    if o.c then
+        local cls = ns.ClassName(o.c) or o.c
+        local spec = by ~= "class" and o.sp and ns.SPECS[o.c] and ns.SPECS[o.c][o.sp]
+        return spec and (spec.label .. " " .. cls) or cls, by == "class" and o.c or (o.c .. ":" .. (o.sp or 0))
+    end
+    local role = o.role and tostring(o.role) or nil
+    if not role then return nil end
+    return role:sub(1, 1):upper() .. role:sub(2), "role:" .. role
+end
+
+-- The open places of one team ("all": every team, each once): { { key, name, c, sp, skip }, ... } in comp order.
+function Msg:NeedList(part)
+    local teams = {}
+    if part.team == "all" then
+        teams = R():GetTeams()
+    else
+        local t = R():GetTeam(part.team)
+        if t then teams[1] = t end
+    end
+    local out, seen = {}, {}
+    local RP = ns.RaidPlan
+    for _, team in ipairs(teams) do
+        local open = team.demoOpen or (RP and RP.GetTeamOpenSlots and (RP:GetTeamOpenSlots(team))) or {}
+        for _, o in ipairs(open) do
+            local name, key = SlotName(o, part.by)
+            if name and not seen[key] then
+                seen[key] = true
+                out[#out + 1] = { key = key, name = name, c = o.c, sp = o.sp,
+                                  skip = (part.skip and part.skip[key]) and true or false }
+            end
+        end
+    end
+    return out
+end
+
+local function GuildName()
+    if Util.DemoOn() then return "Casual Disaster" end
+    local name = GetGuildInfo and GetGuildInfo("player")
+    return name
+end
+
+-- What one part says now (nil: nothing, e.g. a team without nights or without open places).
+function Msg:PartText(p)
+    if p.k == "text" then
+        local t = Util.Trim(p.t or "")
+        return (t and t ~= "") and t or nil
+    elseif p.k == "tag" then
+        local g = GuildName()
+        return g and ("<" .. g .. ">") or nil
+    elseif p.k == "nights" then
+        return self:NightsText(R():GetTeam(p.team))
+    elseif p.k == "need" then
+        local names = {}
+        for _, e in ipairs(self:NeedList(p)) do if not e.skip then names[#names + 1] = e.name end end
+        return #names > 0 and tconcat(names, ", ") or nil
+    end
+end
+
+-- The team a part is about, by name ("every team" / nil).
+function Msg:PartTeamName(p)
+    if p.team == "all" then return "every team" end
+    local t = p.team and R():GetTeam(p.team)
+    return t and t.name or nil
+end
+
+---------------------------------------------------------------------------
+-- The parts
+---------------------------------------------------------------------------
+
+-- The parts in their order (copies, with label and what they say now).
+function Msg:GetParts()
+    local out = {}
+    for _, p in ipairs(DB().parts) do
+        local skip = {}
+        for k in pairs(p.skip or {}) do skip[k] = true end
+        out[#out + 1] = { id = p.id, k = p.k, t = p.t, team = p.team, by = p.by or "spec", skip = skip,
+                          on = not p.off, label = Msg.KINDS[p.k] and Msg.KINDS[p.k].label or p.k,
+                          teamName = self:PartTeamName(p), text = self:PartText(p) }
+    end
+    return out
+end
+
+function Msg:GetPart(id)
+    for i, p in ipairs(DB().parts) do if p.id == id then return p, i end end
+end
+
+-- Adds a part (kind: "text" | "tag" | "need" | "nights"; opts: t, team, by). Returns ok, id | why.
+function Msg:AddPart(kind, opts)
+    if not Msg.KINDS[kind] then return false, "not a part" end
+    local d = DB()
+    if #d.parts >= MAX_PARTS then return false, "that's enough parts" end
+    opts = opts or {}
+    local p = { k = kind }
+    if kind == "text" then p.t = Words(opts.t)
+    elseif kind == "need" or kind == "nights" then
+        local team = opts.team
+        if kind == "need" and team == "all" then p.team = "all"
+        elseif team and R():GetTeam(team) then p.team = team
+        else
+            local first = R():GetTeams()[1]
+            if not first then return false, "no team yet: make one in Raids > Teams" end
+            p.team = first.id
+        end
+        if kind == "need" then p.by = opts.by == "class" and "class" or "spec" end
+    end
+    d.nid = d.nid + 1
+    p.id = d.nid
+    d.parts[#d.parts + 1] = p
+    ns:Fire("RECRUIT_MSG_CHANGED")
+    return true, p.id
+end
+
+-- Changes a part: t (words), team, by, on, skip = entry (switches that entry).
+function Msg:SetPart(id, f)
+    local p = self:GetPart(id)
+    if not p then return false end
+    if f.t ~= nil and p.k == "text" then p.t = Words(f.t) end
+    if f.team ~= nil and (p.k == "need" or p.k == "nights") then
+        if (f.team == "all" and p.k == "need") or R():GetTeam(f.team) then
+            if p.team ~= f.team then p.skip = nil end
+            p.team = f.team
+        end
+    end
+    if f.by ~= nil and p.k == "need" then
+        p.by = f.by == "class" and "class" or "spec"
+        p.skip = nil
+    end
+    if f.on ~= nil then p.off = (not f.on) or nil end
+    if f.skip ~= nil and p.k == "need" then
+        p.skip = p.skip or {}
+        p.skip[f.skip] = (not p.skip[f.skip]) or nil
+        if not next(p.skip) then p.skip = nil end
+    end
+    ns:Fire("RECRUIT_MSG_CHANGED")
+    return true
+end
+
+function Msg:RemovePart(id)
+    local _, i = self:GetPart(id)
+    if not i then return false end
+    table.remove(DB().parts, i)
+    ns:Fire("RECRUIT_MSG_CHANGED")
+    return true
+end
+
+-- Moves a part to position `to` (1 = first).
+function Msg:MovePart(id, to)
+    local d = DB()
+    local p, i = self:GetPart(id)
+    if not p then return false end
+    table.remove(d.parts, i)
+    to = max(1, min(#d.parts + 1, floor(tonumber(to) or i)))
+    table.insert(d.parts, to, p)
+    ns:Fire("RECRUIT_MSG_CHANGED")
+    return true
+end
+
+function Msg:GetSep() return DB().sep end
+function Msg:SetSep(sep)
+    if not SEP_OK[sep] then return false end
+    DB().sep = sep
+    ns:Fire("RECRUIT_MSG_CHANGED")
+    return true
+end
+
+-- The message: text (nil when nothing is said), its length in bytes, too long?
 function Msg:Compose()
-    local text = Util.Trim(DB().text or "") or ""
-    if text == "" then return nil, 0, false end
+    local bits = {}
+    for _, p in ipairs(DB().parts) do
+        if not p.off then
+            local t = self:PartText(p)
+            if t then bits[#bits + 1] = t end
+        end
+    end
+    if #bits == 0 then return nil, 0, false end
+    local text = tconcat(bits, DB().sep)
     return text, #text, #text > MAX_LEN
 end
 
@@ -105,8 +341,8 @@ end
 function Msg:GetPlaces()
     local out = {}
     for _, p in ipairs(DB().places) do
-        out[#out + 1] = { id = p.id, kind = p.kind, name = p.name, every = p.every, on = p.on and true or false,
-                          city = p.city and true or false }
+        out[#out + 1] = { id = p.id, kind = p.kind, name = p.name, every = p.every, u = p.u or "m",
+                          on = p.on and true or false, city = p.city and true or false }
     end
     return out
 end
@@ -115,12 +351,13 @@ function Msg:GetPlace(id)
     for _, p in ipairs(DB().places) do if p.id == id then return p end end
 end
 
+-- Seconds, kept between 30 seconds and 12 hours.
 function Msg:CleanEvery(v)
-    v = floor(tonumber(v) or 60)
+    v = floor(tonumber(v) or 3600)
     return min(MAX_EVERY, max(MIN_EVERY, v))
 end
 
--- Adds a place (kind "SAY" | "YELL" | "CHANNEL" and a channel's name). Returns ok, err / id.
+-- Adds a place (kind "SAY" | "YELL" | "CHANNEL" and a channel's name; every in seconds). Returns ok, err / id.
 function Msg:AddPlace(kind, name, every)
     if kind ~= "SAY" and kind ~= "YELL" and kind ~= "CHANNEL" then return false, "not a place" end
     if kind == "CHANNEL" then
@@ -134,8 +371,9 @@ function Msg:AddPlace(kind, name, every)
     if self:GetPlace(id) then return false, "already in the list" end
     if #d.places >= MAX_PLACES then return false, "that's enough places" end
     local lower = name:lower()
-    d.places[#d.places + 1] = { id = id, kind = kind, name = name, every = self:CleanEvery(every or 60), on = true,
-                                city = kind ~= "CHANNEL" or lower == "trade" or lower == "guildrecruitment" }
+    every = self:CleanEvery(every or 3600)
+    d.places[#d.places + 1] = { id = id, kind = kind, name = name, every = every, u = every % 60 == 0 and "m" or "s",
+                                on = true, city = kind ~= "CHANNEL" or lower == "trade" or lower == "guildrecruitment" }
     ns:Fire("RECRUIT_MSG_CHANGED")
     return true, id
 end
@@ -152,13 +390,14 @@ function Msg:RemovePlace(id)
     return false
 end
 
--- Changes a place: fields on, city, every (minutes).
+-- Changes a place: fields on, city, every (seconds), u (the unit it's shown in: "s" | "m").
 function Msg:SetPlace(id, f)
     local p = self:GetPlace(id)
     if not p then return false end
     if f.on ~= nil then p.on = f.on and true or false end
     if f.city ~= nil then p.city = f.city and true or false end
     if f.every ~= nil then p.every = self:CleanEvery(f.every) end
+    if f.u == "s" or f.u == "m" then p.u = f.u end
     ns:Fire("RECRUIT_MSG_CHANGED")
     return true
 end
@@ -207,7 +446,7 @@ function Msg:NextDue(id)
     local p = self:GetPlace(id)
     if not p then return nil end
     local last = self:LastPost(id)
-    return last and (last + p.every * 60) or Now()
+    return last and (last + p.every) or Now()
 end
 
 function Msg:Record(id, at)
@@ -216,7 +455,7 @@ function Msg:Record(id, at)
     list[#list + 1] = at
     tsort(list, function(a, b) return a > b end)
     for i = #list, 1, -1 do
-        if i > 40 or list[i] < Now() - 14 * DAY then table.remove(list, i) end
+        if i > 60 or list[i] < Now() - 14 * DAY then table.remove(list, i) end
     end
     d.posts[id] = list
     ns:Fire("RECRUIT_MSG_CHANGED")
@@ -231,6 +470,18 @@ function Msg:DuePlaces()
     return out
 end
 
+-- The next place to come due (that is on): its place and when; nil when none is on.
+function Msg:NextUp()
+    local best, at
+    for _, p in ipairs(DB().places) do
+        if p.on then
+            local due = self:NextDue(p.id)
+            if not at or due < at then best, at = p, due end
+        end
+    end
+    return best, at
+end
+
 local function SendTo(p, text)
     if p.kind == "CHANNEL" then
         local id = GetChannelName and tonumber((GetChannelName(p.name)))
@@ -240,12 +491,12 @@ local function SendTo(p, text)
     SendChatMessage(text, p.kind)
 end
 
--- Posts (from a click) to the places given (ids), or to every place that is on. Returns ok, why | the places' names,
--- the ones skipped ("Trade: only in major cities").
+-- Posts (from a click or a key) to the places given (ids), or to every place that is on. Returns ok, why | the places'
+-- names, the ones skipped ("Trade: only in major cities").
 function Msg:Post(ids)
     if not (R() and R():CanUse()) then return false, "only the Guild Master and officers post it" end
     local text, _, long = self:Compose()
-    if not text then return false, "Write the message first." end
+    if not text then return false, "Build the message first." end
     if long then return false, "The message is longer than 255: shorten it first." end
     local want = {}
     for _, id in ipairs(ids or {}) do want[id] = true end
@@ -279,6 +530,20 @@ function Msg:Post(ids)
     end
     ns:Fire("RECRUIT_MSG_POSTED")
     return true, names, skipped
+end
+
+-- The key binding's post: the places that are due; with the reminders off, every place that is on. Returns as Post,
+-- or false, "nothing is due ..." while the reminders are on and nothing is due.
+function Msg:PostByKey()
+    if not (R() and R():CanUse()) then return false, "only the Guild Master and officers post it" end
+    if not self:IsRepeating() then return self:Post() end
+    local due = self:Ready() or self:DuePlaces()
+    if #due == 0 then
+        local p, at = self:NextUp()
+        if not p then return false, "No place is on." end
+        return false, ("Nothing is due yet: %s in %d s."):format(p.name, max(1, at - Now()))
+    end
+    return self:Post(due)
 end
 
 function Msg:IsRepeating() return DB().rep == true end
@@ -336,7 +601,7 @@ end
 
 function Msg:OnInit()
     if ns.Comm and ns.Comm.Register then ns.Comm:Register("RCP", OnPost) end
-    if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(5, Tick) end
+    if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(1, Tick) end
     ns:On("DEMO_TOGGLED", function() demoStore = nil; Msg.ready, Msg.readyKey = nil, nil end)
 end
 
