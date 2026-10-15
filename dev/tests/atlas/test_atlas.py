@@ -379,7 +379,7 @@ def recipes_show_what_they_make_and_costs_read_well():
     c.eval("ns.AtlasUI:Select('pvp', 'Honor', ...)", page)
     w.tick(0.2)
     row = c.eval("return T_atlas_itemrow(...)", iid)
-    assert "|T" in c.eval("local r = ...; return r.mark:GetText()", row)
+    assert "|T" in c.eval("local r = ...; return r:StatusText()", row)
     c.hover(row)
     assert ("Cost", "") in [(strip_codes(l), strip_codes(r)) for l, r in tt_lines(c)], tt_lines(c)[-4:]
     names = c.eval_py("local o = {} for _, s in ipairs(ns.Atlas:GetCategory('pvp').sources) do o[#o + 1] = s.name end return o")
@@ -618,7 +618,7 @@ def right_click_adds_to_my_bis_best_and_alt():
     c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
     w.tick(0.2)
     row = c.eval("return T_atlas_itemrow(...)", GAUNTLETS)
-    mark = strip_codes(c.eval("local r = ...; return r.mark:GetText()", row))
+    mark = strip_codes(c.eval("local r = ...; return r:StatusText()", row))
     assert "P1" in mark, mark
     no_errors(w)
 
@@ -635,7 +635,7 @@ def pre_raid_entry_and_marks():
     c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
     w.tick(0.2)
     row = c.eval("return T_atlas_itemrow(...)", GAUNTLETS)
-    assert "Pre-raid" in strip_codes(c.eval("local r = ...; return r.mark:GetText()", row))
+    assert "Pre-raid" in strip_codes(c.eval("local r = ...; return r:StatusText()", row))
     for p in (1, 2, 3):
         c.eval("ns.BiS:SetSlot(..., 7, 'main', select(2, ...))", p, GAUNTLETS)
     assert c.eval("return ns.Atlas:PhasesText(ns.Atlas:GetMyListMarks()[...].main)", GAUNTLETS) == "Pre-raid, P1-3"
@@ -772,7 +772,7 @@ def council_sees_how_many_want_an_item():
     c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
     w.tick(0.2)
     row = c.eval("return T_atlas_itemrow(...)", GAUNTLETS)
-    assert "want" not in (strip_codes(c.eval("local r = ...; return r.mark:GetText()", row)) or "")
+    assert "want" not in (strip_codes(c.eval("local r = ...; return r:StatusText()", row)) or "")
     c.eval("""local target = ...
       ns.Guild.AmICouncil = function() return true end
       local orig = ns.Store.GetWanters
@@ -783,7 +783,7 @@ def council_sees_how_many_want_an_item():
     c.eval("ns.AtlasUI:RefreshItems()")
     w.tick(0.2)
     row = c.eval("return T_atlas_itemrow(...)", GAUNTLETS)
-    assert "2 want" in strip_codes(c.eval("local r = ...; return r.mark:GetText()", row))
+    assert "2 want" in strip_codes(c.eval("local r = ...; return r:StatusText()", row))
     no_errors(w)
 
 

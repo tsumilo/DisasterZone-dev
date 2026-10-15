@@ -121,7 +121,7 @@ def adding_from_an_atlas_row_with_the_shift_amount_and_breakdown():
     # the row's mark, and the left column's count
     w.tick(0.3)
     row = b.eval("return T_atlas_itemrow(...)", BAG)
-    assert "1" in strip_codes(b.eval("local r = ...; return r.mark:GetText()", row) or ""), "bag mark"
+    assert "1" in strip_codes(b.eval("local r = ...; return r:StatusText()", row) or ""), "bag mark"
     # Shift: 3 and a step down, then the bag adds that
     b.hover(row)
     b.set_modifiers(shift=True)

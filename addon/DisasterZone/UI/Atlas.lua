@@ -41,12 +41,13 @@ local BOTTOM = PAD + BAR_H + GAP                  -- the layout's bottom margin:
 local BODY_W = S.INNER_W                          -- sizes before the first layout (fixed window)
 local HERO_H = 92                                 -- the banner over a place / a page
 local PORTRAIT_W = 176                            -- a boss's portrait in the banner (128 x 64 art, 2:1)
-local CELL_GAP = 4                                -- between item tiles
-local CELL_MIN, CELL_MAX = 46, 64                 -- an item tile's least height; the grid's even height at most
+local CELL_GAP = 6                                -- between item cards (both ways)
+local CELL_MIN, CELL_MAX = 54, 68                 -- an item card's least height; the grid's even height at most
+local CARD_X = 10                                 -- an item card's inner margin left and right
 local SECTION_H, LABEL_H, PLACE_H, SRCHEAD_H = 38, 26, 46, 34
 local TILE_H, TILES_PER_ROW = 74, 4               -- the category view's place tiles
 local ROW_SECTION, ROW_MORE = 28, 36              -- a set's header, a "showing the first ..." note
-local ICON, ICON_REWARD = 26, 22
+local ICON, ICON_REWARD = 36, 30
 local NAME_LH, SUB_LH = 14, 12                    -- line heights of an item's name (12) and its second line (10)
 local BAR_SPACE = 10                              -- the grid's scroll bar: 6 wide, 4 from the tiles
 local PLUS = 22                                   -- the hover buttons on a tile
@@ -103,7 +104,7 @@ local wantCache = {}     -- [itemID] = number of members who want it (council on
 local layCache = {}      -- [cell data] = its layout (per refresh of the grid)
 local listLocked = false -- my BiS lists are locked (no + buttons)
 local rowW = { item = 250, grid = BODY_W - BAR_SPACE }   -- a tile's width, the grid's
-local cols = 3           -- tiles per row (2 when the page lists costs)
+local cols = 2           -- item cards per row
 local flatRows = {}      -- the grid's item-level rows in order (GetLists, tests)
 local SelectSource, ShowItemMenu, ShowAddMenu, SearchResults, AddToShop, ShopButtonTooltip   -- forward declarations
 
@@ -190,7 +191,11 @@ local function TokenLine(id)
     local classes = DB and DB.GetTokenClasses and DB:GetTokenClasses(id)
     if type(classes) ~= "table" then return nil end
     local names, loc = {}, _G.LOCALIZED_CLASS_NAMES_MALE
-    for i, cf in ipairs(classes) do names[i] = (type(loc) == "table" and loc[cf]) or cf end
+    local _, mine = UnitClass("player")
+    for i, cf in ipairs(classes) do
+        local n = (type(loc) == "table" and loc[cf]) or cf
+        names[i] = cf == mine and ns.UI:Colorize(n, ns.UI:ClassColor(cf)) or n
+    end
     return "Token" .. DOT .. table.concat(names, ", ")
 end
 
@@ -783,23 +788,23 @@ end
 local ShowShopToast, Layout, SetRowHover, InitItemRow
 do
 
-    -- My marks on an item: on my list (best / alt / off spec with the phases), owned.
-    local function MarksText(id)
-        local parts = {}
+    -- My marks on an item as pills (UI:CreatePill): on my list (best ★ / alt / off spec, with the phases), owned.
+    local function MarkPills(id)
+        local out = {}
         local m = marks[id]
         if m then
             if m.main then
-                parts[#parts + 1] = StarText(10) .. " " .. Colorize(Atlas():PhasesText(m.main), "main")
+                out[#out + 1] = { pill = "rank", text = Atlas():PhasesText(m.main) }
             elseif m.alt then
-                parts[#parts + 1] = Colorize("Alt " .. Atlas():PhasesText(m.alt), "alt")
+                out[#out + 1] = { pill = "alt", text = "Alt " .. Atlas():PhasesText(m.alt) }
             elseif m.os then
-                parts[#parts + 1] = Colorize("OS " .. Atlas():PhasesText(m.os), "offspec")
+                out[#out + 1] = { pill = "os", text = "OS " .. Atlas():PhasesText(m.os) }
             end
         end
         if id > 0 and ns.BiS and ns.BiS.IsObtained and ns.BiS:IsObtained(id) then
-            parts[#parts + 1] = "|T" .. ns.UI:Tex("check") .. ":0|t"
+            out[#out + 1] = { pill = "ok", text = "Owned" }
         end
-        return table.concat(parts, " ")
+        return out
     end
 
     -- The note after a craft went on my shopping list: what, who can make it, Undo, Open list.
@@ -839,29 +844,40 @@ do
         return ns.UI:AtlasIconText(ns.UI.ICON.bag, 10, { 0.85, 0.85, 0.85 }) .. " |cffd8d8d8" .. n .. "|r"
     end
 
-    -- The right of a tile, at most two lines: the cost (icons, red while I hold less) / skill, my marks, the council's
-    -- "N want", my shopping list.
-    local function RightLines(d)
+    -- The right of a card, at most two lines, each a text or a pill: the cost (icons, red while I hold less) / skill,
+    -- my marks, my shopping list, the council's "N want" (a quiet line under the rest).
+    local function RightParts(d)
         local id = d.id
-        local lines = {}
+        local main = {}
         local parts = CostOf(id)
         if parts then
-            lines[#lines + 1] = Cur():CostText(parts, 12)
+            main[#main + 1] = { text = Cur():CostText(parts, 12) }
         elseif d.x then
-            lines[#lines + 1] = "|cffe0e0e0" .. d.x .. "|r"
+            main[#main + 1] = { text = "|cffe0e0e0" .. d.x .. "|r" }
         end
-        local mine = MarksText(id)
+        for _, m in ipairs(MarkPills(id)) do main[#main + 1] = m end
         local bag = ShopMark(id)
-        if bag ~= "" then mine = mine ~= "" and (mine .. "  " .. bag) or bag end
-        if mine ~= "" then lines[#lines + 1] = mine end
+        if bag ~= "" then main[#main + 1] = { text = bag } end
         if IsCouncil() and id > 0 then
             local n = Wanted(id)
-            if n > 0 then
-                local want = Colorize(n .. " want", "council")
-                if #lines == 2 then lines[2] = lines[2] .. "  " .. want else lines[#lines + 1] = want end
+            if n > 0 then main[#main + 1] = { text = Colorize(n .. " want", "council") } end
+        end
+        -- two lines at most: what doesn't fit joins the last text line (a pill stands alone)
+        local out = {}
+        for _, e in ipairs(main) do
+            if #out < 2 then
+                out[#out + 1] = e
+            elseif e.text and out[2].text then
+                out[2].text = out[2].text .. "  " .. e.text
+            elseif e.text and out[1].text then
+                out[1].text = out[1].text .. "  " .. e.text
             end
         end
-        return lines
+        for _, e in ipairs(out) do
+            e.w = e.pill and (ceil(TextWidth(e.text, "small")) + (e.pill == "rank" and 26 or 14))
+                or ceil(CodedWidth(e.text, "small"))
+        end
+        return out
     end
 
     -- The second line: the slot and type, a token's classes, how a following tile relates to the one before it, a set
@@ -919,20 +935,21 @@ do
         local id = d.id
         local w = rowW.item
         lay.icon = d.via and ICON_REWARD or ICON
-        lay.iconX = IN + (d.via and 4 or 0)
-        lay.textX = lay.iconX + lay.icon + 8
-        lay.lines = RightLines(d)
+        lay.iconX = CARD_X + (d.via and 6 or 0)
+        lay.textX = lay.iconX + lay.icon + 10
+        lay.right = RightParts(d)
+        lay.lines = lay.right       -- (how many lines the right takes)
         local rw = 0
-        for _, l in ipairs(lay.lines) do rw = max(rw, CodedWidth(l, "small")) end
-        lay.rightW = rw > 0 and (ceil(rw) + 2) or 0
+        for _, e in ipairs(lay.right) do rw = max(rw, e.w) end
+        lay.rightW = rw
         lay.canAdd = CanAdd(id)
         lay.canShop = ns.Shop ~= nil and ns.Shop:CanAdd(id)
         -- (the hover buttons take the right while hovered; the marks keep their place otherwise)
-        lay.textW = w - lay.textX - IN - (rw > 0 and (lay.rightW + 8) or 0)
+        lay.textW = w - lay.textX - CARD_X - (rw > 0 and (lay.rightW + 12) or 0)
         lay.sub = SubText(d)
         lay.nameLines = CodedWidth(NameText(id), "emph") > lay.textW and 2 or 1
         lay.subLines = (lay.sub == "" and 0) or (TextWidth(lay.sub, "small") > lay.textW and 2) or 1
-        lay.h = max(CELL_MIN, 10 + lay.nameLines * NAME_LH + max(lay.subLines, 1) * SUB_LH)
+        lay.h = max(CELL_MIN, 18 + lay.nameLines * NAME_LH + max(lay.subLines, 1) * SUB_LH)
         return lay
     end
 
@@ -1019,7 +1036,8 @@ do
         local lay = row.lay
         local item = lay and lay.textX ~= nil
         row:SetHover(on and item or false)
-        -- the currency bar shows the hovered item's cost (a tile being drawn while another is hovered leaves it)
+        row:PaintCard(on and item)
+        -- the currency bar shows the hovered item's cost (a card being drawn while another is hovered leaves it)
         if on and item then
             hoverRow = row
             BarShowCost(row.__cdlData)
@@ -1032,59 +1050,98 @@ do
         row.plus:SetShown(plus)
         row.shop:SetShown(shop)
         row.shop:ClearAllPoints()
-        row.shop:SetPoint("RIGHT", row, "RIGHT", plus and -(6 + row.plus:GetWidth() + 4) or -6, 0)
+        row.shop:SetPoint("RIGHT", row, "RIGHT", plus and -(CARD_X + row.plus:GetWidth() + 6) or -CARD_X, 0)
         row.hoverBack:SetShown(plus or shop)
-        local two = item and #lay.lines > 1
         local busy = plus or shop
-        row.mark:SetShown(item and #lay.lines > 0 and not busy)
-        row.mark2:SetShown(item and two and not busy)
-        row.mark:ClearAllPoints()
-        row.mark:SetPoint("RIGHT", row, "RIGHT", -IN, two and 7 or 0)
-        row.mark2:ClearAllPoints()
-        row.mark2:SetPoint("RIGHT", row, "RIGHT", -IN, -7)
+        for i, part in ipairs(row.parts) do
+            local e = item and lay.right[i]
+            part.pill:SetShown(e ~= nil and e.pill ~= nil and not busy)
+            part.text:SetShown(e ~= nil and e.pill == nil and not busy)
+        end
     end
 
-    -- A tile: a card with the item's icon, name and second line, the marks / cost at the top right, the hover buttons.
+    -- A card: a quiet surface (a soft vertical gradient under a hairline edge; hover lifts it and turns the edge gold,
+    -- the picked one is gold), the item's icon in its quality frame, its name in its quality colour over the slot and
+    -- type, the status on the right as pills (the shared UI:CreatePill), the hover buttons over it.
+    local CARD_TOP, CARD_FOOT = { 0.125, 0.125, 0.145, 0.96 }, { 0.085, 0.085, 0.10, 0.96 }
+    local EDGE_REST, EDGE_HOVER = S.C.HAIRLINE, S:WithAlpha("GOLD", 0.45)
+
+    local function PaintCard(row, hot)
+        local sel = row.dzSelected
+        if sel then
+            ns.UI:SetEdgeColor(row, S:Color("GOLD"))
+        else
+            ns.UI:SetEdgeColor(row, S:Color(hot and EDGE_HOVER or EDGE_REST))
+        end
+        row.lift:SetShown(hot or sel)
+    end
+
     local function SetupItemRow(row)
         local UI = ns.UI
         row.cdl = true
         row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        row.card = UI:Fill(row, "CARD")
+        row.card = row:CreateTexture(nil, "BACKGROUND")
+        row.card:SetAllPoints()
+        UI:Gradient(row.card, "VERTICAL", CARD_FOOT, CARD_TOP)
+        row.lift = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+        row.lift:SetAllPoints()
+        UI:Gradient(row.lift, "VERTICAL", S:WithAlpha("TEXT", 0.015), S:WithAlpha("TEXT", 0.05))
+        row.lift:Hide()
         UI:AddEdges(row, "BORDER")
-        UI:SetEdgeColor(row, 0, 0, 0, 0)
-        -- (the hover buttons sit on a fade of the tile's colour over the text's right end)
+        -- (the hover buttons sit on a fade of the card's colour over the right end)
         row.hoverBack = row:CreateTexture(nil, "ARTWORK", nil, 2)
-        row.hoverBack:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
-        row.hoverBack:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
-        row.hoverBack:SetWidth(130)
-        local cr, cg, cb = S:Color("SURFACE_WINDOW")
-        UI:Gradient(row.hoverBack, "HORIZONTAL", { cr, cg, cb, 0 }, { cr, cg, cb, 0.97 })
+        row.hoverBack:SetPoint("TOPRIGHT", row, "TOPRIGHT", -1, -1)
+        row.hoverBack:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -1, 1)
+        row.hoverBack:SetWidth(150)
+        UI:Gradient(row.hoverBack, "HORIZONTAL", { CARD_TOP[1], CARD_TOP[2], CARD_TOP[3], 0 },
+            { CARD_TOP[1], CARD_TOP[2], CARD_TOP[3], 1 })
         row.hoverBack:Hide()
-        -- the shared row looks: hover (SetRowHover holds it while the hover buttons are under the cursor) and the
-        -- picked look (a search result jumped to, the search's cursor: row:SetSelected)
+        -- the picked look (a search result jumped to, the search's cursor); hover is the card's own lift
         UI:DecorateRow(row, { selectable = true })
+        if row.dzHover then row.dzHover:SetAlpha(0) end
+        -- (picked: the gold edge says it; the shared fill stays faint and the side bar goes)
+        if row.dzSelFill then row.dzSelFill:SetAlpha(0.35) end
+        if row.dzSelBar then row.dzSelBar:SetAlpha(0) end
+        local setSel = row.SetSelected
+        row.SetSelected = function(self, on)
+            self.dzSelected = on and true or false
+            setSel(self, on)
+            PaintCard(self, self:IsMouseOver())
+        end
+        row.PaintCard = PaintCard
 
         row.icon = UI:CreateItemButton(row, ICON)
-        row.icon:EnableMouse(false)   -- the tile handles hover and clicks
-        -- what this tile gives / comes from: a gold bar along its left edge (it follows the tile it belongs to)
+        row.icon:EnableMouse(false)   -- the card handles hover and clicks
+        -- what this card gives / comes from (it follows the card it belongs to): a gold bar inside its left edge
         row.guide = row:CreateTexture(nil, "ARTWORK")
         row.guide:SetWidth(2)
         row.guide:SetPoint("TOPLEFT", row, "TOPLEFT", 1, -1)
         row.guide:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 1, 1)
-        local gr, gg, gb = S:Color("GOLD")
-        row.guide:SetColorTexture(gr, gg, gb, 0.7)
+        row.guide:SetColorTexture(S:Color(S:WithAlpha("GOLD", 0.6)))
 
         row.name = UI:Text(row, "emph", "TEXT")
         if row.name.SetMaxLines then row.name:SetMaxLines(2) end
         row.sub = UI:Text(row, "small", "SUB")
         if row.sub.SetMaxLines then row.sub:SetMaxLines(2) end
-        -- the right: one or two lines (cost / skill, my marks, the council's count)
-        row.mark = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
-        row.mark2 = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
+        -- the right: two lines, each a pill or a text
+        row.parts = {}
+        for i = 1, 2 do
+            row.parts[i] = { pill = UI:CreatePill(row, nil, nil, 16),
+                             text = UI:Text(row, "small", "TEXT", { justify = "RIGHT" }) }
+        end
+        -- the status as one text (tests, the UI audit)
+        function row:StatusText()
+            local t = {}
+            for i, part in ipairs(self.parts) do
+                local e = self.lay and self.lay.right[i]
+                if e then t[#t + 1] = e.pill and part.pill.fs:GetText() or part.text:GetText() end
+            end
+            return table.concat(t, "  ")
+        end
 
         -- "+ BiS" (hover): add to my BiS list
-        local plus = UI:CreateSleekButton(row, "+ BiS", 48, 18, function(self) ShowAddMenu(self, row.__cdlData) end, "primary")
-        plus:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+        local plus = UI:CreateSleekButton(row, "+ BiS", 54, 20, function(self) ShowAddMenu(self, row.__cdlData) end, "primary")
+        plus:SetPoint("RIGHT", row, "RIGHT", -CARD_X, 0)
         plus:SetScript("OnEnter", function() SetRowHover(row, true) end)
         plus:SetScript("OnLeave", function()
             if not row:IsMouseOver() then SetRowHover(row, false) end
@@ -1094,7 +1151,7 @@ do
         row.plus = plus
 
         -- "+ List" (hover, a craft): add it to my shopping list
-        local shop = UI:CreateSleekButton(row, "+ List", 48, 18, function()
+        local shop = UI:CreateSleekButton(row, "+ List", 54, 20, function()
             local d = row.__cdlData
             if d and d.type == "item" then AddToShop(d.id) end
         end)
@@ -1116,7 +1173,7 @@ do
         end)
         row:SetScript("OnLeave", function(self)
             GameTooltip:Hide()
-            -- the cursor went onto a hover button (still over the tile): stay hovered
+            -- the cursor went onto a hover button (still over the card): stay hovered
             if not ((self.plus:IsShown() or self.shop:IsShown()) and self:IsMouseOver()) then SetRowHover(self, false) end
         end)
         -- Shift: a craft's materials; Shift + mouse wheel: how many to make; Shift + click / right-click: break down
@@ -1153,14 +1210,26 @@ do
         row.name:SetText(NameText(id))
         row.sub:SetShown(lay.subLines > 0)
         row.sub:ClearAllPoints()
-        row.sub:SetPoint("TOPLEFT", row, "TOPLEFT", lay.textX, -(top + lay.nameLines * NAME_LH + 2))
+        row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -2)   -- (right under the name, however it wraps)
         row.sub:SetWidth(lay.textW)
         row.sub:SetWordWrap(lay.subLines > 1)
         row.sub:SetText(lay.sub)
-        row.mark:SetWidth(max(lay.rightW, 1))
-        row.mark:SetText(lay.lines[1] or "")
-        row.mark2:SetWidth(max(lay.rightW, 1))
-        row.mark2:SetText(lay.lines[2] or "")
+        -- the right: one part in the middle, two stacked around it
+        local n = #lay.right
+        for i, part in ipairs(row.parts) do
+            local e = lay.right[i]
+            local y = n == 2 and (i == 1 and 9 or -9) or 0
+            part.pill:ClearAllPoints()
+            part.pill:SetPoint("RIGHT", row, "RIGHT", -CARD_X, y)
+            part.text:ClearAllPoints()
+            part.text:SetPoint("RIGHT", row, "RIGHT", -CARD_X, y)
+            if e and e.pill then
+                part.pill:SetPill(e.pill, e.text)
+            elseif e then
+                part.text:SetWidth(max(e.w, 1) + 2)
+                part.text:SetText(e.text)
+            end
+        end
         row:SetSelected((state.selected ~= nil and id == state.selected) or d.hot == true)
         SetRowHover(row, row:IsMouseOver() and true or false)
     end
@@ -2420,7 +2489,7 @@ function AtlasUI:RefreshItems(resetScroll)
     local itemRows = {}
     if IsSearching() then
         hero:Hide()
-        cols = 3
+        cols = 2
         rowW.item = floor((rowW.grid - (cols - 1) * CELL_GAP) / cols)
         local res, total = SearchRows(out)
         FillChips(FacetChips(res))
@@ -2446,15 +2515,10 @@ function AtlasUI:RefreshItems(resetScroll)
     else
         local src = state.cat and A:GetSource(state.cat, state.src)
         -- two columns when the page lists costs (they take the tile's right)
-        cols = 3
+        cols = 2
         if src and state.view == "page" then
             local page = A:GetPage(state.cat, state.src, state.page)
-            for _, e in ipairs(page and A:GetPageEntries(page, state.heroic) or {}) do
-                if type(e) == "number" and e > 0 and CostOf(e) then
-                    cols = 2
-                    break
-                end
-            end
+            -- (two columns everywhere: a card has room for its name on one line and its cost / status)
         end
         rowW.item = floor((rowW.grid - (cols - 1) * CELL_GAP) / cols)
         local kinds = {}

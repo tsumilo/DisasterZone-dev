@@ -58,7 +58,7 @@ function T_headrow(text)
 end
 function T_mark(id)
   local r = T_row(id)
-  return r and r.mark:GetText() or nil
+  return r and r:StatusText() or nil
 end
 function T_cost(id)
   local parts, from = ns.Currency:GetCost(id)

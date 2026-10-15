@@ -637,7 +637,7 @@ local function LayoutCrumbs(items)
         local sp = seps[i]
         if i < #items then
             if not sp then
-                sp = U:Text(bar, "emph", "DIM", { justify = "CENTER", width = SEP_W })
+                sp = U:Text(bar, "title", "SUB", { justify = "CENTER", width = SEP_W })
                 sp:SetText("›")
                 seps[i] = sp
             end
