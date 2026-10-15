@@ -416,5 +416,84 @@ def blizzard_bags_stay_the_games():
     w.assert_no_errors()
 
 
+# ------------------------------------------------------------------------------------------------------------------
+# At a vendor: auto-sell (vendor.sell, up to vendor.sellUpTo) and auto-repair (vendor.repair, my own gold)
+# ------------------------------------------------------------------------------------------------------------------
+VENDOR = """
+    local D = __MOCK.define_item
+    D(30001, 'Green Bracers', 2, 'INVTYPE_WRIST', 4, 2, 'Interface\\Icons\\INV_Bracer_07', 100)
+    D(30002, 'Blue Axe', 3, 'INVTYPE_2HWEAPON', 2, 1, 'Interface\\Icons\\INV_Axe_09', 110)
+    D(30003, 'Green Shirt', 2, 'INVTYPE_BODY', 4, 0, 'Interface\\Icons\\INV_Shirt_05', 1)
+    D(30004, 'Green Gloves', 2, 'INVTYPE_HAND', 4, 2, 'Interface\\Icons\\INV_Gauntlets_05', 100)
+    __MOCK.set_bags({ { 0, 1, 28830, 1 }, { 0, 2, 22838, 10 }, { 0, 3, 21877, 20 }, { 0, 5, 3300, 2 },
+                      { 1, 1, 23436, 1 }, { 1, 2, 30001, 1 }, { 1, 3, 30002, 1 }, { 1, 4, 30003, 1 }, { 1, 5, 30004, 1 } })
+    local sold = {}
+    C_Container.UseContainerItem = function(bag, slot) sold[#sold + 1] = bag .. ':' .. slot end
+    _G.__sold = sold
+    _G.__repaired = {}
+    CanMerchantRepair = function() return true end
+    GetRepairAllCost = function() return 41000, true end
+    RepairAllItems = function(guild) __repaired[#__repaired + 1] = guild == true and 'guild' or 'own' end
+    __MOCK.money = 1000000
+"""
+
+
+@case
+def vendor_sells_junk_and_repairs_from_my_own_gold():
+    w, c = bagged("flat")
+    c.eval(VENDOR)
+    # off by default: a vendor visit sells and mends nothing
+    c.eval("__MOCK.open_merchant({})")
+    w.tick(1)
+    assert c.eval_py("return __sold") == [] and c.eval_py("return __repaired") == []
+    c.eval("__MOCK.close_merchant()")
+    c.eval("ns.DB:SetSetting('vendor.sell', true); ns.DB:SetSetting('vendor.repair', true)")
+    c.eval("__MOCK.open_merchant({})")
+    w.tick(1)
+    assert c.eval_py("return __sold") == ["0:5"]                 # junk only by default
+    assert c.eval_py("return __repaired") == ["own"]             # never the guild bank
+    # not enough gold: no repair, a note
+    c.eval("__MOCK.close_merchant(); __repaired = {}; __MOCK.money = 100")
+    c.eval("ns.DB:SetSetting('vendor.sell', false); __MOCK.open_merchant({})")
+    w.tick(1)
+    assert c.eval_py("return __repaired") == []
+    w.assert_no_errors()
+
+
+@case
+def sell_up_to_takes_gear_of_that_quality_but_keeps_bis_shirts_and_trade_goods():
+    w, c = bagged("flat")
+    c.eval(VENDOR)
+    c.eval("ns.DB:SetSetting('vendor.sell', true); ns.DB:SetSetting('vendor.sellUpTo', 2)")
+    # the gloves are on my BiS list: they stay
+    c.eval("ns.BiS.AllListItems = function() return { [30004] = true } end")
+    c.eval("__MOCK.open_merchant({})")
+    w.tick(1)
+    # grey + green bracers; not the blue axe (above), the shirt, the gem / cloth / potion, the BiS gloves
+    assert sorted(c.eval_py("return __sold")) == ["0:5", "1:2"], c.eval_py("return __sold")
+    # rare and below: the axe too; Check my bags lists the same, selling nothing
+    c.eval("__MOCK.close_merchant(); for k in pairs(__sold) do __sold[k] = nil end")
+    c.eval("ns.DB:SetSetting('vendor.sellUpTo', 3)")
+    ids = c.eval_py("local o = {} for _, e in ipairs(ns.LookBags:PreviewSell()) do o[#o + 1] = e.id end return o")
+    assert sorted(ids) == [3300, 30001, 30002], ids
+    assert c.eval_py("return __sold") == []
+    w.assert_no_errors()
+
+
+@case
+def sale_stops_when_the_vendor_closes():
+    w, c = bagged("flat")
+    c.eval(VENDOR)
+    # 25 grey stacks: ten a batch; the vendor closes after the first
+    c.eval("""local l = {} for i = 1, 16 do l[#l + 1] = { 0, i, 3300, 1 } end
+              for i = 1, 9 do l[#l + 1] = { 1, i, 3300, 1 } end __MOCK.set_bags(l)""")
+    c.eval("ns.DB:SetSetting('vendor.sell', true); __MOCK.open_merchant({})")
+    assert len(c.eval_py("return __sold")) == 10
+    c.eval("__MOCK.close_merchant()")
+    w.tick(1)
+    assert len(c.eval_py("return __sold")) == 10
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

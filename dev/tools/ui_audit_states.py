@@ -2244,6 +2244,8 @@ STATES = [
     ("Settings - Meters", opened("settings", "ns.SettingsUI:SelectSection('meters')")),
     # (Settings 1.4.2: the meters' look is their page in Interface > Looks)
     ("Settings - Meters look", opened("settings", "ns.DB:SetSetting('meters.dmg', true); ns.SettingsUI:OpenPart('meters')")),
+    ("Settings - Bags look", opened("settings", "ns.DB:SetSetting('vendor.sell', true); ns.DB:SetSetting('vendor.sellUpTo', 2); "
+                                    "ns.SettingsUI:OpenPart('bags')")),
     # meters (UI/MeterPanels.lua, UI/MeterDetail.lua) on the demo night
     ("Meters - panels", opened("home", "ns.MainFrame:Close(); " + MET +
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; "

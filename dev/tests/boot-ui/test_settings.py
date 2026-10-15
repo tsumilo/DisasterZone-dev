@@ -654,6 +654,30 @@ def every_look_is_picked_in_interface_looks():
     no_errors(w)
 
 
+@case
+def bags_page_sells_up_to_a_rarity_on_its_ladder():
+    w, c = settings_client(guild_rank=3, class_file="PALADIN")
+    c.eval("ns.SettingsUI:OpenPart('bags')")
+    w.tick(0.2)
+    find = """for _, r in ipairs(ns.SettingsUI.sections['look.bags'].rows) do
+        if r.title and r.title:GetText() == ... then return r.control end end"""
+    ladder = c.eval(find, "Sell up to")
+    assert ladder is not None
+    # off until Sell junk is on: the steps wait
+    assert c.eval("return (...):IsEnabled()", ladder) is False
+    c.eval("(...).steps[2]:Click()", ladder)
+    assert setting(c, "vendor.sellUpTo") is None
+    c.eval("ns.DB:SetSetting('vendor.sell', true)")
+    w.tick(0.2)
+    assert c.eval("return (...):IsEnabled()", ladder) is True
+    c.eval("(...).steps[2]:Click()", ladder)
+    assert setting(c, "vendor.sellUpTo") == 2
+    assert c.eval("return (...).name:GetText()", ladder) == "Uncommon & below"
+    assert c.eval("return (...).steps[2].mark:IsShown() and not (...).steps[3].mark:IsShown()", ladder) is True
+    assert c.eval("return ns.SettingsUI:ChangedIn('part:bags')") == 2
+    no_errors(w)
+
+
 # ------------------------------------------------------------------------------------------------------------------
 # The clean-up (mockup "B · Feature tiles"): a group's tiles, a card's own page, More options, off means off
 # ------------------------------------------------------------------------------------------------------------------

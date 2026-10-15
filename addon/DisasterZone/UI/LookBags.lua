@@ -1321,17 +1321,169 @@ function Bags:StopSort()
     self:Queue()
 end
 
--- Sells every grey item in the bags (at a vendor; one per click handler run, the way the game allows it).
+-- Sells every grey item in the bags (at a vendor). Returns how many it sells.
 function Bags:SellJunk()
-    if not (MerchantFrame and MerchantFrame:IsShown()) then return end
-    local n = 0
-    for _, s in ipairs(self:Slots("bags")) do
-        if s.id and s.q == 0 and not (s.info and s.info.hasNoValue) and C_Container and C_Container.UseContainerItem then
-            C_Container.UseContainerItem(s.bag, s.slot)
-            n = n + 1
+    if not self:AtVendor() then return end
+    return self:Sell(self:SellList(0, true))
+end
+
+---------------------------------------------------------------------------
+-- At a vendor: junk sold and gear repaired on their own (Settings > Looks > Bags; whatever look the bags wear,
+-- the game's own too). vendor.sell / vendor.sellUpTo (0 grey .. 3 rare) / vendor.boundOnly / vendor.repair.
+---------------------------------------------------------------------------
+Bags.SELL_TIERS = { [0] = "Junk", "Common", "Uncommon", "Rare" }
+local SELL_BATCH, SELL_EVERY = 10, 0.2         -- (the server drops sales made too fast: ten at a time)
+local NEVER_SELL_LOC = { INVTYPE_BODY = true, INVTYPE_TABARD = true }       -- shirts and tabards stay
+
+local function SellPrice(id)
+    local f = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if not (f and id) then return 0 end
+    return tonumber((select(11, f(id)))) or 0
+end
+
+local function Coins(c)
+    return GetCoinTextureString and GetCoinTextureString(c) or tostring(c)
+end
+
+-- Items I mean to keep: in an outfit or on my BiS lists.
+local function Kept()
+    local keep = {}
+    local W = ns.Wardrobe
+    if W and W.List then
+        for _, o in ipairs(W:List() or {}) do
+            for _, v in pairs(type(o.slots) == "table" and o.slots or {}) do
+                if type(v) == "table" and v[1] then keep[v[1]] = true end
+            end
         end
     end
-    return n
+    local B = ns.BiS
+    if B and B.AllListItems then
+        local ok, set = pcall(B.AllListItems, B)
+        if ok and type(set) == "table" then for id in pairs(set) do keep[id] = true end end
+    end
+    return keep
+end
+
+-- What a sale would take: { bag, slot, id, q, count, price } in bag order. Grey items always; up to quality `upTo`
+-- weapons and armour too (soulbound ones only with boundOnly), never a shirt or tabard, an item in an outfit or on my
+-- BiS lists, a locked one or one the vendor won't pay for.
+function Bags:SellList(upTo, boundOnly)
+    upTo = tonumber(upTo) or 0
+    local keep = upTo > 0 and Kept() or {}
+    local out = {}
+    for _, bag in ipairs(BAG_IDS) do
+        for slot = 1, NumSlots(bag) do
+            local info = Info(bag, slot)
+            local id, q = info and info.itemID, info and info.quality
+            if id and q and q <= upTo and not info.hasNoValue and not info.isLocked then
+                local take = q == 0
+                if not take and not keep[id] and (info.isBound or not boundOnly) then
+                    local cls = ClassOf(id)
+                    local f = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+                    local loc = f and select(4, f(id))
+                    take = (cls == 2 or cls == 4) and not NEVER_SELL_LOC[loc or ""]
+                end
+                if take then
+                    local n = info.stackCount or 1
+                    out[#out + 1] = { bag = bag, slot = slot, id = id, q = q, count = n, price = SellPrice(id) * n }
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- Sells a list ten at a time while the vendor stays open; done(sold, copper) when it is through. Returns how many
+-- it means to sell.
+function Bags:Sell(list, done)
+    local Use = C_Container and C_Container.UseContainerItem or UseContainerItem
+    if not Use or #list == 0 then
+        if done then done(0, 0) end
+        return 0
+    end
+    local i, sold, copper = 1, 0, 0
+    local function Batch()
+        if not Bags:AtVendor() then i = #list + 1 end
+        local stop = min(i + SELL_BATCH - 1, #list)
+        while i <= stop do
+            local e = list[i]
+            local info = Info(e.bag, e.slot)
+            -- (only if the slot still holds what was listed)
+            if info and info.itemID == e.id and not info.isLocked then
+                Use(e.bag, e.slot)
+                sold, copper = sold + 1, copper + e.price
+            end
+            i = i + 1
+        end
+        if i <= #list and C_Timer and C_Timer.After then
+            C_Timer.After(SELL_EVERY, Batch)
+        elseif done then
+            done(sold, copper)
+        end
+    end
+    Batch()
+    return #list
+end
+
+-- Repairs everything from my own gold (never the guild bank's). Returns the cost, or nil when it didn't.
+function Bags:Repair(quiet)
+    if not (CanMerchantRepair and CanMerchantRepair() and GetRepairAllCost and RepairAllItems) then return end
+    local cost, can = GetRepairAllCost()
+    cost = tonumber(cost) or 0
+    if not can or cost <= 0 then return end
+    if (GetMoney and GetMoney() or 0) < cost then
+        if not quiet then ns:Print("Not enough gold to repair (%s).", Coins(cost)) end
+        return
+    end
+    RepairAllItems(false)
+    if not quiet then ns:Print("Repaired for %s.", Coins(cost)) end
+    return cost
+end
+
+-- At a vendor: sell, then repair (with what the sale brought in).
+function Bags:OnMerchant()
+    local sell, repair = Get("vendor.sell", false), Get("vendor.repair", false)
+    if not (sell or repair) then return end
+    local function Mend()
+        if repair then Bags:Repair() end
+    end
+    if not sell then return Mend() end
+    self:Sell(self:SellList(Get("vendor.sellUpTo", 0), Get("vendor.boundOnly", true)), function(n, copper)
+        if n > 0 then ns:Print("Sold %d item%s for %s.", n, n == 1 and "" or "s", Coins(copper)) end
+        if n > 0 and C_Timer and C_Timer.After then C_Timer.After(0.5, Mend) else Mend() end
+    end)
+end
+
+-- What auto-sell would take now, in chat (Settings' Check my bags; nothing is sold).
+function Bags:PreviewSell()
+    local list = self:SellList(Get("vendor.sellUpTo", 0), Get("vendor.boundOnly", true))
+    if #list == 0 then ns:Print("Auto-sell would sell nothing in your bags now.") return list end
+    local total = 0
+    for _, e in ipairs(list) do total = total + e.price end
+    ns:Print("Auto-sell would sell %d item%s for %s:", #list, #list == 1 and "" or "s", Coins(total))
+    local f = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    for _, e in ipairs(list) do
+        local link = f and select(2, f(e.id)) or ("item " .. e.id)
+        ns:Print("  %s%s", link, e.count > 1 and (" x" .. e.count) or "")
+    end
+    return list
+end
+
+-- (from the events: on MERCHANT_SHOW this can run before the game shows its vendor window)
+function Bags:AtVendor()
+    return self.vendorOpen or (MerchantFrame and MerchantFrame:IsShown()) and true or false
+end
+
+function Bags:WatchMerchant()
+    if self.vendorWatch then return end
+    local ev = CreateFrame("Frame")
+    ev:RegisterEvent("MERCHANT_SHOW")
+    ev:RegisterEvent("MERCHANT_CLOSED")
+    ev:SetScript("OnEvent", function(_, e)
+        Bags.vendorOpen = e == "MERCHANT_SHOW"
+        if Bags.vendorOpen then Bags:OnMerchant() end
+    end)
+    self.vendorWatch = ev
 end
 
 function Bags:ShowKeys(on)
@@ -1483,6 +1635,7 @@ end
 
 function Bags:OnLogin()
     Look():SetApplied("bags", Look():Key("bags"))
+    self:WatchMerchant()
     if self:Wanted() then self:Start() end
     ns:On("UI_LOOK_CHANGED", function(part)
         if part ~= "bags" then return end

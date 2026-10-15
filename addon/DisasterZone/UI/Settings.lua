@@ -1381,6 +1381,97 @@ function SettingsUI:DropdownSetting(sec, title, desc, path, default, options, ti
     return dd, row
 end
 
+-- A rarity ladder: steps rising from Junk to `tiers[#tiers]`, each in its item quality colour, lit up to the one
+-- picked (that quality and every one below it); the pick's name beside them in its colour. tiers = { [0] = name, ... };
+-- tips = { [i] = line } (on hover). Returns the control and the row.
+local LADDER_Q = { [0] = { 0.62, 0.62, 0.62 }, { 1, 1, 1 }, { 0.12, 1, 0 }, { 0.2, 0.55, 1 }, { 0.64, 0.21, 0.93 } }
+local LADDER_W, LADDER_STEP, LADDER_GAP, LADDER_NAME_W = 30, 24, 4, 124
+function SettingsUI:QualityLadder(sec, title, desc, path, default, tiers, tips, tip)
+    local row = self:Row(sec, title, desc, tip)
+    local n = #tiers
+    local stepsW = (n + 1) * LADDER_W + n * LADDER_GAP
+    local ctrlW = stepsW + 10 + LADDER_NAME_W            -- (the caption's room too: the row's text stops before it)
+    local c = CreateFrame("Frame", nil, row)
+    c:SetSize(ctrlW, LADDER_STEP)
+    c:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    c.name = UI:Text(c, "emph")
+    c.name:SetJustifyH("RIGHT")
+    c.name:SetPoint("RIGHT", c, "RIGHT", -(stepsW + 10), 0)
+    c.name:SetWidth(LADDER_NAME_W)
+    c.enabled = true
+    local function Pick() return tonumber(Get(path, default)) or default end
+    c.steps = {}
+    for i = 0, n do
+        local q = LADDER_Q[i]
+        local h = floor(LADDER_STEP * (0.4 + 0.6 * (i + 1) / (n + 1)) + 0.5)       -- (the staircase: rarer, taller)
+        local b = CreateFrame("Button", nil, c)
+        b:SetSize(LADDER_W, h)
+        b:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -(n - i) * (LADDER_W + LADDER_GAP), 0)
+        b.fill = b:CreateTexture(nil, "ARTWORK")
+        b.fill:SetPoint("TOPLEFT", 1, -1)
+        b.fill:SetPoint("BOTTOMRIGHT", -1, 1)
+        b.shine = b:CreateTexture(nil, "OVERLAY")          -- (a 1px light along the top of a lit step)
+        b.shine:SetPoint("TOPLEFT", 1, -1)
+        b.shine:SetPoint("TOPRIGHT", -1, -1)
+        b.shine:SetHeight(1)
+        b.shine:SetColorTexture(1, 1, 1, 0.45)
+        UI:AddEdges(b, "BORDER")
+        b.mark = b:CreateTexture(nil, "OVERLAY")           -- (the pick: a gold bar under its step)
+        b.mark:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -3)
+        b.mark:SetPoint("TOPRIGHT", b, "BOTTOMRIGHT", 0, -3)
+        b.mark:SetHeight(2)
+        b.mark:SetColorTexture(S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 1)
+        b.q, b.i = q, i
+        b:SetScript("OnClick", function()
+            if not c.enabled then return end
+            Set(path, i)
+            c:Refresh()
+        end)
+        b:SetScript("OnEnter", function(s)
+            c.hover = i
+            c:Refresh()
+            local line = tips and tips[i]
+            if line then ShowTip(s, tiers[i] .. (i > 0 and " and below" or " only"), line) end
+        end)
+        b:SetScript("OnLeave", function()
+            c.hover = nil
+            c:Refresh()
+            _G.GameTooltip:Hide()
+        end)
+        c.steps[i] = b
+    end
+    function c:Refresh()
+        local pick = Pick()
+        local show = self.hover or pick
+        for i, b in pairs(self.steps) do
+            local q, lit = b.q, i <= show
+            b.fill:SetColorTexture(q[1] * (lit and 0.85 or 0.18), q[2] * (lit and 0.85 or 0.18), q[3] * (lit and 0.85 or 0.18), 1)
+            b.shine:SetShown(lit)
+            UI:SetEdgeColor(b, q[1], q[2], q[3], lit and 1 or 0.35)
+            b.mark:SetShown(i == pick)
+        end
+        local q = LADDER_Q[show] or LADDER_Q[0]
+        self.name:SetText(tiers[show] .. (show > 0 and " & below" or " only"))
+        self.name:SetTextColor(q[1], q[2], q[3], 1)
+        self:SetAlpha(self.enabled and 1 or 0.4)
+    end
+    function c:SetEnabled(on) self.enabled = on and true or false; self:Refresh() end
+    function c:IsEnabled() return self.enabled end
+    c:Refresh()
+    row.control = c
+    AddValueText(row)
+    PlaceText(row, ctrlW)
+    row.getValue, row.apply = Pick, function(a, b) Set(path, Value(a, b)); c:Refresh() end
+    if row.entry then
+        row.entry.make = function(rs)
+            return select(2, SettingsUI:QualityLadder(rs, title, desc, path, default, tiers, tips, tip))
+        end
+    end
+    self.refreshers[#self.refreshers + 1] = c
+    self:SetDefault(row, default)
+    return c, row
+end
+
 -- A group-rule dropdown (ADDENDUM D §26/§27): shows the value in effect, writes my own setting; read-only (its value
 -- as text) while the rules come from the group's loot leader.
 function SettingsUI:RuleDropdown(sec, title, desc, path, default, options, tip)
@@ -2755,6 +2846,17 @@ local PART_OPTS = {
           "one", { { value = "one", text = "One bag" }, { value = "shelves", text = "Shelves" },
                    { value = "bags", text = "Bag by bag" } } },
         { "newglow", "Glow on new items", "Until you have seen them once.", true },
+        -- (at a vendor: account settings, not the profile's look; o.path is the whole setting path)
+        { "sell", "Sell junk at vendors", "Grey items sell as soon as you talk to a vendor.", false, path = "vendor.sell" },
+        { "sellUpTo", "Sell up to", "Above grey: weapons and armour only. Never anything in an outfit or on your BiS lists.",
+          0, path = "vendor.sellUpTo", ladder = true, needs = "vendor.sell",
+          tip = "Grey items always sell. Each step above adds that quality's weapons and armour (shirts and tabards "
+              .. "stay). Gear in a Wardrobe outfit or on your BiS lists is never sold. Check my bags lists what it "
+              .. "would sell now." },
+        { "boundOnly", "Only soulbound gear", "Gear that can still be traded or sold on the auction house stays.", true,
+          path = "vendor.boundOnly", needs = "vendor.sell" },
+        { "repair", "Repair at vendors", "Everything you wear and carry, paid from your own gold, never the guild bank.",
+          false, path = "vendor.repair" },
     },
     minimap = {
         { "shape", "Shape", "The look's own: round for Halo and Gilded, square for the rest.", "theme",
@@ -3239,16 +3341,38 @@ function SettingsUI:BuildPart(sec, p)
                 end
                 self:MoreOptions(sec)
             end
-            local path = "ui." .. key .. "." .. o[1]
+            local path = o.path or ("ui." .. key .. "." .. o[1])
             local _, row
-            if type(o[4]) == "boolean" then _, row = self:SwitchSetting(sec, o[2], o[3], path, o[4], o.tip)
+            if o.ladder then
+                local B = ns.LookBags
+                _, row = self:QualityLadder(sec, o[2], o[3], path, o[4], B and B.SELL_TIERS or { [0] = "Junk" }, {
+                    [0] = "Grey items, nothing else.",
+                    "Grey items, and white weapons and armour.",
+                    "Grey items, and white and green weapons and armour.",
+                    "Grey items, and white, green and blue weapons and armour." }, o.tip)
+            elseif type(o[4]) == "boolean" then _, row = self:SwitchSetting(sec, o[2], o[3], path, o[4], o.tip)
             else _, row = self:DropdownSetting(sec, o[2], o[3], path, o[4], o[5], o.tip) end
+            -- (a choice only while the switch it hangs on is on)
+            if o.needs then
+                local needs = o.needs
+                self.refreshers[#self.refreshers + 1] = { Refresh = function()
+                    local c = row.control
+                    if c and c.SetEnabled then c:SetEnabled(Get(needs, false) and true or false) end
+                end }
+            end
             -- (Classic's own options: a choice only while the part wears Classic)
             if o.classic then
                 self.refreshers[#self.refreshers + 1] = { Refresh = function()
                     SetReadOnly(row, not Look:For(key).game, "With Classic")
                 end }
             end
+        end
+        if key == "bags" and ns.LookBags then
+            local row = self:Row(sec, "Check my bags", "Lists in chat what auto-sell would sell now. Nothing is sold.")
+            local b = ns.UI:CreateSleekButton(row, "Check", 80, 22, function() ns.LookBags:PreviewSell() end)
+            b:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+            row.control = b
+            PlaceText(row, 80)
         end
         if key == "bossmods" and ns.BossModUI then
             TryRow("A made-up Gruul pull plays on your screen. Nothing is read or sent.", function() ns.BossModUI:TryIt() end)
