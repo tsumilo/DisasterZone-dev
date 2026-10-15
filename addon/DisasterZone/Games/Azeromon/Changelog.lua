@@ -6,6 +6,18 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.32", date = "15 October 2026", title = "Azeroth remembers",
+      lines = {
+          "Places heal over real days after you win there.",
+          "Westfall after VanCleef: the Defias leave, the field is reborn.",
+          "Day by day: standards, ploughing, shoots, then the harvest.",
+          "On the seventh night there's a feast round a bonfire.",
+          "Mara goes home to her farm; Furlbrow tells you how it grows.",
+          "Darkshire stays dark until Stitches falls.",
+          "Then the lamps relight; the mist lifts over three nights.",
+          "The bell tolls at dusk; people stay out after dark.",
+          "Already won there? Your week starts now.",
+      } },
     { version = "0.31", date = "15 October 2026", title = "More towns keep their day",
       lines = {
           "Darkshire, Booty Bay and Lakeshire keep a daily routine.",

@@ -6552,6 +6552,11 @@ function UI:RegisterScreen(kind, fn) UI.screens[kind] = fn end
 -- For tests
 UI._HandleKey = function(k) HandleKey(k) end
 UI._ChatBox = function() return R.chatBox end
+UI._PropTiles = function()
+    local out = {}
+    for _, t in ipairs(Amb.propTex) do if t:IsShown() then out[#out + 1] = t.tileName end end
+    return out
+end
 UI._Whos = function()
     local f = R.whos
     if not (f and f:IsShown()) then return nil end

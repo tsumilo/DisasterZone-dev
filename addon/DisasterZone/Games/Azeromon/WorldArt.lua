@@ -9,7 +9,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/WorldArt.lua", ...)
 --   places[id] = { x, y } (centre of its stamp); lights { x, y, kind, radius }; windows / smoke / glints { x, y }
 local addonName, ns = ...
 ns.AzeroWorldArt = {
-    v = "bb78ce4f82c51458", w = 336, h = 216, tw = 512, th = 256, fogH = 256,
+    v = "b26c50e24087b927", w = 336, h = 216, tw = 512, th = 256, fogH = 256,
     lap = { frames = 6, cols = 3, tw = 1024, th = 512 },
     places = { deadmines = { 16, 90 }, moonbrook = { 36, 90 }, sentinel = { 56, 90 }, ravenhill = { 76, 90 }, duskwood = { 96, 90 }, darkshire = { 116, 90 }, westfall = { 56, 110 }, forestedge = { 36, 130 }, elwynn = { 56, 130 }, goldshire = { 56, 150 }, rebelcamp = { 116, 110 }, kurzen = { 136, 110 }, stvnorth = { 116, 124 }, zulmamwe = { 116, 138 }, moshogg = { 136, 138 }, arena = { 116, 152 }, stvsouth = { 116, 166 }, crystalvein = { 136, 166 }, wildshore = { 116, 180 }, bootybay = { 116, 194 }, jaguero = { 136, 198 }, threecorners = { 116, 70 }, lakeshire = { 138, 70 }, everstill = { 160, 70 }, stonewatch = { 176, 56 }, steppes = { 182, 40 }, brm = { 158, 40 }, brd = { 134, 46 }, moltencore = { 134, 33 }, gorge = { 158, 24 } },
     fog = {
