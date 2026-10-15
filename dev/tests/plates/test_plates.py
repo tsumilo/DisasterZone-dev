@@ -28,8 +28,10 @@ LOOKS = ("flat", "halo", "sigil", "slate", "gilded", "classic")
 class Plates:
     """Alice (paladin) with nameplates in `look` and Blindeye the Seer's plate on screen."""
 
-    def __init__(self, look="halo", cls="PALADIN", **opts):
+    def __init__(self, look="halo", cls="PALADIN", hammer=True, **opts):
         w, c = solo("Alice", class_file=cls, guild_rank=0)
+        if hammer:
+            c.eval("__MOCK.known_spells[27180] = true")       # Hammer of Wrath (rank 4)
         if look:
             c.eval("ns.DB:SetSetting('ui.plates.look', ...)", look)
         for k, v in opts.items():
@@ -307,6 +309,18 @@ def execute_range_only_for_classes_with_a_finisher():
     m = Plates("gilded", cls="MAGE")
     m.step(2)
     assert m.p("exec") is None
+    t.w.assert_no_errors()
+
+
+@case
+def execute_range_waits_for_the_finisher_to_be_learned():
+    t = Plates("gilded", hammer=False)                      # a paladin under 44: no Hammer of Wrath yet
+    t.c.eval("__MOCK.npcs[...].hp = 15; __MOCK.npc_combat = { [...] = true }; ns.Plates:MarkAll()", t.mob)
+    t.step(2)
+    assert t.p("exec") is None and t.p("execReady") is False
+    t.c.eval("__MOCK.known_spells[24275] = true; __MOCK.fire('SPELLS_CHANGED')")   # learns rank 1
+    t.step(2)
+    assert t.p("exec") == 0.2 and t.p("execReady") is True
     t.w.assert_no_errors()
 
 

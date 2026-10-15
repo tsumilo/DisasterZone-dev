@@ -74,6 +74,9 @@ local NAV_TOOLS = {
     { key = "editlayout", always = true, label = "Edit layout",
       tip = "Move, line up and mirror every frame on your screen.",
       open = function() if ns.EditMode then ns.EditMode:Toggle() end end },
+    { key = "keybinds", always = true, label = "Key binds",
+      tip = "Point at any action button and press a key.",
+      open = function() if ns.KeyBinds then ns.KeyBinds:Toggle() end end },
 }
 local TOOL = {}
 for _, t in ipairs(NAV_TOOLS) do TOOL[t.key] = t end

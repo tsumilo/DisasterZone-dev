@@ -129,8 +129,8 @@ local CARDS = {
     looks = { label = "Looks", build = "BuildLooks", icon = 31,
               lead = "How the game's frames and the addon's own parts are drawn." },
     -- where every on-screen frame goes (Core/Layout.lua)
-    layout = { label = "Layout", build = "BuildLayout", icon = 2,
-               lead = "Where every frame on your screen goes, yours and the game's." },
+    layout = { label = "Profiles", build = "BuildLayout", icon = 2,
+               lead = "Looks, layout and key binds together. A spec can switch to its own." },
     council = { label = "Loot Council", build = "BuildCouncil", scope = "guild", icon = 26,
                 lead = "Who votes on loot. The Guild Master picks the guild council." },
     -- the GM's attendance margins (Guild:SetAttendanceRules): everyone sees them, the GM changes them
@@ -3303,29 +3303,15 @@ end
 
 -- Layout: Edit layout, this character's profile, a new one and a share link.
 function SettingsUI:BuildLayout(sec)
-    sec.y = sec.y - 4
-    local L = ns.Layout
-    local open = self:EditLayoutRow(sec, "Edit layout", "Move, line up and mirror every frame on your screen.")
-    open:SetKind("primary")
-    self:Dropdown(sec, "Profile", "Where everything goes. Each character picks its own.",
-        function()
-            local out = {}
-            for _, p in ipairs(L:Profiles()) do out[#out + 1] = { value = p.id, text = p.name } end
-            return out
-        end,
-        function() return L:ActiveId() end,
-        function(a, b) L:Use(Value(a, b)) end)
-    local row = self:Row(sec, "Profiles", "New copies where things are now. Share links it in chat.")
-    local share = ns.UI:CreateSleekButton(row, "Share", 60, 22, function(b)
-        if ns.EditMode then ns.EditMode:Share(b) end
-    end)
-    share:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    local new = ns.UI:CreateSleekButton(row, "New", 56, 22, function()
-        if ns.EditMode then ns.EditMode:PromptNew(function() SettingsUI:Refresh() end) end
-    end)
-    new:SetPoint("RIGHT", share, "LEFT", -6, 0)
-    row.control = share
-    PlaceText(row, 122)
+    sec.y = sec.y - 6
+    -- UI profiles (UI/ProfilesUI.lua): cards, the open profile's parts (Edit layout and Key binds inside them), specs
+    local block = ns.ProfilesUI:Build(self, sec)
+    -- (search: the parts and the two overlays find this page)
+    if self.IndexRow then
+        self:IndexRow(block, "Edit layout", "Move, line up and mirror every frame on your screen.")
+        self:IndexRow(block, "Key binds", "Point at any action button and press a key. Drag abilities to swap them.")
+        self:IndexRow(block, "Profiles", "Looks, layout and key binds together. A spec can switch to its own.")
+    end
     self:EndSection(sec)
 end
 

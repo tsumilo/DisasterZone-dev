@@ -290,7 +290,8 @@ function Look:OnInit()
                 if Look:NeedsReload(p.key) then reload[#reload + 1] = p.name end
             end
         end
-        if #reload > 0 and ns.Popup and ns.Popup.Confirm then
+        -- (a profile being put on asks once itself, in its toast: Core/Profiles.lua)
+        if #reload > 0 and not Look.quietReload and ns.Popup and ns.Popup.Confirm then
             ns.Popup:Confirm({ key = "uilookreload", title = "Reload to switch",
                 text = ("%s switch between the game's frames and DisasterZone's after a reload."):format(
                     table.concat(reload, ", ")), ok = "Reload now", cancel = "Later",

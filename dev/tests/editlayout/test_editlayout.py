@@ -381,6 +381,11 @@ def a_shared_profile_comes_over_and_can_be_kept():
     w.tick(0.5)
     names = b.eval_py("local o = {} for _, p in ipairs(ns.Layout:Profiles()) do o[#o + 1] = p.name end return o")
     assert any(n.startswith("Raid (Alice") for n in names), names
+    # (kept, not put on: it opens on its card in Settings > Profiles, where Bob picks the parts first)
+    got = b.eval("return ns.ProfilesUI:Selected()")
+    assert got and b.eval("return ns.Layout:Profile(...).name", got).startswith("Raid (Alice")
+    assert b.eval("return ns.Profiles:InUseId()") != got
+    b.eval("ns.Profiles:Use(...)", got)
     assert b.eval("return ns.Layout:Active().frames.session.x") == 50
     assert b.eval("return ns.Layout:Partner('session')") == "reminder"
     # an answer nobody asked for is dropped
@@ -764,7 +769,7 @@ def one_slim_bar_at_the_top_reads_out_the_pick_and_holds_its_tools():
     assert c.eval("return DisasterZoneEditToolbar == nil") is True
     assert c.eval("return ns.EditMode:GetToolbar() == ns.EditMode:GetBar()") is True
     assert readout(c) == "Click a frame to pick it"
-    assert tools(c) == sorted(["undo", "redo", "grid", "snap", "names", "frames", "done"]), tools(c)
+    assert tools(c) == sorted(["undo", "redo", "grid", "snap", "names", "frames", "profile", "done"]), tools(c)
     # one picked: its name, its centre from the screen's centre, its size; its tools in the bar
     c.eval("ns.EditMode:Select({ 'session' })")
     l, b, bw, bh = box(c, "session")

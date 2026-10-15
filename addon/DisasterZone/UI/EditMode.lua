@@ -1439,6 +1439,11 @@ function EM:UpdateBar()
     B.frames:SetLit(panel and panel:IsShown())
     add(B.grid); add(B.snap); add(B.names); add(B.frames)
     sep()
+    if ns.ProfilesUI then
+        B.profile:SetLabel("|cffffd100" .. ns.ProfilesUI:InUseName() .. "|r")
+        add(B.profile)
+        sep()
+    end
     add(B.done, 0)
     for _, c in pairs(B) do if not want[c] then c:Hide() end end
     for i = nSep + 1, #bar.seps do bar.seps[i]:Hide() end
@@ -1584,6 +1589,9 @@ local function BuildBar()
     B.frames = BarButton(bar, "Frames", function() EM:ShowFrames() end, "Frames",
         "Every frame in a list (pick one, hide it with its eye), my character's or everything, what snaps, profiles.",
         true)
+    B.profile = BarButton(bar, "Profile", function(b)
+        if ns.ProfilesUI then UI:ContextMenu(b, function(root) ns.ProfilesUI:FillMenu(root) end) end
+    end, "Profile", "What you move here saves into this profile. Switch to another or start a new one.", true)
     B.done = UI:CreateSleekButton(bar, "Done", 54, 22, function() EM:Close() end, "primary")
     UI:SetTextSize(B.done:GetFontString(), "small")
     UI:AttachTooltip(B.done, "Done", { "Esc too (the first Esc drops what is picked)." }, { anchor = "ANCHOR_BOTTOM" })
@@ -2155,7 +2163,8 @@ function EM:SnapBox(frame, x, y, w, h)
     return nl / r, nb / r + h
 end
 
--- The game's Esc menu: "DisasterZone layout" right under the game's own Edit Mode (else at the end).
+-- The game's Esc menu: "DisasterZone layout" right under the game's own Edit Mode (else at the end), and
+-- "DisasterZone key binds" (UI/KeyBinds.lua) right under it.
 function EM:HookGameMenu()
     local gm = GameMenuFrame
     if self.gameMenuHooked or not gm or not gm.InitButtons or not gm.AddButton or not hooksecurefunc then return end
@@ -2172,9 +2181,15 @@ function EM:HookGameMenu()
             HideUIPanel(menu)
             EM:Open()
         end, InCombat(), "Opens after the fight.")
+        local k = ns.KeyBinds and menu:AddButton("DisasterZone key binds", function()
+            if PlaySound and SOUNDKIT then PlaySound(SOUNDKIT.IG_MAINMENU_OPTION) end
+            HideUIPanel(menu)
+            ns.KeyBinds:Open()
+        end, InCombat(), "Opens after the fight.")
         if after and b then
             b.layoutIndex = after + 0.5
             b.topPadding = nil
+            if k then k.layoutIndex = after + 0.6; k.topPadding = nil end
             if menu.MarkDirty then menu:MarkDirty() elseif menu.Layout then menu:Layout() end
         end
     end)
@@ -2201,6 +2216,8 @@ function EM:OnLogin()
         end
     end)
     ns:On("LAYOUT_RECEIVED", function(owner, pid, data) EM:OnReceived(owner, pid, data) end)
+    -- (another profile put on while editing: its places, a fresh undo, its name in the bar)
+    ns:On("PROFILE_CHANGED", function() if active then EM:Reset() end end)
 end
 
 -- A shared layout arrived (Share.lua asked for it): keep it as a profile?
@@ -2212,9 +2229,23 @@ function EM:OnReceived(owner, pid, data)
     end
     local n = 0
     for _ in pairs(type(data.f) == "table" and data.f or {}) do n = n + 1 end
-    ns.Popup:Confirm({ key = "layoutshare", title = "Shared layout",
-        text = ("%s shared the layout \"%s\" (%d frames).\nKeep it as a profile?"):format(who, tostring(data.n or "?"), n),
-        ok = "Keep and use", alt = "Keep", cancel = "No thanks",
-        onAccept = function() local id = Layout():Import(data, owner); if id then Layout():Use(id) end end,
-        onAlt = function() Layout():Import(data, owner) end })
+    -- (a whole UI profile: kept, then opened on its card in Settings, where you pick which parts to use first)
+    local parts = {}
+    if type(data.pa) == "table" then
+        if data.pa.looks then parts[#parts + 1] = "looks" end
+        if data.pa.layout then parts[#parts + 1] = "layout" end
+        if data.pa.keys then parts[#parts + 1] = "key binds" end
+    end
+    local what = #parts > 0 and table.concat(parts, ", ") or ("%d frames"):format(n)
+    ns.Popup:Confirm({ key = "layoutshare", title = "Shared profile",
+        text = ("%s shared the profile \"%s\" (%s).\nKeep it? You pick which parts to use on its card."):format(
+            who, tostring(data.n or "?"), what),
+        ok = "Keep", cancel = "No thanks",
+        onAccept = function()
+            local id = Layout():Import(data, owner)
+            if not id then return end
+            if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("settings") end
+            if ns.SettingsUI then ns.SettingsUI:SelectSection("layout") end
+            if ns.ProfilesUI then ns.ProfilesUI:Select(id) end
+        end })
 end

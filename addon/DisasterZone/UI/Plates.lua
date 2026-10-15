@@ -67,9 +67,25 @@ local GAME = { hostile = { 1, 0, 0 }, neutral = { 1, 1, 0 }, friend = { 0, 1, 0 
 local NAMES = { hostile = C(255, 104, 86), neutral = C(255, 220, 90), friend = C(110, 220, 120) }
 
 -- Finishers that open at a health line: the tick, and the icon beside the plate once a mob is past it.
-local EXEC = { PALADIN = { 0.2, "Interface\\Icons\\Ability_ThunderClap" },
-               WARRIOR = { 0.2, "Interface\\Icons\\INV_Sword_48" } }
+local EXEC = { PALADIN = { 0.2, "Interface\\Icons\\Ability_ThunderClap", { 24275, 24274, 24239, 27180 } },
+               WARRIOR = { 0.2, "Interface\\Icons\\INV_Sword_48", { 5308, 20658, 20660, 20661, 20662, 25234, 25236 } } }
 P.EXEC = EXEC
+
+-- Only once the finisher is in the spellbook (Hammer of Wrath comes at 44, Execute at 24), any rank. Cached until
+-- SPELLS_CHANGED.
+local execKnown = nil
+local function ExecKnown(ids)
+    if execKnown == nil then
+        execKnown = false
+        for _, id in ipairs(ids or {}) do
+            if (IsPlayerSpell and IsPlayerSpell(id)) or (IsSpellKnown and IsSpellKnown(id)) then
+                execKnown = true
+                break
+            end
+        end
+    end
+    return execKnown
+end
 
 -- The raid's armor and curse debuffs (spell ids, every rank): shown with yours when the option is on.
 local RAID_DEBUFFS = {}
@@ -209,6 +225,7 @@ function P:Read(u, p, lookKey)
     end
     -- the finisher's line
     local ex = Opt("execute", true) and not friend and EXEC[MyClass() or ""]
+    if ex and not ExecKnown(ex[3]) then ex = nil end
     p.exec = (ex and p.combat) and ex[1] or nil        -- (the tick only in a fight)
     p.execIcon = ex and ex[2] or nil
     return p
@@ -669,6 +686,7 @@ function P:OnLogin()
                          "PLAYER_REGEN_DISABLED", "GROUP_ROSTER_UPDATE" }) do
         ns:RegisterEvent(e, function() P:MarkAll() end)
     end
+    ns:RegisterEvent("SPELLS_CHANGED", function() execKnown = nil; P:MarkAll() end)
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
         P:MarkAll()
         if P.stackLater then P:ApplyStacking() end

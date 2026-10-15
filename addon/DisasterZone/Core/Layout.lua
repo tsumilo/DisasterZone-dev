@@ -192,6 +192,17 @@ function Layout:NewProfile(name, from, fromEmpty)
         frames = src and Copy(src.frames) or {}, mirror = src and Copy(src.mirror) or {},
         meters = src and Copy(src.meters) or nil,
     }
+    -- (a UI profile, Core/Profiles.lua: a copy keeps its source's parts, looks and keys; a new one holds all three,
+    -- as they are on the screen now)
+    local P = ns.Profiles
+    if P then
+        local p = L.profiles[id]
+        local copyOf = from and src or nil                     -- (a named source: a copy of that profile)
+        local live = not copyOf or copyOf.id == P:InUseId()     -- (the one in use: its looks and keys as they are now)
+        p.parts = copyOf and Copy(P.Parts(copyOf)) or { looks = true, layout = true, keys = true }
+        p.looks = live and P:ReadLooks() or Copy(copyOf.looks)
+        p.keys = live and P:ReadKeys() or Copy(copyOf.keys)
+    end
     ns:Fire("LAYOUT_CHANGED", "profiles")
     return id
 end
@@ -216,8 +227,15 @@ function Layout:Delete(pid)
     return true
 end
 
--- This character uses profile pid: the frames move to its places.
+-- This character uses profile pid: with UI profiles (Core/Profiles.lua) every part it holds comes on; UseLayout
+-- moves only the frames.
 function Layout:Use(pid)
+    if ns.Profiles then return ns.Profiles:Use(pid) end
+    return self:UseLayout(pid)
+end
+
+-- The frames move to profile pid's places (it becomes this character's layout).
+function Layout:UseLayout(pid)
     local L = Store()
     if not L or not L.profiles[pid] then return false end
     local me = Me()
@@ -881,7 +899,8 @@ function Layout:Export(pid)
     if pid == self:ActiveId() then self:Capture(true) end
     local p = self:Profile(pid)
     if not p then return nil end
-    return { n = p.name, f = Copy(p.frames), m = Copy(p.mirror), me = Copy(p.meters) }
+    return { n = p.name, f = Copy(p.frames), m = Copy(p.mirror), me = Copy(p.meters),
+             pa = Copy(p.parts), lk = Copy(p.looks), ky = Copy(p.keys) }
 end
 
 -- Adds a received profile under a free name; returns its id.
@@ -907,6 +926,28 @@ function Layout:Import(data, owner)
     end
     L.profiles[id] = { id = id, name = UniqueName(name), by = owner, frames = frames, mirror = mirror,
                        meters = type(data.me) == "table" and Copy(data.me) or nil }
+    -- (a whole UI profile: its parts as the sender had them, its looks and keys; the receiver picks the parts)
+    local p = L.profiles[id]
+    if type(data.pa) == "table" then
+        p.parts = { looks = data.pa.looks and true or nil, layout = data.pa.layout and true or nil,
+                    keys = data.pa.keys and true or nil }
+    end
+    if type(data.lk) == "table" then
+        p.looks = {}
+        for k, v in pairs(data.lk) do
+            if type(k) == "string" and (k:sub(1, 3) == "ui." or k:find("%.theme$")) and type(v) ~= "table" then p.looks[k] = v end
+        end
+    end
+    if type(data.ky) == "table" then
+        p.keys = {}
+        for cmd, keys in pairs(data.ky) do
+            if type(cmd) == "string" and type(keys) == "table" then
+                local t = {}
+                for _, k in ipairs(keys) do if type(k) == "string" then t[#t + 1] = k end end
+                if #t > 0 then p.keys[cmd] = t end
+            end
+        end
+    end
     ns:Fire("LAYOUT_CHANGED", "profiles")
     return id
 end
@@ -930,7 +971,8 @@ local function OnAsk(sender, msg)
     if not ns.Comm:RateLimit("layq:" .. tostring(sender), 2) then return end
     local data = Layout:Export(msg.id)
     local reply = { t = "LAYP", id = msg.id, p = data }
-    if not ns.Comm:Fits(reply) then data.me = nil end        -- (too big with the meters: places only)
+    if not ns.Comm:Fits(reply) then data.me = nil end        -- (too big with the meters: without them)
+    if not ns.Comm:Fits(reply) then data.lk = nil end        -- (still too big: without the looks)
     ns.Comm:Send(reply, "WHISPER", sender, "data")
 end
 

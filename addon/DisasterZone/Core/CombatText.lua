@@ -305,7 +305,7 @@ function CTE:LearnSpells()
     for _, id in ipairs(REACTIVE) do
         local name, icon
         if GetSpellInfo then name, _, icon = GetSpellInfo(id) end
-        local known = IsSpellKnown and IsSpellKnown(id)
+        local known = (IsPlayerSpell and IsPlayerSpell(id)) or (IsSpellKnown and IsSpellKnown(id))
         if name and known then reactive[name] = icon or (GetSpellTexture and GetSpellTexture(id)) or true end
     end
 end

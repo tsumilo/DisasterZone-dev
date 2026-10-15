@@ -162,12 +162,13 @@ def close_all(cl):
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
                               'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZLookLongNames', 'DZAuditFull', 'DZGroupStage',
-                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves', 'DisasterZoneReserveDemo' }) do
+                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves', 'DisasterZoneReserveDemo', 'DisasterZoneKeyBinds' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       -- (the shared pop-ups of UI:Toast, which replaced some of the named ones above)
       if ns.UI and ns.UI.ShownToasts then for _, t in ipairs(ns.UI:ShownToasts()) do t:Hide() end end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
+      if ns.KeyBinds and ns.KeyBinds.IsActive and ns.KeyBinds:IsActive() then pcall(ns.KeyBinds.Close, ns.KeyBinds, false) end
       if ns.SwingPractice and ns.SwingPractice.run then pcall(ns.SwingPractice.Stop, ns.SwingPractice, 'closed') end
       if DisasterZoneSwingPractice then DisasterZoneSwingPractice:Hide() end
       if ns.NavMenu and ns.NavMenu.Close then pcall(ns.NavMenu.Close, ns.NavMenu) end
@@ -3771,6 +3772,27 @@ STATES += [
     ("Edit layout - dragging", demo(EDIT_DRAG)),
     ("Settings - Layout", opened("settings", "ns.EditMode:Close(); ns.Layout:Reset('session'); "
                                              "ns.SettingsUI:SelectSection('layout')")),
+]
+
+# Key binds (UI/KeyBinds.lua, /dz keys) over the Dock in the flat look, demo mode's made-up keys: the vignette, a key
+# cap under every button, the bar at the top; then one button under the mouse (gold, glowing) and a key just moved
+# onto it from another button (the rose flash, the note under the bar).
+KEYS = (DOCK_STATE.replace("LOOK", "flat") + "; ns.KeyBinds:Close(false); ns.KeyBinds:Open(); "
+        "local fb = DZAuditFull or CreateFrame('Frame', 'DZAuditFull', UIParent); fb:SetSize(1898, 1078); "
+        "fb:SetPoint('CENTER'); fb:Show(); ")
+KEYS_HOVER = (KEYS + "local bd = ns.KeyBinds:Binder(ActionButton5); bd:GetScript('OnEnter')(bd); "
+              "ns.KeyBinds:Bind(bd.t, 'SHIFT-1')")
+# Settings > Interface > Profiles (UI/ProfilesUI.lua) with demo mode's made-up profiles: the cards, the open one
+# (Raid healer, in use) with its parts and specs; then Tanking open (looks off, Use now).
+STATES += [
+    ("Settings - Profiles demo", demo("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('layout')")),
+    ("Settings - Profiles demo tank", demo("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('layout'); "
+                                           "ns.ProfilesUI:Select('dtank'); local sc = ns.SettingsUI.scroll; "
+                                           "if sc and sc.SetVerticalScroll then sc:SetVerticalScroll(400) end")),
+]
+STATES += [
+    ("Key binds - demo", demo(KEYS)),
+    ("Key binds - bound and moved", demo(KEYS_HOVER)),
 ]
 
 # UI looks (UI/Look.lua, LookUnits / LookCast): every part's face in the five looks, made-up units

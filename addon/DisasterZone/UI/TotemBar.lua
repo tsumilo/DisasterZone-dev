@@ -83,6 +83,7 @@ local function NewRow(kind)
     r:HookScript("OnEnter", function(self) Bar:Hover(self, true) end)
     r:HookScript("OnLeave", function(self) Bar:Hover(self, false) end)
     rows[kind] = r
+    if ns.KeyBinds then ns.KeyBinds:Register(r, "Totems: " .. (kind:sub(1, 1):upper() .. kind:sub(2):lower())) end
     return r
 end
 
