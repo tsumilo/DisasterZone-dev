@@ -27,7 +27,7 @@ local tconcat, tsort = table.concat, table.sort
 
 local MAX_LEN = 255
 local MAX_PLACES = 12
-local MAX_PARTS = 12
+local MAX_PARTS = 24
 local MAX_WORDS = 200
 local MIN_EVERY, MAX_EVERY = 30, 12 * 3600   -- seconds
 local DAY = 86400

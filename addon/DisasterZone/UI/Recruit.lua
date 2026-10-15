@@ -860,6 +860,13 @@ function H.PartMenu(owner, id)
         root:CreateButton(p.off and "Put it back in" or "Leave it out", function() M():SetPart(id, { on = p.off and true or false }) end)
         if i > 1 then root:CreateButton("Move left", function() M():MovePart(id, i - 1) end) end
         if i < n then root:CreateButton("Move right", function() M():MovePart(id, i + 1) end) end
+        if p.k == "icon" then
+            local sub = root:CreateButton("Change icon")
+            for _, ic in ipairs(M().ICONS) do
+                sub:CreateButton("|T" .. M():IconTexture(ic.m) .. ":14:14|t  " .. (ic.m == p.m and S:Wrap("GOLD", ic.name) or ic.name),
+                    function() M():SetPart(id, { m = ic.m }) end)
+            end
+        end
         root:CreateDivider()
         root:CreateButton(S:Wrap("BAD", "Remove"), function() M():RemovePart(id) end)
     end)
@@ -958,30 +965,11 @@ function H.PartChip(w, i)
     return c
 end
 
--- A raid icon clicked: into the picked words at the cursor, or the picked icon swapped, or a new icon part after the
--- picked part.
+-- A raid icon clicked: a new icon part after the picked part (picked then, so more clicks add more after it).
 function H.IconClick(m)
     local w = view.message.w
-    local p = w.partId and M():GetPart(w.partId)
-    local code = M():IconCode(m)
-    if p and p.k == "text" then
-        local t = p.t or ""
-        local at = math.min(#t, w.wordsCursor or #t)
-        local before = t:sub(1, at)
-        local new = before .. ((before ~= "" and not before:find("%s$")) and " " or "") .. code
-        local after = t:sub(at + 1)
-        if after ~= "" and not after:find("^%s") then new = new .. " " end
-        M():SetPart(p.id, { t = new .. after })
-        w.words:SetText(new .. after)
-        w.words:SetCursorPosition(#new)
-        w.wordsCursor = #new
-        w.words:SetFocus()
-    elseif p and p.k == "icon" then
-        M():SetPart(p.id, { m = m })
-    else
-        local ok, id = M():AddPart("icon", { m = m, after = p and p.id })
-        if H.Try(ok, id) then state.part = id end
-    end
+    local ok, id = M():AddPart("icon", { m = m, after = w.partId })
+    if H.Try(ok, id) then state.part = id end
     RU:Refresh()
 end
 
@@ -1117,7 +1105,6 @@ function H.CreateWrite(m)
         if user and w.partId then M():SetPart(w.partId, { t = self:GetText() }) end
     end)
     w.words:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    w.words:HookScript("OnCursorChanged", function(self) w.wordsCursor = self:GetCursorPosition() end)
     -- the raid icons: a click puts one in (H.IconClick)
     w.iconLabel = UI:Text(w, "small", "SUB")
     w.iconLabel:SetText("Raid icons")
@@ -1137,11 +1124,8 @@ function H.CreateWrite(m)
         b:HookScript("OnLeave", function(self) self.hl:SetShown(self.on == true) end)
         b:SetScript("OnClick", function() H.IconClick(ic.m) end)
         UI:AttachTooltip(b, nil, function()
-            local p = w.partId and M():GetPart(w.partId)
-            local what = (p and p.k == "text") and "Puts it in your words, where the cursor is."
-                or (p and p.k == "icon") and "Swaps the picked icon for this one."
-                or "Adds it as a part, after the picked one."
-            return { "|T" .. M():IconTexture(ic.m) .. ":14:14|t  " .. ic.name, what,
+            return { "|T" .. M():IconTexture(ic.m) .. ":14:14|t  " .. ic.name,
+                     "Adds it to the message as a part, after the picked one: click again for more.",
                      S:Wrap("SUB", "It costs 5 of the 255 ({rt" .. ic.m .. "}); chat shows the icon.") }
         end, { anchor = "ANCHOR_TOP" })
         w.icons[i] = b
@@ -1295,12 +1279,11 @@ function H.FillWrite()
     for i, b in ipairs(w.icons) do
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", w, "TOPLEFT", 64 + (i - 1) * 24, -y)
-        b.on = pick and pick.k == "icon" and pick.m == i or false
-        b.hl:SetShown(b.on)
+        b.on = false
+        b.hl:Hide()
     end
     y = y + 32
     -- the editor
-    if w.partId ~= (pick and pick.id or nil) then w.wordsCursor = nil end
     w.partId = pick and pick.id or nil
     w.edHead:SetShown(pick ~= nil)
     w.words:SetShown(pick ~= nil and pick.k == "text")
@@ -1322,7 +1305,7 @@ function H.FillWrite()
             w.info:ClearAllPoints()
             w.info:SetPoint("TOPLEFT", 0, -y)
             w.info:SetText("Says " .. S:Wrap("TEXT", pick.text) .. ": chat shows it as the " .. M().ICONS[pick.m or 1].name:lower()
-                .. " icon " .. M():Render(pick.text) .. ". Click another raid icon above to swap it.")
+                .. " icon " .. M():Render(pick.text) .. ". Right-click the chip to change it.")
             y = y + (w.info:GetStringHeight() or 14) + 10
         elseif pick.k == "tag" then
             w.info:ClearAllPoints()
