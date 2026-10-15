@@ -1544,11 +1544,50 @@ local function CleanDiscord(dc)
     return out
 end
 
+-- 1.6: the recruitment rules (Core/Recruit.lua), the GM's, on the raid leaders record like the loot rules:
+-- rc = { wk = { o = officers work on recruits, l = raid leaders do }, it = members introduce friends, uc = days an
+-- introduction may stay unclaimed (0 = no reminder), ck = check-ins (1 = a week and a month, 2 = a month, 0 = none),
+-- ms = { [58], [70], d (first dungeon), r (first raid) } milestones, q = days offline before "gone quiet" (0 = off),
+-- nn = days before Not now comes back (0 = never), rl = tell the raid leaders when a raider hits 70, tg = the tags,
+-- wl = the welcome line, on = the officer note }.
+Guild.RECRUIT_RULES = { wk = { o = true, l = false }, it = true, uc = 2, ck = 1,
+    ms = { [58] = true, [70] = true, d = true, r = true }, q = 14, nn = 90, rl = true,
+    tg = { "Chill", "Returning", "New to WoW", "Wants to raid", "Social", "Has friends here", "Helpful", "Night owl" },
+    wl = "Everyone say hi to {name}! Welcome to {guild} :)", on = "Joined {date} · met by {by}" }
+local function CleanRecruitRules(rc)
+    if type(rc) ~= "table" then return nil end
+    local D = Guild.RECRUIT_RULES
+    local function bool(v, d) if v == nil then return d end return v == true end
+    local function int(v, lo, hi, d) v = tonumber(v) if IsInt(v, lo, hi) then return v end return d end
+    local function text(v, n, d)
+        if type(v) ~= "string" then return d end
+        v = v:gsub("[%c|]", "")
+        return #v <= n and v or v:sub(1, n)
+    end
+    local wk = type(rc.wk) == "table" and rc.wk or {}
+    local ms = type(rc.ms) == "table" and rc.ms or D.ms
+    local out = { wk = { o = bool(wk.o, true), l = bool(wk.l, false) }, it = bool(rc.it, D.it),
+        uc = int(rc.uc, 0, 30, D.uc), ck = int(rc.ck, 0, 2, D.ck), q = int(rc.q, 0, 90, D.q), nn = int(rc.nn, 0, 365, D.nn),
+        rl = bool(rc.rl, D.rl), wl = text(rc.wl, 200, D.wl), on = text(rc.on, 80, D.on),
+        ms = { [58] = ms[58] == true, [70] = ms[70] == true, d = ms.d == true, r = ms.r == true } }
+    local tg = {}
+    if type(rc.tg) == "table" then
+        for i = 1, math.min(#rc.tg, 12) do
+            local t = text(rc.tg[i], 16, nil)
+            if t and t ~= "" then tg[#tg + 1] = t end
+        end
+    end
+    out.tg = #tg > 0 and tg or D.tg
+    return out
+end
+Guild.CleanRecruitRules = function(_, rc) return CleanRecruitRules(rc) end
+
 local function SendRLL(target)
     local rec = LeadersRec(false)
     if not rec or rec.rev == 0 then return false end
     local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by, ar = CleanRules(rec.ar), arb = rec.arBy,
-                  lr = CleanLootRules(rec.lr), lrb = rec.lrBy, dc = CleanDiscord(rec.dc), dcb = rec.dcBy }
+                  lr = CleanLootRules(rec.lr), lrb = rec.lrBy, dc = CleanDiscord(rec.dc), dcb = rec.dcBy,
+                  rc = CleanRecruitRules(rec.rc), rcb = rec.rcBy }
     if target then return Send(msg, "WHISPER", target, "ctrl") end
     return Send(msg, "GUILD", nil, "ctrl")
 end
@@ -1596,6 +1635,12 @@ local function OnRaidLeaders(sender, msg, dist)
     if dc and (Guild:IsGM(sender) or (dcBy and Guild:IsGM(dcBy))) then
         rec.dc, rec.dcBy = dc, dcBy or sender
         ns:Fire("DISCORD_CHANGED")
+    end
+    local rc = CleanRecruitRules(msg.rc)
+    local rcBy = msg.rcb ~= nil and WireKey(msg.rcb) or nil
+    if rc and (Guild:IsGM(sender) or (rcBy and Guild:IsGM(rcBy))) then
+        rec.rc, rec.rcBy = rc, rcBy or sender
+        ns:Fire("RECRUIT_RULES_CHANGED")
     end
     Recompute()
     ns:Fire("ATTENDANCE_RULES_CHANGED")
@@ -1674,6 +1719,40 @@ function Guild:SetLootRules(lr)
     rec.by = rec.by or Util.PlayerKey()
     SendRLL()
     ns:Fire("LOOT_RULES_CHANGED")
+    return true
+end
+
+-- 1.6: the recruitment rules (Guild.RECRUIT_RULES's shape: the GM's, else the defaults; a copy).
+local demoRecruitRules
+function Guild:GetRecruitRules()
+    if DemoOn() and demoRecruitRules then return Util.CopyTable(demoRecruitRules) end
+    local rec = LeadersRec(false)
+    return CleanRecruitRules(rec and rec.rc or Guild.RECRUIT_RULES)
+end
+
+-- The GM only (demo mode: anyone, on a copy): changes some of the recruitment rules (the others stay) and shares
+-- them. Returns ok, err.
+function Guild:SetRecruitRules(changes)
+    if type(changes) ~= "table" then return false, "no rules" end
+    local rc = self:GetRecruitRules()
+    for k, v in pairs(changes) do rc[k] = v end
+    rc = CleanRecruitRules(rc)
+    if not rc then return false, "not a valid set of recruitment rules" end
+    if DemoOn() then
+        demoRecruitRules = rc
+        ns:Fire("RECRUIT_RULES_CHANGED")
+        return true
+    end
+    if not ns.loggedIn or not IsInGuild() then return false, "not in a guild" end
+    if not ready then return false, "the guild roster has not loaded yet" end
+    if not Guild:IsGM(Util.PlayerKey()) then return false, "only the Guild Master sets the recruitment rules" end
+    local rec = LeadersRec(true)
+    if not rec then return false, "your guild is not known yet" end
+    rec.rev = max(floor(Now()), rec.rev + 1)
+    rec.rc, rec.rcBy = rc, Util.PlayerKey()
+    rec.by = rec.by or Util.PlayerKey()
+    SendRLL()
+    ns:Fire("RECRUIT_RULES_CHANGED")
     return true
 end
 
