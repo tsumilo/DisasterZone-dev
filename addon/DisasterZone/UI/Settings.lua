@@ -113,7 +113,7 @@ local CARDS = {
                    lead = function()
                        local CK = ns.ClassKit
                        if CK and CK:IsDemo() then return "Demo mode: every class's tools, with made-up data. Nothing is cast or sent." end
-                       return "Tools for your class and spec. Switch one off to hide it; open a card for its settings."
+                       return "Tools for your class and spec. They start off: switch on the ones you want, open a card for its settings."
                    end,
                    visible = function() return SettingsUI:HasClassTools() end },
     strategy = { label = "Strategy boards", build = "BuildStrategy", icon = 25,

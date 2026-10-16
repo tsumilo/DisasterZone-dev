@@ -9,7 +9,7 @@ local DB = ns:NewModule("DB")
 
 local type, pairs, tostring, tonumber, next = type, pairs, tostring, tonumber, next
 
-local SCHEMA = 1
+local SCHEMA = 2
 
 local DEFAULTS = {
     schema = SCHEMA,
@@ -61,7 +61,7 @@ local DEFAULTS = {
         -- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): Retribution only. style "bar" | "lane" | "both";
         -- latencyMs 0 = auto; use.exo / use.cons = the optional fillers (off, as in WoWSims' rotation); consMana =
         -- Consecration only above this mana %; reports / pos are kept here too
-        swing = { enabled = true, style = "bar", idle = false, scale = 1, latencyMs = 0,
+        swing = { enabled = false, style = "bar", idle = false, scale = 1, latencyMs = 0,
                   use = { exo = false, cons = false }, consMana = 40,
                   sound = false, mobType = "Demon" },
         -- Shot timer (Core/ShotTimer.lua, UI/ShotTimerHUD.lua): every Hunter. style / idle / scale /
@@ -69,7 +69,7 @@ local DEFAULTS = {
         -- rotation); aspects = Viper / Hawk hints, Viper below viperStart %, Hawk again from viperStop %; base =
         -- the ranged weapon's own speed learned from Steady Shot casts [itemID]; reactMs = a cast is only suggested
         -- with this long to press it (0 = WoWSims' bot); reports / pos are kept here too
-        shot = { enabled = true, style = "bar", idle = false, scale = 1, latencyMs = 0, reactMs = 250,
+        shot = { enabled = false, style = "bar", idle = false, scale = 1, latencyMs = 0, reactMs = 250,
                  use = { multi = true, arcane = true, kc = true }, aspects = true, viperStart = 5, viperStop = 25,
                  sound = false },
         -- Warrior swing timer (Core/WarriorSwing.lua, UI/WarriorSwingHUD.lua): Arms and Fury. style / idle / scale /
@@ -77,7 +77,7 @@ local DEFAULTS = {
         -- Arms 80); number = rage in numbers; motion = the rage globe / bar moves (eases, sways, bubbles);
         -- ohBright = the off-hand ring brightens while Heroic Strike is queued;
         -- use.* = the presses the planner may suggest (Hamstring weaving off, as it only pays with Sword Spec / WF)
-        war = { enabled = true, style = "bar", idle = false, scale = 1, latencyMs = 0, hsLine = 0, number = true,
+        war = { enabled = false, style = "bar", idle = false, scale = 1, latencyMs = 0, hsLine = 0, number = true,
                 motion = true, ohBright = true, sound = false,
                 use = { bt = true, ms = true, ww = true, slam = true, exe = true, rampage = true, shout = true,
                         brage = true, ham = false, hs = true } },
@@ -132,8 +132,18 @@ local DEFAULTS = {
     -- authority, holds the BiS list lock (Addendum F §38, Core/GroupRules.lua; restored after a /reload)
 }
 
--- MIGRATIONS[n] upgrades a saved table from schema n-1 to n. None yet (schema 1 is the first).
-local MIGRATIONS = {}
+-- MIGRATIONS[n] upgrades a saved table from schema n-1 to n.
+local MIGRATIONS = {
+    -- 2 (1.5.2): class tools start off, turned on by choice. Saved data copied the old "on" default in, so every
+    -- class tool is switched off once; a player turns on the ones they want in Settings > Class tools.
+    [2] = function(db)
+        local s = type(db.settings) == "table" and db.settings or nil
+        if not s then return end
+        for _, key in ipairs({ "swing", "shot", "war", "bless", "totems" }) do
+            if type(s[key]) == "table" then s[key].enabled = false end
+        end
+    end,
+}
 
 -- Group-rule settings (Addendum D §24-26 + E §32) -> field of the GS message.
 local GROUP_RULE_PATHS = {

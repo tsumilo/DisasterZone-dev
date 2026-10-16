@@ -14,6 +14,13 @@ for c in w.clients:
     c.load_addon()
 w.tick(2)
 
+# class tools start off: switching one on is the player's choice
+assert ret.eval("return ns.SwingTimer.active, ns.ClassKit:IsOn('swing')") == (False, False)
+assert ret.eval("return DisasterZoneSwingTimer == nil or not DisasterZoneSwingTimer:IsShown()") is True
+for c in w.clients:
+    c.eval("ns.ClassKit:SetOn('swing', true)")
+w.tick(0.5)
+
 assert ret.eval("return ns.SwingTimer:IsRet()") is True, "45 points in Retribution should count as Ret"
 assert prot.eval("return ns.SwingTimer:IsRet()") is False
 assert ret.eval("return ns.SwingTimer.active") is True

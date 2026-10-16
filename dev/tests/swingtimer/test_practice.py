@@ -12,6 +12,8 @@ w = World()
 c = Client(w, "Alice", class_file="PALADIN", guild_rank=0, talents=(5, 11, 45))
 c.load_addon()
 w.tick(2)
+c.eval("ns.ClassKit:SetOn('swing', true)")     # (class tools start off)
+w.tick(0.3)
 
 # the bars: Command on 2, Blood on 3, Crusader Strike in a macro on the bottom-left bar (Shift-1), Judgement nowhere
 c.eval("""

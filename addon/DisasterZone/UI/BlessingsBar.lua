@@ -67,7 +67,7 @@ Bar.Layout = Layout
 
 -- Is the bar for me now: a paladin (the class tool), in a group the setting allows, with an aura or a blessing to give?
 function Bar:Wanted()
-    if not (ns.ClassKit and ns.ClassKit:IsMine("bless") and ns.ClassKit:IsOn("bless")) then return false end
+    if not (ns.ClassKit and ns.ClassKit:IsLive("bless")) then return false end
     if cb.preview then return B():Me() ~= nil end      -- (Edit layout: shown to be moved)
     local mode = B().Setting("bar", "group")
     if mode == "off" then return false end

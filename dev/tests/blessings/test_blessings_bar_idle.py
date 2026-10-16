@@ -55,6 +55,7 @@ def world():
     vic = Client(w, "Victhar", class_file="WARRIOR", guild_rank=3)
     for c in w.clients:
         c.load_addon()
+        c.eval("ns.ClassKit:SetOn('bless', true)")    # (class tools start off)
     gina.eval("local ids = ...; for _, id in ipairs(ids) do __MOCK.known_spells[id] = true end; ns.Blessings:ScanSelf()",
               COMMON)
     w.make_raid([gina, vic], leader=gina,

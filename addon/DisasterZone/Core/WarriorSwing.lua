@@ -81,7 +81,7 @@ local function Get(path, default)
 end
 War.Get = Get
 
-function War:IsEnabled() return Get("enabled", true) and true or false end
+function War:IsEnabled() return Get("enabled", false) and true or false end
 
 -- A class tool for Arms and Fury (a warrior with no talent points yet gets it too). Its Settings card comes from
 -- UI/WarriorSwingHUD.lua.
@@ -637,7 +637,7 @@ end
 War.DemoState = function() return demo end
 
 function War:Refresh()
-    self.active = self:IsMine() and self:IsEnabled()
+    self.active = self:IsMine() and (self:IsEnabled() or self:IsDemo())   -- (off until switched on; demo shows it)
     DemoSwings(self.active and self:IsDemo())
     CL:SetSubscribed("war", OnCombatLog, self.active and not self:IsDemo())
     ns:Fire("WAR_STATE", self.active)

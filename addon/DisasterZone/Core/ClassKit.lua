@@ -128,13 +128,20 @@ function ClassKit:IsMine(key)
     return false
 end
 
--- Switched on (Settings > Class tools, the switch on each card): the setting '<key>.enabled', on by default. A kit
--- that is off shows nothing (no bar, no HUD, no warnings); its planner still opens.
+-- Switched on (Settings > Class tools, the switch on each card): the setting '<key>.enabled'. Every class tool starts
+-- OFF: turning one on is the player's own choice (user, 2026-10-16). A kit that is off shows nothing (no bar, no HUD,
+-- no warnings); its planner still opens.
 function ClassKit:IsOn(key)
     if not kits[key] then return false end
     local v = ns.DB and ns.DB.GetSetting and ns.DB:GetSetting(key .. ".enabled")
-    if v == nil then return true end
-    return v and true or false
+    return v == true
+end
+
+-- Shown now: the kit is for this character and switched on, or demo mode (which shows every tool, off or not, to try
+-- them; nothing it does is saved or sent).
+function ClassKit:IsLive(key)
+    if not self:IsMine(key) then return false end
+    return self:IsDemo() or self:IsOn(key)
 end
 
 function ClassKit:SetOn(key, on)

@@ -81,7 +81,7 @@ local function Get(path, default)
 end
 SwingTimer.Get = Get
 
-function SwingTimer:IsEnabled() return Get("enabled", true) and true or false end
+function SwingTimer:IsEnabled() return Get("enabled", false) and true or false end
 
 -- A class tool (Core/ClassKit.lua) for Retribution: the most points in the third tree, or (no points yet) Seal of
 -- Command known. Its Settings section comes from UI/SwingTimerHUD.lua.
@@ -500,7 +500,8 @@ function SwingTimer:IsDemo() return ns.ClassKit:IsDemo() end
 
 -- (twist practice keeps it on while it runs, even when the swing timer itself is off)
 function SwingTimer:Refresh()
-    self.active = self:IsRet() and (self:IsEnabled() or self.practice ~= nil)
+    -- (off until switched on; demo mode shows it anyway)
+    self.active = self:IsRet() and (self:IsEnabled() or self.practice ~= nil or self:IsDemo())
     DemoSwings(self.active and self:IsDemo() and not self.practice)
     CL:SetSubscribed("swing", OnCombatLog, self.active and not self.practice)
     ns:Fire("SWING_STATE", self.active)

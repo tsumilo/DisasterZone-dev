@@ -17,6 +17,11 @@ pala = Client(w, "Bob", class_file="PALADIN", guild_rank=1, talents=(0, 45, 16))
 for c in w.clients:
     c.load_addon()
 w.tick(2)
+# class tools start off: switching one on is the player's choice
+assert war.eval("return ns.WarriorSwing.active, ns.ClassKit:IsOn('war')") == (False, False)
+for c in w.clients:
+    c.eval("ns.ClassKit:SetOn('war', true)")
+w.tick(0.3)
 
 NAMES = ("local names = { [29707] = 'Heroic Strike', [25231] = 'Cleave', [30335] = 'Bloodthirst', [1680] = 'Whirlwind', "
          "[25236] = 'Execute', [30033] = 'Rampage', [2048] = 'Battle Shout', [2687] = 'Bloodrage', [25212] = 'Hamstring' }; "
@@ -257,6 +262,8 @@ war.slash("/dz war report")
 prot = Client(w, "Tank", class_file="WARRIOR", guild_rank=1, talents=(5, 10, 46))
 prot.load_addon()
 w.tick(1)
+prot.eval("ns.ClassKit:SetOn('war', true)")      # (on, and still not for a Protection warrior)
+w.tick(0.3)
 assert prot.eval("return ns.WarriorSwing.active") is False
 
 # ---------------------------------------------------------------------------------------------------------------

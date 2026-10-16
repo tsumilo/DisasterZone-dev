@@ -11,13 +11,13 @@ EXPECTED_SETTINGS = {
     "reserves": {"lootReserve": True, "showWhispers": False},
     "meters": {"dmg": False, "thr": False, "show": "group", "ooc": "fade", "keep": 25, "split": "all", "warn": 85,
                "sound": True, "flash": True, "tankView": "auto", "size": "normal", "rate": "fight"},
-    "swing": {"enabled": True, "style": "bar", "idle": False, "scale": 1, "latencyMs": 0,
+    "swing": {"enabled": False, "style": "bar", "idle": False, "scale": 1, "latencyMs": 0,
               "use": {"exo": False, "cons": False}, "consMana": 40, "sound": False,
               "mobType": "Demon"},
-    "shot": {"enabled": True, "style": "bar", "idle": False, "scale": 1, "latencyMs": 0, "reactMs": 250,
+    "shot": {"enabled": False, "style": "bar", "idle": False, "scale": 1, "latencyMs": 0, "reactMs": 250,
              "use": {"multi": True, "arcane": True, "kc": True}, "aspects": True, "viperStart": 5, "viperStop": 25,
              "sound": False},
-    "war": {"enabled": True, "style": "bar", "idle": False, "scale": 1, "latencyMs": 0, "hsLine": 0, "number": True,
+    "war": {"enabled": False, "style": "bar", "idle": False, "scale": 1, "latencyMs": 0, "hsLine": 0, "number": True,
             "motion": True, "ohBright": True, "sound": False,
             "use": {"bt": True, "ms": True, "ww": True, "slam": True, "exe": True, "rampage": True, "shout": True,
                     "brage": True, "ham": False, "hs": True}},
@@ -85,7 +85,7 @@ def fresh_boot_defaults_and_globals():
     assert c.eval("return ns.version") == toc_version(), c.eval("return ns.version")
     assert c.eval("return ns.PROTO") == 1
     db = c.eval_py("return DisasterZoneDB")
-    assert db["schema"] == 1, db.get("schema")
+    assert db["schema"] == 2, db.get("schema")
     assert db["settings"] == EXPECTED_SETTINGS, db["settings"]
     for k in ("lists", "ledger", "peers", "dropHistory", "raids"):
         assert db[k] == {}, (k, db[k])
@@ -183,7 +183,7 @@ def migration_and_defaults_are_idempotent_across_relogs():
     w.tick(30)
     third = strip_volatile(c.eval_py("return DisasterZoneDB"))
     assert first == second == third, (first, second, third)
-    assert third["schema"] == 1
+    assert third["schema"] == 2
     no_errors(w)
 
 
@@ -223,7 +223,7 @@ def non_table_saved_variable_is_replaced():
     c.load_addon()
     w.tick(5)
     assert c.eval("return type(DisasterZoneDB)") == "table"
-    assert c.eval("return DisasterZoneDB.schema") == 1
+    assert c.eval("return DisasterZoneDB.schema") == 2
     no_errors(w)
 
 
@@ -244,13 +244,35 @@ def saved_by_newer_version_is_kept_and_warned():
 
 
 @case
+def class_tools_saved_on_are_switched_off_once():
+    # schema 1 saved the old "on" default for every class tool: schema 2 switches them off once (turning one on is the
+    # player's choice); one switched on after that stays on
+    w = World()
+    c = Client(w, "Alice", class_file="PALADIN", guild_rank=3, talents=(5, 11, 45))
+    c.set_saved_variable("DisasterZoneDB", "{ schema = 1, settings = { swing = { enabled = true, scale = 1.3 }, "
+                         "shot = { enabled = true }, war = { enabled = true }, bless = { enabled = true, bar = 'raid' } } }")
+    c.load_addon()
+    w.tick(5)
+    s = c.eval_py("return DisasterZoneDB.settings")
+    assert c.eval("return DisasterZoneDB.schema") == 2
+    assert [s[k]["enabled"] for k in ("swing", "shot", "war", "bless")] == [False] * 4, s
+    assert s["swing"]["scale"] == 1.3 and s["bless"]["bar"] == "raid", "only the switch changes"
+    assert c.eval("return ns.SwingTimer.active") is False
+    c.eval("ns.ClassKit:SetOn('swing', true)")
+    c.relog()
+    w.tick(5)
+    assert c.eval("return ns.ClassKit:IsOn('swing'), ns.SwingTimer.active") == (True, True)
+    no_errors(w)
+
+
+@case
 def missing_schema_with_data_is_migrated_once():
     w = World()
     c = Client(w, "Alice", guild_rank=3)
     c.set_saved_variable("DisasterZoneDB", "{ settings = { alerts = { sound = false } }, ledger = {} }")
     c.load_addon()
     w.tick(5)
-    assert c.eval("return DisasterZoneDB.schema") == 1
+    assert c.eval("return DisasterZoneDB.schema") == 2
     assert c.eval("return DisasterZoneDB.settings.alerts.sound") is False
     assert c.eval("return DisasterZoneDB.settings.alerts.glow") is True
     no_errors(w)

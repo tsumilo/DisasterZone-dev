@@ -16,6 +16,11 @@ pala = Client(w, "Bob", class_file="PALADIN", guild_rank=1, talents=(0, 45, 16))
 for c in w.clients:
     c.load_addon()
 w.tick(2)
+# class tools start off: switching one on is the player's choice
+assert hunt.eval("return ns.ShotTimer.active, ns.ClassKit:IsOn('shot')") == (False, False)
+for c in w.clients:
+    c.eval("ns.ClassKit:SetOn('shot', true)")
+w.tick(0.3)
 
 NAMES = ("local names = { [75] = 'Auto Shot', [34120] = 'Steady Shot', [27021] = 'Multi-Shot', [27019] = 'Arcane Shot', "
          "[34026] = 'Kill Command', [27044] = 'Aspect of the Hawk', [34074] = 'Aspect of the Viper' }; "

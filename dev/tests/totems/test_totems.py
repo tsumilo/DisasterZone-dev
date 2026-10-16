@@ -38,6 +38,10 @@ sp = Client(w, "Spuser", class_file="PRIEST", guild_rank=3)      # plays a Shama
 shamans = (kha, iri, vel)
 for c in w.clients:
     c.load_addon()
+# class tools start off: switching one on is the player's choice
+assert kha.eval("return ns.ClassKit:IsOn('totems')") is False
+for c in w.clients:
+    c.eval("ns.ClassKit:SetOn('totems', true)")
 for c in shamans:
     c.eval("local ids = ...; for _, id in ipairs(ids) do __MOCK.known_spells[id] = true end; ns.Totems:ScanSelf()",
            KNOWN[c.name])

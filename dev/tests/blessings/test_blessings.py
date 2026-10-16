@@ -35,6 +35,10 @@ pp = Client(w, "Holypal", class_file="PRIEST", guild_rank=3)      # plays a Pall
 pals = (cae, gina, sun)
 for c in w.clients:
     c.load_addon()
+# class tools start off: switching one on is the player's choice
+assert gina.eval("return ns.ClassKit:IsOn('bless'), ns.BlessingsBar:Wanted()") == (False, False)
+for c in w.clients:
+    c.eval("ns.ClassKit:SetOn('bless', true)")
 # talents share their spell's icon (Pally Power reads Improved Might / Wisdom that way): give the mock real icons
 TALENTS = {"Caelith": (0, 0), "Gina": (0, 2), "Sunniva": (5, 0)}      # (Improved Might, Improved Wisdom)
 for c in pals:
@@ -359,6 +363,7 @@ assert gina.eval("local n = 0; for _ in pairs(ns.Blessings.pals) do n = n + 1 en
 # solo with the bar set to "Always": my own class, with the blessing my spec wants (Holy: Wisdom)
 lone = Client(w, "Lonely", class_file="PALADIN", guild_rank=3, talents=(41, 20, 0))
 lone.load_addon()
+lone.eval("ns.ClassKit:SetOn('bless', true)")    # (class tools start off)
 w.tick(1)
 lone.eval("local ids = ...; for _, id in ipairs(ids) do __MOCK.known_spells[id] = true end; ns.Blessings:ScanSelf()",
           KNOWN["Gina"])

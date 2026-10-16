@@ -73,7 +73,7 @@ local function Get(path, default)
 end
 ShotTimer.Get = Get
 
-function ShotTimer:IsEnabled() return Get("enabled", true) and true or false end
+function ShotTimer:IsEnabled() return Get("enabled", false) and true or false end
 
 -- A class tool (Core/ClassKit.lua) for every Hunter: all three specs live on Steady Shot. Its Settings card comes
 -- from UI/ShotTimerHUD.lua.
@@ -613,7 +613,7 @@ local function DemoShots(on)
 end
 
 function ShotTimer:Refresh()
-    self.active = self:IsMine() and self:IsEnabled()
+    self.active = self:IsMine() and (self:IsEnabled() or self:IsDemo())   -- (off until switched on; demo shows it)
     DemoShots(self.active and self:IsDemo())
     ns:Fire("SHOT_STATE", self.active)
 end

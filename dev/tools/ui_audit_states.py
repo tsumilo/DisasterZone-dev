@@ -1425,7 +1425,7 @@ SWING_HUD = ("__MOCK.real_geometry = true; __MOCK.swing_speed = 3.5; "
              "local old = GetSpellInfo; GetSpellInfo = function(x, ...) if names[x] then return names[x] end "
              "for _, n in pairs(names) do if n == x then return n end end return old(x, ...) end; "
              "UnitCreatureType = function() return 'Demon' end; GetSpellTexture = function() return nil end; "
-             "local ST = ns.SwingTimer; ST.IsRet = function() return true end; ns.DB:SetSetting('swing.idle', true); "
+             "local ST = ns.SwingTimer; ST.IsRet = function() return true end; ns.DB:SetSetting('swing.enabled', true); ns.DB:SetSetting('swing.idle', true); "
              "ns.DB:SetSetting('swing.style', 'STYLE'); ST:Refresh(); "
              "ST.state.seal = 'soc'; ST.state.last = GetTime() - %s; ST.state.sealExpires = GetTime() + 22; "
              "for i, k in ipairs({ 'twist', 'twist', 'late', 'twist', 'plain', 'twist', 'clip', 'twist', 'twist' }) do "
@@ -1443,7 +1443,7 @@ SHOT_HUD = ("__MOCK.real_geometry = true; __MOCK.ranged_speed = 2.2; "
             "for id, n in pairs(names) do __MOCK.known_spells[id] = true; __MOCK.spell_cd[n] = { 0, 0 } end; "
             "__MOCK.fire('SPELLS_CHANGED'); GetSpellTexture = function() return nil end; "
             "local ST = ns.ShotTimer; ST.IsMine = function() return true end; ST.Haste = function() return 3.0 / 2.2 end; "
-            "ns.DB:SetSetting('shot.idle', true); ns.DB:SetSetting('shot.style', 'STYLE'); ST:Refresh(); "
+            "ns.DB:SetSetting('shot.enabled', true); ns.DB:SetSetting('shot.idle', true); ns.DB:SetSetting('shot.style', 'STYLE'); ST:Refresh(); "
             "ST.state.aspect = 'hawk'; ST.state.auto = true; ST.OnShot(GetTime() - %s); ns.ShotTimerHUD:Update()")
 
 
@@ -1465,7 +1465,7 @@ WAR_HUD = ("__MOCK.real_geometry = true; "
            "GetShapeshiftForm = function() return 3 end; __MOCK.player_power = { RAGE, 100 }; "
            "IsCurrentSpell = function(n) return QUEUED and n == 'Heroic Strike' end; "
            "local W = ns.WarriorSwing; W.IsMine = function() return true end; W.Spec = function() return 'SPEC' end; "
-           "ns.DB:SetSetting('war.idle', true); ns.DB:SetSetting('war.style', 'STYLE'); W:Refresh(); "
+           "ns.DB:SetSetting('war.enabled', true); ns.DB:SetSetting('war.idle', true); ns.DB:SetSetting('war.style', 'STYLE'); W:Refresh(); "
            "__MOCK.fire('UNIT_ATTACK_SPEED', 'player'); "
            "W.OnMH(GetTime() - %s); if oh then W.OnOH(GetTime() - 1.0) end; ns.WarriorSwingHUD:Update()")
 
@@ -3644,7 +3644,7 @@ def bless_view(lead="Gina", lua=None, bar=False, theme="halo"):
         w.make_raid([g] + [c[n] for n in ("Victhar", "Shadowmelder", "Moonwhisper", "Lightbringer", "Grumpykat")],
                     leader=g)
         w.tick(1)
-        g.eval("ns.DB:SetSetting('bless.bar', ...); ns.DB:SetSetting('bless.layout', 'vertical')", "group" if bar else "off")
+        g.eval("ns.DB:SetSetting('bless.enabled', true); ns.DB:SetSetting('bless.bar', ...); ns.DB:SetSetting('bless.layout', 'vertical')", "group" if bar else "off")
         g.eval("ns.DB:SetSetting('classbar.theme', ...)", theme)
         g.eval(BLESS_SEED, lead)
         if not bar:

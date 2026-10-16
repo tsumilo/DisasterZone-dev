@@ -6,6 +6,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.5.2", date = "October 2026", title = "Class tools by choice",
+      sections = {
+          { heading = "Class tools start off", area = "class", kind = "changed", hi = true, open = "settings/classtools",
+            lead = "Swing and shot timers, Blessings and Totems are yours to turn on.", lines = {
+              "Every class tool starts switched off: turn on the ones you want in Settings > Class tools.",
+              "After this update they are all off once, even ones you had on: switch yours back on.",
+              "Demo mode still shows every tool to try them out.",
+          } },
+          { heading = "Smoother logins", area = "guild", kind = "fixed", lines = {
+              "Opening the window no longer asks the game for a whole raid's items in the background.",
+              "A council member whose guild list loads late now answers everyone who logged in with them.",
+          } },
+      } },
     { version = "1.5.1", date = "16 October 2026", title = "Recruitment, a Warrior swing timer and walking together",
       sections = {
           { heading = "Recruitment", area = "guild", kind = "new", hi = true, open = "recruit", ["for"] = "gm officers",
