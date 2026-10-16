@@ -38,6 +38,7 @@ class Pull:
         w.auto_session = False
         cl = Client(w, "Gina", class_file="PALADIN", guild_rank=3, talents=(5, 11, 45))
         cl.load_addon()
+        cl.eval("ns.ClassKit:SetOn('swing', true)")       # (class tools start off: the Ret timer switched on)
         w.tick(3)
         if meters:
             cl.eval("ns.DB:SetSetting('meters.dmg', true)")

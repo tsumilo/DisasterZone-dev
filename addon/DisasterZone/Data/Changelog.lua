@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.5.2", date = "October 2026", title = "Class tools by choice",
+    { version = "1.5.2", date = "16 October 2026", title = "Class tools by choice",
       sections = {
           { heading = "Class tools start off", area = "class", kind = "changed", hi = true, open = "settings/classtools",
             lead = "Swing and shot timers, Blessings and Totems are yours to turn on.", lines = {

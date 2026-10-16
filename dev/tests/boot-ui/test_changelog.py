@@ -107,7 +107,7 @@ def a_release_shows_highlights_then_one_line_per_section():
       local ne = ns.ChangelogUI.Norm().by[ns.version]
       for _, s in ipairs(ne.sections) do
         local v = ns.ChangelogUI.View(s)
-        if v.mine then out[#out + 1] = { title = s.title, hi = s.hi or false, lead = v.lead, n = #v.lines,
+        if v.mine then out[#out + 1] = { title = s.title, hi = s.hi or false, fixed = s.kind == 'fixed', lead = v.lead, n = #v.lines,
                                          last = v.lines[#v.lines].text } end
       end
       return out""")
@@ -118,7 +118,10 @@ def a_release_shows_highlights_then_one_line_per_section():
         if s["n"] > 1 and s["last"] != s["lead"]:
             assert s["last"] not in t, ("folded: only the lead shows", s["last"])
     if any(s["hi"] for s in secs):
-        assert "HIGHLIGHTS" in t and "EVERYTHING ELSE" in t, t
+        assert "HIGHLIGHTS" in t, t
+        # (fixes have their own group: "everything else" heads the other sections, when there are any)
+        if any(not s["hi"] and not s["fixed"] for s in secs):
+            assert "EVERYTHING ELSE" in t, t
     # a click on a folded row opens its lines, another folds it again
     row = c.eval("""local p = ns.MainFrame:GetPanel('changelog')
       for _, ch in ipairs({ p.child:GetChildren() }) do
