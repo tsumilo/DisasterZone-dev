@@ -775,5 +775,58 @@
   "time": "2026-10-01 19:46:51",
   "commit": "2d6c9e4b9e91ccfe221c02401f802837164a445e",
   "revoke": true
+ },
+ {
+  "seq": 5,
+  "version": "1.5.3",
+  "base": "1.5.2",
+  "build": "5a601dc56e533176",
+  "pack": 14,
+  "files": [
+   [
+    "F",
+    "Games/Azeromon/Game.lua"
+   ],
+   [
+    "F",
+    "Games/Azeromon/Changelog.lua"
+   ]
+  ],
+  "sha": {
+   "Games/Azeromon/Game.lua": "7a1d10e7602b780374a6ce00b654e96e67e3f2a8bcc5a940b2692603be386e71",
+   "Games/Azeromon/Changelog.lua": "8fb8e877c96a6afdfc181ec3af0917da12e78511b989a62127f664c11e7f551d"
+  },
+  "time": "2026-10-16 23:55:24",
+  "commit": "a540325a3c9e74217b96c6812f61abc87ba9f66f",
+  "revoke": false
+ },
+ {
+  "seq": 6,
+  "version": "1.5.3",
+  "base": "1.5.2",
+  "build": "5a601dc56e533176",
+  "pack": 14,
+  "files": [
+   [
+    "F",
+    "Data/Changelog.lua"
+   ],
+   [
+    "F",
+    "Games/Azeromon/Game.lua"
+   ],
+   [
+    "F",
+    "Games/Azeromon/Changelog.lua"
+   ]
+  ],
+  "sha": {
+   "Data/Changelog.lua": "ed3b4887ad6ddc02b3e6963638f83117f7778e2e43a0ca6943135e68eb617d7b",
+   "Games/Azeromon/Game.lua": "7a1d10e7602b780374a6ce00b654e96e67e3f2a8bcc5a940b2692603be386e71",
+   "Games/Azeromon/Changelog.lua": "8fb8e877c96a6afdfc181ec3af0917da12e78511b989a62127f664c11e7f551d"
+  },
+  "time": "2026-10-16 23:59:09",
+  "commit": "a540325a3c9e74217b96c6812f61abc87ba9f66f",
+  "revoke": false
  }
 ]

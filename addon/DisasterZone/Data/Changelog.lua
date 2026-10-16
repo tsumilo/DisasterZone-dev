@@ -6,6 +6,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.5.3", date = "16 October 2026", title = "Room at the Lion's Pride",
+      sections = {
+          { heading = "Azeromon: room at the inn", area = "games", kind = "changed", open = "games",
+            lead = "A full Lion's Pride Inn at night no longer walls you in.", lines = {
+              "Guests sitting in the inn let you squeeze past their chairs.",
+              "Shopkeepers, trainers and people walking about still stand their ground.",
+          } },
+      } },
     { version = "1.5.2", date = "16 October 2026", title = "Class tools by choice",
       sections = {
           { heading = "Class tools start off", area = "class", kind = "changed", hi = true, open = "settings/classtools",
