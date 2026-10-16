@@ -96,6 +96,40 @@ def the_inn_fills_up_in_the_evening_and_the_cottage_at_night():
 
 
 @case
+def a_full_inn_never_walls_the_player_in():
+    w, c = solo("Alice", tick=2)
+    r = c.eval_py("""
+      local G = ns.Azero
+      G:NewGame()
+      G.clockHour = 22
+      G:EnterMap('post', 7, 8, 'up', true)
+      local DIRS = { up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } }
+      local out = { seated = 0, passed = 0 }
+      for _, n in ipairs(G.npcs) do
+        if n.visitor then
+          out.seated = out.seated + 1
+          for dir, d in pairs(DIRS) do                       -- from any open tile beside them, step onto their seat
+            local fx, fy = n.x - d[1], n.y - d[2]
+            if fx >= 0 and fy >= 0 and fx < G.map.w and fy < G.map.h and not G.map.solid[G.map.key(fx, fy)]
+               and not G:NpcAt(fx, fy) then
+              G.moving = nil
+              G.save.x, G.save.y = fx, fy
+              if G:TryStep(dir) == "moved" then out.passed = out.passed + 1 end
+              G.moving = nil
+              break
+            end
+          end
+        end
+      end
+      G.save.x, G.save.y = 3, 2                              -- Innkeeper Farley still stands her ground
+      out.farley = G:TryStep('left')
+      return out""")
+    assert r["seated"] >= 5 and r["passed"] == r["seated"], r
+    assert r["farley"] == "blocked", r
+    no_errors(w)
+
+
+@case
 def people_walk_one_tile_at_a_time_and_arrive():
     w, c = town(6 + 10 / 60, 17, 12)                 # Argus leaves the inn for the anvil at 06:10
     seen = []

@@ -525,6 +525,15 @@ function G:NpcAt(x, y)
     end
 end
 
+-- Someone in the player's way. People seated in a room (Routine.lua visitors) let you squeeze past: a full inn at
+-- night must never wall the player in.
+function G:NpcBlocks(x, y)
+    for _, n in ipairs(self.npcs or {}) do
+        if not n.hidden and not n.visitor
+            and ((n.x == x and n.y == y) or (n.moving and n.fromX == x and n.fromY == y)) then return n end
+    end
+end
+
 function G:Blocked(x, y)
     local m = self.map
     if x < 0 or y < 0 or x >= m.w or y >= m.h then return true end
@@ -1108,7 +1117,7 @@ function G:TryStep(dir, run)
         self.bump = 0.2
         return "blocked"
     end
-    if m.solid[m.key(nx, ny)] or self:NpcAt(nx, ny) or self:SolidNode(nx, ny) then
+    if m.solid[m.key(nx, ny)] or self:NpcBlocks(nx, ny) or self:SolidNode(nx, ny) then
         if not self.bump then self:Sfx("bump") end
         self.bump = 0.2
         return "blocked"

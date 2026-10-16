@@ -6,6 +6,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.34.1", date = "16 October 2026", title = "Room at the inn",
+      lines = {
+          "Fixed: a full inn at night could wall you in. Squeeze past!",
+      } },
     { version = "0.34", date = "15 October 2026", title = "People remember you",
       lines = {
           "Billy grows up with your badges.",
