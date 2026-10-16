@@ -1270,18 +1270,27 @@ local function RequestLoad(itemID)
     StartWatchdog()
 end
 
--- name, link, quality, icon when cached; otherwise nil (and a load is requested).
-function ItemDB:GetInfo(itemID)
+-- Quiet (a page painted in the background, MainFrame's warm-up): items are read from the cache only, nothing is asked
+-- of the server (a warmed Atlas asked for ~180 items of a raid nobody was looking at). The real visit loads them.
+local quiet = 0
+function ItemDB:SetQuiet(on) quiet = math.max(0, quiet + (on and 1 or -1)) end
+function ItemDB:IsQuiet() return quiet > 0 end
+
+-- name, link, quality, icon when cached; otherwise nil (and a load is requested, unless noLoad or quiet).
+function ItemDB:GetInfo(itemID, noLoad)
     itemID = tonumber(itemID)
     if not itemID or itemID ~= itemID or itemID <= 0 then return nil end
+    noLoad = noLoad or quiet > 0
     local api = C_Item and C_Item.GetItemInfo
+    -- (the game's own lookup asks the server for an item it has not got: noLoad looks only at what is cached)
+    if noLoad and C_Item and C_Item.IsItemDataCachedByID and not C_Item.IsItemDataCachedByID(itemID) then return nil end
     if api then
         local name, link, quality, _, _, _, _, _, _, icon = api(itemID)
         if name then
             return name, link, quality, icon
         end
     end
-    RequestLoad(itemID)
+    if not noLoad then RequestLoad(itemID) end
     return nil
 end
 
@@ -1298,6 +1307,8 @@ end
 function ItemDB:GetQuality(itemID)
     local name, _, quality = self:GetInfo(itemID)
     if name then return quality end
+    -- (the game's quality lookup asks the server too: not while quiet)
+    if quiet > 0 then return nil end
     if C_Item and C_Item.GetItemQualityByID and tonumber(itemID) then
         return C_Item.GetItemQualityByID(tonumber(itemID))
     end
@@ -1321,7 +1332,7 @@ function ItemDB:IsPending(itemID)
 end
 
 function ItemDB:Prefetch(ids)
-    if type(ids) ~= "table" then return end
+    if type(ids) ~= "table" or quiet > 0 then return end
     local api = C_Item and C_Item.GetItemInfo
     for _, id in ipairs(ids) do
         id = tonumber(id)

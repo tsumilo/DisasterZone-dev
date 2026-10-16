@@ -635,12 +635,17 @@ local prebuilding
 
 -- The heavier pages are also painted once in the background (shown and hidden again in the same frame, so nothing is
 -- drawn): their rows exist and their data is read before the first visit.
+-- Item data is read from the cache only while one is warmed (ItemDB:SetQuiet): nothing is asked of the server for a
+-- page nobody is looking at (the Atlas asked for ~180 items of a raid).
 local WARM = { raids = true, members = true, home = true, atlas = true }
 local function WarmPanel(def)
     local panel = def.panel
     if not (panel and WARM[def.key] and frame:IsShown() and def.key ~= currentKey and not panel:IsShown()) then return end
+    local ItemDB = ns.ItemDB
+    if ItemDB and ItemDB.SetQuiet then ItemDB:SetQuiet(true) end
     panel:Show()
     if panel.OnPanelShown then xpcall(function() panel:OnPanelShown(def.key) end, geterrorhandler()) end
+    if ItemDB and ItemDB.SetQuiet then ItemDB:SetQuiet(false) end
     if def.key ~= currentKey then panel:Hide() end
 end
 

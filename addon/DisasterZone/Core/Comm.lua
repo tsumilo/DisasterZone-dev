@@ -391,26 +391,23 @@ local function ScheduleHoldCheck()
     end)
 end
 
--- A login wave fills the buffer: the sync's own messages (HELLOs and their answers, list data) go first. When it is
--- full, the oldest message of another kind (games, boards, events: they are sent or asked for again) makes room
--- before any sync one does, and a new one of another kind is dropped while only sync messages are held. (Chess's
--- login query from 39 members once pushed the HELLOs out, and a council member whose roster loaded late answered
--- only 25 of them.)
-local HOLD_FIRST = { [PREFIX.ctrl] = true, [PREFIX.data] = true }
+-- A login wave fills the buffer, so what is kept goes by rank: control (HELLOs and their answers) last, list data
+-- before it (it is asked for again by the sync), every other kind first (games, boards, events: sent or asked for
+-- again). When it is full the oldest message of the lowest rank held makes room, unless the new one ranks lower still:
+-- then the new one is dropped. (Chess's login query from 39 members once pushed the HELLOs out; later the council's
+-- list data did, and a council member whose roster loaded late answered 37 of 39.)
+local HOLD_RANK = { [PREFIX.ctrl] = 3, [PREFIX.data] = 2 }
+local function Rank(prefix) return HOLD_RANK[prefix] or 1 end
 
 Hold = function(prefix, text, distribution, senderKey)
     if #held >= HOLD_MAX then
-        local drop
+        local drop, low = nil, 99
         for i, h in ipairs(held) do
-            if not HOLD_FIRST[h.prefix] then drop = i break end
+            local r = Rank(h.prefix)
+            if r < low then drop, low = i, r end
         end
-        if not drop then
-            if not HOLD_FIRST[prefix] then
-                Comm.stats.dropped = Comm.stats.dropped + 1
-                return
-            end
-            drop = 1
-        end
+        Comm.stats.dropped = Comm.stats.dropped + 1
+        if Rank(prefix) < low then return end
         table.remove(held, drop)
     end
     held[#held + 1] = { prefix = prefix, text = text, dist = distribution, key = senderKey, at = GetTime() }

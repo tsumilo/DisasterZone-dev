@@ -2859,16 +2859,18 @@ function UI:CreateItemButton(parent, size)
         if self.onReceiveItem then self.onReceiveItem(self, itemID) end
     end)
 
+    b:HookScript("OnShow", function(self) if pendingButtons[self] then ApplyQuality(self) end end)
     b:SetItem(nil)
     return b
 end
 
+-- (a hidden button waits for its OnShow: a page painted in the background must not ask for its items)
 ns:On("ITEMINFO_READY", function()
     for b in pairs(pendingButtons) do
-        if b.itemID then
-            ApplyQuality(b)
-        else
+        if not b.itemID then
             pendingButtons[b] = nil
+        elseif b:IsVisible() then
+            ApplyQuality(b)
         end
     end
 end)
