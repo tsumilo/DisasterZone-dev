@@ -66,8 +66,11 @@ KEY_PATH = os.path.join(DEV, "keys", "patch_key.json")
 RELEASES = os.path.join(DEV, "releases")
 DIST = os.path.join(REPO, "dist")
 
-PROTECTED = ("Core/Boot.lua", "Core/BuildInfo.lua", "Core/BootEnd.lua", "Core/Outbox.lua")
-TOOL_MANAGED = ("Core/BuildInfo.lua", "Core/Outbox.lua")      # rewritten per release: not part of the build id
+PROTECTED = ("Core/Boot.lua", "Core/BuildInfo.lua", "Core/BootEnd.lua", "Core/Outbox.lua", "Core/DevPlan.lua")
+TOOL_MANAGED = ("Core/BuildInfo.lua", "Core/Outbox.lua", "Core/DevPlan.lua")   # rewritten per release: not part of the build id
+# The developer's release plan (dev/tools/feedback.py plan writes it on the developer's machine): a release ships it empty.
+DEVPLAN_STUB = ("-- DisasterZone: the developer's release plan from the dev kit (dev/tools/feedback.py plan writes it; the\n"
+                "-- developer's client takes it in at /reload, Core/FeedbackPlan.lua). Never shipped: a release keeps this empty.\n")
 DOC_EXT = (".md", ".txt")
 # The loose-model probe (dev/generators/gen_probe.py): test files for one in-game session on the development copy.
 # Never part of a release or an update, so the tree walk below does not see them at all.
@@ -267,6 +270,7 @@ def stage_tree(src, dst, lua_only=False, build=None, key=None, link=False, rooms
         (os.link if link else shutil.copyfile)(os.path.join(src, rel), target)
     pack = asset_pack(src)
     _put(os.path.join(dst, "Core", "Outbox.lua"), patchlib.OUTBOX_STUB.encode("utf-8"))
+    _put(os.path.join(dst, "Core", "DevPlan.lua"), DEVPLAN_STUB.encode("utf-8"))
     if key is not None:
         _put(os.path.join(dst, "Core", "PatchKey.lua"), patch_key_lua(key).encode("utf-8"))
     room_hashes = {}
