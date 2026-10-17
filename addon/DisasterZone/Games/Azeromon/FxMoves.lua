@@ -1,7 +1,7 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/FxMoves.lua", ...) then return end -- DisasterZone Games/Azeromon/FxMoves.lua
 -- The moves' effects, drawn by Fx.lua. 0.41 (step 1): the Beast and Fire kits, their big casts' wind-ups and the
--- Beast / Fire signature shapes; 0.42 (step 2): the other six types' kits and wind-ups. Other types' signature moves
--- and the bosses' own casts keep the battle's lunge until step 3 (marks and the guard shells are in Fx.lua).
+-- Beast / Fire signature shapes; 0.42 (step 2): the other six types' kits and wind-ups; 0.43 (step 3): every type's
+-- signature shapes, the bosses' own casts, heals and rallies (marks and the guard shells are in Fx.lua).
 -- A recipe is a timeline on a run: r:At(t, fn) once, r:Span(t0, t1, fn(progress, age)) every frame in between;
 -- X is the move's context (F.Context: a / b the sides, A / B their points, dir, muzzle, hit, ground, combo, miss,
 -- guarded). Times are seconds; places are game pixels (3 UI pixels) from the battle layer's top-left, y down.
@@ -257,21 +257,29 @@ end }
 
 ---------------------------------------------------------------------------
 -- Signature moves (sf_ / sc_ ids: a species' own move, of its type or another): a shape picked by the words in the
--- move's name, drawn in its type's colours, with a small gold glint as it starts. Step 1 draws Beast and Fire ones;
--- the others keep the lunge until their type is drawn.
+-- move's name (the first that matches), drawn in its type's colours, with a small gold glint as it starts; no match is
+-- a bolt. Volley, smash, vortex, wave, spit, dread and saw are in the 0.43 section at the end of this file
+-- (F.SIG_SHAPES).
 ---------------------------------------------------------------------------
 
-local SIG_TYPES = { BEAST = true, FIRE = true }
 local SHAPES = {
     { "jaws", { "Bite", "Jaw", "Gnaw", "Pincer", "Fang" } },
     { "flurry", { "Frenzy", "Flurry", "Thrash", "Feral Rage" } },
     { "cleave", { "Cleave", "Scythe", "Sweep" } },
+    { "lob", { "Toss", "Throw", "Axe", "Headhunter", "Cannon" } },        -- (before rakes: Headhunter's Strike)
     { "rakes", { "Claw", "Rake", "Ravage", "Rend", "Maul", "Strike", "Slash", "Swipe" } },
+    { "volley", { "Spines", "Petal", "Volley" } },                        -- (before charge: Crystal Spines)
     { "charge", { "Pounce", "Gore", "Charge", "Dive", "Roll", "Spin", "Burrow" } },
     { "breath", { "Breath", "Buffet", "Jet", "Shadow Flame", "Inferno" } },
     { "storm", { "Firestorm" } },
-    { "lob", { "Toss", "Throw", "Axe", "Headhunter", "Cannon" } },
+    { "smash", { "Slam", "Pound", "Stomp", "Smash", "Quake", "Blow" } },
+    { "vortex", { "Whirlwind", "Cyclone", "Tempest", "Maelstrom" } },
+    { "wave", { "Tsunami", "Riptide", "Tidal" } },
+    { "spit", { "Poison", "Corrosive", "Venom" } },
+    { "dread", { "Nightmare" } },
+    { "saw", { "Buzzsaw", "Saw" } },
 }
+F.SIG_SHAPES = {}
 local function ShapeOf(name)
     for _, s in ipairs(SHAPES) do
         for _, w in ipairs(s[2]) do if name:find(w, 1, true) then return s[1] end end
@@ -281,15 +289,35 @@ end
 F.ShapeOf = ShapeOf
 
 local AXE_HEAD = { PAL.MECH.o, PAL.MECH.d, PAL.MECH.m, PAL.MECH.l, PAL.MECH.h, WHITE }
+local CANNONBALL = F.Ramp({ "#15161a", "#2a2c34", "#4c505c", "#7d828f", "#c4c8d2", "#eef0f4" })
+local SLAG = F.Ramp({ "#2a0e06", "#5a2410", "#c84a1a", "#f6902a", "#ffcf55" })
+local SHADOW_FLAME = F.Pal({ d = "#2c1547", m = "#56308a", l = "#8b62c4", h = "#c6a6ee", w = "#efe4ff" })
+local STEAM = F.Ramp({ "#ffffff", "#e6e9ef", "#b8bdc8", "#8a8f9c" })
+-- what flies off a signature's hit: each type its own (fur, embers, drops, leaves, wisps, pebbles, feathers, sparks)
+local function Bits(X)
+    local p = X.pal
+    local t = X.type
+    if t == "FIRE" then return { kind = "ember", cols = F.FIRE_R, ay = -20 } end
+    if t == "WATER" then return { kind = "drop", cols = { p.h, p.l, p.m, p.d }, ay = 240 } end
+    if t == "NATURE" then return { kind = "leaf", cols = { p.l, p.h }, ay = 50 } end
+    if t == "SHADOW" then return { kind = "wisp", cols = { p.h, p.l, p.m, p.d }, ay = -10 } end
+    if t == "EARTH" then return { kind = "pebble", cols = { p.d, p.m, p.l }, ay = 280 } end
+    if t == "MECH" then return { kind = "spark", cols = F.SPARK, ay = 220 } end
+    return { kind = "px", cols = { p.h, p.l, p.m }, ay = 140 }
+end
+F.Bits = Bits
 local function SigPlay(shape, r, X, cast)
     local p = X.pal
     local fire = X.type == "FIRE"
+    local bits = Bits(X)
     local function scatter(pt, n)
-        if fire then F.Spray(pt[1], pt[2], n, { kind = "ember", cols = F.FIRE_R, s = { 25, 70 }, ay = -20, drag = 1.5, life = { 0.35, 0.7 } })
-        else F.Spray(pt[1], pt[2], n, { kind = "px", cols = { p.h, p.l, p.m }, s = { 25, 70 }, ay = 140, drag = 1.5, ground = X.ground[2] + 2, life = { 0.35, 0.7 } }) end
+        F.Spray(pt[1], pt[2], n, { kind = bits.kind, cols = bits.cols, s = { 25, 70 }, ay = bits.ay, drag = 1.5, ground = X.ground[2] + 2,
+                life = { 0.35, 0.7 }, bounce = bits.kind == "pebble" and 0.3 or nil })
     end
     r:At(0, function() F.Emit({ kind = "glint", x = X.muzzle[1], y = X.muzzle[2] - 2, life = 0.35, cols = { F.GOLD.h, F.GOLD.w } }) end)
     r:Span(0, 0.2, function(q) F.Star(X.muzzle[1], X.muzzle[2] - 2, 26 * bump(q), F.GOLD.h, 0.9) end)
+    local ext = F.SIG_SHAPES[shape]
+    if ext then return ext(r, X, cast, scatter) end
     local steel = { p.d, C("#eef2fa"), WHITE }
     if shape == "jaws" then
         r.dur = cast and 0.86 or 0.72
@@ -352,18 +380,35 @@ local function SigPlay(shape, r, X, cast)
         F.Clip(X.a, 54)
         local ux, uy = F.unit(X.hit[1] - X.muzzle[1], X.hit[2] - X.muzzle[2])
         local base = math.atan2(uy, ux)
-        r:Span(0.1, 0.55, function()
-            for _ = 1, 3 do
+        -- fire (or shadow fire) flames; a Mech or Water beast breathes steam
+        local steam = X.type == "MECH" or X.type == "WATER"
+        local fp = X.type == "SHADOW" and SHADOW_FLAME or F.FLAME
+        local made, rate = 0, steam and 70 or 150                   -- (a second, whatever the frame rate; puffs are big)
+        r:Span(0.1, 0.55, function(_, lt)
+            local due = floor(lt * rate) + 1
+            while made < due do
+                made = made + 1
                 local a, sp = base + rr(-0.16, 0.16), rr(110, 160)
-                F.Emit({ kind = "flame", x = X.muzzle[1], y = X.muzzle[2] + 2, vx = cos(a) * sp, vy = sin(a) * sp, drag = 2.4, life = 0.5, pal = F.FLAME })
+                if steam then
+                    sp = sp * 1.4
+                    F.Emit({ kind = "puff", x = X.muzzle[1], y = X.muzzle[2], vx = cos(a) * sp, vy = sin(a) * sp, drag = 1.6, life = 0.7, r0 = 1, r1 = 4, cols = STEAM, a = 0.75 })
+                else
+                    F.Emit({ kind = "flame", x = X.muzzle[1], y = X.muzzle[2] + 2, vx = cos(a) * sp, vy = sin(a) * sp, drag = 2.4, life = 0.5, pal = fp })
+                end
             end
-            F.Glow(lerp(X.muzzle[1], X.hit[1], 0.5), lerp(X.muzzle[2], X.hit[2], 0.5), 30, ORANGE, 0.35)
+            F.Glow(lerp(X.muzzle[1], X.hit[1], 0.5), lerp(X.muzzle[2], X.hit[2], 0.5), 30,
+                   steam and C("#e6f0ff") or X.type == "SHADOW" and C("#9a5cff") or ORANGE, 0.35)
         end)
-        F.React(r, X, 0.32, { knock = 2, flash = C("#ffc080") })
-        if Hits(X) then
+        F.React(r, X, 0.32, { knock = 2, flash = steam and WHITE or C("#ffc080") })
+        if steam and not X.miss then
+            r:At(0.34, function()
+                F.Spray(X.hit[1], X.hit[2], 6, { kind = "puff", cols = STEAM, s = { 10, 30 }, drag = 2, ay = -8, life = { 0.6, 0.9 }, r0 = 2, r1 = 5, a = 0.7 })
+            end)
+        end
+        if Hits(X) and not steam then
             r:Span(0.35, 0.85, function(_, lt)
                 for i = 0, 2 do
-                    F.StampB(F.GL.flameS[(floor(lt * 12) + i) % 3 + 1], X.ground[1] + (i - 1) * X.B.w * 0.3, X.ground[2] - (i == 1 and 6 or 0), F.FLAME)
+                    F.StampB(F.GL.flameS[(floor(lt * 12) + i) % 3 + 1], X.ground[1] + (i - 1) * X.B.w * 0.3, X.ground[2] - (i == 1 and 6 or 0), fp)
                 end
             end)
         end
@@ -383,17 +428,29 @@ local function SigPlay(shape, r, X, cast)
         F.React(r, X, 0.4, { knock = 2, shake = 2 })
         F.React(r, X, 0.6, { knock = 2, shake = 2 })
     elseif shape == "lob" then
+        -- a spinning axe (Throwing Axe, Headhunter's Strike), a cannonball or a lump of molten slag, in an arc
         r.dur = 0.8
         F.Clip(X.a, 16)
+        local name = X.mv.name or ""
+        local cannon, slag = name:find("Cannon", 1, true), name:find("Slag", 1, true)
         F.Fly(r, X, { t0 = 0.12, dur = 0.36, arc = 18, shadow = 3, draw = function(x, y)
+            if cannon then F.DrawGen(F.Ball(3, CANNONBALL, "lit"), x, y) return end
+            if slag then
+                F.DrawGen(F.Rock(3, SLAG, floor(r.t * 14) % 4), x, y)
+                F.Glow(x, y, 10, ORANGE, 0.45)
+                return
+            end
             local a = r.t * 22
             local ps = F.NewPS()
             F.Line(ps, x - cos(a) * 4 + 1, y - sin(a) * 4, x + cos(a) * 4 + 1, y + sin(a) * 4, F.BARK.d)
             F.Line(ps, x - cos(a) * 4, y - sin(a) * 4, x + cos(a) * 4, y + sin(a) * 4, F.BARK.l)
             ps:Flush("over")
             F.DrawGen(F.Ball(2, AXE_HEAD, "lit"), x + cos(a) * 4, y + sin(a) * 4)
-        end })
-        F.React(r, X, 0.48, { knock = 3, shake = 1 })
+        end, trail = slag and function(x, y)
+            if random() < 0.5 then F.Emit({ kind = "ember", x = x, y = y, vx = rr(-6, 6), vy = rr(-10, 0), ay = -10, life = 0.35, cols = F.FIRE_R }) end
+        end or nil })
+        if cannon or slag then F.Explode(r, 0.48, X.hit, 7, F.FIRE_R, { puffs = 4, sparks = 12 }) end
+        F.React(r, X, 0.48, { knock = 3, shake = cannon and 2 or 1 })
         r:At(0.48, function() if Hits(X) then scatter(X.hit, 6) end end)
     else                                                            -- a bolt (Fireball, Lava Burst, Fire Nova ...)
         r.dur = cast and 0.95 or 0.78
@@ -406,27 +463,35 @@ local function SigPlay(shape, r, X, cast)
             F.Glow(x, y, rad * 5, p.glow, 0.5)
         end, trail = function(x, y)
             if random() < 0.7 then
-                F.Emit({ kind = "ember", x = x, y = y, vx = rr(-6, 6), vy = rr(-10, 0), ay = -10, life = 0.35, cols = fire and F.FIRE_R or { p.h, p.l, p.m } })
+                F.Emit({ kind = bits.kind == "pebble" and "px" or bits.kind, x = x, y = y, vx = rr(-6, 6), vy = rr(-10, 0),
+                         ay = bits.kind == "drop" and 160 or -10, life = 0.35, cols = bits.cols })
             end
         end })
         local rampX = fire and F.FIRE_R or { p.w, p.h, p.l, p.m, p.d }
-        F.Explode(r, 0.4, X.hit, cast and 10 or 6, rampX, { glow = p.glow })
+        F.Explode(r, 0.4, X.hit, cast and 10 or 6, rampX, { glow = p.glow, sparkCols = not fire and bits.cols or nil })
         F.React(r, X, 0.4, { knock = 3, shake = cast and 3 or 1, stop = cast and 0.05 or 0 })
     end
 end
 
--- a signature move's recipe, or nil (another type: it keeps the lunge for now)
+-- a signature move's recipe (any type), or nil (not a signature)
 function F.Sig(id, mv)
-    if not (id and mv and id:match("^s[fc]x?_") and SIG_TYPES[mv.type]) then return nil end
+    if not (id and mv and id:match("^s[fc]x?_")) then return nil end
     local shape = ShapeOf(mv.name or "")
     local cast = mv.role == "nuke"
     return { play = function(r, X) SigPlay(shape, r, X, cast) end }
 end
--- a signature cast winds up like its type's big cast
+-- the wind-up of a cast that isn't a kit move: a signature cast winds up like its type's big cast (a cannon: its fuse
+-- fizzes), a boss's like its own family (F.BossFamily, below; else its type's), a boss's heal or rally gathers green
+-- light or shouts
+local TYPE_WINDUP = { BEAST = "maul", FIRE = "pyro", WATER = "tidal", NATURE = "overgrowth", SHADOW = "shadowbolt",
+                      EARTH = "quake", AIR = "tempest", MECH = "sawstorm" }
 function F.CastFor(id)
-    local mv = id and id:match("^scx?_") and ns.AzeroData.moves[id]
+    local mv = id and ns.AzeroData.moves[id]
     if not mv then return nil end
-    return ({ BEAST = "maul", FIRE = "pyro" })[mv.type]
+    if id:match("^scx?_") then return (mv.name or ""):find("Cannon", 1, true) and "broadside" or TYPE_WINDUP[mv.type] end
+    if id:match("^bcast_") then return F.BossFamily(id:sub(7)) or TYPE_WINDUP[mv.type] end
+    if id:match("^bsecond_") then return mv.heal and "heal" or "rally" end
+    return nil
 end
 
 local RUNE = { h = C("#ffb050") }
@@ -1410,4 +1475,377 @@ M.kshock = { desc = "A crackling bolt jumps to it; it jolts", play = function(r,
     r:At(0.14, function()
         if not X.miss then F.Spray(X.hit[1], X.hit[2], 8, { kind = "spark", cols = VOLTS, s = { 30, 70 }, ay = 120, life = { 0.2, 0.4 } }) end
     end)
+end }
+
+---------------------------------------------------------------------------
+-- 0.43 (step 3): the other signature shapes, and the bosses' own casts, heals and rallies
+---------------------------------------------------------------------------
+
+local SS = F.SIG_SHAPES
+
+-- a slam: it lunges in hard; a hit star, two dust rings and pebbles at the target's feet
+SS.smash = function(r, X, cast)
+    local p = X.pal
+    local big = cast and 1.35 or 1
+    r.dur = cast and 1.08 or 0.9
+    F.Clip(X.a, 16)
+    F.Lunge(r, X, 0, 0.4, 16)
+    F.React(r, X, 0.2, { knock = 3, shake = cast and 3 or 2, stop = 0.05 })
+    if Hits(X) then F.Bonk(r, 0.2, X.hit, { p.l, WHITE }, 7) end
+    r:Span(0.2, 0.55, function(q)
+        for k = 0, 1 do
+            local rad = 4 + (18 + k * 8) * eOut(q) * big
+            F.Ring(X.ground[1], X.ground[2], rad, max(1, rad * 0.3), 1, DUST[k == 0 and 1 or 3], 1 - q, "under")
+        end
+    end)
+    r:At(0.2, function()
+        local g = X.ground
+        F.Spray(g[1], g[2] - 3, 8, { kind = "pebble", cols = PEBBLES, s = { 30, 70 }, ang = -pi / 2, spread = 2, ay = 300, ground = g[2] + 2,
+                life = { 0.5, 0.8 }, bounce = 0.3 })
+        F.Spray(g[1], g[2], 6, { kind = "puff", cols = DUST, s = { 15, 30 }, drag = 3, life = { 0.5, 0.8 }, r0 = 1.5, r1 = 4, a = 0.85 })
+    end)
+end
+
+-- a volley of small shards in its type's colours (Crystal Spines), or of petals (Razor Petal)
+SS.volley = function(r, X, cast, scatter)
+    local p = X.pal
+    r.dur = 0.85
+    F.Clip(X.a, 54)
+    local petals = (X.mv.name or ""):find("Petal", 1, true)
+    for i = 1, 7 do
+        local to = { X.hit[1] + rr(-6, 6), X.hit[2] + rr(-6, 6) }
+        F.Fly(r, X, { t0 = 0.1 + (i - 1) * 0.045, dur = 0.22, arc = rr(2, 10), to = to, draw = function(x, y, q, vx, vy)
+            if petals then F.Rect(x, y, 2, 1, BLOOM.p) F.Rect(x + 1, y - 1, 1, 1, BLOOM.P) return end
+            local ux, uy = F.unit(vx, vy)
+            local ps = F.NewPS()
+            ps:Add(x, y, p.w) ps:Add(x - ux, y - uy, p.h) ps:Add(x - ux * 2, y - uy * 2, p.l) ps:Add(x - ux * 3, y - uy * 3, p.m)
+            ps:Flush("over")
+        end })
+    end
+    F.React(r, X, 0.32, { knock = 2 })
+    r:At(0.4, function() if Hits(X) then scatter(X.hit, 6) end end)
+end
+
+-- a spinning vortex on the target: a funnel that lifts it (Whirlwind, Cyclone), or a flat whirlpool round its feet
+-- for a Water one (Maelstrom)
+SS.vortex = function(r, X, cast)
+    local p = X.pal
+    local big = cast and 1.35 or 1
+    local water = X.type == "WATER"
+    local wide, tall = max(1, X.B.w / 24), max(30, X.B.h * 0.95)       -- (it wraps a big beast too)
+    r.dur = cast and 1.15 or 1.05
+    F.Clip(X.a, 54)
+    r:Span(0.1, 0.9, function(q, lt)
+        local g = X.ground
+        local k = q < 0.2 and q / 0.2 or q > 0.8 and (1 - q) / 0.2 or 1
+        local pf, pb = F.NewPS(), F.NewPS()
+        for i = 0, 5 do
+            local f = i / 5
+            local rx = (water and (12 - 8 * f) or (3 + 9 * f)) * k * big * wide
+            local ry = max(1, rx * (water and 0.32 or 0.28))
+            local cy = water and g[2] - f * 4 or g[2] - f * tall * big
+            local ph = lt * 12 + i
+            local s = ph
+            while s < ph + 3 do
+                local front = sin(s) > 0
+                local x, y = g[1] + cos(s) * rx, cy + sin(s) * ry
+                local set = front and pf or pb
+                set:Add(x, y, s > ph + 2.5 and p.w or (i % 2 == 1 and p.l or p.h))
+                if front then set:Add(x, y + 1, p.m) end
+                s = s + 0.05
+            end
+        end
+        pb:Flush("under") pf:Flush("over")
+        if Hits(X) and not water then Up(X.b, 4 * k) end
+    end)
+    F.React(r, X, 0.2, { knock = 0, shake = 1 })
+    F.React(r, X, 0.6, { knock = 2 })
+end
+
+-- a wave rolls over the target (Tsunami, Riptide): Tidal Wave's breaker, in water's colours whatever the type
+SS.wave = function(r, X)
+    local X2 = {}
+    for k, v in pairs(X) do X2[k] = v end
+    X2.pal = PAL.WATER
+    M.ktidalwave.play(r, X2)
+    r.dur = 1.2
+end
+
+-- a glob of poison arcs over and bubbles on the target (Poison Spit, Corrosive Poison)
+local VENOM = F.Ramp({ "#1e3a10", "#4a7a1a", "#86c42a", "#c8f060", "#eaffb0" })
+local VENOM_DROP = { VENOM[3], VENOM[4] }
+local BUBBLES = { VENOM[3], VENOM[5] }
+SS.spit = function(r, X)
+    r.dur = 0.85
+    F.Clip(X.a, 54)
+    F.Fly(r, X, { t0 = 0.12, dur = 0.3, arc = 10, draw = function(x, y) F.DrawGen(F.Ball(2, VENOM, "lit"), x, y) end, trail = function(x, y)
+        if random() < 0.5 then F.Emit({ kind = "drop", x = x, y = y + 1, vy = 10, ay = 200, life = 0.3, cols = VENOM_DROP }) end
+    end })
+    F.React(r, X, 0.42, { knock = 2, flash = C("#d8ff90") })
+    r:Span(0.42, 0.85, function()
+        if Hits(X) and random() < 0.4 then
+            F.Emit({ kind = "bubble", x = X.B.c[1] + rr(-X.B.w * 0.35, X.B.w * 0.35), y = X.B.c[2] + rr(-4, 6), vy = -10, life = 0.5, cols = BUBBLES })
+        end
+    end)
+end
+
+-- dark fog closes round the target and two yellow eyes open in it (Nightmare)
+local FOG = { PAL.SHADOW.o, PAL.SHADOW.d }
+local EYES = C("#ffe060")
+SS.dread = function(r, X, cast)
+    r.dur = 1.15
+    F.Clip(X.a, 54)
+    r:Span(0.08, 1.0, function(q, lt)
+        local c = X.B.c
+        local k = q < 0.25 and q / 0.25 or q > 0.75 and (1 - q) / 0.25 or 1
+        for i = 0, 6 do
+            local a = i * TAU / 7 + lt * 0.8
+            local rad = X.B.w * 0.45 * (1.4 - 0.4 * k)
+            F.Disc(c[1] + cos(a) * rad, c[2] + sin(a) * rad * 0.6, 4 * k + 1, 3 * k + 1, FOG[i % 2 + 1], 0.7 * k)
+        end
+        if q > 0.3 and q < 0.8 and floor(lt * 3) % 3 ~= 2 then
+            local ex, ey = c[1] - X.dir * 4, c[2] - X.B.h * 0.25
+            F.Rect(ex - 4, ey, 2, 1, EYES) F.Rect(ex + 3, ey, 2, 1, EYES)
+            F.Glow(ex, ey, 10, EYES, 0.4)
+        end
+    end)
+    F.React(r, X, 0.4, { knock = 1, flash = C("#8a60c0") })
+    F.React(r, X, 0.7, { knock = 2, shake = cast and 2 or 1 })
+    r:Span(0.3, 0.9, function() if Hits(X) then F.Shade(X.b, 0.69, 0.63, 0.78) end end)
+end
+
+-- one big sawblade flies in, grinds in a shower of sparks, then spins away (Buzzsaw)
+local BLADE = { Me.o, Me.d, Me.m, Me.l, Me.w }
+SS.saw = function(r, X)
+    r.dur = 0.9
+    F.Clip(X.a, 16)
+    F.Fly(r, X, { t0 = 0.1, dur = 0.3, arc = 4, draw = function(x, y) F.DrawGen(F.Saw(5, BLADE, floor(r.t * 24) % 3), x, y) end })
+    r:Span(0.4, 0.6, function()
+        F.DrawGen(F.Saw(5, BLADE, floor(r.t * 30) % 3), X.hit[1] + rr(-1, 1), X.hit[2])
+        if not X.miss then F.Spray(X.hit[1], X.hit[2], 2, { kind = "spark", cols = SPARK, s = { 40, 90 }, ang = -pi / 2, spread = 2, ay = 240, life = { 0.2, 0.4 } }) end
+    end)
+    r:Span(0.6, 0.85, function(q)
+        F.DrawGen(F.Saw(5, BLADE, floor(r.t * 24) % 3), X.hit[1] - X.dir * 18 * q, X.hit[2] - 20 * bump(q * 0.6), { a = 1 - q })
+    end)
+    F.React(r, X, 0.4, { knock = 3, shake = 2 })
+end
+
+-- Bosses: each named boss's big cast (it can't be interrupted) has a family that picks its wind-up and its blow; a
+-- boss without one winds up like its type's big cast and plays the signature shape its cast's name picks.
+
+local BOSS_FAMILY = { hogger = "smash", vancleef = "flurry", stitches = "smash", mukla = "quake", smite = "stomp",
+                      firallon = "broadside", bangalash = "flurry", rhahkzor = "smash" }
+function F.BossFamily(k) return BOSS_FAMILY[k] end
+
+local HURL = C("#ffd0b0")
+local STEEL = F.Pal({ l = "#c8d0e0", h = "#eef2fa" })
+local FUSE = C("#ffb040")
+-- the cannon a boss fires a broadside from: just in front of it, at its middle
+local function BroadsideFrom(s)
+    local p = F.Pts(s)
+    return { s == "foe" and p.l - 4 or p.r + 4, p.c[2] }
+end
+local BOSS_CAST = {
+    -- it leaps and lands on the target: a hit star, three dust rings, chunks of earth and a crater
+    smash = function(r, X)
+        r.dur = 1.15
+        F.Clip(X.a, 16)
+        local vx, vy = X.B.c[1] - X.A.c[1], X.B.c[2] - X.A.c[2]
+        local trail = {}
+        r:Span(0, 0.66, function(p)
+            local k = p < 0.45 and eOut(p / 0.45) or 1 - eIn((p - 0.45) / 0.55)
+            local ox, oy = vx * 0.55 * k, vy * 0.55 * k - (p < 0.45 and 18 * bump(p / 0.45) or 0)
+            F.Offset(X.a, ox, oy)
+            table.insert(trail, 1, { ox, oy })
+            if #trail > 6 then trail[7] = nil end
+            if p > 0.1 and p < 0.45 then local g = trail[4] or trail[#trail] F.Ghost(X.a, g[1], g[2], 0.3, HURL) end
+        end)
+        F.React(r, X, 0.32, { knock = 5, shake = 4, shakeDur = 0.4, stop = 0.08 })
+        if not X.guarded then F.Bonk(r, 0.32, X.hit, { C("#ffd84a"), WHITE }, 9) end
+        r:Span(0.32, 0.75, function(q)
+            for k = 0, 2 do
+                local rad = 4 + (16 + k * 10) * eOut(q)
+                F.Ring(X.ground[1], X.ground[2], rad, max(1, rad * 0.3), 1, DUST[k + 1], 1 - q, "under")
+            end
+        end)
+        r:At(0.32, function()
+            local g = X.ground
+            F.Spray(g[1], g[2] - 3, 12, { kind = "chunk", cols = PEBBLES, s = { 40, 90 }, ang = -pi / 2, spread = 2.2, ay = 320, ground = g[2] + 3,
+                    life = { 0.7, 1.0 }, bounce = 0.3 })
+            F.Spray(g[1], g[2], 10, { kind = "puff", cols = DUST, s = { 15, 40 }, drag = 3, life = { 0.6, 1.0 }, r0 = 1.5, r1 = 5, a = 0.9 })
+            F.Emit({ kind = "decal", x = g[1], y = g[2], r0 = 13, life = 1.4, cols = { C("#2a1c0c") }, a = 0.5 })
+        end)
+    end,
+    -- War Stomp, bigger: a wider shock wave and a harder shake
+    stomp = function(r, X)
+        M.kwarstomp.play(r, X)
+        r.dur = 1.0
+        r:At(0.14, function() F.Shake(3, 0.35) end)
+        r:Span(0.14, 0.6, function(p)
+            local c = X.A.feet
+            for k = 0, 1 do
+                local rad = 6 + (30 + k * 14) * eOut(p)
+                F.Ring(c[1], c[2], rad, max(1, rad * 0.3), 1, DUST[k + 1], 1 - p, "under")
+            end
+        end)
+        F.React(r, X, 0.46, { knock = 4, shake = 3, stop = 0.06 })
+    end,
+    flurry = function(r, X) SigPlay("flurry", r, X, true) end,
+    quake = function(r, X) QuakeRelease(r, X, 1.6) end,
+    -- three cannonballs, one after another, each bursting where it lands
+    broadside = function(r, X)
+        r.dur = 1.25
+        F.Clip(X.a, 54)
+        local from = BroadsideFrom(X.a)
+        for i = 0, 2 do
+            local to = { X.ground[1] + (i - 1) * 12, X.ground[2] - 4 + (i % 2) * 3 }
+            local t0 = 0.05 + i * 0.14
+            r:At(t0, function()
+                F.Spray(from[1], from[2], 4, { kind = "puff", cols = SMOKE, s = { 8, 20 }, ang = X.dir > 0 and 0 or pi, spread = 1.2,
+                        life = { 0.5, 0.8 }, r0 = 1, r1 = 3, a = 0.8 })
+            end)
+            r:Span(t0, t0 + 0.05, function() F.Glow(from[1], from[2], 14, FUSE, 0.8) F.Star(from[1], from[2], 26, C("#ffe0a0"), 1) end)
+            F.Fly(r, X, { t0 = t0, dur = 0.34, arc = 24, from = from, to = to, shadow = 3, draw = function(x, y)
+                F.DrawGen(F.Ball(3, CANNONBALL, "lit"), x, y)
+            end })
+            F.Explode(r, t0 + 0.34, to, 8, F.FIRE_R, { puffs = 4, sparks = 12 })
+            F.React(r, X, t0 + 0.34, { knock = 2, shake = 2 })
+        end
+    end,
+}
+F.BOSS_CAST = BOSS_CAST
+
+-- the cast a boss must be interrupted in: a heal, or a rally that sharply raises its Attack
+local RAGE = F.Pal({ o = "#3a0808", d = "#7e1414", m = "#c8302a", l = "#f06048", h = "#ffa080", w = "#ffe0d0" })
+local RAGE_UP = { h = RAGE.h, l = RAGE.m }
+local BOSS_SECOND = {
+    -- green light rises round it in columns, plus signs float up
+    heal = function(r, X)
+        r.dur = 0.95
+        F.Clip(X.a, 54)
+        local A = X.A
+        r:Span(0.04, 0.7, function(p)
+            for col = 0, 3 do
+                local x = A.c[1] + (col - 1.5) * A.w * 0.28
+                local top = A.feet[2] - (A.h + 20) * eOut(min(1, p * 1.6))
+                local y = A.feet[2]
+                while y > top do
+                    F.Rect(x, y - 5, 3, 5, HEAL.h, 0.38 * (1 - (A.feet[2] - y) / (A.h + 24)) * (1 - eIn(p)), col % 2 == 1 and "under" or "over")
+                    y = y - 5
+                end
+            end
+            F.Glow(A.c[1], A.c[2], A.w * 1.4, C("#7ee05a"), 0.5 * bump(p), "under")
+        end)
+        for i, t in ipairs({ 0.2, 0.32, 0.44, 0.56 }) do
+            r:Span(t, t + 0.3, function(p)
+                F.StampC(F.GL.plus, A.c[1] + (i % 2 == 0 and 1 or -1) * A.w * (0.1 + 0.1 * i), A.c[2] - p * 10 + (i - 1) * 2,
+                         { w = p < 0.5 and HEAL.w or HEAL.h }, { shadow = HEAL.o, a = 1 - eIn(p) })
+            end)
+        end
+        r:Span(0.15, 0.6, function(p) F.Light(X.a, C("#b8f080"), 0.3 * bump(p)) end)
+    end,
+    -- red flames flicker up in a ring round its feet, three arrows rise
+    rally = function(r, X)
+        r.dur = 0.95
+        F.Clip(X.a, 54)
+        local A = X.A
+        r:Span(0.04, 0.7, function(p, lt)
+            local up = p < 0.2 and p / 0.2 or p > 0.7 and (1 - p) / 0.3 or 1
+            for i = 0, 5 do
+                local a = i * TAU / 6 + 0.4
+                local x, y = A.feet[1] + cos(a) * (A.w * 0.5 + 2), A.feet[2] + sin(a) * 3 + 1
+                local g = up > 0.5 and F.GL.flame or F.GL.flameS
+                F.StampB(g[(floor(lt * 12) + i) % 3 + 1], x, y, RAGE, { lay = sin(a) < 0 and "under" or "over" })
+            end
+            F.Glow(A.c[1], A.c[2], A.w * 1.3, C("#ff5a3a"), 0.5 * up, "under")
+        end)
+        for i, t in ipairs({ 0.15, 0.27, 0.39 }) do
+            r:Span(t, t + 0.4, function(p)
+                F.StampC(F.GL.up, A.c[1] + (i - 2) * 8, A.c[2] - p * 16, RAGE_UP, { shadow = RAGE.o, a = 1 - eIn(p) })
+            end)
+        end
+        r:Span(0.1, 0.5, function(p) F.Light(X.a, C("#ff6a4a"), 0.3 * bump(p)) end)
+    end,
+}
+F.BOSS_SECOND = BOSS_SECOND
+
+-- a boss move's recipe (bcast_<boss>, bsecond_<boss>), or nil
+function F.Boss(id, mv)
+    if not (id and mv) then return nil end
+    if id:match("^bcast_") then
+        local fam = BOSS_FAMILY[id:sub(7)]
+        if fam then return { play = BOSS_CAST[fam] } end
+        local shape = ShapeOf(mv.name or "")
+        return { play = function(r, X) SigPlay(shape, r, X, true) end }
+    elseif id:match("^bsecond_") then
+        return { play = mv.heal and BOSS_SECOND.heal or BOSS_SECOND.rally }
+    end
+    return nil
+end
+
+-- their turns of waiting
+F.CASTS.smash = { cols = { E.h, E.l }, focus = F.CASTS.maul.focus, windup = function(s, st, dt)
+    -- it crouches and rocks, dust puffs at its feet, a hot glow builds
+    local p = F.Pts(s)
+    F.Offset(s, 0, 2 - floor(st.tw * 3) % 2)
+    every(st, "p", 0.35, dt, function()
+        F.Emit({ kind = "puff", x = p.feet[1] + rr(-p.w * 0.45, p.w * 0.45), y = p.feet[2], vx = rr(-10, 10), vy = -5, life = 0.6, r0 = 1, r1 = 3,
+                 cols = DUST, a = 0.85 })
+    end)
+    F.Glow(p.c[1], p.c[2], p.w * 1.1, C("#ff7a4a"), 0.2 + 0.1 * sin(st.tw * 6), "under")
+end }
+F.CASTS.flurry = { cols = { WHITE, STEEL.h }, focus = function(s) local p = F.Pts(s) return { p.c[1], p.c[2] } end, windup = function(s, st, dt)
+    -- blades glint all round it
+    local p = F.Pts(s)
+    every(st, "g", 0.18, dt, function()
+        local a = rr(0, TAU)
+        F.Emit({ kind = "glint", x = p.c[1] + cos(a) * p.w * 0.5, y = p.c[2] + sin(a) * p.h * 0.4, life = 0.32, cols = { STEEL.h, WHITE } })
+    end)
+    if floor(st.tw * 5.5) % 3 == 0 then F.Star(p.c[1] + p.w * 0.3, p.c[2] - p.h * 0.2, 18, WHITE, 0.7) end
+    F.Glow(p.c[1], p.c[2], p.w, C("#ff8a6a"), 0.16, "under")
+end }
+F.CASTS.stomp = { cols = F.CASTS.quake.cols, focus = F.CASTS.quake.focus, windup = function(s, st, dt) F.CASTS.quake.windup(s, st, dt, true) end }
+F.CASTS.broadside = { cols = { F.IRON.h, SPARK[1] }, focus = BroadsideFrom, windup = function(s, st, dt)
+    -- a fuse fizzes beside it, smoke curls up
+    local f = BroadsideFrom(s)
+    every(st, "f", 0.05, dt, function()
+        F.Emit({ kind = "spark", x = f[1], y = f[2], vx = rr(-20, 20), vy = rr(-40, -15), ay = 120, life = 0.3, cols = SPARK })
+    end)
+    every(st, "s", 0.2, dt, function()
+        F.Emit({ kind = "puff", x = f[1], y = f[2] - 2, vx = rr(-6, 6), vy = -10, life = 0.8, r0 = 1, r1 = 2.5, cols = SMOKE, a = 0.7 })
+    end)
+    F.Rect(f[1], f[2], 1, 1, floor(st.tw * 12) % 2 == 1 and SPARK[1] or SPARK[2])
+    F.Glow(f[1], f[2], 8, FUSE, 0.5)
+end }
+F.CASTS.heal = { cols = { HEAL.w, HEAL.l }, focus = function(s) local p = F.Pts(s) return { p.c[1], p.c[2] } end, windup = function(s, st, dt)
+    -- green motes gather into it over a soft ring at its feet
+    local p = F.Pts(s)
+    F.Ring(p.feet[1], p.feet[2], p.w * 0.5 + 3, 3, 1, HEAL.w, 0.55 + 0.3 * sin(st.tw * 6), "under")
+    F.Ring(p.feet[1], p.feet[2] + 1, p.w * 0.5 + 3, 3, 1, HEAL.d, 0.4, "under")
+    every(st, "m", 0.05, dt, function()
+        local a, R = rr(0, TAU), rr(18, 24)
+        F.Seek(p.c[1] + cos(a) * R, p.c[2] + sin(a) * R * 0.8, p.c[1] + rr(-3, 3), p.c[2] + rr(-3, 3), 0.55, { HEAL.m, HEAL.l, HEAL.h }, -4)
+    end)
+    every(st, "M", 0.22, dt, function()
+        local a, R = rr(0, TAU), rr(20, 26)
+        F.Seek(p.c[1] + cos(a) * R, p.c[2] + sin(a) * R * 0.8, p.c[1], p.c[2], 0.6, { HEAL.h, HEAL.w }, -6, nil, true)
+    end)
+    F.Light(s, C("#b8f080"), 0.1 + 0.08 * sin(st.tw * 5))
+    F.Glow(p.c[1], p.c[2], p.w, C("#7ee05a"), 0.22, "under")
+end }
+F.CASTS.rally = { cols = { RAGE.h, RAGE.l }, focus = function(s) local p = F.Pts(s) return { p.head[1], p.head[2] + 4 } end, windup = function(s, st, dt)
+    -- it shouts: red arcs ripple out from its head, it shakes with it
+    local p = F.Pts(s)
+    local ps = F.NewPS()
+    for k = 0, 1 do
+        local q = ((st.tw + k * 0.25) % 0.5) / 0.5
+        local rad = 3 + q * 10
+        if q < 0.9 then
+            F.SoundArc(ps, p.head[1] + 4, p.head[2] + 4, rad, 1, q < 0.5 and RAGE.h or RAGE.l)
+            F.SoundArc(ps, p.head[1] - 4, p.head[2] + 4, rad, -1, q < 0.5 and RAGE.h or RAGE.l)
+        end
+    end
+    ps:Flush("over", 0.9)
+    if floor(st.tw * 10) % 2 == 1 then F.Offset(s, 1, 0) end
+    F.Glow(p.c[1], p.c[2], p.w, C("#ff5a3a"), 0.2 + 0.12 * sin(st.tw * 8), "under")
 end }

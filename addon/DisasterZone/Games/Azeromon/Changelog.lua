@@ -6,6 +6,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.43", date = "17 October 2026", title = "Signatures and bosses",
+      lines = {
+          "Every beast's own signature move has its own effect.",
+          "Riptide rolls a wave, Whirlwind lifts, Buzzsaw grinds.",
+          "Signature casts wind up like their type's big cast.",
+          "Bosses leap, stomp, quake or fire a broadside.",
+          "A boss's heal or rally shows while it gathers.",
+      } },
     { version = "0.42", date = "17 October 2026", title = "Every type in motion",
       lines = {
           "Water, Nature, Shadow, Earth, Air and Mech moves have effects.",

@@ -810,6 +810,9 @@ local function DrawPart(p)
         Put(x + sin(p.age * 6 + p.seed) * 1.5, y, q < 0.4 and 2 or 1, 1, pick(p.cols, q), a, lay)
     elseif k == "feather" then
         Stamp(GL.feather, x + sin(p.age * 4 + p.seed) * 3, y, p.pal, { flip = sin(p.age * 6 + p.seed) > 0, a = a * (q > 0.75 and (1 - q) * 4 or 1), lay = lay })
+    elseif k == "bubble" then
+        local xs = x + sin(p.age * 5 + p.seed)
+        Ring(xs, y, 1, 1, 1, p.cols[1], a, lay) Put(xs - 1, y - 1, 1, 1, p.cols[2], a, lay)
     elseif k == "decal" then
         Disc(x, y, p.r0, max(1, p.r0 * 0.3), p.cols[1], (p.a or 0.5) * (1 - q), "under")
     elseif k == "ring" then
@@ -1658,7 +1661,7 @@ function F.Attack(e)
         r:At(0, function() F.Clip(e.side, 54) end)
         return Anim(r)
     end
-    local rec = e.id and (F.MOVES[e.id] or (F.Sig and F.Sig(e.id, mv)))
+    local rec = e.id and (F.MOVES[e.id] or (F.Sig and F.Sig(e.id, mv)) or (F.Boss and F.Boss(e.id, mv)))
     if not rec then return nil end
     local X = F.Context(e)
     local r = NewRun(0.6)
