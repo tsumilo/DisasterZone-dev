@@ -136,6 +136,7 @@ Core\Meter.lua
 Core\Threat.lua
 Core\MeterDemo.lua
 Core\ClassKit.lua
+Core\Situation.lua
 Core\SwingTimer.lua
 Core\SwingPractice.lua
 Core\ShotTimer.lua

@@ -292,12 +292,15 @@ local function TickPreviews(dt)
     for _, pv in ipairs(previews) do
         if pv.on and pv.frame:IsVisible() and pv.run then
             pv.acc = min(pv.acc + dt * (pv.fast or 1), STEP * 4)
+            local stepped = pv.drawn ~= pv.run
             while pv.acc >= STEP do
                 pv.acc = pv.acc - STEP
                 E.Step(pv.run, STEP, 0, 0)
                 if pv.run.pvPassive then PassiveFx(pv.run, STEP) end
+                stepped = true
             end
-            Rd.Draw(pv.view, pv.run)
+            pv.idle = (pv.idle or 0) + dt
+            if stepped or pv.view.dirty or pv.idle >= 0.25 then Rd.Draw(pv.view, pv.run) pv.drawn, pv.idle = pv.run, 0 end
         end
     end
 end
@@ -3205,17 +3208,22 @@ local function Input()
     return ix, iy
 end
 
+-- (the world is drawn only when it changed: a step ran, the overlay or the run changed, the view was laid out; a
+-- frame in between two 60 Hz steps would draw the same picture again. A slow redraw covers anything else.)
+UI.drawIdle = 0
 local function OnUpdate(_, elapsed)
     elapsed = min(elapsed, 0.1)
     if run then
+        local stepped = false
         if run.attract and run.warm then
             local s = min(run.warm, 0.5)
             E.FastForward(run, s, true)
             run.warm = run.warm - s
             if run.warm <= 0 then run.warm, run.fadeIn = nil, 0 end
+            stepped = true
         elseif run.attract then
             acc = min(acc + elapsed, STEP * 4)
-            while acc >= STEP do acc = acc - STEP E.Step(run, STEP, 0, 0) end
+            while acc >= STEP do acc = acc - STEP E.Step(run, STEP, 0, 0) stepped = true end
             if run.fadeIn then run.fadeIn = run.fadeIn + elapsed view.scaler:SetAlpha(min(1, run.fadeIn / 0.5)) if run.fadeIn >= 0.5 then run.fadeIn = nil end end
             if run.t > 400 then Attract() end
         elseif (focused or overlay) and not run.paused and not run.over then
@@ -3225,13 +3233,18 @@ local function OnUpdate(_, elapsed)
             while acc >= STEP do
                 acc = acc - STEP
                 for _ = 1, run.speed or 1 do E.Step(run, STEP, ix, iy) end
+                stepped = true
             end
         end
-        if overlay == "choosing" then E.StepParts(run, elapsed) end
+        if overlay == "choosing" then E.StepParts(run, elapsed) stepped = true end
         if run.wantLevelUp and overlay == nil then run.wantLevelUp = nil OpenLevelUp() end
         if run.chest and overlay == nil then ShowChest() end
         if run.over and overlay ~= "end" and not run.attract then ShowEnd(run.over) end
-        Rd.Draw(view, run)
+        UI.drawIdle = UI.drawIdle + elapsed
+        if stepped or run ~= UI.drawnRun or overlay ~= UI.drawnOv or view.dirty or UI.drawIdle >= 0.25 then
+            Rd.Draw(view, run)
+            UI.drawnRun, UI.drawnOv, UI.drawIdle = run, overlay, 0
+        end
         view.hud:SetShown(not run.attract)
     end
     TickPicker(elapsed)
@@ -3382,17 +3395,19 @@ function UI:NewPoster(parent)
             return
         end
         self.acc = min(self.acc + elapsed, STEP * 4)
+        local stepped = self.drawn ~= r
         while self.acc >= STEP do
             self.acc = self.acc - STEP
             if r.lvlT and r.lvlT >= 0 then r.lvlT, r.tsGoal, r.ts = -1, 1, 1 end
             r.wantLevelUp, r.chest, r.pending = nil, nil, 0
             E.Step(r, STEP, 0, 0)
+            stepped = true
         end
         -- the scene's end: it fades out over its last second, then the next one warms up
         self.fade = min(1, self.fade + elapsed * 1.5)
         local left = 300 - r.t
         self.view.scaler:SetAlpha(min(self.fade, max(0, left)))
-        Rd.Draw(self.view, r)
+        if stepped or self.view.dirty then Rd.Draw(self.view, r) self.drawn = r end
         self.view.hud:Hide()
         if left <= 0 or r.over then Scene() end
     end

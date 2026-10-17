@@ -2352,6 +2352,8 @@ function SettingsUI:BuildClassTools(sec)
             self.ctx = { cat = outer.cat, card = outer.card, kit = key, path = { outer.path[1], outer.path[2], kit.label } }
         end
         if kit.settings then kit.settings(self, body) else body.height = 0 end
+        -- (a card with a More options fold or rows that need a switch: its height changes, the cards stack again)
+        body.onRelayout = function() SettingsUI:LayoutClassTools() end
         if body.dynamic then self:Relayout(body) end
         self.ctx = outer
         body:SetHeight(max(1, body.height or 0))
@@ -4694,18 +4696,10 @@ function SettingsUI:Refresh()
     for _, sec in pairs(self.sections) do
         if sec.dynamic then self:Relayout(sec) end
     end
-    -- (and the class tools' cards that do: their heights follow)
-    local ct = self.sections and self.sections.classtools
-    if ct and ct.cards then
-        local moved = false
-        for _, card in ipairs(ct.cards) do
-            if card.body.dynamic then
-                self:Relayout(card.body)
-                card.body:SetHeight(max(1, card.body.height or 0))
-                moved = true
-            end
-        end
-        if moved then self:LayoutClassTools() end
+    -- (and the class tool cards' own bodies, the timers' Situations rows)
+    local kits = self.sections and self.sections.classtools
+    for _, card in ipairs(kits and kits.cards or {}) do
+        if card.body and card.body.dynamic then self:Relayout(card.body) end
     end
     -- (a card that is no longer there for me: back to its group's tiles)
     if self.mode == "card" and self.section and not self:CardVisible(self.section) then

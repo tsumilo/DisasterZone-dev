@@ -16,7 +16,8 @@ local floor, max, min = math.floor, math.max, math.min
 local strformat = string.format
 
 local SHORT = { bt = "Bloodthirst", ms = "Mortal", ww = "Whirlwind", exe = "Execute", slam = "Slam", shout = "Shout",
-                rampage = "Rampage", ham = "Hamstring", brage = "Bloodrage" }
+                rampage = "Rampage", ham = "Hamstring", brage = "Bloodrage", sweep = "Sweeping", op = "Overpower",
+                rend = "Rend" }
 
 local D = {
     prefix = "war", frameName = "DisasterZoneWarriorSwing", layoutName = "Swing timer (Warrior)", layoutOrder = 32,
@@ -33,6 +34,7 @@ function D:Current() return ST:Current() end
 function D.Icon(key) return ST.ICONS[key] end
 function D.NameOf(key) return ST.NameOf(key) end
 function D.Short(key) return SHORT[key] or ST.NameOf(key) or key end
+function D.StanceIcon(n) return ST.ICONS["st" .. tostring(n)] end
 function D.StepWidth(st, snap)
     if st.off then return 0.4 end
     return max(st.cast or 0, snap.gcd)
@@ -82,7 +84,7 @@ function D:Extra(cur, now)
     end
     return { oh = oh, rage = { snap.rage / 100, snap.line / 100 },
              num = ST.Get("number", true) and floor(snap.rage + 0.5) or nil,
-             lamp = cur.lamp, lampIcon = ST.ICONS[snap.queued == "cleave" and "cleave" or "hs"],
+             lamp = cur.lamp, lampIcon = ST.ICONS[snap.queued or cur.lampKey or "hs"],
              still = not ST.Get("motion", true) }
 end
 
@@ -157,5 +159,34 @@ if ns.ClassKit then ns.ClassKit:Extend("war", { iconPath = "Interface\\Icons\\Ab
                 r.target or "Fight", r.mh or 0, r.hs or 0, r.capped or 0))
         end,
     }
+    local Ch = ns.SituationChoices
+    ns.SituationSettings(S, sec, "war", { pack = true,
+        packRows = function(S, sec, R)
+            R(select(2, S:DropdownSetting(sec, "Cleave line", "Queue Cleave from this much rage in a pack (WoWSims: "
+                .. "40 for every spec).", "war.cleaveLine", 40, Ch({ 20, 30, 40, 50, 60, 70, 80 }, "%d rage"))))
+            R(select(2, ns.SituationPicks(S, sec, "Pack presses", "WoWSims' list for more than one target. Each only "
+                .. "shows when you have the spell.", "war.pack.", { { "sweep", "Sweeping Strikes" },
+                    { "ww", "Whirlwind" }, { "slam", "Slam" }, { "ms", "Mortal Strike" }, { "exe", "Execute" },
+                    { "cleave", "Cleave" } })))
+        end,
+        playerRows = function(S, sec, R)
+            R(select(2, S:DropdownSetting(sec, "Stance dancing", "Show the stance a press needs in its corner "
+                .. "(Overpower: Battle, Whirlwind: Berserker).", "war.dance", "players",
+                Ch({ { "never", "Never" }, { "players", "Against players" }, { "always", "Always" } }))))
+            R(select(2, S:DropdownSetting(sec, "Most rage a swap may cost", "A swap keeps 10 rage, 25 with 3/3 "
+                .. "Tactical Mastery. If it would throw away more than this, the press waits for your stance.",
+                "war.danceRage", 10, Ch({ 0, 5, 10, 15, 20, 30, 50 }, "%d rage"))))
+            R(select(2, S:DropdownSetting(sec, "Refresh Hamstring", "Press it again this long before it runs out.",
+                "war.hamRefresh", 2, Ch({ 1, 2, 3, 4, 5 }, "%d s"))))
+            local lines = { { 0, "Same as one target" } }
+            for _, n in ipairs({ 30, 40, 50, 60, 70, 80 }) do lines[#lines + 1] = { n, n .. " rage" } end
+            R(select(2, S:DropdownSetting(sec, "Heroic Strike line", "Against players.", "war.hsLinePlayer", 0,
+                Ch(lines))))
+            R(select(2, ns.SituationPicks(S, sec, "Player presses", "Each only shows when you have the spell. Slam "
+                .. "(a cast: you stand still) and Rend are off until you pick them.", "war.player.",
+                { { "ham", "Hamstring" }, { "ms", "Mortal Strike" }, { "op", "Overpower" }, { "ww", "Whirlwind" },
+                  { "exe", "Execute" }, { "hs", "Heroic Strike" }, { "slam", "Slam" }, { "rend", "Rend" } },
+                { slam = false, rend = false })))
+        end })
     S:EndSection(sec)
 end }) end

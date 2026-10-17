@@ -11,8 +11,8 @@ BigWigs' break messages from the leader (one bar for both, nothing from a non-as
 Try it in every look (no errors, the hosts reused), demo mode; Edit layout's four spots; every data file passing
 tools/bossmods_check.py; the Lurker going under (his adds' first sign, or his Submerge Visual seen on a unit) and
 coming back (his first sign after 20 s gone); a fight ending 5 s out of its raid or on the boss's next
-ENCOUNTER_START (a wipe while released, 16 Oct 2026); Gruul's Hurtful Strike from its hit and Vashj's Strider bar
-looping without drift (17 Oct 2026).
+ENCOUNTER_START (a wipe while released, 16 Oct 2026); Gruul's Hurtful Strike from its hit and Vashj's Strider and
+Elite bars looping without drift, the Strider's spawn aura resyncing it (17 Oct 2026).
 
 Run: luaenv\\Scripts\\python.exe tests\\bossmods\\test_bossmods.py [-k name]
 """
@@ -477,7 +477,7 @@ def a_fight_ends_out_of_its_raid_or_on_the_bosss_next_pull():
 
 
 @case
-def hurtful_strike_restarts_on_its_hit_and_the_strider_bar_loops():
+def hurtful_strike_restarts_on_its_hit_and_vashjs_add_bars_loop():
     # Gruul, 17 Oct: Hurtful Strike logged no SPELL_CAST_SUCCESS; its hit (or a parry) restarts the tank bar
     f = Fight(role="tank")
     f.start()
@@ -492,7 +492,8 @@ def hurtful_strike_restarts_on_its_hit_and_the_strider_bar_loops():
     assert 7.5 <= f.bar(hurt)["rem"] <= 8, f.bar(hurt)
     f.end()
     f.w.assert_no_errors()
-    # Vashj, 17 Oct: no spawn event for the Striders; the bar loops every 63 s from the shield phase, as DBM and BW do
+    # Vashj, 17 Oct: the Strider and Elite bars loop (63 s, 47.5 s) from the shield phase, as DBM and BW do; a
+    # Strider's spawn aura, when it reaches my log, resyncs the Strider loop
     v = Fight(npc=21212, name="Lady Vashj")
     c = v.c
     c.fire("ENCOUNTER_START", 628, "Lady Vashj", 4, 25)
@@ -506,9 +507,19 @@ def hurtful_strike_restarts_on_its_hit_and_the_strider_bar_loops():
     now = c.eval("return GetTime()")
     rem = v.bar("strider")["rem"]
     assert abs((now - t0 + rem) - 63 * 5) < 0.2, (now - t0, rem)
-    # phase 3 ends it
+    elite = v.bar("elite")["rem"]
+    assert abs((now - t0 + elite) - 47.5 * 6) < 0.2, (now - t0, elite)
+    # a Strider's spawn aura seen: the loop runs from it
+    c.eval("ns.BossMod:Inject(" + m + ", 'AURA 38257')")
+    ta = c.eval("return GetTime()")
+    assert 62.5 <= v.bar("strider")["rem"] <= 63, v.bar("strider")
+    v.w.tick(63 * 2 + 5, step=0.5)
+    now = c.eval("return GetTime()")
+    rem = v.bar("strider")["rem"]
+    assert abs((now - ta + rem) - 63 * 3) < 0.2, (now - ta, rem)
+    # phase 3 ends both
     c.eval("ns.BossMod:Inject(" + m + ", 'PHASE 3')")
-    assert v.bar("strider") is None
+    assert v.bar("strider") is None and v.bar("elite") is None
     v.w.assert_no_errors()
 
 

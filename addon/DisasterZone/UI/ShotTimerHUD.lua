@@ -15,7 +15,9 @@ local floor, max, min = math.floor, math.max, math.min
 local strformat = string.format
 
 -- Lane labels have about 60 px.
-local SHORT = { steady = "Steady", multi = "Multi", arcane = "Arcane", kc = "Kill Cmd", hawk = "Hawk", viper = "Viper" }
+local SHORT = { steady = "Steady", multi = "Multi", arcane = "Arcane", kc = "Kill Cmd", hawk = "Hawk", viper = "Viper",
+                volley = "Volley", etrap = "Trap", conc = "Concussive", aimed = "Aimed", vsting = "Viper St.",
+                ssting = "Scorpid", wclip = "Wing Clip" }
 
 local D = {
     prefix = "shot", frameName = "DisasterZoneShotTimer", layoutName = "Shot timer", layoutOrder = 31,
@@ -140,5 +142,24 @@ if ns.ClassKit then ns.ClassKit:Extend("shot", { iconPath = "Interface\\Icons\\A
                 r.target or "Fight", clean, clean + clip + moved, clip, r.lost or 0, moved))
         end,
     }
+    local Ch = ns.SituationChoices
+    ns.SituationSettings(S, sec, "shot", { pack = true,
+        packRows = function(S, sec, R)
+            R(select(2, S:SwitchSetting(sec, "Volley", "In a pack (Multi-Shot already fires on cooldown). A 6 s "
+                .. "channel with a 1 min cooldown.", "shot.volley", false)))
+            R(select(2, S:SwitchSetting(sec, "Explosive Trap", "In a pack. Shares its cooldown with your other traps.",
+                "shot.etrap", false)))
+        end,
+        playerRows = function(S, sec, R)
+            R(select(2, S:SwitchSetting(sec, "Concussive before Steady", "Steady Shot does 175 more to a Dazed "
+                .. "target.", "shot.conc", true)))
+            R(select(2, S:SwitchSetting(sec, "Aimed Shot", "If you have it: healing on the target -50% for 10 s. A "
+                .. "2.5 s cast that may push your next Auto Shot.", "shot.aimed", true)))
+            R(select(2, S:DropdownSetting(sec, "Sting", "One sting per hunter on a target.", "shot.sting", "viper",
+                Ch({ { "viper", "Viper on mana users" }, { "both", "Viper on mana users, else Scorpid" },
+                     { "off", "None" } }))))
+            R(select(2, S:SwitchSetting(sec, "Wing Clip", "While they are in melee range: 60% slower for 10 s.",
+                "shot.wclip", true)))
+        end })
     S:EndSection(sec)
 end }) end

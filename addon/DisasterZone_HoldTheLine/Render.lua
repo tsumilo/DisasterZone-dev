@@ -33,52 +33,82 @@ local CAMX, CAMY = 0, 0
 local function NewPool(frame, kind, layer, sub, blend)
     return { frame = frame, kind = kind, layer = layer, sub = sub or 0, blend = blend, items = {}, n = 0 }
 end
+-- Every pooled widget remembers what it was last given (shown, picture, texcoords, colour, layer, place, size) and
+-- the client is only called when that changes: a frame mostly repeats the last one. A new picture or a colour fill
+-- forgets the texcoords, colour and gradient (the client may reset them). World pictures all hang by their TOPLEFT
+-- from the view's origin, HUD ones by their TOPLEFT from the scaler: one anchor each, so a reused texture never
+-- keeps a second point from what it drew before.
 local function Take(pool)
     pool.n = pool.n + 1
     local t = pool.items[pool.n]
     if not t then
         if pool.kind == "line" then t = pool.frame:CreateLine(nil, pool.layer, nil, pool.sub)
-        elseif pool.kind == "font" then t = pool.frame:CreateFontString(nil, pool.layer) t:SetFont(FONT, 12, "OUTLINE") t.size = 12
+        elseif pool.kind == "font" then t = pool.frame:CreateFontString(nil, pool.layer) t:SetFont(FONT, 12, "OUTLINE") t.size, t.ffile, t.outline = 12, FONT, "OUTLINE"
         else t = pool.frame:CreateTexture(nil, pool.layer, nil, pool.sub) end
         if pool.blend and t.SetBlendMode then t:SetBlendMode(pool.blend) end
         pool.items[pool.n] = t
     end
-    t:Show()
+    if not t.on then t:Show() t.on = true end
     return t
 end
 local function Begin(v) for _, p in pairs(v.pools) do p.n = 0 end end
 local function Finish(v)
     for _, p in pairs(v.pools) do
-        for i = p.n + 1, #p.items do local t = p.items[i] if t:IsShown() then t:Hide() end end
+        local items = p.items
+        for i = p.n + 1, #items do local t = items[i] if t.on then t:Hide() t.on = false end end
     end
 end
-local function File(t, f) if t.file ~= f then t:SetTexture(f) t.file = f end end
+local COLOR = "#colour"                           -- (t.file of a colour fill)
+local function Forget(t) t.tr, t.cr, t.gk = nil, nil, nil end
+local function File(t, f) if t.file ~= f then t:SetTexture(f) t.file = f Forget(t) end end
+local function Fill(t, r, g, b, a)
+    if t.file ~= COLOR or t.fr ~= r or t.fg ~= g or t.fb ~= b or t.fa ~= a then
+        t:SetColorTexture(r, g, b, a)
+        t.file, t.fr, t.fg, t.fb, t.fa = COLOR, r, g, b, a
+        Forget(t)
+    end
+end
+local function VC(t, r, g, b, a)
+    if t.cr ~= r or t.cg ~= g or t.cb ~= b or t.ca ~= a then t:SetVertexColor(r, g, b, a) t.cr, t.cg, t.cb, t.ca, t.gk = r, g, b, a, nil end
+end
+local function Layer(t, sub) if t.dl ~= sub then t:SetDrawLayer("ARTWORK", sub) t.dl = sub end end
 local function Size(t, w, h) w, h = max(0.05, w), max(0.05, h) if t.w ~= w or t.h ~= h then t:SetSize(w, h) t.w, t.h = w, h end end
-local function At(t, x, y, w, h) t:SetPoint("CENTER", V.origin, "TOPLEFT", x, -y) Size(t, w, h) end
-local function AtTL(t, x, y, w, h) t:SetPoint("TOPLEFT", V.origin, "TOPLEFT", x, -y) Size(t, w, h) end
-local function Col(t, c, a) if c then t:SetVertexColor(c[1], c[2], c[3], a or 1) else t:SetVertexColor(1, 1, 1, a or 1) end end
-local function Rot(t, rot, u0, v0, u1, v1)       -- the picture turned by rot (clockwise, as the canvas) inside its rect
-    u0, v0, u1, v1 = u0 or 0, v0 or 0, u1 or 1, v1 or 1
-    if not rot or rot == 0 then t:SetTexCoord(u0, u1, v0, v1) return end
+local function AtTL(t, x, y, w, h)
+    if t.px ~= x or t.py ~= y then t:SetPoint("TOPLEFT", V.origin, "TOPLEFT", x, -y) t.px, t.py = x, y end
+    Size(t, w, h)
+end
+local function At(t, x, y, w, h) w, h = max(0.05, w), max(0.05, h) AtTL(t, x - w / 2, y - h / 2, w, h) end
+local function Col(t, c, a) if c then VC(t, c[1], c[2], c[3], a or 1) else VC(t, 1, 1, 1, a or 1) end end
+-- the texcoords of a picture turned by rot (clockwise, as the canvas) inside its rect: UL, LL, UR, LR (screen y down)
+local function RotCoords(t, rot, u0, v0, u1, v1)
+    if rot == 0 then t:SetTexCoord(u0, u1, v0, v1) return end
     local cu, cv, hu, hv = (u0 + u1) / 2, (v0 + v1) / 2, (u1 - u0) / 2, (v1 - v0) / 2
     local c, s = cos(rot), sin(rot)
-    -- texcoords of the rect's corners: UL, LL, UR, LR (screen y down)
-    local function uv(x, y) return cu + (x * c + y * s) * hu, cv + (-x * s + y * c) * hv end
-    local ulx, uly = uv(-1, -1)
-    local llx, lly = uv(-1, 1)
-    local urx, ury = uv(1, -1)
-    local lrx, lry = uv(1, 1)
-    t:SetTexCoord(ulx, uly, llx, lly, urx, ury, lrx, lry)
+    local ax, bx, ay, by = (c + s) * hu, (c - s) * hu, (c - s) * hv, (c + s) * hv
+    t:SetTexCoord(cu - ax, cv - ay, cu - bx, cv + by, cu + bx, cv - by, cu + ax, cv + ay)
+end
+local function Rot(t, rot, u0, v0, u1, v1)
+    u0, v0, u1, v1, rot = u0 or 0, v0 or 0, u1 or 1, v1 or 1, rot or 0
+    if t.tr == rot and t.tu0 == u0 and t.tv0 == v0 and t.tu1 == u1 and t.tv1 == v1 then return end
+    t.tr, t.tu0, t.tv0, t.tu1, t.tv1 = rot, u0, v0, u1, v1
+    RotCoords(t, rot, u0, v0, u1, v1)
+end
+local function TC(t, u0, u1, v0, v1) Rot(t, 0, u0, v0, u1, v1) end     -- (SetTexCoord's order)
+-- a line's ends (as SetStartPoint / SetEndPoint take them) and thickness
+local function Ends(l, x0, y0, x1, y1, th)
+    if l.x0 ~= x0 or l.y0 ~= y0 then l:SetStartPoint("TOPLEFT", V.origin, x0, y0) l.x0, l.y0 = x0, y0 end
+    if l.x1 ~= x1 or l.y1 ~= y1 then l:SetEndPoint("TOPLEFT", V.origin, x1, y1) l.x1, l.y1 = x1, y1 end
+    if l.th ~= th then l:SetThickness(th) l.th = th end
 end
 -- a textured line: a picture w long, h thick, its middle at x, y, turned by ang
 local function LineAt(l, x, y, w, h, ang)
     local dx, dy = cos(ang) * w / 2, sin(ang) * w / 2
-    l:SetStartPoint("TOPLEFT", V.origin, x - dx, -(y - dy))
-    l:SetEndPoint("TOPLEFT", V.origin, x + dx, -(y + dy))
-    l:SetThickness(max(0.1, h * (V.lineK or 1)))
+    Ends(l, x - dx, -(y - dy), x + dx, -(y + dy), max(0.1, h * (V.lineK or 1)))
 end
-local function FxFile(k) return FX .. k end
+local FXF = setmetatable({}, { __index = function(t, k) local f = FX .. k t[k] = f return f end })
+local function FxFile(k) return FXF[k] end
 local function FxCrop(k) local c = A.FX_CROP[k] if c then return c[1], c[2] end return 1, 1 end
+local GLOWF = UIM .. "glow"
 
 ---------------------------------------------------------------------------
 -- the view
@@ -182,6 +212,7 @@ function Rd.Layout(v, w, h)
     v.VW, v.VH = w / k, D.VH
     v.scaler:SetScale(k)
     v.scaler:SetSize(v.VW, v.VH)
+    v.dirty = true
     return v.VW, v.VH
 end
 -- (a card's scene: a set world width; the height follows the frame)
@@ -191,6 +222,7 @@ function Rd.LayoutWide(v, w, h, vw)
     v.VW, v.VH = vw, h / k
     v.scaler:SetScale(k)
     v.scaler:SetSize(v.VW, v.VH)
+    v.dirty = true
     return v.VW, v.VH
 end
 
@@ -212,8 +244,8 @@ local function Tex(pool, k, x, y, w, h, a, rot, tint)
 end
 local function Glow(pool, x, y, r, c, a)
     local t = Take(V.pools[pool])
-    File(t, UIM .. "glow")
-    t:SetTexCoord(0, 1, 0, 1)
+    File(t, GLOWF)
+    TC(t, 0, 1, 0, 1)
     Col(t, c, a)
     At(t, x, y, r * 2, r * 2)
     return t
@@ -242,17 +274,17 @@ local function Sprite(bp, sub, key, dir, col, x, y, alpha, flashA, scale, sx, sy
     local kx, ky = (scale or 1) * (sx or 1), (scale or 1) * (sy or 1)
     local u0, v0, u1, v1 = fx / pg[2], fy / pg[3], (fx + fw) / pg[2], (fy + fh) / pg[3]
     local t = Take(bp.spr)
-    t:SetDrawLayer("ARTWORK", sub)
+    Layer(t, sub)
     File(t, pg[1])
-    t:SetTexCoord(u0, u1, v0, v1)
-    if tint then t:SetVertexColor(tint[1], tint[2], tint[3], alpha or 1) else t:SetVertexColor(1, 1, 1, alpha or 1) end
+    TC(t, u0, u1, v0, v1)
+    if tint then VC(t, tint[1], tint[2], tint[3], alpha or 1) else VC(t, 1, 1, 1, alpha or 1) end
     AtTL(t, x + dx * kx, y + dy * ky, fw * kx, fh * ky)
     if flashA and flashA > 0 then
         local f2 = Take(bp.add)
-        f2:SetDrawLayer("ARTWORK", min(7, sub + 1))
+        Layer(f2, min(7, sub + 1))
         File(f2, pg[1])
-        f2:SetTexCoord(u0, u1, v0, v1)
-        f2:SetVertexColor(1, 1, 1, min(1, flashA) * (alpha or 1))
+        TC(f2, u0, u1, v0, v1)
+        VC(f2, 1, 1, 1, min(1, flashA) * (alpha or 1))
         AtTL(f2, x + dx * kx, y + dy * ky, fw * kx, fh * ky)
     end
 end
@@ -297,13 +329,13 @@ local function DrawParts(run, layer, blend)
                         local l = w * (1 + p.stretch * sqrt(p.vx * p.vx + (p.vy - p.vz) ^ 2) / 300)
                         local ln = Take(pools[lay == "air" and (p.add and "addL" or "airNL") or (lay == "under" and "underL" or "glowL")])
                         File(ln, file)
-                        ln:SetTexCoord(u0, u1, v0, v1)
+                        TC(ln, u0, u1, v0, v1)
                         Col(ln, p.tint, min(1, a))
                         LineAt(ln, x, y, l, h, ang)
                     elseif p.rot ~= 0 and abs(w - h) > 0.5 and not p.flat then
                         local ln = Take(pools[lay == "air" and (p.add and "addL" or "airNL") or (lay == "under" and "underL" or "glowL")])
                         File(ln, file)
-                        ln:SetTexCoord(u0, u1, v0, v1)
+                        TC(ln, u0, u1, v0, v1)
                         Col(ln, p.tint, min(1, a))
                         LineAt(ln, x, y, w, h, p.rot)
                     else
@@ -334,8 +366,8 @@ local function DrawDecals(run)
                 local l = Take(P.chunkDec)
                 File(l, SPLAT)
                 local cell = floor(d.r) % 4
-                l:SetTexCoord(cell / 4, (cell + 1) / 4, 0, 1)
-                l:SetVertexColor(SCORCH[1], SCORCH[2], SCORCH[3], 0.3)
+                TC(l, cell / 4, (cell + 1) / 4, 0, 1)
+                VC(l, SCORCH[1], SCORCH[2], SCORCH[3], 0.3)
                 LineAt(l, d.x, d.y, d.r * 2, d.r * 1.2, d.a)
             end
         end
@@ -348,7 +380,7 @@ local function DrawDecals(run)
             File(t, SPLAT)
             Rot(t, d.a, d.cell / 4, 0, (d.cell + 1) / 4, 1)
             local c = d.scorch and SCORCH or d.gold and GOLDSTAIN or d.c
-            t:SetVertexColor(c[1], c[2], c[3], a)
+            VC(t, c[1], c[2], c[3], a)
             At(t, d.x, d.y, d.r * 2 * k, d.r * 2 * k * 0.62)
         end
     end
@@ -357,18 +389,14 @@ end
 local RED50 = { 1, 50 / 255, 30 / 255 }
 local function FillLine(pool, x0, y0, x1, y1, w, c, a)
     local l = Take(V.pools[pool])
-    File(l, nil) l.file = nil
-    l:SetColorTexture(c[1], c[2], c[3], a)
-    l:SetVertexColor(1, 1, 1, 1)
-    l:SetStartPoint("TOPLEFT", V.origin, x0, -y0)
-    l:SetEndPoint("TOPLEFT", V.origin, x1, -y1)
-    l:SetThickness(max(0.1, w))
+    Fill(l, c[1], c[2], c[3], a)
+    VC(l, 1, 1, 1, 1)
+    Ends(l, x0, -y0, x1, -y1, max(0.1, w))
 end
 local function FillRect(pool, x, y, w, h, c, a)
     local t = Take(V.pools[pool])
-    File(t, nil) t.file = nil
-    t:SetColorTexture(c[1], c[2], c[3], a)
-    t:SetVertexColor(1, 1, 1, 1)
+    Fill(t, c[1], c[2], c[3], a)
+    VC(t, 1, 1, 1, 1)
     AtTL(t, x, y, w, h)
     return t
 end
@@ -391,7 +419,7 @@ local function DrawGroundFx(run)
         elseif t.t0 and t.enemy and t.shape == "cone" then
             local f = 1 - t.t / t.t0
             local l = Take(V.pools.glowL)
-            File(l, FxFile("cone")) l:SetTexCoord(1, 0, 0, 1)
+            File(l, FxFile("cone")) TC(l, 1, 0, 0, 1)
             Col(l, c, 0.35 + 0.35 * f)
             LineAt(l, t.x + cos(t.ang) * t.r / 2, t.y + sin(t.ang) * t.r / 2 / 1.3, t.r, t.r * t.spread * 2.2, t.ang)
         elseif t.t0 and t.enemy and t.shape == "ringwarn" then
@@ -400,12 +428,12 @@ local function DrawGroundFx(run)
         elseif t.t0 and t.enemy then
             local f = 1 - t.t / t.t0
             local a = Take(V.pools.tele)
-            File(a, CIRCLE) a:SetTexCoord(0, 1, 0, 1)
-            a:SetVertexColor(c[1], c[2], c[3], 0.12 + f * 0.18)
+            File(a, CIRCLE) TC(a, 0, 1, 0, 1)
+            VC(a, c[1], c[2], c[3], 0.12 + f * 0.18)
             At(a, t.x, t.y, t.r * 2, t.r * 2 / 1.3)
             local b = Take(V.pools.tele)
-            File(b, CIRCLE) b:SetTexCoord(0, 1, 0, 1)
-            b:SetVertexColor(c[1], c[2], c[3], 0.25 + f * 0.25)
+            File(b, CIRCLE) TC(b, 0, 1, 0, 1)
+            VC(b, c[1], c[2], c[3], 0.25 + f * 0.25)
             At(b, t.x, t.y, t.r * 2 * f, t.r * 2 * f / 1.3)
             Tex("tele", "ring_thin", t.x, t.y, t.r * 2.08, t.r * 2.08 / 1.3, 0.9, 0, c)
         end
@@ -424,7 +452,7 @@ local function BandRing(k, x, y, r, h, n, scroll, a, tint)
         if u0 > 1 - sw then u0 = 1 - sw end
         local l = Take(V.pools.glowL)
         File(l, FxFile(k))
-        l:SetTexCoord(u0 * cu, (u0 + sw) * cu, 0, 1)
+        TC(l, u0 * cu, (u0 + sw) * cu, 0, 1)
         Col(l, tint, a)
         -- the tangent on the ellipse, the slice as tall as the ring's slant allows
         local tx, ty = -sin(ang), cos(ang) / 1.3
@@ -522,8 +550,8 @@ local SHADOW = UIM .. "shadow"
 local function Shadow(x, y, w, h, a)
     local t = Take(V.pools.shadow)
     File(t, SHADOW)
-    t:SetTexCoord(0, 1, 0, 1)
-    t:SetVertexColor(1, 1, 1, a or 1)
+    TC(t, 0, 1, 0, 1)
+    VC(t, 1, 1, 1, a or 1)
     AtTL(t, x, y, w, h)
 end
 
@@ -553,8 +581,8 @@ local function DrawGems(run)
             Shadow(g.x - w * 0.6, g.y - 2, w * 1.2, 5, 0.6)
             local t = Take(V.pools.gem)
             File(t, GEM[big and 3 or mid and 2 or 1])
-            t:SetTexCoord(0, sz[3], 0, sz[4])
-            t:SetVertexColor(1, 1, 1, 1)
+            TC(t, 0, sz[3], 0, sz[4])
+            VC(t, 1, 1, 1, 1)
             AtTL(t, g.x - w / 2, g.y - h - 3 + bob - pz, w, h)
         end
     end
@@ -579,13 +607,13 @@ local function DrawEnemy(run, e)
     local tint = e.tint or M.tint
     if e.charge then                                         -- (Thaddius's polarity: a ring of the charge under it)
         local g = Take(bp.glow)
-        File(g, FxFile("ring_soft")) g:SetTexCoord(0, 1, 0, 1)
+        File(g, FxFile("ring_soft")) TC(g, 0, 1, 0, 1)
         Col(g, e.charge > 0 and POS or NEG, 0.9)
         At(g, e.x, e.y, M.r * 3, M.r * 3 / 1.3)
     end
     if M.elite or M.boss then
         local g = Take(bp.glow)
-        File(g, UIM .. "glow") g:SetTexCoord(0, 1, 0, 1)
+        File(g, GLOWF) TC(g, 0, 1, 0, 1)
         if e.berserk then Col(g, BERSERK, 0.6 + sin(run.t * 9) * 0.2)
         elseif e.immune then Col(g, IMMUNE, 0.45 + sin(run.t * 5) * 0.1)
         else Col(g, M.boss and GLOWC.red or GLOWC.gold, 0.35 + sin(run.t * 4) * 0.08) end
@@ -593,7 +621,7 @@ local function DrawEnemy(run, e)
         Sprite(bp, sub, key, e.dir, col, e.x, e.y + yo - (e.z or 0), a * (e.alpha or 1), fl, sc, sx, sy, tint)
     elseif M.reaper then
         local g = Take(bp.glow)
-        File(g, UIM .. "glow") g:SetTexCoord(0, 1, 0, 1)
+        File(g, GLOWF) TC(g, 0, 1, 0, 1)
         Col(g, GLOWC.blue, 0.5)
         At(g, e.x, e.y - 40, 140, 140)
         Sprite(bp, sub, key, e.dir, col, e.x, e.y, 0.95, 0, 1.4)
@@ -601,8 +629,8 @@ local function DrawEnemy(run, e)
         Sprite(bp, sub, key, e.dir, col, e.x, e.y + yo, a * (e.alpha or 1), fl, sc, sx, sy, tint)
     end
     if e.barrier then        -- (a Deathknight Understudy's Bone Barrier: a bubble to stand in)
-        local t = Take(bp.add) t:SetDrawLayer("ARTWORK", min(7, sub + 2))
-        File(t, FxFile("ring_soft")) t:SetTexCoord(0, 1, 0, 1) Col(t, { 0.6, 0.8, 1 }, 0.55 + 0.1 * sin(run.t * 3 + e.x))
+        local t = Take(bp.add) Layer(t, min(7, sub + 2))
+        File(t, FxFile("ring_soft")) TC(t, 0, 1, 0, 1) Col(t, { 0.6, 0.8, 1 }, 0.55 + 0.1 * sin(run.t * 3 + e.x))
         At(t, e.x, e.y - 28, 96, 90)
     end
     if e.frz > 0 then        -- encased in ice
@@ -610,26 +638,26 @@ local function DrawEnemy(run, e)
         local pg, fx, fy, fw, fh, dx, dy = Frame(key, e.dir, col)
         if pg then
             local t = Take(bp.add)
-            t:SetDrawLayer("ARTWORK", min(7, sub + 1))
+            Layer(t, min(7, sub + 1))
             File(t, pg[1])
-            t:SetTexCoord(fx / pg[2], (fx + fw) / pg[2], fy / pg[3], (fy + fh) / pg[3])
-            t:SetVertexColor(1, 1, 1, 0.32 * k)
+            TC(t, fx / pg[2], (fx + fw) / pg[2], fy / pg[3], (fy + fh) / pg[3])
+            VC(t, 1, 1, 1, 0.32 * k)
             AtTL(t, e.x + dx * sx, e.y + yo + dy * sy, fw * sx, fh * sy)
         end
         local t2 = Take(bp.add)
-        t2:SetDrawLayer("ARTWORK", min(7, sub + 2))
-        File(t2, FxFile("frost_burst")) t2:SetTexCoord(0, 1, 0, 1)
+        Layer(t2, min(7, sub + 2))
+        File(t2, FxFile("frost_burst")) TC(t2, 0, 1, 0, 1)
         Col(t2, C.ICE, 0.55 * k)
         At(t2, e.x, e.y - r * 1.3, r * 3.2 * (0.7 + 0.3 * k), r * 3.6 * (0.7 + 0.3 * k))
         local t3 = Take(bp.add)
-        t3:SetDrawLayer("ARTWORK", min(7, sub + 2))
-        File(t3, FxFile("blue_star")) t3:SetTexCoord(0, 1, 0, 1)
+        Layer(t3, min(7, sub + 2))
+        File(t3, FxFile("blue_star")) TC(t3, 0, 1, 0, 1)
         Col(t3, C.FROST, 0.6 * k * (0.5 + 0.5 * sin(run.t * 5 + e.wob)))
         At(t3, e.x + r * 0.4, e.y - r * 2.2, 14, 14)
     elseif e.slow > 0 then
         local t = Take(bp.add)
-        t:SetDrawLayer("ARTWORK", min(7, sub + 1))
-        File(t, FxFile("frost_burst")) t:SetTexCoord(0, 1, 0, 1)
+        Layer(t, min(7, sub + 1))
+        File(t, FxFile("frost_burst")) TC(t, 0, 1, 0, 1)
         Col(t, C.ICE, 0.35)
         At(t, e.x, e.y - M.r * 0.2, M.r * 2.4, M.r)
     end
@@ -637,18 +665,16 @@ local function DrawEnemy(run, e)
         for i = 0, 2 do
             local a2 = run.t * 6 + i * 2.1
             local t = Take(bp.add)
-            t:SetDrawLayer("ARTWORK", 7)
-            File(t, FxFile("sparkle")) t:SetTexCoord(0, 1, 0, 1)
+            Layer(t, 7)
+            File(t, FxFile("sparkle")) TC(t, 0, 1, 0, 1)
             Col(t, C.HOLY, 0.9)
             At(t, e.x + cos(a2) * 11, e.y - M.r * 2.5 + sin(a2) * 3, 12, 12)
         end
     end
     if M.elite and e.hp < e.maxHp then
         local w = 46
-        local t = Take(bp.spr) t:SetDrawLayer("ARTWORK", 7) File(t, nil) t.file = nil
-        t:SetColorTexture(0, 0, 0, 0.7) t:SetVertexColor(1, 1, 1, 1) AtTL(t, e.x - w / 2, e.y + 8, w, 5)
-        local t2 = Take(bp.spr) t2:SetDrawLayer("ARTWORK", 7) t2.file = nil
-        t2:SetColorTexture(0.85, 0.65, 0.08, 1) t2:SetVertexColor(1, 1, 1, 1) AtTL(t2, e.x - w / 2 + 1, e.y + 9, (w - 2) * e.hp / e.maxHp, 3)
+        local t = Take(bp.spr) Layer(t, 7) Fill(t, 0, 0, 0, 0.7) VC(t, 1, 1, 1, 1) AtTL(t, e.x - w / 2, e.y + 8, w, 5)
+        local t2 = Take(bp.spr) Layer(t2, 7) Fill(t2, 0.85, 0.65, 0.08, 1) VC(t2, 1, 1, 1, 1) AtTL(t2, e.x - w / 2 + 1, e.y + 9, (w - 2) * e.hp / e.maxHp, 3)
     end
 end
 
@@ -672,29 +698,27 @@ local function DrawPlayer(run)
     local bp, sub = Band(p.y)
     if p.charge then
         local g = Take(bp.glow)
-        File(g, FxFile("ring_soft")) g:SetTexCoord(0, 1, 0, 1)
+        File(g, FxFile("ring_soft")) TC(g, 0, 1, 0, 1)
         Col(g, p.charge > 0 and POS or NEG, 1)
         At(g, p.x, p.y, 54, 54 / 1.3)
     end
     Sprite(bp, sub, key, dir, col, p.x, p.y, blink and 0.55 or 1, p.hurtT > 0.15 and 0.5 or 0)
     if (p.wrapT or 0) > 0 then                               -- (Web Wrap: a cocoon over the hero)
-        local w = Take(bp.spr) w:SetDrawLayer("ARTWORK", min(7, sub + 1)) File(w, FxFile("webspin")) Rot(w, sin(run.t * 30) * 0.12)
-        w:SetVertexColor(1, 1, 1, 0.95) At(w, p.x, p.y - 28, 44, 58)
-        local w2 = Take(bp.spr) w2:SetDrawLayer("ARTWORK", min(7, sub + 2)) File(w2, FxFile("web")) Rot(w2, run.t * 0.3)
-        w2:SetVertexColor(1, 1, 1, 0.8) At(w2, p.x, p.y - 26, 62, 62)
+        local w = Take(bp.spr) Layer(w, min(7, sub + 1)) File(w, FxFile("webspin")) Rot(w, sin(run.t * 30) * 0.12)
+        VC(w, 1, 1, 1, 0.95) At(w, p.x, p.y - 28, 44, 58)
+        local w2 = Take(bp.spr) Layer(w2, min(7, sub + 2)) File(w2, FxFile("web")) Rot(w2, run.t * 0.3)
+        VC(w2, 1, 1, 1, 0.8) At(w2, p.x, p.y - 26, 62, 62)
     end
     if (p.tombT or 0) > 0 then                               -- (Frost Blast: an ice tomb)
-        local t2 = Take(bp.add) t2:SetDrawLayer("ARTWORK", min(7, sub + 2))
-        File(t2, FxFile("frost_burst")) t2:SetTexCoord(0, 1, 0, 1) Col(t2, C.ICE, 0.7)
+        local t2 = Take(bp.add) Layer(t2, min(7, sub + 2))
+        File(t2, FxFile("frost_burst")) TC(t2, 0, 1, 0, 1) Col(t2, C.ICE, 0.7)
         At(t2, p.x, p.y - 26, 70, 80)
     end
     if not p.dead and not run.preview then
         local w = 38
-        local t = Take(bp.spr) t:SetDrawLayer("ARTWORK", 7) t.file = nil
-        t:SetColorTexture(0, 0, 0, 0.75) t:SetVertexColor(1, 1, 1, 1) AtTL(t, p.x - w / 2, p.y + 7, w, 5)
-        local t2 = Take(bp.spr) t2:SetDrawLayer("ARTWORK", 7) t2.file = nil
-        if p.hp / p.maxHp > 0.35 then t2:SetColorTexture(0.13, 0.76, 0.16, 1) else t2:SetColorTexture(0.83, 0.16, 0.1, 1) end
-        t2:SetVertexColor(1, 1, 1, 1)
+        local t = Take(bp.spr) Layer(t, 7) Fill(t, 0, 0, 0, 0.75) VC(t, 1, 1, 1, 1) AtTL(t, p.x - w / 2, p.y + 7, w, 5)
+        local t2 = Take(bp.spr) Layer(t2, 7) if p.hp / p.maxHp > 0.35 then Fill(t2, 0.13, 0.76, 0.16, 1) else Fill(t2, 0.83, 0.16, 0.1, 1) end
+        VC(t2, 1, 1, 1, 1)
         AtTL(t2, p.x - w / 2 + 1, p.y + 8, max(0.1, (w - 2) * p.hp / p.maxHp), 3)
     end
 end
@@ -704,16 +728,16 @@ local function DrawPick(run, k)
     local bob = sin(k.t * 3) * 2
     local bp, sub = Band(k.y)
     if k.kind == "eggsac" or k.kind == "spore" or k.kind == "brazier" then
-        local t = Take(bp.spr) t:SetDrawLayer("ARTWORK", sub)
-        local g = Take(bp.glow) File(g, UIM .. "glow") g:SetTexCoord(0, 1, 0, 1)
+        local t = Take(bp.spr) Layer(t, sub)
+        local g = Take(bp.glow) File(g, GLOWF) TC(g, 0, 1, 0, 1)
         if k.kind == "eggsac" then
-            File(t, FxFile("webspin")) Rot(t, sin(k.t * 2) * 0.05) t:SetVertexColor(0.9, 0.95, 0.85, 1) At(t, k.x, k.y - 16, 30 + sin(k.t * 4) * 2, 34)
+            File(t, FxFile("webspin")) Rot(t, sin(k.t * 2) * 0.05) VC(t, 0.9, 0.95, 0.85, 1) At(t, k.x, k.y - 16, 30 + sin(k.t * 4) * 2, 34)
             Col(g, GLOWC.green, 0.25 + 0.15 * sin(k.t * 3)) At(g, k.x, k.y - 14, 60, 60)
         elseif k.kind == "spore" then
-            File(t, FxFile("green_glow")) t:SetTexCoord(0, 1, 0, 1) t:SetVertexColor(0.85, 1, 0.5, 1) At(t, k.x, k.y - 22 + bob, 34, 34)
+            File(t, FxFile("green_glow")) TC(t, 0, 1, 0, 1) VC(t, 0.85, 1, 0.5, 1) At(t, k.x, k.y - 22 + bob, 34, 34)
             Col(g, { 0.8, 1, 0.4 }, 0.45 + 0.15 * sin(k.t * 5)) At(g, k.x, k.y - 20, 80, 80)
         else
-            File(t, FxFile("flame")) t:SetTexCoord(0, 1, 0, 1) t:SetVertexColor(1, 0.85, 0.6, 1) At(t, k.x, k.y - 30, 36 + sin(k.t * 9) * 3, 46)
+            File(t, FxFile("flame")) TC(t, 0, 1, 0, 1) VC(t, 1, 0.85, 0.6, 1) At(t, k.x, k.y - 30, 36 + sin(k.t * 9) * 3, 46)
             Col(g, GLOWC.fire, 0.6 + 0.1 * sin(k.t * 7)) At(g, k.x, k.y - 20, 150, 150)
         end
         return
@@ -724,31 +748,29 @@ local function DrawPick(run, k)
         local pg = A.PROP_PAGES[pr[1]]
         local s = 0.55
         local t = Take(bp.spr)
-        t:SetDrawLayer("ARTWORK", sub)
+        Layer(t, sub)
         File(t, pg[1])
-        t:SetTexCoord(pr[2] / pg[2], (pr[2] + pr[4]) / pg[2], pr[3] / pg[3], (pr[3] + pr[5]) / pg[3])
-        t:SetVertexColor(1, 1, 1, 1)
+        TC(t, pr[2] / pg[2], (pr[2] + pr[4]) / pg[2], pr[3] / pg[3], (pr[3] + pr[5]) / pg[3])
+        VC(t, 1, 1, 1, 1)
         AtTL(t, k.x - pr[6] * s, k.y - pr[7] * s, pr[4] * s, pr[5] * s)
         return
     end
     local sz = k.kind == "chest" and 30 or 20
     Shadow(k.x - sz * 0.6, k.y - 4, sz * 1.2, 8, 1)
     local t = Take(bp.spr)
-    t:SetDrawLayer("ARTWORK", sub)
+    Layer(t, sub)
     File(t, D.ICON(PICKICON[k.kind]))
-    t:SetTexCoord(5 / 64, 59 / 64, 5 / 64, 59 / 64)
-    t:SetVertexColor(1, 1, 1, 1)
+    TC(t, 5 / 64, 59 / 64, 5 / 64, 59 / 64)
+    VC(t, 1, 1, 1, 1)
     AtTL(t, k.x - sz / 2, k.y - sz - 6 + bob, sz, sz)
     local b = Take(bp.spr)
-    b:SetDrawLayer("ARTWORK", min(7, sub + 1))
-    b.file = nil
-    if k.kind == "chest" then b:SetColorTexture(1, 0.82, 0.25, 1) else b:SetColorTexture(0, 0, 0, 0.8) end
+    Layer(b, min(7, sub + 1))
+    if k.kind == "chest" then Fill(b, 1, 0.82, 0.25, 1) else Fill(b, 0, 0, 0, 0.8) end
     -- (a 1-unit frame: four thin rects would be the canvas stroke; a slightly larger plate behind reads the same)
-    b:SetVertexColor(1, 1, 1, 1)
+    VC(b, 1, 1, 1, 1)
     AtTL(b, k.x - sz / 2 - 1, k.y - sz - 7 + bob, sz + 2, 1)
-    local b2 = Take(bp.spr) b2:SetDrawLayer("ARTWORK", min(7, sub + 1)) b2.file = nil
-    if k.kind == "chest" then b2:SetColorTexture(1, 0.82, 0.25, 1) else b2:SetColorTexture(0, 0, 0, 0.8) end
-    b2:SetVertexColor(1, 1, 1, 1)
+    local b2 = Take(bp.spr) Layer(b2, min(7, sub + 1)) if k.kind == "chest" then Fill(b2, 1, 0.82, 0.25, 1) else Fill(b2, 0, 0, 0, 0.8) end
+    VC(b2, 1, 1, 1, 1)
     AtTL(b2, k.x - sz / 2 - 1, k.y - 6 + bob, sz + 2, 1)
 end
 
@@ -762,16 +784,16 @@ local function DrawIcicle(run, f)
     local bp, sub = Band(f.y)
     local sz = A.UI_SIZE.ice_spike_0
     local t = Take(bp.spr)
-    t:SetDrawLayer("ARTWORK", sub)
+    Layer(t, sub)
     File(t, SPIKE[(f.v or 0) + 1])
-    t:SetTexCoord(0, sz[3], 0, sz[4] * grow)
-    t:SetVertexColor(1, 1, 1, a)
+    TC(t, 0, sz[3], 0, sz[4] * grow)
+    VC(t, 1, 1, 1, a)
     AtTL(t, f.x - w * 0.42, f.y - h * 1.05, w * 0.84, h * 1.05)
     local t2 = Take(bp.add)
-    t2:SetDrawLayer("ARTWORK", min(7, sub + 1))
+    Layer(t2, min(7, sub + 1))
     File(t2, SPIKE[(f.v or 0) + 1])
-    t2:SetTexCoord(0, sz[3], 0, sz[4] * grow)
-    t2:SetVertexColor(1, 1, 1, 0.35 * a)
+    TC(t2, 0, sz[3], 0, sz[4] * grow)
+    VC(t2, 1, 1, 1, 0.35 * a)
     AtTL(t2, f.x - w * 0.42, f.y - h * 1.05, w * 0.84, h * 1.05)
     if endT < 0.05 and not f.shat then
         f.shat = true
@@ -788,10 +810,10 @@ local function DrawProp(o)
     local behind = px > x + w * 0.15 and px < x + w * 0.85 and py < o.y and py > y + h * 0.15
     local bp, sub = Band(o.y)
     local t = Take(bp.spr)
-    t:SetDrawLayer("ARTWORK", sub)
+    Layer(t, sub)
     File(t, pg[1])
-    t:SetTexCoord(pr[2] / pg[2], (pr[2] + pr[4]) / pg[2], pr[3] / pg[3], (pr[3] + pr[5]) / pg[3])
-    t:SetVertexColor(1, 1, 1, behind and 0.42 or 1)
+    TC(t, pr[2] / pg[2], (pr[2] + pr[4]) / pg[2], pr[3] / pg[3], (pr[3] + pr[5]) / pg[3])
+    VC(t, 1, 1, 1, behind and 0.42 or 1)
     AtTL(t, x, y, w, h)
 end
 
@@ -814,12 +836,9 @@ local ARC_GOLD, ARC_WHITE, ARC_STORM = { 1, 214 / 255, 120 / 255 }, { 1, 1, 240 
 local TRAIL_GOLD, TRAIL_ARC = { 1, 210 / 255, 120 / 255 }, { 210 / 255, 140 / 255, 1 }
 local function ColLine(pool, x0, y0, x1, y1, w, c, a)
     local l = Take(V.pools[pool])
-    File(l, nil) l.file = nil
-    l:SetColorTexture(c[1], c[2], c[3], a)
-    l:SetVertexColor(1, 1, 1, 1)
-    l:SetStartPoint("TOPLEFT", V.origin, x0, -y0)
-    l:SetEndPoint("TOPLEFT", V.origin, x1, -y1)
-    l:SetThickness(max(0.1, w * (V.lineK or 1)))
+    Fill(l, c[1], c[2], c[3], a)
+    VC(l, 1, 1, 1, 1)
+    Ends(l, x0, -y0, x1, -y1, max(0.1, w * (V.lineK or 1)))
 end
 local function DrawAirFx(run)
     local p = run.p
@@ -827,7 +846,7 @@ local function DrawAirFx(run)
         local k = b.t / b.dur
         local a = (k < 0.15 and k / 0.15 or 1 - (k - 0.15) / 0.85) * (b.a or 1)
         if a > 0 then
-            local l = Take(V.pools.addL) File(l, FxFile("beam")) l:SetTexCoord(0, 1, 0, 1)
+            local l = Take(V.pools.addL) File(l, FxFile("beam")) TC(l, 0, 1, 0, 1)
             Col(l, b.col, a)
             LineAt(l, b.x, b.y - b.h / 2, b.h, b.w, -pi / 2)
             Glow("add", b.x, b.y, b.w * 1.4, b.col, a * 0.6)
@@ -869,7 +888,7 @@ local function DrawAirFx(run)
             elseif b.kind == "frost" then
                 local a = atan2(b.vy, b.vx)
                 local l = Take(V.pools.addL)
-                File(l, FxFile("ice_missile")) l:SetTexCoord(1, 0, 0, 1)
+                File(l, FxFile("ice_missile")) TC(l, 1, 0, 0, 1)
                 Col(l, C.ICE, 0.95)
                 LineAt(l, b.x - cos(a) * 14, b.y - sin(a) * 14, 60, 26, a)
                 Tex("add", "blue_star", b.x, b.y, 30, 30, 0.9, b.spin, C.FROST)
@@ -880,8 +899,8 @@ local function DrawAirFx(run)
                 Tex("add", "arcane_orbit", b.x, b.y, 18, 18, 0.8, run.t * 9, C.ARC)
                 Glow("add", b.x, b.y, 20, GLOWC.violet, 0.7)
             elseif b.kind == "grenade" and b.t >= 0 then
-                local sh = Take(V.pools.addN) File(sh, SHADOW) sh:SetTexCoord(0, 1, 0, 1) sh:SetVertexColor(1, 1, 1, 0.5) AtTL(sh, b.gx - 7, b.gy - 3, 14, 6)
-                local bomb = Take(V.pools.addN) File(bomb, D.ICON("inv_misc_bomb_08")) Rot(bomb, b.spin, 8 / 64, 8 / 64, 56 / 64, 56 / 64) bomb:SetVertexColor(1, 1, 1, 1) At(bomb, b.x, b.y, 16, 16)
+                local sh = Take(V.pools.addN) File(sh, SHADOW) TC(sh, 0, 1, 0, 1) VC(sh, 1, 1, 1, 0.5) AtTL(sh, b.gx - 7, b.gy - 3, 14, 6)
+                local bomb = Take(V.pools.addN) File(bomb, D.ICON("inv_misc_bomb_08")) Rot(bomb, b.spin, 8 / 64, 8 / 64, 56 / 64, 56 / 64) VC(bomb, 1, 1, 1, 1) At(bomb, b.x, b.y, 16, 16)
                 Tex("add", "sparkle", b.x + 6, b.y - 7, 14, 14, 0.9, run.t * 10, C.EMBER)
             end
         end
@@ -922,8 +941,8 @@ local function DrawAirFx(run)
             local r = f.r
             for i = -1, 1 do
                 local l = Take(V.pools.addL)
-                File(l, FxFile("flame_trail")) l:SetTexCoord(0, 1, 0, 1)
-                l:SetVertexColor(1, 1, 1, inv * 0.9)
+                File(l, FxFile("flame_trail")) TC(l, 0, 1, 0, 1)
+                VC(l, 1, 1, 1, inv * 0.9)
                 LineAt(l, f.x + i * r * 0.35, f.y - r * 0.9, r * 2.2 * (0.6 + k * 0.6), r * 1.1, -pi / 2 + i * 0.15)
             end
             Tex("add", "flame", f.x, f.y - r * 0.4, r * 2.2 * (0.7 + k * 0.5), r * 2.2 * (0.7 + k * 0.5), inv, f.x)
@@ -972,6 +991,21 @@ end
 -- the dark round the hero (the mockup's lit canvas; the client cannot cut holes, so the hero's own light is a
 -- picture of the dark with its hole, and the rest of the view is the plain dark)
 ---------------------------------------------------------------------------
+-- (a texture of the view's own that hangs by its TOPLEFT from the scaler)
+local function Box(t, x, y, w, h)
+    if t.bx ~= x or t.by ~= y then
+        if not t.bx then t:ClearAllPoints() end
+        t:SetPoint("TOPLEFT", V.scaler, "TOPLEFT", x, -y) t.bx, t.by = x, y
+    end
+    Size(t, w, h)
+end
+local function Shown(t, on) if t.on ~= on then t:SetShown(on) t.on = on end end
+local function DarkRect(i, x, y, w, h, dark, a)
+    local d = V.darkRect[i]
+    VC(d, dark[1], dark[2], dark[3], a)
+    Box(d, x, y, max(0.1, w), max(0.1, h))
+    Shown(d, w > 0 and h > 0)
+end
 local function DrawDark(run)
     local ST = run.ST or D.STAGE
     local dark = ST.dark or D.STAGE.dark
@@ -979,21 +1013,15 @@ local function DrawDark(run)
     local p = run.p
     local hx, hy, rw, rh = p.x - CAMX, p.y - 16 - CAMY, 420, 420 * 0.8
     local h = V.hole
-    h:SetVertexColor(dark[1], dark[2], dark[3], A_)
-    h:ClearAllPoints()
-    h:SetPoint("TOPLEFT", V.scaler, "TOPLEFT", hx - rw, -(hy - rh))
-    h:SetSize(rw * 2, rh * 2)
+    VC(h, dark[1], dark[2], dark[3], A_)
+    Box(h, hx - rw, hy - rh, rw * 2, rh * 2)
     local l, t, r, b = hx - rw, hy - rh, hx + rw, hy + rh
     local W, H = V.VW, V.VH
-    local rects = { { 0, 0, W, max(0, t) }, { 0, b, W, max(0, H - b) }, { 0, max(0, t), max(0, l), max(0, min(b, H) - max(0, t)) }, { r, max(0, t), max(0, W - r), max(0, min(b, H) - max(0, t)) } }
-    for i, q in ipairs(rects) do
-        local d = V.darkRect[i]
-        d:SetVertexColor(dark[1], dark[2], dark[3], A_)
-        d:ClearAllPoints()
-        d:SetPoint("TOPLEFT", V.scaler, "TOPLEFT", q[1], -q[2])
-        d:SetSize(max(0.1, q[3]), max(0.1, q[4]))
-        d:SetShown(q[3] > 0 and q[4] > 0)
-    end
+    local t0, mid = max(0, t), max(0, min(b, H) - max(0, t))
+    DarkRect(1, 0, 0, W, t0, dark, A_)
+    DarkRect(2, 0, b, W, max(0, H - b), dark, A_)
+    DarkRect(3, 0, t0, max(0, l), mid, dark, A_)
+    DarkRect(4, r, t0, max(0, W - r), mid, dark, A_)
 end
 
 ---------------------------------------------------------------------------
@@ -1002,9 +1030,13 @@ end
 local function Font(fs, size, file)
     size = floor(size + 0.5)
     file = file or FONT
-    if fs.size ~= size or fs.ffile ~= file then fs:SetFont(file, size, "OUTLINE") fs.size, fs.ffile = size, file end
+    if fs.size ~= size or fs.ffile ~= file or fs.outline ~= "OUTLINE" then fs:SetFont(file, size, "OUTLINE") fs.size, fs.ffile, fs.outline = size, file, "OUTLINE" end
 end
 Rd.Font = Font
+local function TextCol(fs, r, g, b, a)
+    if fs.cr ~= r or fs.cg ~= g or fs.cb ~= b or fs.ca ~= a then fs:SetTextColor(r, g, b, a) fs.cr, fs.cg, fs.cb, fs.ca = r, g, b, a end
+end
+Rd.TextCol = TextCol
 local CRIT = { 1, 0.8, 0.13 }
 local function DrawTexts(run)
     if run.attract then return end          -- (the title's and the poster's demos: no numbers over the logo)
@@ -1014,10 +1046,10 @@ local function DrawTexts(run)
         local size = (t.crit and 17 or 12) * pop
         local fs = Take(V.pools.text)
         Font(fs, size)
-        fs:SetText(t.crit and (t.v .. "!") or tostring(t.v))
+        if fs.tv ~= t.v or fs.tc ~= t.crit then fs:SetText(t.crit and (t.v .. "!") or tostring(t.v)) fs.tv, fs.tc = t.v, t.crit end
         local c = t.crit and CRIT or t.col or C.WHITE
-        fs:SetTextColor(c[1], c[2], c[3], k > 0.7 and (1 - k) / 0.3 or 1)
-        fs:SetPoint("BOTTOM", V.origin, "TOPLEFT", t.x, -t.y)
+        TextCol(fs, c[1], c[2], c[3], k > 0.7 and (1 - k) / 0.3 or 1)
+        if fs.px ~= t.x or fs.py ~= t.y then fs:SetPoint("BOTTOM", V.origin, "TOPLEFT", t.x, -t.y) fs.px, fs.py = t.x, t.y end
     end
 end
 
@@ -1037,7 +1069,7 @@ function Rd.Camera(v, run)
     local tr = run.trauma * run.trauma
     local cx, cy = p.x - v.VW / 2 + run.kick.x, p.y - (run.preview and v.VH * (run.pvCamY or 0.56) or v.VH / 2 + 10) + run.kick.y
     if tr > 0 then
-        local t = GetTime and GetTime() or 0
+        local t = run.shakeT or 0
         cx = cx + (sin(t * 61) + sin(t * 37.3) * 0.6) * tr * 11
         cy = cy + (sin(t * 53.1 + 2) + sin(t * 29.7) * 0.6) * tr * 11
     end
@@ -1046,6 +1078,7 @@ end
 
 function Rd.Draw(v, run)
     V = v
+    v.dirty = nil
     Begin(v)
     E.SetView(run, v.VW, v.VH)
     CAMX, CAMY = Rd.Camera(v, run)
@@ -1060,13 +1093,14 @@ function Rd.Draw(v, run)
     if v.gFile ~= gnd[1] then
         v.gFile = gnd[1]
         v.groundTex:SetTexture(gnd[1], "REPEAT", "REPEAT")
+        Forget(v.groundTex)
         local tn = ST and ST.tint or D.STAGE.tint
-        v.tint:SetColorTexture(tn[1], tn[2], tn[3], 1)
+        Fill(v.tint, tn[1], tn[2], tn[3], 1)
         local fc = ST and ST.fogC
-        if fc then v.fog:SetVertexColor(fc[1], fc[2], fc[3], 1) end
+        if fc then VC(v.fog, fc[1], fc[2], fc[3], 1) end
     end
     local gt = gnd[2]
-    v.groundTex:SetTexCoord(CAMX / gt, (CAMX + v.VW) / gt, CAMY / (gt * 1.3), (CAMY + v.VH) / (gt * 1.3))
+    TC(v.groundTex, CAMX / gt, (CAMX + v.VW) / gt, CAMY / (gt * 1.3), (CAMY + v.VH) / (gt * 1.3))
     DrawDecals(run)
     DrawBlockShadows(run)
     DrawParts(run, "under")
@@ -1112,35 +1146,35 @@ function Rd.Draw(v, run)
             local U = A.UNITS[key]
             if U then
                 local bp, sub = Band(a.y)
-                local g = Take(bp.glow) File(g, UIM .. "glow") g:SetTexCoord(0, 1, 0, 1) Col(g, GLOWC.green, 0.4) At(g, a.x, a.y - 16, 60, 60)
+                local g = Take(bp.glow) File(g, GLOWF) TC(g, 0, 1, 0, 1) Col(g, GLOWC.green, 0.4) At(g, a.x, a.y - 16, 60, 60)
                 Sprite(bp, sub, key, a.dir, floor(a.anim) % U.walk, a.x, a.y, min(1, (a.life - a.t) * 2) * 0.85, 0.15, M and M.scale or 1, nil, nil, { 0.55, 1, 0.55 })
             end
         else DrawPlayer(run) end
     end
     DrawParts(run, "air", "norm")
     -- grade + dark
-    v.tint:SetShown(true)
+    Shown(v.tint, true)
     DrawDark(run)
     -- light
     DrawAirFx(run)
     DrawParts(run, "air", "add")
     -- fog, vignette, slow motion, flash
     local fx0, fy0 = (CAMX * 0.9 + run.t * 14) / 512, (CAMY * 0.9 + run.t * 5) / 512
-    v.fog:SetTexCoord(fx0, fx0 + v.VW / 512, fy0, fy0 + v.VH / 512)
+    TC(v.fog, fx0, fx0 + v.VW / 512, fy0, fy0 + v.VH / 512)
     local fc = ST and ST.fogC or C.WHITE
-    v.fog:SetVertexColor(fc[1], fc[2], fc[3], (ST and ST.fog or D.STAGE.fog) + run.dark * 0.1)
-    v.vig:ClearAllPoints()
-    v.vig:SetPoint("TOPLEFT", v.scaler, "TOPLEFT", -40, 30)
-    v.vig:SetSize(v.VW + 80, v.VH + 60)
-    v.vig:SetAlpha(0.7)
-    if run.ts < 0.9 then v.dim:SetColorTexture(10 / 255, 6 / 255, 18 / 255, (1 - run.ts) * 0.35) v.dim:Show() else v.dim:Hide() end
-    if run.flash > 0 then v.flashT:SetColorTexture(run.flashC[1], run.flashC[2], run.flashC[3], run.flash * 0.55) v.flashT:Show() else v.flashT:Hide() end
+    VC(v.fog, fc[1], fc[2], fc[3], (ST and ST.fog or D.STAGE.fog) + run.dark * 0.1)
+    Box(v.vig, -40, -30, v.VW + 80, v.VH + 60)
+    if v.vigA ~= 0.7 then v.vig:SetAlpha(0.7) v.vigA = 0.7 end
+    if run.ts < 0.9 then Fill(v.dim, 10 / 255, 6 / 255, 18 / 255, (1 - run.ts) * 0.35) Shown(v.dim, true) else Shown(v.dim, false) end
+    if run.flash > 0 then Fill(v.flashT, run.flashC[1], run.flashC[2], run.flashC[3], run.flash * 0.55) Shown(v.flashT, true) else Shown(v.flashT, false) end
     DrawTexts(run)
     if not run.preview and Rd.DrawHud then Rd.DrawHud(v, run) end
     Finish(v)
 end
 
 -- (the HUD helpers for HUD.lua)
-Rd.Take, Rd.File, Rd.Size, Rd.Col, Rd.Rot, Rd.FxFile, Rd.Glow = Take, File, Size, Col, Rot, FxFile, Glow
+Rd.Take, Rd.File, Rd.Size, Rd.Col, Rd.FxFile, Rd.Glow = Take, File, Size, Col, FxFile, Glow
+Rd.Fill, Rd.VC, Rd.TC, Rd.RotC, Rd.Forget, Rd.Shown = Fill, VC, TC, Rot, Forget, Shown
+function Rd.Rot(t, rot, u0, v0, u1, v1) RotCoords(t, rot or 0, u0 or 0, v0 or 0, u1 or 1, v1 or 1) end
 function Rd.Use(v) V = v end
 function Rd.View() return V end

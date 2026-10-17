@@ -35,10 +35,12 @@ local SLAM_AFTER = 0.3           -- WoWSims "2H Arms": Slam within latency + 0.3
 local REPORTS_MAX = 10
 War.GCD, War.HS_WINDOW, War.SLAM_AFTER = GCD, HS_WINDOW, SLAM_AFTER
 
--- Spells by a known id (TBC's top ranks; names come from GetSpellInfo, and a lower rank counts as known by name)
+-- Spells by a known id (TBC's top ranks; names come from GetSpellInfo, and a lower rank counts as known by name).
+-- st1..st3: the stances (GetShapeshiftForm 1 Battle, 2 Defensive, 3 Berserker); tm: Tactical Mastery.
 local IDS = {
     hs = 29707, cleave = 25231, bt = 30335, ms = 30330, ww = 1680, slam = 25242, exe = 25236, rampage = 30033,
-    shout = 2048, brage = 2687, ham = 25212, op = 11585, flurry = 12974,
+    shout = 2048, brage = 2687, ham = 25212, op = 11585, flurry = 12974, sweep = 12328, rend = 25208,
+    st1 = 2457, st2 = 71, st3 = 2458, tm = 12295,
 }
 War.IDS = IDS
 local ICONS = {
@@ -48,17 +50,26 @@ local ICONS = {
     exe = "Interface\\Icons\\INV_Sword_48", rampage = "Interface\\Icons\\Ability_Warrior_Rampage",
     shout = "Interface\\Icons\\Ability_Warrior_BattleShout", brage = "Interface\\Icons\\Ability_Racial_BloodRage",
     ham = "Interface\\Icons\\Ability_ShockWave", op = "Interface\\Icons\\Ability_MeleeDamage",
+    sweep = "Interface\\Icons\\Ability_Rogue_SliceDice", rend = "Interface\\Icons\\Ability_Gouge",
+    st1 = "Interface\\Icons\\Ability_Warrior_OffensiveStance", st2 = "Interface\\Icons\\Ability_Warrior_DefensiveStance",
+    st3 = "Interface\\Icons\\Ability_Racial_Avatar",
     wait = "Interface\\Icons\\INV_Misc_PocketWatch_01",
 }
 -- Rage costs (TBC, talents ignored: a cost only decides whether a press waits for the next swing's rage)
 local COST = { hs = 15, cleave = 20, bt = 30, ms = 30, ww = 25, slam = 15, exe = 15, rampage = 20, shout = 10,
-               ham = 10, op = 5, brage = 0 }
+               ham = 10, op = 5, brage = 0, sweep = 30, rend = 10 }
 War.COST = COST
--- Stances a press needs (GetShapeshiftForm: 1 Battle, 2 Defensive, 3 Berserker); nil = any
+-- Stances a press needs (GetShapeshiftForm: 1 Battle, 2 Defensive, 3 Berserker; the TBC tooltips); nil = any
 local STANCE = { ww = { [3] = true }, op = { [1] = true }, exe = { [1] = true, [3] = true },
-                 ham = { [1] = true, [3] = true } }
+                 ham = { [1] = true, [3] = true }, sweep = { [1] = true, [3] = true }, rend = { [1] = true, [2] = true } }
 War.STANCE = STANCE
-local OFF_GCD = { brage = true }
+-- (Sweeping Strikes has no GCD in WoWSims' warrior, sim/warrior/talents_fury.go)
+local OFF_GCD = { brage = true, sweep = true }
+-- Cooldowns the plan keeps (s): Sweeping Strikes 30, Overpower 5 (the TBC tooltips)
+local CD = { bt = 6, ms = 6, ww = 10, sweep = 30, op = 5 }
+local OP_WINDOW = 5              -- Overpower is usable this long after the target dodges (WoWSims overpower.go)
+local SWAP_KEEP = 10             -- rage a stance swap keeps, + 5 per point of Tactical Mastery (WoWSims stances.go)
+War.OP_WINDOW, War.SWAP_KEEP = OP_WINDOW, SWAP_KEEP
 
 local names = {}
 local function NameOf(key)
@@ -91,6 +102,11 @@ ns.ClassKit:Register({ key = "war", label = "Swing timer", class = "WARRIOR", sp
 function War:IsMine() return ns.ClassKit:IsMine("war") end
 function War:IsDemo() return ns.ClassKit:IsDemo("war") end   -- (its part picked on the Demo page)
 local function DemoPlaying() return ns.Demo and ns.Demo.IsPlaying and ns.Demo:IsPlaying("war") or false end
+
+-- Situations (Core/Situation.lua): a pack from 2 (Cleave and Sweeping Strikes each hit one more), within 10 yards,
+-- counted from the plates and from what Whirlwind, Cleave and Sweeping Strikes' extra hits (12723) hit; a player.
+ns.Situation:Register("war", { kinds = { pack = true, player = true }, packFrom = 2, reach = "10", melee = IDS.ham,
+    aoe = { IDS.ww, IDS.cleave, 12723 }, active = function() return War.active and true or false end })
 
 -- "fury" | "arms": the talents' spec; demo mode on another class plays Fury (both hands, so every part shows).
 function War:Spec()
@@ -179,6 +195,42 @@ local function Stance()
     if demo then return 3 end
     return GetShapeshiftForm and (tonumber(GetShapeshiftForm()) or 0) or 0
 end
+
+-- Points in Tactical Mastery (read once per talent change: CLASSKIT_CHANGED forgets it).
+local tmRank
+local function TacticalMastery()
+    if demo then return 0 end
+    if tmRank then return tmRank end
+    tmRank = 0
+    local want = GetSpellInfo and GetSpellInfo(IDS.tm)
+    if want and GetNumTalentTabs and GetNumTalents and GetTalentInfo then
+        for tab = 1, tonumber(GetNumTalentTabs()) or 0 do
+            for i = 1, tonumber(GetNumTalents(tab)) or 0 do
+                local n, _, _, _, rank = GetTalentInfo(tab, i)
+                if n == want then tmRank = tonumber(rank) or 0 return tmRank end
+            end
+        end
+    end
+    return tmRank
+end
+War.TacticalMastery = TacticalMastery
+
+-- Seconds left on a debuff of this name on the target, anyone's (0 = not on).
+local function TargetDebuffLeft(key, now)
+    if demo then return max(0, (demo[key] or 0) - now) end
+    local n = NameOf(key)
+    if not n or not UnitDebuff or not (UnitExists and UnitExists("target")) then return 0 end
+    for i = 1, 40 do
+        local dn, _, _, _, _, expires = UnitDebuff("target", i)
+        if not dn then break end
+        if dn == n then
+            expires = tonumber(expires) or 0
+            return expires > 0 and max(0, expires - now) or huge
+        end
+    end
+    return 0
+end
+War.TargetDebuffLeft = TargetDebuffLeft
 
 local function ExecutePhase()
     if demo then return false end
@@ -269,6 +321,22 @@ function War:Line(spec, twoHand)
     return 40
 end
 
+-- The presses each situation may use (Core/Situation.lua), and their switches: one target war.use.<key> (as before),
+-- a pack war.pack.<key> (WoWSims' multi-target list), a player war.player.<key> (Slam and Rend off). Presses not in
+-- a situation's list keep the one-target switch (Bloodthirst, Rampage, Battle Shout, Bloodrage).
+local PACK_KEYS = { sweep = true, ww = true, slam = true, ms = true, exe = true, cleave = true }
+local PLAYER_KEYS = { ham = true, ms = true, op = true, ww = true, exe = true, hs = true, slam = true, rend = true }
+local ONLY_IN = { sweep = "pack", cleave = "pack", op = "player", rend = "player" }
+local ALL_KEYS = { "bt", "ms", "ww", "slam", "exe", "rampage", "shout", "brage", "ham", "hs", "sweep", "cleave", "op", "rend" }
+War.PACK_KEYS, War.PLAYER_KEYS = PACK_KEYS, PLAYER_KEYS
+
+function War.UseFor(kind, k)
+    if kind == "pack" and PACK_KEYS[k] then return Get("pack." .. k, true) and true or false end
+    if kind == "player" and PLAYER_KEYS[k] then return Get("player." .. k, k ~= "slam" and k ~= "rend") and true or false end
+    if ONLY_IN[k] then return false end
+    return Get("use." .. k, k ~= "ham") and true or false
+end
+
 -- The rotation's input, from the live client.
 function War:Snapshot(now)
     now = now or GetTime()
@@ -278,16 +346,29 @@ function War:Snapshot(now)
     local twoHand = ohs == nil
     local rage = Rage()
     local stance = Stance()
+    local sit = ns.Situation:Info("war", now)
+    local kind = sit.kind
+    -- crowd control in reach: nothing that hits more than the target (Whirlwind, Cleave, Sweeping Strikes)
+    local held = sit.held ~= nil
     local use = {}
-    for _, k in ipairs({ "bt", "ms", "ww", "slam", "exe", "rampage", "shout", "brage", "ham", "hs" }) do
-        local on = Get("use." .. k, k ~= "ham")
-        local st = STANCE[k]
-        use[k] = on and Known(k) and (not st or st[stance]) or false
-    end
+    for _, k in ipairs(ALL_KEYS) do use[k] = War.UseFor(kind, k) and Known(k) or false end
+    if held then use.ww, use.sweep, use.cleave = false, false, false end
+    local danceMode = Get("dance", "players")
     local ready = {}
-    for _, k in ipairs({ "bt", "ms", "ww", "brage" }) do ready[k] = now + CdLeft(k, now) end
+    for _, k in ipairs({ "bt", "ms", "ww", "brage", "sweep", "op" }) do ready[k] = now + CdLeft(k, now) end
+    local line = self:Line(spec, twoHand)
+    if kind == "pack" and not held then line = tonumber(Get("cleaveLine", 40)) or 40
+    elseif kind == "player" then
+        local pl = tonumber(Get("hsLinePlayer", 0)) or 0
+        if pl > 0 then line = pl end
+    end
     return {
-        now = now, spec = spec, twoHand = twoHand, rage = rage, line = self:Line(spec, twoHand), stance = stance,
+        now = now, spec = spec, twoHand = twoHand, rage = rage, line = line, stance = stance,
+        kind = kind, held = held, sit = sit, lampKey = (kind == "pack" and not held) and "cleave" or "hs",
+        dance = danceMode == "always" or (danceMode == "players" and kind == "player"),
+        keep = SWAP_KEEP + 5 * TacticalMastery(), danceRage = tonumber(Get("danceRage", 10)) or 10,
+        hamLeft = TargetDebuffLeft("ham", now), hamRefresh = tonumber(Get("hamRefresh", 2)) or 2,
+        rendLeft = TargetDebuffLeft("rend", now), opUntil = (demo and demo.opUntil) or state.opUntil or 0,
         mhNext = self:NextMH(now), mhLast = state.mhLast, mhSpeed = mhs,
         ohNext = self:NextOH(now), ohLast = state.ohLast, ohSpeed = ohs,
         lat = self:Latency(),
@@ -307,24 +388,57 @@ end
 --   Arms:  Slam right after the main-hand swing (two-hander: within latency + 0.3 s, at least 0.5 s of swing left);
 --          Mortal Strike; Whirlwind; Execute under 20%; Battle Shout; Hamstring as above.
 --   Bloodrage (off the GCD) under 90 rage. Heroic Strike: the lamp (see the header).
+-- A pack (Core/Situation.lua): the APLs' own branch for more than one target ("numberTargets > 1"): Sweeping
+--   Strikes on cooldown (off the GCD, when talented), Whirlwind first, then as above without Whirlwind's wait for
+--   Bloodthirst; the lamp offers Cleave from war.cleaveLine (WoWSims: 40 rage for every spec) instead of Heroic Strike.
+-- A player (ours, from the TBC tooltips; WoWSims has nothing for players): Hamstring kept on the target (50% slower
+--   for 15 s: again war.hamRefresh s before it ends), Overpower in the 5 s after the target dodges, Mortal Strike /
+--   Bloodthirst, Whirlwind, Execute, Rend when it is off the target (opt-in), Slam (opt-in: a cast, you stand still).
+-- Held (crowd control in reach): Whirlwind, Cleave and Sweeping Strikes are left out (Snapshot).
+-- Stances: a press only in its stance, unless stance dancing is on for the situation (war.dance): then the press
+--   carries the stance to go to (st.stance, 1 Battle / 2 Defensive / 3 Berserker), as long as the swap keeps the rage
+--   it costs and throws away no more than war.danceRage (a swap keeps 10 rage, +5 per point of Tactical Mastery).
 -- Rage is played forward roughly (each swing before a press brings gainMH / gainOH, each press costs its rage), only
--- to decide whether a press waits for the next swing. Run(snap) returns steps = { { key, at, off, cast } } (the first
--- at or before now is the press to make) and lamp = "queue" | "queued" | "hold" | nil (no Heroic Strike).
+-- to decide whether a press waits for the next swing. Run(snap) returns steps = { { key, at, off, cast, stance } }
+-- (the first at or before now is the press to make) and lamp = "queue" | "queued" | "hold" | nil (no Heroic Strike).
 -- ---------------------------------------------------------------------------------------------------------------
-local function Priority(spec, twoHand)
+local function Priority(spec, twoHand, kind)
+    if kind == "pack" then
+        if spec == "arms" then
+            if twoHand then return { "ww", "slam", "ms", "exe", "rampage", "shout" } end
+            return { "ww", "ms", "exe", "rampage", "shout" }
+        end
+        return { "ww", "bt", "exe", "rampage", "shout", "ham" }
+    elseif kind == "player" then
+        if spec == "arms" then return { "ham", "op", "ms", "ww", "exe", "rend", "slam", "rampage", "shout" } end
+        return { "ham", "op", "bt", "ww", "exe", "rend", "rampage", "shout" }
+    end
     if spec == "arms" then
         if twoHand then return { "slam", "ms", "ww", "exe", "rampage", "shout", "ham" } end
         return { "ms", "ww", "exe", "rampage", "shout", "ham" }
     end
     return { "bt", "ww", "exe", "rampage", "shout", "ham" }
 end
+War.Priority = Priority
 
 function War.Lamp(snap)
     if snap.queued then return "queued" end
-    if not snap.use.hs then return nil end
-    if snap.exec and snap.use.exe then return "hold" end
+    local k = snap.lampKey or "hs"
+    if not snap.use[k] then return nil end
+    if k == "hs" and snap.exec and snap.use.exe then return "hold" end
     return snap.rage >= snap.line and "queue" or "hold"
 end
+
+-- The stance a press needs from `stance`: nil (fine as it is), the stance to go to, or false (not now).
+local function StanceFor(snap, k, stance, rage)
+    local need = STANCE[k]
+    if not need or need[stance] then return nil end
+    if not snap.dance then return false end
+    local keep = snap.keep or SWAP_KEEP
+    if rage - keep > (snap.danceRage or 0) or keep < (COST[k] or 0) then return false end
+    return need[3] and 3 or (need[1] and 1 or 2)
+end
+War.StanceFor = StanceFor
 
 function War.Run(snap, count)
     count = count or 3
@@ -334,6 +448,11 @@ function War.Run(snap, count)
     local rage, gcd = snap.rage, snap.gcdReady
     local mh, oh = snap.mhNext, snap.ohNext
     local shoutLeft = snap.shoutLeft
+    local kind = snap.kind or "single"
+    local stance = snap.stance or 3
+    local hamEnd = now + (snap.hamLeft or 0)
+    local rendEnd = now + (snap.rendLeft or 0)
+    local opUntil = snap.opUntil or 0
     local steps = {}
     -- the swings landing between two moments bring their rage (a queued Heroic Strike's swing brings none)
     local queued = snap.queued
@@ -350,34 +469,55 @@ function War.Run(snap, count)
         end
         return got
     end
+    -- off the GCD, now: Bloodrage under 90 rage; Sweeping Strikes in a pack
+    local offs = 0
     if use.brage and rd.brage <= now + 0.001 and rage < 90 then
-        steps[1] = { key = "brage", at = now, off = true }
+        steps[#steps + 1] = { key = "brage", at = now, off = true }
+        offs = offs + 1
     end
-    local list = Priority(snap.spec, snap.twoHand)
+    if use.sweep and (rd.sweep or now) <= now + 0.001 and rage >= COST.sweep then
+        local to = StanceFor(snap, "sweep", stance, rage)
+        if to ~= false then
+            if to then rage, stance = min(rage, snap.keep or SWAP_KEEP), to end
+            steps[#steps + 1] = { key = "sweep", at = now, off = true, stance = to }
+            rage = rage - COST.sweep
+            offs = offs + 1
+        end
+    end
+    local list = Priority(snap.spec, snap.twoHand, kind)
     local t = max(now, gcd)
     rage = min(100, rage + Swings(now, t))
     for _ = 1, 24 do
-        if #steps >= count + (steps[1] and steps[1].off and 1 or 0) then break end
-        local pick, pickAt
+        if #steps >= count + offs then break end
+        local pick, pickAt, pickTo
         for _, k in ipairs(list) do
             if use[k] then
+                local to = StanceFor(snap, k, stance, rage)
                 local at
-                if k == "slam" then
+                if to == false then at = nil
+                elseif k == "slam" then
                     -- right after a main-hand swing: this one if it just landed, else the next
                     local last = mh - snap.mhSpeed
                     if t <= last + lat + SLAM_AFTER and mh - t >= 0.5 then at = t else at = mh end
                 elseif k == "bt" or k == "ms" then at = max(t, rd[k])
                 elseif k == "ww" then
                     at = max(t, rd.ww)
-                    if snap.spec == "fury" and use.bt and rd.bt - at < 1.5 then at = nil end
+                    -- (in a pack Whirlwind comes first; else it waits while Bloodthirst is back within 1.5 s)
+                    if kind ~= "pack" and snap.spec == "fury" and use.bt and rd.bt - at < 1.5 then at = nil end
                 elseif k == "exe" then at = snap.exec and t or nil
                 elseif k == "rampage" then
                     at = (t <= now + 0.001 and snap.rampageUsable and snap.rampageLeft < 5) and t or nil
                 elseif k == "shout" then at = (shoutLeft - (t - now) <= 10) and t or nil
-                elseif k == "ham" then at = (rage > 60) and t or nil
+                elseif k == "ham" then
+                    if kind == "player" then at = max(t, hamEnd - (snap.hamRefresh or 2))
+                    else at = (rage > 60) and t or nil end
+                elseif k == "op" then
+                    at = max(t, rd.op or t)
+                    if at > opUntil - 0.05 then at = nil end
+                elseif k == "rend" then at = max(t, rendEnd)
                 end
                 -- the earliest press wins; on a tie the higher in the list
-                if at and (not pickAt or at < pickAt - 0.001) then pick, pickAt = k, at end
+                if at and (not pickAt or at < pickAt - 0.001) then pick, pickAt, pickTo = k, at, to end
                 if pickAt and pickAt <= t + 0.001 then break end
             end
         end
@@ -392,8 +532,9 @@ function War.Run(snap, count)
             have = min(100, have + Swings(at, nt))
             at, guard = nt, guard + 1
         end
+        if pickTo then have, stance = min(have, snap.keep or SWAP_KEEP), pickTo end
         rage = have - need
-        local st = { key = pick, at = at }
+        local st = { key = pick, at = at, stance = pickTo }
         if pick == "slam" then
             st.cast = snap.slamCast
             -- Slam restarts the swing at its end
@@ -401,9 +542,11 @@ function War.Run(snap, count)
         end
         steps[#steps + 1] = st
         gcd = at + GCD
-        if pick == "bt" then rd.bt = at + 6 elseif pick == "ms" then rd.ms = at + 6
-        elseif pick == "ww" then rd.ww = at + 10
-        elseif pick == "shout" then shoutLeft = 120 + (at - now) end
+        if CD[pick] then rd[pick] = at + CD[pick] end
+        if pick == "shout" then shoutLeft = 120 + (at - now)
+        elseif pick == "ham" then hamEnd = at + 15
+        elseif pick == "rend" then rendEnd = at + 21
+        elseif pick == "op" then opUntil = 0 end
         t = max(gcd, at + (st.cast or 0))
         rage = min(100, rage + Swings(at, t))
     end
@@ -428,7 +571,7 @@ function War:Current()
     local snap = self:Snapshot(now)
     local steps, lamp = War.Run(snap)
     shownAt = now
-    shown = { snap = snap, plan = { steps = steps }, lamp = lamp }
+    shown = { snap = snap, plan = { steps = steps }, lamp = lamp, lampKey = snap.lampKey, sit = snap.sit }
     return shown
 end
 
@@ -459,9 +602,20 @@ end
 War.OnOH = OnOH
 
 -- (a Core/CombatLog.lua subscriber while the timer runs: the event name, then the client's payload)
-local function OnCombatLog(_, ts, sub, _, src, _, _, _, _, _, _, _, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
+-- The target dodged one of our attacks: Overpower is usable for OP_WINDOW s (SWING_MISSED: missType first;
+-- SPELL_MISSED: after the spell id, name and school).
+local function Dodged(dst, now)
+    if dst and dst == (UnitGUID and UnitGUID("target")) then
+        state.opUntil = now + OP_WINDOW
+        War:MarkDirty()
+    end
+end
+
+local function OnCombatLog(_, ts, sub, _, src, _, _, _, dst, _, _, _, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
     if src ~= myGUID or not War.active or demo then return end
     local now = GetTime()
+    if sub == "SWING_MISSED" and a1 == "DODGE" then Dodged(dst, now)
+    elseif sub == "SPELL_MISSED" and a4 == "DODGE" then Dodged(dst, now) end
     if sub == "SPELL_EXTRA_ATTACKS" then
         extraLeft, extraUntil = (tonumber(a4) or 1), ts + EXTRA_TTL
     elseif sub == "SWING_DAMAGE" or sub == "SWING_MISSED" then
@@ -536,6 +690,7 @@ function War:OnLogin()
         end
         if key then sentAt[key] = nil end
         if key == "slam" then state.mhLast = now end      -- Slam restarts the swing
+        if key == "op" then state.opUntil = 0 end
         War:MarkDirty()
     end)
     ns:RegisterEvent("UNIT_ATTACK_SPEED", function(_, unit)
@@ -569,7 +724,8 @@ function War:OnLogin()
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
         if fight then EndFight() end
     end)
-    ns:On("CLASSKIT_CHANGED", function() War:Refresh() end)
+    ns:On("CLASSKIT_CHANGED", function() tmRank = nil; War:Refresh() end)
+    ns:On("SITUATION_LOCK", function() War:MarkDirty() end)
     ns:RegisterEvent("SPELLS_CHANGED", function() for k in pairs(names) do names[k] = nil end end)
     ns:On("SETTINGS_CHANGED", function(path)
         if type(path) == "string" and path:find("^war%.") and path ~= "war.reports" then War:Refresh() end
@@ -602,10 +758,11 @@ local function DemoSwings(on)
             end
             local cur = War:Current()
             if not cur then return end
-            -- Heroic Strike: queued once the main hand is in its last stretch and the lamp says so
-            if cur.lamp == "queue" and state.mhLast + state.mhSpeed - t < HS_WINDOW and demo.rage >= COST.hs then
-                demo.queued = "hs"
-                demo.rage = demo.rage - COST.hs
+            -- Heroic Strike (Cleave in a pack): queued once the main hand is in its last stretch and the lamp says so
+            local lk = cur.lampKey or "hs"
+            if cur.lamp == "queue" and state.mhLast + state.mhSpeed - t < HS_WINDOW and demo.rage >= COST[lk] then
+                demo.queued = lk
+                demo.rage = demo.rage - COST[lk]
                 War:MarkDirty()
             end
             local st = cur.plan.steps[1]
@@ -618,11 +775,13 @@ local function DemoSwings(on)
                     demo.ready.brage, demo.rage = t + 60, min(100, demo.rage + 10)
                 elseif demo.rage >= (COST[st.key] or 0) then
                     demo.rage = demo.rage - (COST[st.key] or 0)
-                    demo.gcd = t + GCD
-                    if st.key == "bt" then demo.ready.bt = t + 6
-                    elseif st.key == "ww" then demo.ready.ww = t + 10
-                    elseif st.key == "shout" then demo.shout = t + 120
-                    elseif st.key == "rampage" then demo.rampage = t + 30 end
+                    if not OFF_GCD[st.key] then demo.gcd = t + GCD end
+                    if CD[st.key] then demo.ready[st.key] = t + CD[st.key] end
+                    if st.key == "shout" then demo.shout = t + 120
+                    elseif st.key == "rampage" then demo.rampage = t + 30
+                    elseif st.key == "ham" then demo.ham = t + 15
+                    elseif st.key == "rend" then demo.rend = t + 21
+                    elseif st.key == "op" then demo.opUntil = 0 end
                 end
                 War:MarkDirty()
             end
