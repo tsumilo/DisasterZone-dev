@@ -4935,6 +4935,21 @@ function Amb.Wades(m, x, y)
     local k = m.shallow and m.key(floor(x + 0.5), floor(y + 0.5))
     return k and m.shallow[k] and true or false
 end
+-- How far into the shallows someone is: 0 (dry) .. 1 (wading). Mid-step it goes from the tile they left to the one
+-- they walk to (eased), so they sink into the water and climb out of it instead of losing their legs at once.
+function Amb.Depth(m, x, y, fromX, fromY, f)
+    local b = Amb.Wades(m, x, y) and 1 or 0
+    if not fromX or not f or f >= 1 then return b end
+    local a = Amb.Wades(m, fromX, fromY) and 1 or 0
+    if a == b then return b end
+    f = max(0, f)
+    return a + (b - a) * f * f * (3 - 2 * f)
+end
+-- the rows of a person left above the water at that depth (nil = all of them)
+function Amb.Cut(depth)
+    local c = 16 - floor(5 * depth + 0.5)
+    return c < 16 and c or nil
+end
 function Amb.WaterLife(m, g, px, py, period)
     if not (ns.AzeroWater and Amb.view) then return end
     ns.AzeroWater.Life({ m = m, now = now, raining = Amb.raining, calm = G:Data().calm, period = period, view = Amb.view,
@@ -5013,7 +5028,9 @@ local function DrawWorld()
     local lit = Amb.LightBegin(m, ground, px, py)
     local Light, Water = ns.AzeroLight, ns.AzeroWater
     local wet = Amb.WaterBegin(m, ground, px, py)
-    local wade = Amb.Wades(m, px, py)
+    local depth = G.moving and Amb.Depth(m, s.x, s.y, G.moving.fromX, G.moving.fromY, G.moving.t / G.moving.dur)
+        or Amb.Depth(m, s.x, s.y)
+    local cut = Amb.Cut(depth)
     local frame = 1
     if walking or (G.bump and G.input.dir) then
         local f = G.moving and (G.moving.t / G.moving.dur) or (G.bump and (0.2 - G.bump) / 0.2 or 0)
@@ -5023,8 +5040,9 @@ local function DrawWorld()
     local pface, plift = s.face, 0
     if walking then Chat:Stand("me") else pface, frame, plift = KH.EmoteLook("me", s.face, frame) end
     Amb.CharsFile(R.player, lit)
-    R.playerShadow:SetShown(not lit and not wade)
-    SetChar(R.player, "hero", pface, frame, wade and 11 or nil)
+    R.playerShadow:SetShown(not lit and depth < 1)
+    R.playerShadow:SetAlpha(1 - depth)
+    SetChar(R.player, "hero", pface, frame, cut)
     R.player:ClearAllPoints()
     R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE + plift * TILE / 16)
     KH.FitBubble(R.player.say, Chat:Bubble("me"))
@@ -5038,12 +5056,12 @@ local function DrawWorld()
         R.grassOver:SetShown(onTall and true or false)
         if R.player.legs then R.player.legs:Hide() end
     end
-    if lit and not wade then
+    if lit and depth < 1 then
         Light.Person("me", Amb.CharCell("hero", pface, frame), px * 16, py * 16,
-            { lift = plift, legs = (R.player.legs and R.player.legs:IsShown()) or R.grassOver:IsShown() })
+            { lift = plift, legs = (R.player.legs and R.player.legs:IsShown()) or R.grassOver:IsShown(), cut = cut, dry = 1 - depth })
     end
-    if wet then Water.Person("me", Amb.CharCell("hero", pface, frame), px * 16, py * 16, { wade = wade }) end
-    if wade then Amb.waders[#Amb.waders + 1] = { px * 16, py * 16 } end
+    if wet then Water.Person("me", Amb.CharCell("hero", pface, frame), px * 16, py * 16, { depth = depth }) end
+    if depth > 0.5 then Amb.waders[#Amb.waders + 1] = { px * 16, py * 16 } end
     -- npcs
     local n = 0
     for _, npc in ipairs(G.npcs) do
@@ -5076,7 +5094,10 @@ local function DrawWorld()
                 face = ({ "down", "left", "up", "right" })[floor(now * 4 + (npc.homeX or 0)) % 4 + 1]
             end
             Amb.CharsFile(sp, lit)
-            SetChar(sp, npc.def.sprite or "bald", face, nframe)
+            local ndepth = npc.def.stone and 0 or (npc.moving and Amb.Depth(m, npc.x, npc.y, npc.fromX, npc.fromY,
+                npc.moving.t / npc.moving.dur) or Amb.Depth(m, npc.x, npc.y))
+            local ncut = Amb.Cut(ndepth)
+            SetChar(sp, npc.def.sprite or "bald", face, nframe, ncut)
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
             if sp.SetDesaturated and (sp.stone or false) ~= (npc.def.stone or false) then
@@ -5084,13 +5105,18 @@ local function DrawWorld()
                 pcall(sp.SetDesaturated, sp, sp.stone)
             end
             sp:Show()
-            sp.shadow:SetShown(not npc.def.stone and not lit)
+            sp.shadow:SetShown(not npc.def.stone and not lit and ndepth < 1)
+            sp.shadow:SetAlpha(1 - ndepth)
             Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
-            if lit and not npc.def.stone then
-                Light.Person(npc.id or npc.def.id or ("npc" .. n), Amb.CharCell(npc.def.sprite or "bald", face, nframe),
-                    nx * 16, ny * 16, { lift = (npc.def.lift or 0) + hop, legs = sp.legs and sp.legs:IsShown() })
+            local nkey = npc.id or npc.def.id or ("npc" .. n)
+            if lit and not npc.def.stone and ndepth < 1 then
+                Light.Person(nkey, Amb.CharCell(npc.def.sprite or "bald", face, nframe),
+                    nx * 16, ny * 16, { lift = (npc.def.lift or 0) + hop, legs = sp.legs and sp.legs:IsShown(), cut = ncut, dry = 1 - ndepth })
             end
-            if wet and not npc.def.stone then Water.Person(nil, Amb.CharCell(npc.def.sprite or "bald", face, nframe), nx * 16, ny * 16) end
+            if wet and not npc.def.stone then
+                Water.Person(nkey, Amb.CharCell(npc.def.sprite or "bald", face, nframe), nx * 16, ny * 16, { depth = ndepth })
+            end
+            if ndepth > 0.5 then Amb.waders[#Amb.waders + 1] = { nx * 16, ny * 16 } end
             local title = G.NpcTitle(npc.def)
             sp.title:SetText(title and ("<" .. title .. ">") or "")
             sp.name:SetText(G.NpcName(npc.def) or "")
@@ -5137,8 +5163,10 @@ local function DrawWorld()
         sp.shadow:ClearAllPoints()
         sp.shadow:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE)
         Amb.CharsFile(sp, lit)
-        local pwade = Amb.Wades(m, nx, ny)
-        SetChar(sp, "hero", pface, pframe, pwade and 11 or nil)
+        local pdepth = p.moving and Amb.Depth(m, p.x, p.y, p.moving.fromX, p.moving.fromY, p.moving.t / p.moving.dur)
+            or Amb.Depth(m, p.x, p.y)
+        local pcut = Amb.Cut(pdepth)
+        SetChar(sp, "hero", pface, pframe, pcut)
         local cc = RAID_CLASS_COLORS and p.class and RAID_CLASS_COLORS[p.class]
         if cc then
             sp:SetVertexColor(0.55 + cc.r * 0.45, 0.55 + cc.g * 0.45, 0.55 + cc.b * 0.45)
@@ -5149,14 +5177,15 @@ local function DrawWorld()
         end
         sp.label:SetText(p.name)
         sp:Show()
-        sp.shadow:SetShown(not lit and not pwade)
+        sp.shadow:SetShown(not lit and pdepth < 1)
+        sp.shadow:SetAlpha(1 - pdepth)
         Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
-        if lit and not pwade then
+        if lit and pdepth < 1 then
             Light.Person("peer:" .. tostring(p.key), Amb.CharCell("hero", pface, pframe), nx * 16, ny * 16,
-                { lift = lift, legs = sp.legs and sp.legs:IsShown() })
+                { lift = lift, legs = sp.legs and sp.legs:IsShown(), cut = pcut, dry = 1 - pdepth })
         end
-        if wet then Water.Person(nil, Amb.CharCell("hero", pface, pframe), nx * 16, ny * 16, { wade = pwade }) end
-        if pwade then Amb.waders[#Amb.waders + 1] = { nx * 16, ny * 16 } end
+        if wet then Water.Person("peer:" .. tostring(p.key), Amb.CharCell("hero", pface, pframe), nx * 16, ny * 16, { depth = pdepth }) end
+        if pdepth > 0.5 then Amb.waders[#Amb.waders + 1] = { nx * 16, ny * 16 } end
         sp.label:Show()
         local word = PEER_BUSY[p.status]
         local said = ns.AzeroChat:Bubble(p.key)

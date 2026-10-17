@@ -251,7 +251,7 @@ end
 L._Edges = Edges
 
 local rimL = {}
-local function DrawRim(c, sx, sy, lights, nl, legs)
+local function DrawRim(c, sx, sy, lights, nl, legs, cut)
     local e = Edges(c)
     for i = 1, nl do
         local q = lights[i]
@@ -261,7 +261,7 @@ local function DrawRim(c, sx, sy, lights, nl, legs)
     end
     for i = 1, #e, 3 do
         local x, y, d = e[i], e[i + 1], e[i + 2]
-        if not (legs and y >= 11) then
+        if not (legs and y >= 11) and not (cut and y >= cut) then
             local nx, ny = DIRX[d], DIRY[d]
             local r, g, b = 0, 0, 0
             for j = 1, nl do
@@ -286,7 +286,8 @@ end
 
 -- A person this frame. c = their cell in the people sheet; (mx, my) = map pixels of the sprite's top-left at ground
 -- level (fractional while walking); opt.lift = game pixels the sprite is drawn above the ground (a hop, an emote);
--- opt.legs = the legs are hidden (tall grass), so no rim on them.
+-- opt.legs = the legs are hidden (tall grass), so no rim on them; opt.cut = only the top cut rows show (wading);
+-- opt.dry = 0..1, how much of the ground under them is dry land (shadows fade as they wade in).
 function L.Person(key, c, mx, my, opt)
     if not F.on then return end
     local ctx = F.ctx
@@ -311,13 +312,14 @@ function L.Person(key, c, mx, my, opt)
     end
     L.Ease(p.lights, targets, dt)
     local sx, sy = ctx.toScreen(mx, my)
-    DrawContact(sx, sy, (F.sun == L.SUN.day) and 0.26 or 0.2)
+    local dry = opt and opt.dry or 1
+    if dry > 0.01 then DrawContact(sx, sy, ((F.sun == L.SUN.day) and 0.26 or 0.2) * dry) end
     local nl = 0
     for _, s in pairs(p.lights) do
-        if s.a > 0.01 then DrawShadow(c, sx, sy, s.kx, s.ky, s.a) end
+        if s.a * dry > 0.01 then DrawShadow(c, sx, sy, s.kx, s.ky, s.a * dry) end
         if s.rw > 0.02 then nl = nl + 1 rimL[nl] = s end
     end
-    if nl > 0 then DrawRim(c, sx, sy - (opt and opt.lift or 0) * S, rimL, nl, opt and opt.legs) end
+    if nl > 0 then DrawRim(c, sx, sy - (opt and opt.lift or 0) * S, rimL, nl, opt and opt.legs, opt and opt.cut) end
 end
 
 function L.End()

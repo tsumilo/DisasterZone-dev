@@ -10,8 +10,8 @@ ns.AzeroChangelog = {
       lines = {
           "Lakes and ponds mirror the trees and houses on the shore.",
           "Things further back show further out, and it all ripples.",
-          "Stand at a shore or on a dock and you show in the water.",
-          "Wade into the shallows of Goldshire's pond or Lakeshire.",
+          "Walk up to a shore or a dock and you fade in on the water.",
+          "Wade step by step into the shallows at Goldshire or Lakeshire.",
           "Rain rings the water and leaves puddles on the roads.",
           "At night the moon lays a glitter path across the water.",
       } },

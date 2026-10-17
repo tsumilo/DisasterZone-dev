@@ -4,8 +4,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/Water.lua", 
 --   reflection  what stands near a shore, mirrored into the water (baked by gen_azeromon_water.py, WaterArt.lua),
 --               drawn as one-pixel rows nudged sideways (the ripple), kept to the water by the map's water mask
 --               (a MaskTexture). Fainter and choppier in the rain; still when Calm is on.
---   people      a person whose next tile down is water shows mirrored below the shore; a person wading in the
---               shallows (Maps def.shallows) shows only above the water line, mirrored below it, with rings.
+--   people      a person with water below them shows mirrored about its baked shoreline, fading in with how near
+--               it is (eased, so it never pops in); a person wading in the shallows (Maps def.shallows) sinks
+--               in over the step, shows above the water line, mirrored below it, with rings.
 --   life        rain rings on open water and puddles with rings on the roads; at night a glitter of moonlight.
 -- UI.lua: Begin (the frame), Person (each person), End, Life (inside Amb.Draw, with its pooled pixels).
 local addonName, ns = ...
@@ -96,22 +97,84 @@ function W.Begin(ctx)
     return true
 end
 
+-- The map's shoreline (WaterArt shore): picture column -> where its runs of water start (picture rows), decoded once.
+local shoreCache = {}
+local function Shore(mid, e)
+    local s = shoreCache[mid]
+    if s then return s end
+    s = {}
+    local x = e.shoreX or 0
+    for entry in ((e.shore or "") .. ","):gmatch("([^,]*),") do
+        if entry ~= "" then
+            local list = {}
+            for y in entry:gmatch("%d+") do list[#list + 1] = tonumber(y) end
+            s[x] = list
+        end
+        x = x + 1
+    end
+    shoreCache[mid] = s
+    return s
+end
+W._Shore = Shore
+
+W.REACH = 40              -- map px: how far below the feet the water may start for someone to show in it
+W.TAU = 0.15              -- seconds for a reflection to settle on a new strength or water line
+local mirror = {}         -- key -> { a, line, t, seen }: each person's reflection, eased
+
+-- The water line under someone's feet (picture px): the nearest run of water starting at or below them, within
+-- reach, looked up a few columns across the feet (so a shore's step under one foot doesn't decide it alone).
+local function LineUnder(s, fx, fy)
+    local best
+    for _, dx in ipairs({ -3, 0, 3 }) do
+        local list = s[floor(fx + dx)]
+        if list then
+            for _, sy in ipairs(list) do
+                if sy >= fy - 1 and sy <= fy + W.REACH and (not best or sy < best) then best = sy end
+            end
+        end
+    end
+    return best
+end
+
 -- A person (mx, my = map pixels of the sprite's top-left at ground level; c = their cell in the people sheet).
--- opts.wade: they stand in the shallows (the legs under the water line). Mirrors them into the water when it lies
--- right below them.
+-- opts.depth: how far into the shallows they are, 0 (dry) .. 1 (wading: the lower legs under water). On land they
+-- are mirrored about the shore below them, fainter the further off the water is; wading, about the water line on
+-- their body; stepping in or out, a blend of the two. The shore line and the strength ease over W.TAU, so a
+-- reflection never pops in at a tile's edge or jumps where the shore steps. Kept to the water by the mask.
 function W.Person(key, c, mx, my, opts)
     local ctx, e = F.ctx, F.e
     if not e then return end
-    local m = ctx.m
-    local wade = opts and opts.wade
-    local line                                              -- the water line they are mirrored about (map px)
-    if wade then
-        line = my + 11
-    else
-        local tx, ty = floor((mx + 8) / 16), floor((my + 15) / 16)
-        if not (m.water[m.key(tx, ty + 1)] and not m.water[m.key(tx, ty)]) then return end
-        line = (ty + 1) * 16 + 2
+    local m, g = ctx.m, ctx.g
+    local ox, oy = (g.mx or 0) * 16, (g.my or 0) * 16
+    local depth = opts and opts.depth or 0
+    local cut = 16 - floor(5 * depth + 0.5)                -- rows above the water (16 on dry land)
+    local shore, dryA = nil, 0
+    if depth < 1 then
+        local l = LineUnder(Shore(m.id, e), mx + 8 + ox, my + 15 + oy)
+        if l then
+            shore = l - oy
+            dryA = max(0, min(1, 1 - (shore - (my + 15) - 2) / W.REACH))
+        end
     end
+    key = key or ("#" .. usedPeople)
+    local st = mirror[key]
+    local now = ctx.now or 0
+    -- (a new map, a jump or a long absence starts afresh: nothing glides over from where they were)
+    if st and (st.map ~= m.id or now - st.t > 0.5 or math.abs(mx - st.mx) + math.abs(my - st.my) > 24) then st = nil end
+    if not st then st = { a = 0, t = now, map = m.id } mirror[key] = st end
+    local dt = min(0.25, max(0, now - st.t))
+    st.t, st.seen, st.mx, st.my = now, now, mx, my
+    local k = (dt > 0) and (1 - math.exp(-dt / W.TAU)) or 1
+    -- the shore line eases (a step in the shore under the feet); from nothing it is there at once
+    if shore then
+        if not st.line or st.a < 0.02 then st.line = shore else st.line = st.line + (shore - st.line) * k end
+    end
+    local target = 0.55 * (dryA * (1 - depth) + depth)
+    if ctx.raining then target = target * 0.65 end
+    st.a = st.a + (target - st.a) * k
+    if st.a < 0.01 then return end
+    local line = my + cut                                  -- the water line on the body (wading)
+    if depth < 1 and st.line then line = st.line + (line - st.line) * depth end
     usedPeople = usedPeople + 1
     local t = people[usedPeople]
     if not t then
@@ -121,25 +184,29 @@ function W.Person(key, c, mx, my, opts)
         if mk and t.AddMaskTexture then pcall(t.AddMaskTexture, t, mk) end
         people[usedPeople] = t
     end
-    local rows_ = wade and 11 or 16
     local cx, cy = c % 16, floor(c / 16)
     -- flipped: the texture's bottom row at the top of the quad
-    t:SetTexCoord(cx * 16 / 256, (cx + 1) * 16 / 256, (cy * 16 + rows_) / 128, cy * 16 / 128)
-    t:SetSize(16 * S, rows_ * S)
-    -- a row at height h over the line shows h under it: the quad starts at the line (the feet / the water line)
-    local top = wade and line or (2 * line - (my + 16))
+    t:SetTexCoord(cx * 16 / 256, (cx + 1) * 16 / 256, (cy * 16 + cut) / 128, cy * 16 / 128)
+    t:SetSize(16 * S, cut * S)
+    -- a row at height h over the line shows h under it: the lowest row above the water (my + cut) lands as far under
+    -- the line as it is over it (wading, right at the line on the body)
+    local top = 2 * line - (my + cut)
     local sx, sy = ctx.toScreen(mx, top)
     t:ClearAllPoints()
     t:SetPoint("TOPLEFT", parent, "TOPLEFT", sx, -sy)
     local col = e.col
-    t:SetVertexColor(0.45 + col[1] * 0.4, 0.45 + col[2] * 0.4, 0.5 + col[3] * 0.4, (ctx.raining and 0.35 or 0.55))
+    t:SetVertexColor(0.45 + col[1] * 0.4, 0.45 + col[2] * 0.4, 0.5 + col[3] * 0.4, st.a)
+    t.key, t.a = key, st.a
     t:Show()
 end
 
 function W.End()
     for i = usedRows + 1, #rows do rows[i]:Hide() end
     for i = usedPeople + 1, #people do people[i]:Hide() end
+    local now = F.ctx and F.ctx.now
+    if now then for k, st in pairs(mirror) do if now - (st.seen or 0) > 5 then mirror[k] = nil end end end
 end
+W._Mirror = function(key) local st = mirror[key] return st and { a = st.a, line = st.line } or nil end
 
 function W.Clear()
     usedRows, usedPeople = 0, 0
@@ -230,5 +297,12 @@ end
 -- tests: what is on screen
 function W.Stats()
     local n = function(list) local k = 0 for _, t in ipairs(list) do if t:IsShown() then k = k + 1 end end return k end
-    return { on = F.e ~= nil, rows = n(rows), people = n(people), mask = mask and true or false }
+    local quads = {}                              -- the people's reflections: { key, x, y (UI px), height, alpha }
+    for _, t in ipairs(people) do
+        if t:IsShown() then
+            local _, _, _, x, y = t:GetPoint(1)
+            quads[#quads + 1] = { t.key, x, y, t:GetHeight(), t.a }
+        end
+    end
+    return { on = F.e ~= nil, rows = n(rows), people = n(people), mask = mask and true or false, quads = quads }
 end

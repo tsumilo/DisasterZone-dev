@@ -4,8 +4,9 @@ Covers: the reflections are up to date with their generator and with the baked g
 every listed file is there at its size; the shallows are water at a shore, walkable, the deep water still not; a
 player wading shows only above the water line (no blob) and gets their legs back on land; near Lakeshire's lake
 the reflection's rows show, kept to the water by its mask, and none on a map without one or with the switch off;
-someone at the edge of the dock is mirrored below it, someone inland is not; rain brings rings and puddles; you can
-still fish from the shallows.
+someone at the edge of the dock is mirrored below it, someone inland is not; walking up to the water the reflection
+fades in and follows without a jump, walking along the shore it eases over the shore's steps, wading in you sink over
+the step (no pop); rain brings rings and puddles; you can still fish from the shallows.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_water.py [-k name]
 """
@@ -121,6 +122,82 @@ def the_lake_shows_its_reflection_and_a_dry_map_none():
     w.tick(0.2)
     st = water(c)
     assert not st["on"] and st["rows"] == 0 and st["people"] == 0, st
+    no_errors(w)
+
+
+PROBE = """local q
+  for _, r in ipairs(ns.AzeroWater.Stats().quads) do if r[1] == 'me' then q = r end end
+  local st = ns.AzeroWater._Mirror('me')
+  return { a = st and st.a or 0, line = st and st.line or false, top = q and q[3] or false, qa = q and q[5] or 0,
+           ph = ns.AzeroUI._PlayerHeight() }"""
+
+
+def walk_frames(w, c, dirs, settle=0.5):
+    """Steps the hero along dirs a frame (1/60 s) at a time; per frame the hero's reflection and height."""
+    out = []
+    for d in dirs:
+        assert c.eval("return ns.Azero:TryStep(%r)" % d) == "moved", d
+        for _ in range(60):
+            w.tick(1 / 60)
+            out.append(c.eval_py(PROBE))
+            if not c.eval("return ns.Azero.moving ~= nil"):
+                break
+    for _ in range(int(settle * 60)):
+        w.tick(1 / 60)
+        out.append(c.eval_py(PROBE))
+    return out
+
+
+def smooth(frames, da=0.06, dline=3.0, dtop=None):
+    for a, b in zip(frames, frames[1:]):
+        assert abs(b["a"] - a["a"]) <= da, (a, b)
+        if a["line"] and b["line"] and min(a["a"], b["a"]) > 0.05:
+            assert abs(b["line"] - a["line"]) <= dline, (a, b)
+        if dtop and a["top"] is not False and b["top"] is not False and min(a["qa"], b["qa"]) > 0.05:
+            assert abs(b["top"] - a["top"]) <= dtop, (a, b)
+
+
+@case
+def walking_up_to_the_water_the_reflection_fades_in_without_a_jump():
+    # it once popped in at full strength the moment the next tile down was water, about a line a tile's step off
+    w, c = play("lakeshire", 25, 8, face="down")
+    f = walk_frames(w, c, ["down"] * 4)
+    assert f[0]["a"] < 0.01, f[0]                              # far from the water: nothing
+    assert f[-1]["a"] > 0.5, f[-1]                              # at the dock's edge: the whole reflection
+    for a, b in zip(f, f[1:]):
+        assert b["a"] >= a["a"] - 1e-6, (a, b)                  # it only grows on the way
+    mid = [x["a"] for x in f if 0.05 < x["a"] < 0.45]
+    assert len(mid) >= 10, mid                                  # it fades in over the walk, not in a frame
+    tile = 48                                                   # (UI.lua TILE)
+    step = c.eval("return ns.Azero.STEP_TIME")
+    # the mirror moves twice as fast as you walk toward it; never more than that (plus a pixel of easing)
+    smooth(f, dtop=2 * tile / (step * 60) * 1.15 + 3)
+    no_errors(w)
+
+
+@case
+def walking_along_the_shore_the_reflection_eases_over_its_steps():
+    w, c = play("lakeshire", 14, 17, face="right")
+    f = walk_frames(w, c, ["right"] * 6)
+    assert max(x["a"] for x in f) > 0.3, f[-1]
+    smooth(f)
+    no_errors(w)
+
+
+@case
+def wading_in_you_sink_over_the_step():
+    w, c = play("lakeshire", 20, 16, face="right")
+    f = walk_frames(w, c, ["right"])
+    hs = [x["ph"] for x in f]
+    assert abs(hs[0] - 48) < 0.01 and abs(hs[-1] - 33) < 0.01, hs
+    assert all(b <= a + 1e-6 for a, b in zip(hs, hs[1:])), hs   # down only
+    assert len({round(h, 2) for h in hs if 33 < h < 48}) >= 3, hs   # through the heights between
+    smooth(f, dline=99)                                         # (the line slides from the shore to the body)
+    assert f[-1]["a"] > 0.5, f[-1]
+    back = walk_frames(w, c, ["left"])
+    hs = [x["ph"] for x in back]
+    assert abs(hs[-1] - 48) < 0.01 and len({round(h, 2) for h in hs if 33 < h < 48}) >= 3, hs
+    smooth(back, dline=99)
     no_errors(w)
 
 
