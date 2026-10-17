@@ -575,7 +575,7 @@ local function FitScenes(elapsed)
     end
 end
 
-local function NewModel(parent, w, h)
+function Scr.NewModel3D(parent, w, h)
     local sc = NewScene(parent, w, h)
     if sc then return sc end
     local m = CreateFrame("PlayerModel", nil, parent)
@@ -602,7 +602,7 @@ local function CamFor(m, s)
 end
 
 -- shiny: the species' other skin (D.shinyDisplay), or its own skin in a golden light when it has none.
-local function ShowCreature(m, sp, facing, shiny)
+function Scr.ShowModel3D(m, sp, facing, shiny)
     local s = sp and ((type(sp) == "table") and sp or D.species[sp])      -- (a table: any creature by display id)
     if not s then m:Hide() m.sp = nil return end
     m:Show()
@@ -660,7 +660,71 @@ local function ShowCreature(m, sp, facing, shiny)
     pcall(m.SetFacing, m, m.facing)
 end
 
+---------------------------------------------------------------------------
+-- Beast frames: a pixel sprite (Sprites.lua, the beast's own model rendered + pixelized in the dev kit) or, for a
+-- creature without art (a raid boss trophy, an art set older than the index), the 3D model above. Callers place,
+-- fade, show and hide the frame; its feet are its bottom centre.
+---------------------------------------------------------------------------
+
+local function NewModel(parent, w, h)
+    local m = CreateFrame("Frame", nil, parent)
+    m:SetSize(w, h)
+    m.w, m.h = w, h
+    m.isContainer = true
+    m.spr = ns.AzeroSprites.New(m)
+    m:SetScript("OnUpdate", function(self, dt) if self.spr.key then self.spr:Update(dt) end end)
+    return m
+end
+
+-- the 3D model inside a beast frame, made the first time a creature without art is shown in it
+function Scr.Scene3D(m)
+    if not m.scene then
+        m.scene = Scr.NewModel3D(m, m.w, m.h)
+        m.scene:SetPoint("BOTTOMLEFT", m, "BOTTOMLEFT", 0, 0)
+    end
+    m.scene.camScale = m.camScale
+    return m.scene
+end
+
+-- The beast frame's "is the 3D model still being measured" (a creature switched in waits for it, at most 3 s).
+function Scr.Measuring(m)
+    local sc = m.isContainer and m.scene or (not m.isContainer and m) or nil
+    return sc ~= nil and sc:IsShown() and sc.fit ~= nil and not sc.fit.timedOut
+end
+
+local function ShowCreature(m, sp, facing, shiny)
+    if not m.isContainer then return Scr.ShowModel3D(m, sp, facing, shiny) end
+    local s = sp and ((type(sp) == "table") and sp or D.species[sp])
+    if not s then
+        m:Hide() m.sp = nil
+        m.spr:Hide()
+        if m.scene then m.scene:Hide() m.scene.sp = nil end
+        return
+    end
+    m:Show()
+    local key, glow
+    local Spr = ns.AzeroSprites
+    if not G:Data().models3d then key, glow = Spr.Key(sp, shiny) end
+    if key then
+        if m.scene then m.scene:Hide() end
+        m.sp, m.display, m.glow = sp, (shiny and D.shinyDisplay[sp]) or s.display, glow or false
+        local view = m.view or "f"
+        m.spr:Set(key, view, m.pixelScale or Spr.FitScale(key, view, m.w, m.h), m.spriteLift or floor(m.h * 0.03), glow)
+        return
+    end
+    m.spr:Hide()
+    local sc = Scr.Scene3D(m)
+    sc:Show()
+    Scr.ShowModel3D(sc, sp, facing, shiny)
+    m.sp, m.display, m.glow = sp, sc.display, sc.glow or false
+end
+
 local function Anim(m, id)
+    if not m then return end
+    if m.isContainer then
+        if m.spr.key then m.spr:Anim(id) return end
+        m = m.scene
+    end
     if m and m.SetAnimation then pcall(m.SetAnimation, m, id) end
 end
 
@@ -2726,7 +2790,7 @@ local function PlayEvent(e)
         box.mon = e.mon
         local from = e.side == "foe" and 260 or -260
         -- hold the slide-in until the model has been measured (a creature switched in mid-battle), at most 3 s
-        BT.anim = { t = 0, dur = 0.5, hold = function() return m.fit ~= nil and not m.fit.timedOut end, fn = function(f)
+        BT.anim = { t = 0, dur = 0.5, hold = function() return Scr.Measuring(m) end, fn = function(f)
             local ease = 1 - (1 - f) * (1 - f)
             m:SetAlpha(min(1, f * 2))
             m:ClearAllPoints()
@@ -2745,7 +2809,8 @@ local function PlayEvent(e)
         local m = BattleModelFor(e.side)
         local other = BattleModelFor(e.side == "ally" and "foe" or "ally")
         local hitSound = e.move and (e.move.power or 0) > 0 and e.move.type
-        Anim(m, 16)
+        local physical = e.move and (e.move.power or 0) > 0 and (e.move.type == "NONE" or (D.types[e.move.type] and D.types[e.move.type].physical))
+        Anim(m, physical and 16 or 54)
         local x0 = m.baseX
         local dx = e.side == "ally" and 30 or -30
         BT.anim = { t = 0, dur = 0.55, fn = function(f)
@@ -2763,6 +2828,7 @@ local function PlayEvent(e)
             Anim(m, 0)
         end }
     elseif e.t == "hp" then
+        if e.to < e.from and e.to > 0 then Anim(BattleModelFor(e.side), 9) end
         local box = e.side == "foe" and R.foeBox or R.allyBox
         local dur = min(1.0, 0.25 + math.abs(e.to - e.from) / e.max * 0.9)
         BT.anim = { t = 0, dur = dur, fn = function(f)
@@ -5127,6 +5193,11 @@ function Scr.UpdateMusic()
 end
 
 function Scr.Dark(sc, a)                -- 0 = normal light, 1 = a black silhouette
+    if sc.isContainer then
+        if sc.spr.key then sc.spr:SetDark(a) return end
+        sc = sc.scene
+        if not sc then return end
+    end
     sc.glow = nil                       -- (SceneLight sets the light again afterwards)
     pcall(sc.SetLightAmbientColor, sc, 0.72 * (1 - a), 0.72 * (1 - a), 0.72 * (1 - a))
     pcall(sc.SetLightDiffuseColor, sc, 0.85 * (1 - a), 0.85 * (1 - a), 0.82 * (1 - a))
@@ -6019,8 +6090,10 @@ local function BuildBattle()
     R.foeModel.groundY = R.foeModel.baseY
     R.foeModel:SetPoint("BOTTOMLEFT", b, "TOPLEFT", R.foeModel.baseX, R.foeModel.baseY)
     R.foeModel:SetFrameLevel(b:GetFrameLevel() + 2)
+    R.foeModel.pixelScale, R.foeModel.spriteLift = 3, 10        -- feet 12 px below the platform's centre
     R.allyModel = NewModel(b, 250, 250)
     R.allyModel.camScale = 1.1
+    R.allyModel.view, R.allyModel.pixelScale, R.allyModel.spriteLift = "a", 3, -2
     R.allyModel.baseX, R.allyModel.baseY = ALLY_X - 125, -ALLY_Y - 16
     R.allyModel.groundY = R.allyModel.baseY
     R.allyModel:SetPoint("BOTTOMLEFT", b, "TOPLEFT", R.allyModel.baseX, R.allyModel.baseY)
@@ -6536,9 +6609,20 @@ function UI:OnInit()
         if cmd == "flip" then
             d.flipFacing = not d.flipFacing
             ns:Print("Azeromon: battle models turned the other way.")
+        elseif cmd == "look" then
+            -- /dz azeromon look 3d | pixel: the beasts as their 3D models or as pixel art (the default)
+            local want = (a or ""):lower()
+            d.models3d = (want == "3d") or (want ~= "pixel" and not d.models3d)
+            ns:Print("Azeromon: beasts are drawn as %s.", d.models3d and "3D models" or "pixel art")
         elseif cmd == "models" then
             -- what the auto-fit measured for the models on screen (paste this if a creature looks wrong)
-            for label, m in pairs({ enemy = R.foeModel, yours = R.allyModel }) do
+            for label, c in pairs({ enemy = R.foeModel, yours = R.allyModel }) do
+                local m = c and c.scene
+                if c and c.spr and c.spr.key then
+                    local st = c.spr:State()
+                    ns:Print("Azeromon %s: %s pixel art (%s, x%d)", label, st.key, st.view == "a" and "back" or "front", st.scale or 0)
+                    m = nil
+                end
                 if m and m.isScene and m.sp and m.fit then
                     ns:Print("Azeromon %s: %s still being measured (loaded: %s, %.1f s)", label, m.sp,
                         m.fit.ready and "yes" or "not yet", m.fit.age or 0)
@@ -6798,14 +6882,25 @@ UI._Detach = function()
 end
 -- Tests: after showing `sp` in the enemy slot, how much of the frame it fills and where its feet are.
 UI._FitInfo = function()
-    local sc = R.foeModel
+    local sc = R.foeModel and R.foeModel.scene
     if not sc or not sc.isScene or not sc.fitInfo then return nil end
     return sc.fitInfo
 end
+-- Tests: draw every beast as its 3D model (false) or as pixel art (true, the default when the art is on disk).
+UI._UseSprites = function(on) ns.AzeroSprites.off = not on end
+-- Tests: what the pixel sprite in a battle slot shows.
+UI._Sprite = function(which)
+    local m = (which == "ally") and R.allyModel or R.foeModel
+    return m and m.spr:State()
+end
+UI._SpriteAnim = function(which, id) Anim((which == "ally") and R.allyModel or R.foeModel, id) end
 UI._ShowFoe = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7) end
 UI._ShowFoeShiny = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7, true) end
 UI._Camera = function() return { dist = CAM_DIST, fov = CAM_FOV } end
-UI._Scene = function(which) return (which == "ally") and R.allyModel or R.foeModel end
+UI._Scene = function(which)          -- the 3D model in a battle slot (tests of the model fitting)
+    local m = (which == "ally") and R.allyModel or R.foeModel
+    return m and m.scene
+end
 UI._TitleFilm = function() return R.titleFilm end
 UI._SkyAlpha = function()            -- the flat tint, or the baked darkness that replaces it (Amb.Night)
     local dark = false

@@ -6,6 +6,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.35", date = "17 October 2026", title = "Pixel beasts",
+      lines = {
+          "Every beast is now pixel art, made from its own model.",
+          "Beasts are sized by strength: weak ones small, bosses big.",
+          "Your beast fights with its back to you, like old times.",
+          "Beasts flinch when hit and cast their special moves.",
+          "Some beasts have two different attacks.",
+          "Shinies show their own colours in pixel art too.",
+          "Prefer the 3D models? /dz azeromon look 3d",
+      } },
     { version = "0.34.1", date = "16 October 2026", title = "Room at the inn",
       lines = {
           "Fixed: a full inn at night could wall you in. Squeeze past!",

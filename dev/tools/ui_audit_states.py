@@ -1996,6 +1996,9 @@ STATES = [
     ("Games - Azeromon home", azero_at("home", 4, 5)),
     ("Games - Azeromon battle", azero_battle("route1", 11, 20, "kobling")),
     ("Games - Azeromon fight menu", azero_battle("route1", 11, 20, "kobling", "ns.AzeroUI._HandleKey('A')")),
+    # a beast's summary from the battle's PARTY menu: its pixel sprite at a whole-number scale in a menu frame
+    ("Games - Azeromon summary sprite", azero_battle("route1", 11, 20, "kobling",
+        "for _, k in ipairs({ 'down', 'A', 'A', 'down', 'A' }) do ns.AzeroUI._HandleKey(k) end")),
     ("Games - Azeromon inn evening", azero_at("post", 4, 5, "ns.Azero.clockHour = 21")),
     ("Games - Azeromon Route 1", azero_at("route1", 6, 9)),
     ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),
