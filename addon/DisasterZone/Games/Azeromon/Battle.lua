@@ -6,7 +6,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Battle.lua", ...) t
 --   "switch"  the active creature fainted         -> b:Act{ kind = "switch", idx }
 --   "learn"   a creature wants a 5th move         -> b:ResolveLearn(slot or nil)
 --   "done"    b.result = "win" | "lose" | "run" | "caught"
--- Events: { t = "text", text } { t = "send", side, mon } { t = "recall", side } { t = "attack", side, move }
+-- Events: { t = "text", text } { t = "send", side, mon } { t = "recall", side }
+--         { t = "attack", side, move, id, miss, combo, guarded, released, eff } (0.41: how the hit lands, for the effects)
 --         { t = "sfx", sound } (a Sound.lua effect at that point of the playback)
 --         { t = "hp", side, from, to, max } { t = "faint", side } { t = "status", side } { t = "exp", mon }
 --         { t = "level", mon } { t = "throw", shakes, caught } { t = "end", result }
@@ -125,11 +126,12 @@ local function Snap(s)
         if n > 0 then marks = marks or {} marks[id] = n end
     end
     local cast = s.cast and { name = s.cast.mv.name, unstoppable = s.cast.mv.unstoppable and true or nil,
-                              power = s.cast.mv.power or 0 } or nil
+                              power = s.cast.mv.power or 0, id = s.cast.id, type = s.cast.mv.type } or nil
+    local guarding = (s.guardT or 0) > 0
     return { sp = m.sp, name = M.Name(m), lvl = m.lvl, hp = m.hp, max = M.MaxHP(m), status = m.status, exp = M.ExpProgress(m),
              shiny = m.shiny, stages = stages, sleep = (m.status == "slp") and m.sleep or nil,
              flask = m.flask and { id = m.flask.id, n = m.flask.n } or nil,
-             marks = marks, cast = cast, guard = ((s.guardT or 0) > 0) and s.guardT or nil }
+             marks = marks, cast = cast, guard = guarding and s.guardT or nil, guardType = guarding and s.guardType or nil }
 end
 
 function B:Emit(e)
@@ -435,7 +437,7 @@ function B:UseMove(side, mv, slot, released)
 
     -- a cast: announced now, lands next turn (it can be guarded, or interrupted unless it is unstoppable)
     if mv.cast and not released then
-        me.cast = { slot = slot, mv = mv }
+        me.cast = { slot = slot, mv = mv, id = slot and user.moves[slot] and user.moves[slot].id or nil }
         self:Emit({ t = "cast", side = side, move = mv })
         self:Emit({ t = "sfx", sound = "statup" })
         self:Say("%s begins %s %s!", name, mv.castVerb or "casting", mv.name)
@@ -448,16 +450,24 @@ function B:UseMove(side, mv, slot, released)
     if slot and (mv.cd or 0) > 0 then me.cd[slot] = mv.cd + 1 end       -- (counted down at the end of this turn)
 
     self:Say(released and "%s unleashes %s!" or "%s used %s!", name, mv.name)
-    self:Emit({ t = "attack", side = side, move = mv })
+    -- 0.41: the attack event says how the hit lands before it plays (the effects let a miss fly past, burst a combo,
+    -- splash on a guard). The accuracy roll and the damage roll happen here, in the same order as always.
+    local missed = mv.acc > 0 and self.rng(1, 100) > mv.acc
+    local dmg, eff, crit, combo
+    if not missed and not mv.guard and not mv.heal and mv.power > 0 then dmg, eff, crit, combo = self:Damage(side, target, mv) end
+    local slotDef = slot and user.moves[slot]
+    self:Emit({ t = "attack", side = side, move = mv, id = slotDef and slotDef.id or nil, miss = missed or nil,
+                combo = combo or nil, released = released or nil, eff = eff,
+                guarded = (not missed and mv.power > 0 and (self[target].guardT or 0) > 0) or nil })
 
-    if mv.acc > 0 and self.rng(1, 100) > mv.acc then
+    if missed then
         self:Emit({ t = "sfx", sound = "miss" })
         self:Say("%s's attack missed!", name)
         return
     end
 
     if mv.guard then
-        me.guard, me.guardT = mv.guard, mv.guardTurns or 1
+        me.guard, me.guardT, me.guardType = mv.guard, mv.guardTurns or 1, mv.type
         self:Emit({ t = "guard", side = side })
         self:Emit({ t = "sfx", sound = "statup" })
         self:Say("%s braces behind %s!", name, mv.name)
@@ -474,8 +484,7 @@ function B:UseMove(side, mv, slot, released)
         return
     end
 
-    if mv.power > 0 then
-        local dmg, eff, crit, combo = self:Damage(side, target, mv)
+    if mv.power > 0 then                                   -- (dmg, eff, crit and combo were rolled above)
         if eff == 0 then
             self:Emit({ t = "sfx", sound = "immune" })
             self:Say("It doesn't affect %s...", self:SideName(target))

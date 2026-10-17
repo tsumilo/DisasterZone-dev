@@ -390,10 +390,10 @@ def opened(key, lua=None):
     return fn
 
 
-def azero_battle(map_id, x, y, foe, then=None, bag=None):
+def azero_battle(map_id, x, y, foe, then=None, bag=None, lead="murkling"):
     """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN); bag: the bag's Lua table"""
     def fn(w, c):
-        g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New('murkling', 12, ns.Azero.rng) }"
+        g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New(%r, 12, ns.Azero.rng) }" % lead
                      + (" ns.Azero.save.bag = %s" % bag if bag else ""))(w, c)
         import importlib.util
         spec = importlib.util.spec_from_file_location("_azero_bot", os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -514,6 +514,41 @@ def azero_taming(shakes, caught, at, shiny=False):
                "local at = %s TAME_A.fn(math.min(1, at / TAME_A.dur))"
                % (shakes, "true" if caught else "false", "true" if shiny else "false", shakes,
                   at.replace("end", "tEnd")))
+        g.eval("ns.AzeroUI._Focus(true)")
+        return g
+    return fn
+
+
+def azero_fx(lead, foe, at, attack=None, side="ally", flags="", ally="", foe_extra="", windup=False, guard=None):
+    """0.41: a battle effect frozen `at` seconds in (Fx.lua): attack = a move id played by `side` with Lua `flags`
+    ("combo = true"); ally / foe_extra = snapshot fields for the marks, shells and wind-ups on screen ("marks = {...}")"""
+    def fn(w, c):
+        g = azero_battle("route1", 11, 20, foe, lead=lead)(w, c)
+        g.eval("local K = ns.AzeroUI.Kit K.CloseAllMenus() K.SetText(' ')")
+        w.tick(0.3)
+        g.eval(r"""
+          local F, D = ns.AzeroFx, ns.AzeroData
+          local b = ns.Azero.battle
+          AZFX_FRAME = AZFX_FRAME or F.Frame                 -- (an earlier view held it still)
+          F.Frame = AZFX_FRAME
+          F.Reset()
+          local snap = { ally = { sp = b.ally.mon.sp, %s }, foe = { sp = b.foe.mon.sp, %s } }
+          local a
+          if %s then a = F.Attack({ t = 'attack', side = %r, move = D.moves[%r], id = %r, %s }) end
+          if %s then a = F.Guard({ t = 'guard', side = %r, snap = snap }) end
+          if %s then a = F.Windup({ t = 'cast', side = %r, snap = snap }) end
+          local t = 0
+          while t < %s do
+            F.Frame(1 / 60, snap)
+            if a then
+              if not (a.hold and a.hold()) then a.t = a.t + 1 / 60 end
+              if a.t >= a.dur and a.done then a.done() a = nil end
+            end
+            t = t + 1 / 60
+          end
+          F.Frame = function() end                         -- (held still for the picture)
+        """ % (ally, foe_extra, "true" if attack else "false", side, attack or "", attack or "", flags,
+               "true" if guard else "false", side, "true" if windup else "false", side, at))
         g.eval("ns.AzeroUI._Focus(true)")
         return g
     return fn
@@ -2157,6 +2192,30 @@ STATES = [
     ("Games - Azeromon taming tamed shiny", azero_taming(3, True, "end + 0.3", shiny=True)),
     ("Games - Azeromon taming cracked", azero_taming(1, False, "end + 0.15")),
     ("Games - Azeromon taming burst", azero_taming(1, False, "end + 0.5")),
+    ("Games - Azeromon fx claw", azero_fx("wolfpup", "kobling", "0.2", "kclaw")),
+    ("Games - Azeromon fx bite combo", azero_fx("wolfpup", "kobling", "0.24", "kferobite", flags="combo = true",
+                                                foe_extra="marks = { bleed = 2 }")),
+    ("Games - Azeromon fx maul wind-up", azero_fx("wolfpup", "kobling", "1.0", windup=True,
+                                                  ally="cast = { id = 'kmaul', name = 'Savage Maul', power = 100 }")),
+    ("Games - Azeromon fx maul leap", azero_fx("wolfpup", "kobling", "0.3", "kmaul", flags="released = true")),
+    ("Games - Azeromon fx pyroblast wind-up", azero_fx("emberwhelp", "kobling", "1.2", windup=True,
+                                                       ally="cast = { id = 'kpyroblast', name = 'Pyroblast', power = 100 }")),
+    ("Games - Azeromon fx pyroblast flying", azero_fx("emberwhelp", "kobling", "0.3", "kpyroblast", flags="released = true")),
+    ("Games - Azeromon fx pyroblast blast", azero_fx("emberwhelp", "kobling", "0.5", "kpyroblast", flags="released = true")),
+    ("Games - Azeromon fx immolate", azero_fx("emberwhelp", "kobling", "0.4", "kimmolate")),
+    ("Games - Azeromon fx flame breath", azero_fx("emberwhelp", "kobling", "0.45", "sf_flamebreath")),
+    ("Games - Azeromon fx foe scorches you", azero_fx("wolfpup", "emberwhelp", "0.3", "kscorch", side="foe")),
+    ("Games - Azeromon fx marks", azero_fx("wolfpup", "kobling", "1.4",
+                                           foe_extra="marks = { bleed = 2, immolate = 2, corrupt = 2, chill = 2 }",
+                                           ally="marks = { rooted = 2, exposed = 2, charged = 2, regrowth = 2 }")),
+    ("Games - Azeromon fx shells fire earth", azero_fx("emberwhelp", "kobling", "0.8", ally="guard = 2, guardType = 'FIRE'",
+                                                       foe_extra="guard = 2, guardType = 'EARTH'")),
+    ("Games - Azeromon fx shells shadow mech", azero_fx("emberwhelp", "kobling", "0.8", ally="guard = 2, guardType = 'SHADOW'",
+                                                        foe_extra="guard = 2, guardType = 'MECH'")),
+    ("Games - Azeromon fx shells water nature", azero_fx("emberwhelp", "kobling", "0.8", ally="guard = 2, guardType = 'WATER'",
+                                                         foe_extra="guard = 2, guardType = 'NATURE'")),
+    ("Games - Azeromon fx shells beast air", azero_fx("emberwhelp", "kobling", "0.8", ally="guard = 2, guardType = 'BEAST'",
+                                                      foe_extra="guard = 2, guardType = 'AIR'")),
     ("Games - Azeromon tamed card", azero_tamed_card("{ sp = 'kobling', lvl = 8, fresh = true, where = 'party' }",
                                                      "Kobling was added to your Bestiary!")),
     ("Games - Azeromon tamed card stable", azero_tamed_card(
@@ -2216,6 +2275,18 @@ STATES = [
     ("Games - Hold the Line leaderboard", opened("games", "ns.GamesUI:Select('holdtheline') " + HTL_HALL + "ns.HTLUI.ShowBoard() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
     ("Games - Hold the Line achievements", opened("games", "ns.GamesUI:Select('holdtheline') " + HTL_HALL + "ns.HTLUI.ShowAch() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
     ("Games - Hold the Line argent dawn", opened("games", "ns.GamesUI:Select('holdtheline') " + HTL_HALL + "ns.HTLUI.ShowDawn() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line title naxx", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 34, 640, 1 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI._ShowTitle() for _ = 1, 40 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line necropolis", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 34, 640, 1 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI.ShowNaxx() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line desecrated", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 34, 640, 1 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI.ShowT3() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line relic coffer", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 34, 640, 1 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN', { stage = 'arachnid' }) for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
+                                          "local r = ns.HTLUI._Run() ns.HTL.OpenChest(r, true, 'n_anub') local ch = r.chest r.chest = nil "
+                                          "ns.HTLUI._ShowLoot(ch.items, ch.gold, ch.relics) for _ = 1, 150 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line naxx run", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 34, 640, 1 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('MAGE', { stage = 'construct' }) "
+                                     "local r = ns.HTLUI._Run() r.god = true r.bot = true for _ = 1, 300 * 10 do r.wantLevelUp = nil r.chest = nil ns.HTL.Step(r, 1 / 10, 0, 0) end "
+                                     "for _ = 1, 3 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line naxx cleared", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 34, 640, 1 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN', { stage = 'military' }) for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
+                                         "local r = ns.HTLUI._Run() r.t, r.bossKills, r.frozen, r.kills = 1003, 6, 14, 1840 r.tokens = { { boss = 'n_mograine', slot = 'chest' } } "
+                                         "r.over = 'victory' ns.HTLUI._ShowEnd('victory') for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) end")),
     ("Games - Illidan title", opened("games", BOI_BOARD + "ns.GamesUI:Select('illidan') ns.BoIUI._Focus(true) ns.BoIUI._Draw()")),
     ("Games - Illidan grave", opened("games", BOI_BOARD + BOI_AUD + "local r = BOI_AUD.start(1) r.mode = 'play' "
                                      "r.graves = { { f = 1, rx = r.room.x, ry = r.room.y, x = 200, y = 330, who = 'Xiavor', cls = 'MAGE', by = 'Felhunter' } } "

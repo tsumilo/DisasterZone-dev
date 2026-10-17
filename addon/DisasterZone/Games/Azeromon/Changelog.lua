@@ -6,6 +6,17 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.41", date = "17 October 2026", title = "Moves you can see",
+      lines = {
+          "Beast and Fire moves play their own effects in battle.",
+          "Claws rake, jaws snap, fireballs fly and burst.",
+          "Savage Maul and Pyroblast wind up while they wait.",
+          "Marks show on the beast for as long as they last.",
+          "Every guard wraps its beast in its own shell.",
+          "A combo lands with a gold burst and a short pause.",
+          "Big hits shake the scene. /dz azeromon shake off",
+          "Other types still lunge; their effects come next.",
+      } },
     { version = "0.40", date = "17 October 2026", title = "A clearer move list",
       lines = {
           "The move list says what each move does, in one line.",

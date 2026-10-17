@@ -396,6 +396,8 @@ Games\Azeromon\WorldMap.lua
 Games\Azeromon\BeastArt.lua
 Games\Azeromon\Sprites.lua
 Games\Azeromon\Taming.lua
+Games\Azeromon\Fx.lua
+Games\Azeromon\FxMoves.lua
 Games\Azeromon\UI.lua
 Games\Azeromon\Poster.lua
 

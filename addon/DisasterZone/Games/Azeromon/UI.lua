@@ -3177,6 +3177,7 @@ local function StartBattleView(b)
     BT.anim, BT.needShown, BT.ended, BT.snap, BT.lastNeed, BT.tamed = nil, nil, nil, nil, nil, nil
     ns.AzeroTaming.Reset()
     ns.AzeroTaming.Card(nil)
+    ns.AzeroFx.Reset()
     BT.lastAction, BT.actionOpen, BT.prompt = nil, nil, nil
     BT.lastRest = nil                        -- (the moves resting in the last battle: no glint for them here)
     BT.intro = 0.95
@@ -3196,6 +3197,7 @@ end
 local function EndBattleView()
     BT.battle, BT.actionOpen = nil, nil
     ns.AzeroTaming.Reset()
+    ns.AzeroFx.Reset()
     R.bagDesc:SetHeight(80)                  -- (the battle bag's was as tall as the text box)
     R.battle:Hide()
     R.moveInfo:Hide()                        -- (on the screen, not the battle layer)
@@ -3242,6 +3244,12 @@ local function PlayEvent(e)
         ns.AzeroSound:Play("recall")
         BT.anim = { t = 0, dur = 0.35, fn = function(f) m:SetAlpha(1 - f) end, done = function() m:Hide() m.sp = nil end }
     elseif e.t == "attack" then
+        -- 0.41: the move's own effect (Fx.lua, FxMoves.lua); a move whose type isn't drawn yet keeps the lunge below
+        local fxAnim = ns.AzeroFx.Attack(e)
+        if fxAnim then
+            BT.anim = fxAnim
+            return
+        end
         local m = BattleModelFor(e.side)
         local other = BattleModelFor(e.side == "ally" and "foe" or "ally")
         local hitSound = e.move and (e.move.power or 0) > 0 and e.move.type
@@ -3284,11 +3292,15 @@ local function PlayEvent(e)
     elseif e.t == "cast" then                          -- 0.37: a cast is announced (its bar shows from the snapshot)
         Anim(BattleModelFor(e.side), 54)
         RefreshBattleBoxes()
+        BT.anim = ns.AzeroFx.Windup(e)                 -- 0.41: a beat for its wind-up to begin (it lasts while it waits)
     elseif e.t == "interrupt" then
         Anim(BattleModelFor(e.side), 9)
         RefreshBattleBoxes()
     elseif e.t == "castend" or e.t == "mark" or e.t == "guard" or e.t == "unstoppable" or e.t == "combo" then
         RefreshBattleBoxes()
+        -- 0.41: a guard's shell forms; a mark landing pops in its colours (both then stay while the snapshot has them)
+        if e.t == "guard" then BT.anim = ns.AzeroFx.Guard(e)
+        elseif e.t == "mark" then BT.anim = ns.AzeroFx.Mark(e) end
     elseif e.t == "sfx" then
         if not (e.sound == "catch" and ns.AzeroTaming.TakeQuiet()) then ns.AzeroSound:Play(e.sound) end
     elseif e.t == "exp" then
@@ -3316,6 +3328,7 @@ end
 local function UpdateBattle(dt)
     local b = BT.battle
     if not b then return end
+    ns.AzeroFx.Frame(dt, BT.snap)            -- 0.41: marks, shells, wind-ups, the effect playing (Fx.lua)
     if BT.intro then
         BT.intro = BT.intro - dt
         R.flash:Show()
@@ -6529,6 +6542,18 @@ local function BuildBattle()
     R.allyModel.groundY = R.allyModel.baseY
     R.allyModel:SetPoint("BOTTOMLEFT", b, "TOPLEFT", R.allyModel.baseX, R.allyModel.baseY)
     R.allyModel:SetFrameLevel(b:GetFrameLevel() + 2)
+    -- 0.41: the moves' effects (Fx.lua) draw on frames of this layer; a shake moves the backdrop with them
+    ns.AzeroFx.Attach(b, R.foeModel, R.allyModel, {
+        play = function(name, arg) ns.AzeroSound:Play(name, arg) end,
+        anim = function(m, id) Anim(m, id) end,
+        scene = function(dx, dy)
+            for _, t in ipairs({ bg.art, bg.clouds }) do
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", b, "TOPLEFT", dx, dy)
+            end
+        end,
+        shakeOn = function() return not G:Data().noShake end,
+    })
 
     -- HP boxes, laid out like the GBA games: name + type, level, status; an "HP" tag and bar;
     -- the player's box adds HP numbers and the EXP bar.
@@ -7063,6 +7088,11 @@ function UI:OnInit()
             if want == "on" then d.coach = true elseif want == "off" then d.coach = false else d.coach = nil end
             ns:Print("Azeromon: the coach is %s.", d.coach == nil and "on until your first badge"
                 or (d.coach and "on" or "off"))
+        elseif cmd == "shake" then
+            -- /dz azeromon shake on | off: big hits shake the battle scene (the boxes never move)
+            local want = (a or ""):lower()
+            d.noShake = (want == "off") or (want ~= "on" and not d.noShake) or nil
+            ns:Print("Azeromon: big hits %s the battle scene.", d.noShake and "no longer shake" or "shake")
         elseif cmd == "look" then
             -- /dz azeromon look 3d | pixel: the beasts as their 3D models or as pixel art (the default)
             local want = (a or ""):lower()

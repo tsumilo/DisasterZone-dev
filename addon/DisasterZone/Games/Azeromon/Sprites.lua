@@ -99,6 +99,7 @@ function Sprite:Set(key, view, scale, lift, glow)
     local art = Art()
     self.shrink, self.flash = 1, 0
     if self.fx then self.fx:Hide() end
+    for _, gh in ipairs(self.ghosts or {}) do gh.a = 0 gh.tex:Hide() end
     if self.file ~= d.info.tex then
         self.file = d.info.tex
         local path = art.dir .. d.info.tex
@@ -120,11 +121,13 @@ function Sprite:Hide()
     self.key, self.clips = nil, nil
     self.tex:Hide()
     if self.fx then self.fx:Hide() end
+    for _, gh in ipairs(self.ghosts or {}) do gh.a = 0 gh.tex:Hide() end
 end
 
 -- The taming moment (Taming.lua): `shrink` (1 = full size) pulls the beast toward its middle, `flash` (0..1) lays a
--- bright, colourless copy over it (added light), so it whitens before it is drawn into the orb.
-function Sprite:SetFx(shrink, flash)
+-- bright, colourless copy over it (added light), so it whitens before it is drawn into the orb. The battle effects
+-- (Fx.lua) colour that light with r, g, b: a hit blinks white, a mark landing blinks its colour, Chilled is frost.
+function Sprite:SetFx(shrink, flash, r, g, b)
     self.shrink, self.flash = max(0.01, shrink or 1), flash or 0
     if self.flash > 0 and not self.fx then
         self.fx = self.frame:CreateTexture(nil, "OVERLAY")
@@ -138,6 +141,7 @@ function Sprite:SetFx(shrink, flash)
                 local ok = pcall(self.fx.SetTexture, self.fx, self.path, nil, nil, "NEAREST")
                 if not ok then self.fx:SetTexture(self.path) end
             end
+            self.fx:SetVertexColor(r or 1, g or 1, b or 1)
             self.fx:SetAlpha(min(1, self.flash))
             self.fx:Show()
         else
@@ -156,13 +160,46 @@ end
 
 function Sprite:Tint()
     local v = 1 - (self.dark or 0)
+    local s = self.shade
+    local sr, sg, sb = s and s[1] or 1, s and s[2] or 1, s and s[3] or 1
     if self.glow then
         local c = ns.AzeroData.SHINY_GLOW or { 1, 0.85, 0.45 }
         local m = max(c[1], c[2], c[3], 0.01)
-        self.tex:SetVertexColor(v * c[1] / m, v * c[2] / m, v * c[3] / m)
+        self.tex:SetVertexColor(v * sr * c[1] / m, v * sg * c[2] / m, v * sb * c[3] / m)
     else
-        self.tex:SetVertexColor(v, v, v)
+        self.tex:SetVertexColor(v * sr, v * sg, v * sb)
     end
+end
+
+-- The battle effects (Fx.lua): the colour the beast is drawn in (Corrupted darkens it in pulses); nil = its own.
+function Sprite:SetShade(r, g, b)
+    self.shade = r and { r, g, b } or nil
+    if self.key then self:Tint() end
+end
+
+-- The battle effects: an after-image of the beast as it leaps (i = 1, 2), dx, dy UI pixels from where it stands
+-- now, in a light of colour r, g, b at alpha a (0 hides it). One more texture each, showing the same frame.
+function Sprite:SetGhost(i, dx, dy, a, r, g, b)
+    self.ghosts = self.ghosts or {}
+    local gh = self.ghosts[i]
+    if (a or 0) <= 0 or not self.key then
+        if gh then gh.a = 0 gh.tex:Hide() end
+        return
+    end
+    if not gh then
+        gh = { tex = self.frame:CreateTexture(nil, "ARTWORK", nil, -1) }
+        self.ghosts[i] = gh
+    end
+    if gh.path ~= self.path then
+        gh.path = self.path
+        local ok = pcall(gh.tex.SetTexture, gh.tex, self.path, nil, nil, "NEAREST")
+        if not ok then gh.tex:SetTexture(self.path) end
+    end
+    gh.dx, gh.dy, gh.a = dx or 0, dy or 0, a
+    gh.tex:SetVertexColor(r or 1, g or 1, b or 1)
+    gh.tex:SetAlpha(a)
+    gh.tex:Show()
+    self:Draw()
 end
 
 -- 0 = normal, 1 = a black silhouette (the evolution)
@@ -231,6 +268,11 @@ function Sprite:Draw()
     local up = (1 - s) * (bt + h / 2) * self.scale
     PlaceFrame(self.tex, self, x, y, w, h, lx * k, bt * k + self.lift + up, k)
     if self.fx and self.fx:IsShown() then PlaceFrame(self.fx, self, x, y, w, h, lx * k, bt * k + self.lift + up, k) end
+    if self.ghosts then
+        for _, gh in ipairs(self.ghosts) do
+            if gh.a > 0 then PlaceFrame(gh.tex, self, x, y, w, h, lx * k + gh.dx, bt * k + self.lift + up + gh.dy, k) end
+        end
+    end
 end
 
 -- what is on screen (tests)
