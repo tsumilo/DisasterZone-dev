@@ -6,8 +6,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/BattleScenes
 -- clouds (the drifting strip by day). flat: underground or indoors, the old picture, with lights for the beasts.
 local addonName, ns = ...
 ns.AzeroBattleScenes = {
-    asset = 17, src = "d00aebfff46a0e2d", dir = "Interface\\AddOns\\DisasterZone_Azeromon\\Media\\Battle\\",
-    w = 240, h = 144, horizon = 56, off = 8, groundTop = 16, bladesY = 94, bladesH = 51,
+    asset = 17, src = "3a6ea440f9e887ab", dir = "Interface\\AddOns\\DisasterZone_Azeromon\\Media\\Battle\\",
+    w = 240, h = 144, horizon = 56, off = 8, groundTop = 16, bladesY = 94, bladesH = 51, bladesFrames = 8, bladesTexH = 512,
     foe = { 174, 59 }, ally = { 66, 99 }, sun = { 34, 49 }, moon = { 196, 15 },
     scenes = {
         elwynn = { lights = {  }, windows = {  }, smoke = {  }, blades = "grass", flies = true, clouds = true },

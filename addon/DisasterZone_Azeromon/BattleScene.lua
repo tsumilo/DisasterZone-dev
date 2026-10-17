@@ -86,6 +86,7 @@ end
 
 local b, S3, setPixel, opts
 local L = { rows = {} }
+BS._L = L                      -- (tests: the layer textures)
 local pools = {}
 local cur                      -- the battle on screen: { key, sc, period, rain, dawn, flat }
 local GLOW = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
@@ -144,11 +145,24 @@ function BS.Build(battle, scale, setPixelTexture, o)
     Pool("fly", BS.top, "OVERLAY", 1, "ADD")
 end
 
-local function Place(t, x, y, w, h)          -- layer pixels (x from the layer's left, y down) -> the battle layer
+-- layer pixels (x from the layer's left, y down) -> the battle layer; ux, uy: a further offset in UI pixels (the
+-- drift, already snapped to the screen's pixels)
+local function Place(t, x, y, w, h, ux, uy)
     t:ClearAllPoints()
-    t:SetPoint("TOPLEFT", b, "TOPLEFT", x * S3, -y * S3)
+    t:SetPoint("TOPLEFT", b, "TOPLEFT", x * S3 + (ux or 0), -(y * S3 + (uy or 0)))
     t:SetSize(max(1, w * S3), max(1, h * S3))
 end
+
+-- One pixel of the screen, in the battle layer's units: the drift moves the layers by whole screen pixels, so a
+-- layer glides instead of jumping a whole game pixel (3 UI pixels) at a time, and never lands between two pixels.
+local function PixelUnit()
+    local f = PixelUtil and PixelUtil.GetPixelToUIUnitFactor and PixelUtil.GetPixelToUIUnitFactor()
+    local es = b.GetEffectiveScale and b:GetEffectiveScale()
+    if f and es and es > 0 then return f / es end
+    return 1
+end
+local function Snap(v, pu) return floor(v / pu + 0.5) * pu end
+BS._Snap = Snap
 
 local function File(name) return Art().dir .. name end
 
@@ -432,10 +446,10 @@ local function DrawBeast(m, side, gdx, gdy)
     end
 end
 
-local function Pix(pool, x, y, w, h, r, g, bl, a)
+local function Pix(pool, x, y, w, h, r, g, bl, a, ux, uy)
     local t = Get(pool)
     t:SetColorTexture(r, g, bl, a)
-    Place(t, x, y, w, h)
+    Place(t, x, y, w, h, ux, uy)
     t:Show()
 end
 
@@ -464,8 +478,9 @@ function BS.Zoom(z, px, py)
     local cx, cy = 0, 0
     if px then cx, cy = (px - Art().off) * S3 - W / 2, -(py * S3 - Hh / 2) end
     b:ClearAllPoints()
-    b:SetPoint("CENTER", b:GetParent(), "CENTER", cx / z - cx, cy / z - cy)
     b:SetScale(bleed * z)
+    local pu = PixelUnit()                                  -- (the shift in whole screen pixels, at the new scale)
+    b:SetPoint("CENTER", b:GetParent(), "CENTER", Snap(cx / z - cx, pu), Snap(cy / z - cy, pu))
 end
 
 function BS.Punch(side, amp)
@@ -483,27 +498,37 @@ function BS.Update(dt)
     for _, pool in pairs(pools) do pool.used = 0 end
     local cx, cy = 0, 0
     if not cur.flat then cx, cy = Drift(t) end
-    local gdx, gdy = round(cx), round(cy)
-    if opts.drift then opts.drift(gdx, gdy) end
+    -- each layer's drift in UI pixels, snapped to the screen's: sky 0.1, clouds 0.15, far 0.25, near 0.5, the
+    -- ground with the beasts and their effects 1, the grass in front 1.3
+    local pu = PixelUnit()
+    local function Off(kx, ky) return Snap(cx * kx * S3, pu), Snap(cy * ky * S3, pu) end
+    local skx = Snap(cx * 0.1 * S3, pu)
+    local fx_, fy_ = Off(0.25, 0.3)
+    local nx_, ny_ = Off(0.5, 0.5)
+    local gx_, gy_ = Off(1, 1)
+    local bx_, by_ = Off(1.3, 1.2)
+    if opts.drift then opts.drift(gx_, gy_) end
     local sx, sy = SX / S3, -SY / S3                            -- (the shake, back to layer pixels)
     local OFF = art.off
     if not cur.flat then
-        Place(L.sky, -OFF + round(cx * 0.1) + sx, sy, 240, 64)
+        Place(L.sky, -OFF + sx, sy, 240, 64, skx, 0)
         if L.clouds:IsShown() then
-            L.clouds:SetTexCoord(-(t * 2) / 256, 240 / 256 - (t * 2) / 256, 0, 1)
-            Place(L.clouds, -OFF + round(cx * 0.15) + sx, 2 + sy, 240, 48)
+            -- the strip shown twice side by side and slid along by its position (a scrolled texture steps a whole
+            -- texel at a time); one strip's width on, it is back where it started
+            L.clouds:SetTexCoord(0, 2, 0, 1)
+            Place(L.clouds, -OFF + sx, 2 + sy, 512, 48, Snap((cx * 0.15 - (t * 2) % 256) * S3, pu), 0)
         end
-        Place(L.far, -OFF + round(cx * 0.25) + sx, round(cy * 0.3) + sy, 240, 64)
-        Place(L.near, -OFF + round(cx * 0.5) + sx, round(cy * 0.5) + sy, 240, 64)
-        Place(L.ground, -OFF + gdx + sx, art.groundTop + gdy + sy, 240, 128)
+        Place(L.far, -OFF + sx, sy, 240, 64, fx_, fy_)
+        Place(L.near, -OFF + sx, sy, 240, 64, nx_, ny_)
+        Place(L.ground, -OFF + sx, art.groundTop + sy, 240, 128, gx_, gy_)
         -- chimney smoke, drifting up from the near layer
         for _, s in ipairs(sc.smoke or {}) do
             for i = 0, 8 do
                 local ph = (t * 0.22 + i / 9) % 1
-                local x = s[1] - OFF + round(cx * 0.5) + round(sin(ph * 5 + i) * 1.5 + ph * 7)
-                local y = s[2] + round(cy * 0.5) - round(ph * 22)
+                local x = s[1] - OFF + round(sin(ph * 5 + i) * 1.5 + ph * 7)
+                local y = s[2] - round(ph * 22)
                 local sz = ph > 0.4 and 2 or 1
-                Pix(pools.smoke, x + sx, y + sy, sz, sz, 0.84, 0.84, 0.86, 0.5 * (1 - ph) * (p == "night" and 0.4 or 1))
+                Pix(pools.smoke, x + sx, y + sy, sz, sz, 0.84, 0.84, 0.86, 0.5 * (1 - ph) * (p == "night" and 0.4 or 1), nx_, ny_)
             end
         end
         -- the water: mirrored sky and shore in rippling rows, kept to the water
@@ -515,7 +540,7 @@ function BS.Update(dt)
             local amp = cur.rain and 1.6 or 1
             if L.mask then
                 L.mask:ClearAllPoints()
-                L.mask:SetPoint("TOPLEFT", b, "TOPLEFT", (-OFF + gdx + sx) * S3, -(y0 + gdy + sy) * S3)
+                L.mask:SetPoint("TOPLEFT", b, "TOPLEFT", (-OFF + sx) * S3 + gx_, -((y0 + sy) * S3 + gy_))
                 L.mask:SetSize(256 * S3, th * S3)
             end
             for y = y0, y1 do
@@ -530,7 +555,7 @@ function BS.Update(dt)
                 if r.file ~= file then r.file = file setPixel(r, file) end
                 r:SetTexCoord(0, 240 / 256, (i - 1) / th, i / th)
                 local off = round((sin(y * 0.9 + t * 2.3) * 0.7 + sin(y * 0.31 - t * 1.4) * 0.5) * amp * (1 + (y - y0) / 30))
-                Place(r, -OFF + gdx + off + sx, y + gdy + sy, 240, 1)
+                Place(r, -OFF + off + sx, y + sy, 240, 1, gx_, gy_)
                 r:SetAlpha(cur.rain and 0.6 or 1)
                 r:Show()
             end
@@ -542,8 +567,8 @@ function BS.Update(dt)
                     local ph = (t * 0.8 + H(i, 7, 3)) % 1
                     if ph < 0.55 then
                         local wide = ph > 0.15 and ph < 0.4
-                        Pix(pools.glit, x - OFF + gdx - (wide and 1 or 0) + sx, y + gdy + sy, wide and 3 or 1, 1, 0.81, 0.85, 1,
-                            0.6 * sin(ph / 0.55 * pi))
+                        Pix(pools.glit, x - OFF - (wide and 1 or 0) + sx, y + sy, wide and 3 or 1, 1, 0.81, 0.85, 1,
+                            0.6 * sin(ph / 0.55 * pi), gx_, gy_)
                     end
                 end
             end
@@ -556,7 +581,7 @@ function BS.Update(dt)
                 local fl = 0.85 + 0.15 * sin(t * 9 + l[1]) * sin(t * 5.3)
                 g:SetVertexColor(l[6], l[7] * 0.8, l[8] * 0.55, 0.45 * fl * (p == "dusk" and 0.6 or 1))
                 g:ClearAllPoints()
-                g:SetPoint("CENTER", b, "TOPLEFT", (l[1] - OFF + gdx + sx) * S3, -(l[2] + gdy + sy) * S3)
+                g:SetPoint("CENTER", b, "TOPLEFT", (l[1] - OFF + sx) * S3 + gx_, -((l[2] + sy) * S3 + gy_))
                 g:SetSize(52 * S3, 52 * S3)
                 g:Show()
             end
@@ -564,23 +589,24 @@ function BS.Update(dt)
                 local g = Get(pools.glow)
                 g:SetVertexColor(1, 0.75, 0.43, 0.4)
                 g:ClearAllPoints()
-                g:SetPoint("CENTER", b, "TOPLEFT", (w[1] - OFF + round(cx * 0.5) + sx) * S3, -(w[2] + round(cy * 0.5) + sy) * S3)
+                g:SetPoint("CENTER", b, "TOPLEFT", (w[1] - OFF + sx) * S3 + nx_, -((w[2] + sy) * S3 + ny_))
                 g:SetSize(16 * S3, 16 * S3)
                 g:Show()
             end
         end
         -- grass in front of your beast
         if L.fg:IsShown() then
-            local fr = floor(t * 3) % 4
-            L.fg:SetTexCoord(0, 240 / 256, fr * art.bladesH / 256, (fr + 1) * art.bladesH / 256)
-            Place(L.fg, -OFF + round(cx * 1.3) + sx, art.bladesY + round(cy * 1.2) + sy, 240, art.bladesH)
+            local nfr, th = art.bladesFrames or 4, art.bladesTexH or 256
+            local fr = floor(t * 4) % nfr
+            L.fg:SetTexCoord(0, 240 / 256, fr * art.bladesH / th, (fr + 1) * art.bladesH / th)
+            Place(L.fg, -OFF + sx, art.bladesY + sy, 240, art.bladesH, bx_, by_)
         end
     end
     -- the beasts: their shade, shadow and rims
     if opts.models then
         local foe, ally = opts.models()
-        DrawBeast(foe, "foe", gdx, gdy)
-        DrawBeast(ally, "ally", gdx, gdy)
+        DrawBeast(foe, "foe")
+        DrawBeast(ally, "ally")
     end
     -- rain, fireflies
     if cur.rain then
@@ -613,13 +639,15 @@ function BS.Update(dt)
         end
     end
     -- the push-in after a big hit
-    local pu = cur.punch
-    if pu then
-        pu.t = pu.t + dt
-        local h = pu.t
-        local z = (h < 0.12 and 1 + (pu.z - 1) * h / 0.12) or (h < 0.45 and pu.z) or (h < 0.9 and pu.z + (1 - pu.z) * (h - 0.45) / 0.45) or 1
-        BS.Zoom(z, pu.x, pu.y)
-        if h >= 0.9 then cur.punch = nil BS.Zoom(1) end
+    local push = cur.punch
+    if push then
+        push.t = push.t + dt
+        local h = push.t
+        -- eased in and out (smoothstep), so it settles instead of snapping at the ends
+        local function ease(u) u = max(0, min(1, u)) return u * u * (3 - 2 * u) end
+        local k = (h < 0.14 and ease(h / 0.14)) or (h < 0.45 and 1) or (h < 0.95 and 1 - ease((h - 0.45) / 0.5)) or 0
+        BS.Zoom(1 + (push.z - 1) * k, push.x, push.y)
+        if h >= 0.95 then cur.punch = nil BS.Zoom(1) end
     end
     for _, pool in pairs(pools) do Flush(pool) end
 end

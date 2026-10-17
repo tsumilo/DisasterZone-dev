@@ -10,7 +10,7 @@ drift at their own speeds and swap by the time of day:
                       rows GROUND_TOP .. 143, 240 x 128 of 256 x 128
   <scene>_refl_<p>    on scenes with water: the sky, far and near mirrored into it (rows WATER_Y0 ..)
   <scene>_wmask       the water's own shape (a MaskTexture keeps the rippling rows in the water)
-  blades_<kind>       grass or reeds in front of your beast, four frames of sway (240 x 50 each)
+  blades_<kind>       grass or reeds in front of your beast, eight frames of sway (240 x 51 each)
 Spots ("where you stand"): Elwynn's town edge, pond and road, Redridge's lake (Lakeshire). Scenes underground or
 indoors (mine, depths, molten, room) keep their old picture; this file only lists their lights.
 Layers are 240 wide: 8 px spare each side for the camera's drift (the screen is 224 x 144 game pixels).
@@ -528,7 +528,7 @@ def reflection(sky_img, far_p, near_p, water, wcol):
     return y0, y1, out
 
 
-def blades(kind, frames=4):
+def blades(kind, frames=8):
     """clumps of grass or reeds: the near corners and the front of your beast's platform, `frames` sway phases"""
     ramp = REEDS if kind == "reeds" else GRASS
     clumps = []
@@ -618,7 +618,7 @@ def main():
         print("painted", key)
     for kind in ("grass", "reeds"):
         y0, strip = blades(kind)
-        save(strip, "blades_%s" % kind, 256, 256)
+        save(strip, "blades_%s" % kind, 256, 512)
     write_lua(entries, y0)
 
 
@@ -638,7 +638,7 @@ def write_lua(entries, blades_y0):
         "local addonName, ns = ...",
         "ns.AzeroBattleScenes = {",
         '    asset = %d, src = "%s", dir = "Interface\\\\AddOns\\\\DisasterZone_Azeromon\\\\Media\\\\Battle\\\\",' % (ASSET, digest()),
-        "    w = %d, h = %d, horizon = %d, off = %d, groundTop = %d, bladesY = %d, bladesH = 51," % (W, Ht, HOR, OFF, GROUND_TOP, blades_y0),
+        "    w = %d, h = %d, horizon = %d, off = %d, groundTop = %d, bladesY = %d, bladesH = 51, bladesFrames = 8, bladesTexH = 512," % (W, Ht, HOR, OFF, GROUND_TOP, blades_y0),
         "    foe = { %d, %d }, ally = { %d, %d }, sun = { %d, %d }, moon = { %d, %d }," % (FOE[0], FOE[1], ALLY[0], ALLY[1],
                                                                                          SUN[0], SUN[1], MOON[0], MOON[1]),
         "    scenes = {",

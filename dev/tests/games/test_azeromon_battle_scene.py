@@ -191,6 +191,30 @@ def a_beast_outline_has_its_edges_facing_out():
 
 
 @case
+def the_scene_glides_a_pixel_at_a_time_with_the_beasts_in_step():
+    # the drift once moved every layer a whole game pixel (3 UI pixels) at a time, at different moments: it read as
+    # a choppy camera. Now each layer moves by single screen pixels and the beasts and effects move with the ground.
+    w, c = battle("town", 17, 3, "wolfpup", hour=23)
+    probe = """local L = ns.AzeroBattleScene._L
+      local _, _, _, gx, gy = L.ground:GetPoint(1)
+      local _, _, _, mx, my = ns.AzeroUI._Model('foe'):GetPoint(1)
+      local _, _, _, nx = L.near:GetPoint(1)
+      return { gx, gy, mx, my, nx }"""
+    rows = []
+    for _ in range(420):
+        w.tick(1 / 60)
+        rows.append(c.eval_py(probe))
+    moved = 0
+    for a, b in zip(rows, rows[1:]):
+        dgx, dgy, dmx, dmy, dnx = (b[i] - a[i] for i in range(5))
+        assert abs(dgx) <= 1.0001 and abs(dgy) <= 1.0001 and abs(dnx) <= 1.0001, (a, b)
+        assert abs(dgx - dmx) < 1e-6 and abs(dgy - dmy) < 1e-6, (a, b)          # the foe moves with the ground
+        moved += (dgx != 0) or (dgy != 0)
+    assert moved >= 2, moved                                # (it does drift)
+    no_errors(w)
+
+
+@case
 def a_beast_out_of_sight_leaves_no_rim_or_shadow():
     # the beasts fade in when sent out and fade out (then hide) when they faint or are called back: what is drawn
     # for them on the battle layer goes with them
