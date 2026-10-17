@@ -112,6 +112,7 @@ Maps.lakeshire = {
     music = "tavern",
     outdoor = true,
     theme = "redridge",
+    shallows = { { 23, 13 }, { 22, 14 }, { 21, 15 }, { 21, 16 }, { 21, 17 }, { 21, 18 } },   -- the lake's west shore (wading, 0.46)
     rows = {
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
         "TTTTTTT.TTT..TTTTTT..TTTTTTTTTTTTT",
