@@ -44,6 +44,9 @@ local CAST_GROUPS = {
     bubble = { ids = { 642, 1020, 498, 5573 }, names = { "Divine Shield", "Divine Protection" } },
     hearth = { ids = { 8690 }, names = { "Hearthstone" } },
     ankh   = { ids = { 20608, 21169 }, names = { "Reincarnation" } },
+    -- (the rezzes that work in a fight: Rebirth, a Soulstone; Resurrection / Redemption / Ancestral Spirit never count)
+    cres   = { ids = { 20484, 20739, 20742, 20747, 20748, 26994, 20707, 20762, 20763, 20764, 20765, 27239 },
+               names = { "Rebirth", "Soulstone Resurrection" } },
     feign  = { ids = { 5384 }, names = { "Feign Death" } },
     drums  = { ids = { 35474, 35475, 35476, 35477, 35478 } },
     loh    = { ids = { 633, 2800, 10310, 27154 }, names = { "Lay on Hands" } },
@@ -806,13 +809,18 @@ function CLEU.SPELL_SUMMON(srcPlayer, dstPlayer, srcGUID, srcName, srcFlags, dst
     end
 end
 
--- Battle rez, Soulstone, Ankh: bres / ankh, and every one of them towards phoenix.
+-- Battle rez, Soulstone, Ankh: bres / ankh, and every one of them towards phoenix. A plain rez (Resurrection,
+-- Redemption, Ancestral Spirit) counts for neither: after a wipe the encounter stays open until the boss resets,
+-- and the raid rezzing up then filled Phoenix Down (D-1, 2026-10-16).
 function CLEU.SPELL_RESURRECT(srcPlayer, dstPlayer, srcGUID, srcName, srcFlags, dstGUID, dstName, dstFlags,
                               spellId, spellName)
     if not srcPlayer and not dstPlayer then return end
     local now = GetTime()
-    if CastKind(spellId, spellName) == "ankh" then
+    local kind = CastKind(spellId, spellName)
+    if kind == "ankh" then
         if srcPlayer then Hit("ankh", srcName) end
+    elseif kind ~= "cres" then
+        return
     elseif fight and srcPlayer then
         Hit("bres", srcName)
     end

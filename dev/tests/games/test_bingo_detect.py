@@ -404,6 +404,23 @@ def phoenix_counts_three_rezzes_in_one_fight():
 
 
 @case
+def plain_rezzes_after_a_wipe_fill_neither_phoenix_nor_bres():
+    # D-1 (2026-10-16): after a wipe the encounter stays open until the boss resets; the raid rezzing up with
+    # Resurrection / Redemption / Ancestral Spirit filled Phoenix Down
+    w, c = raid()
+    lee = start(w, c)
+    rita, sam, bob = pl(c, "Rita"), pl(c, "Sam"), pl(c, "Bob")
+    lee.fire("ENCOUNTER_START", 652, "Attumen", 3, 4)
+    ev(lee, "SPELL_RESURRECT", rita, sam, 25435, "Resurrection", 2)
+    ev(lee, "SPELL_RESURRECT", sam, bob, 20773, "Redemption", 2)
+    ev(lee, "SPELL_RESURRECT", bob, rita, 20777, "Ancestral Spirit", 8)
+    w.tick(1)
+    h = set(hits(lee))
+    assert not ({"phoenix", "bres"} & h), h
+    no_errors(w)
+
+
+@case
 def blizzard_needs_five_different_disconnects_in_ten_seconds():
     w, c = raid(extra=TEN)
     lee = start(w, c)
