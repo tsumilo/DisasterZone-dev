@@ -87,6 +87,9 @@ ns.CHANGELOG = {
               "The slam lands hard: a flash, a shockwave, thrown rock, rolling dust, a cracked crater.",
               "Skeletons, grenades and cauldrons no longer throw dark squares; braziers glow again.",
           } },
+          { heading = "Games hub", area = "games", kind = "changed", open = "games", lines = {
+              "The dot under the games glides to the next one as you turn, stretching on the way.",
+          } },
       } },
     { version = "1.5.5", date = "17 October 2026", title = "Hold the Line, Naxxramas and fixes from the raid",
       sections = {

@@ -343,6 +343,11 @@ BOI_AUD = ("BOI_AUD = BOI_AUD or {} local E = ns.BoI "
            "  for _, x in ipairs(r.map.list) do if x.type == 'boss' then boss = x end end "
            "  local nb = E.Neighbours(r.map, boss, true)[1] r.room = nb.room r.room.cleared = true E.ChangeRoom(r, E.OPP[nb.dir]) "
            "  r.mode = 'play' if setup then setup(r.bossF, r) end BOI_AUD.run(r, frames) end ")
+# The Games hub mid-turn: a game in front (Lua: an id in quotes, or an index into the posters), a turn to poster
+# `to` (Lua; i = the front's index), held `t` s in
+HUB_RUN = ("local i, g = nil, %s for k, p in ipairs(ns.GamesUI.__posters) do if p.id == g or k == g then i = k end end "
+           "ns.GamesUI:ShowFront(ns.GamesUI.__posters[i].id) ns.GamesUI:PauseAnim(true) ns.GamesUI:Turn(%s) "
+           "ns.GamesUI:StepAnim(%s)")
 # Hold the Line: a Paladin run at level 7 with a hand of three (a spell rank-up, a blessing that awakens Ashbringer, gadget)
 HTL_LEVEL = ("ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
              "local r = ns.HTLUI._Run() r.level, r.pending = 7, 1 ns.HTL.AddSpell(r, 'avenger') "
@@ -2218,6 +2223,11 @@ STATES = [
     ("Games - Azeromon poster crossfade", azero_poster(3, 7.2)),
     # (Azeromon's poster on the side: a still of its film, no painting behind it)
     ("Games - Azeromon poster side", opened("games", "ns.GamesUI:ShowFront('chess') ns.GamesUI:PauseAnim(true)")),
+    # the dots' runner (GamesUI RunDots): stretched front end first on its way to the next game, gathering there, and
+    # from the last game back along the row to the first
+    ("Games - dots running", opened("games", HUB_RUN % ("'trainer'", "i + 1", 0.12))),
+    ("Games - dots gathering", opened("games", HUB_RUN % ("'trainer'", "i + 1", 0.3))),
+    ("Games - dots back to the first", opened("games", HUB_RUN % ("#ns.GamesUI.__posters", "i + 1", 0.2))),
     # the overworld on maps with a baked ground (gen_azeromon_ground.py): Goldshire's square, Route 1's meadows
     ("Games - Azeromon world map", azero_at("town", 12, 11, "local g = ns.Azero g.save.visited = {} for id in pairs(ns.AzeroMaps) do g.save.visited[id] = true end ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
     # the painted world map (gen_azeromon_worldmap.py): a new game under mist, by night, a place being revealed

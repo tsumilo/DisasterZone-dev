@@ -1464,35 +1464,90 @@ local function SetAura(id, instant)
     end
 end
 
--- The dots under the carousel: the front game's is a pill in its colour, the others small grey dots. A turn
--- animates them with the posters: the old pill shrinks and greys while the new one stretches and takes its colour
--- (d.k: 0 a dot .. 1 the pill, eased; d.target where it goes); a hovered dot brightens.
+-- The dots under the carousel: a small grey dot per game, and the runner, one pill in the front game's colour lying
+-- over its dot. A turn glides the runner over like a drop of liquid (RUN_TIME, a little longer than the posters'
+-- turn): its front end leaves first and stretches it towards the new dot (two dots long at most), its back end
+-- follows and it gathers there, its colour turning to the new game's on the way. A hovered dot brightens.
+local DOT_STEP, ROW_H, ROW_Y = 22, 30, 15           -- a dot's slot; the row's height and its dots' centre line
+local PILL_W, PILL_H = 20, 6
+local MAX_LEN = PILL_W + 2 * DOT_STEP               -- (a long run slides as a short capsule, not a bar across the row)
+local RUN_TIME, LEAD, HOVER_TIME = 0.45, 0.7, 0.12  -- (LEAD: the share of the run each end takes; they overlap)
+local DOT_A, HOVER_A = 0.24, 0.5                    -- a grey dot's alpha; a hovered one's
+local row, runner
+local run = { L = 0, R = PILL_W, c = { 1, 1, 1 } }  -- the pill's edges (row x) and colour
+local flight                                        -- the run under way (RunDots)
+
+local function InOut(x)                             -- ease-in-out cubic
+    x = min(1, max(0, x))
+    return x < 0.5 and 4 * x * x * x or 1 - (2 - 2 * x) ^ 3 / 2
+end
+local function SlotX(i) return (i - 0.5) * DOT_STEP end
+local function RowW() return max(1, #posters) * DOT_STEP end
+
 local function DrawDot(d)
-    local k = d.k or 0
-    local e = k * k * (3 - 2 * k)                               -- (smoothstep: starts and lands softly)
-    local a = d.accent or DEFAULT_ACCENT
-    d.tex:SetWidth(6 + 14 * e)
-    local g = d.hover and 0.5 or 0.24
-    local r, gr, b, al = Lerp(1, a[1], e), Lerp(1, a[2], e), Lerp(1, a[3], e), Lerp(g, 1, e)
-    for _, t in ipairs({ d.capL, d.capR, d.mid }) do t:SetVertexColor(r, gr, b, al) end
+    d.pip:SetVertexColor(1, 1, 1, Lerp(DOT_A, HOVER_A, d.hk or 0))
 end
 
--- instant: no animation (the carousel laid out from scratch)
+local function DrawRunner()
+    local c = run.c
+    runner:ClearAllPoints()
+    runner:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", run.L, ROW_Y - PILL_H / 2)
+    runner:SetSize(max(PILL_H, run.R - run.L), PILL_H)
+    for _, t in ipairs(runner.parts) do t:SetVertexColor(c[1], c[2], c[3]) end
+end
+
+-- Lays the row out for the posters. instant: the runner rests on the front dot at once (unless it is already on
+-- its way there: the posters' turn ends before its run does).
 local function PaintDots(instant)
+    if not row then return end
+    row:SetWidth(RowW())
+    local snap = instant and not (flight and flight.to == cur)
     for i, d in ipairs(dots) do
-        d.target = (i == cur) and 1 or 0
-        d.accent = Accent(posters[i] and posters[i].id)
-        if instant or d.k == nil then d.k = d.target end
+        if snap then d.hk = (d.hover and i ~= cur) and 1 or 0 end
         DrawDot(d)
+    end
+    if snap then
+        flight = nil
+        local x, a = SlotX(cur), Accent(posters[cur] and posters[cur].id)
+        run.L, run.R = x - PILL_W / 2, x + PILL_W / 2
+        run.c[1], run.c[2], run.c[3] = a[1], a[2], a[3]
+        DrawRunner()
     end
 end
 
--- One frame of the dots' animation (they move at the posters' pace).
-local function StepDots(elapsed)
-    for _, d in ipairs(dots) do
-        if d.k and d.target and d.k ~= d.target then
-            local step = elapsed / TURN_TIME
-            d.k = (d.target > d.k) and min(d.target, d.k + step) or max(d.target, d.k - step)
+-- Sends the runner to the front dot (cur, just turned to), from wherever it is now.
+local function RunDots()
+    if not row then return end
+    local x = SlotX(cur)
+    flight = { t = 0, L0 = run.L, R0 = run.R, L1 = x - PILL_W / 2, R1 = x + PILL_W / 2, to = cur,
+               right = x >= (run.L + run.R) / 2, c0 = { run.c[1], run.c[2], run.c[3] },
+               c1 = Accent(posters[cur] and posters[cur].id) }
+end
+
+-- One frame of the dots: the run and the hovers (frozen: the animations are held for a test).
+local function StepDots(elapsed, frozen)
+    if not row or frozen then return end
+    local f = flight
+    if f then
+        f.t = f.t + elapsed
+        local t = min(1, f.t / RUN_TIME)
+        local lead, trail = InOut(t / LEAD), InOut((t - (1 - LEAD)) / LEAD)
+        if f.right then
+            run.R = Lerp(f.R0, f.R1, lead)
+            run.L = max(Lerp(f.L0, f.L1, trail), run.R - MAX_LEN)
+        else
+            run.L = Lerp(f.L0, f.L1, lead)
+            run.R = min(Lerp(f.R0, f.R1, trail), run.L + MAX_LEN)
+        end
+        local k = InOut(t)
+        run.c[1], run.c[2], run.c[3] = Lerp(f.c0[1], f.c1[1], k), Lerp(f.c0[2], f.c1[2], k), Lerp(f.c0[3], f.c1[3], k)
+        if t >= 1 then flight = nil end
+        DrawRunner()
+    end
+    for i, d in ipairs(dots) do
+        local want, hk = (d.hover and i ~= cur) and 1 or 0, d.hk or 0
+        if d:IsShown() and hk ~= want then
+            d.hk = (want > hk) and min(want, hk + elapsed / HOVER_TIME) or max(want, hk - elapsed / HOVER_TIME)
             DrawDot(d)
         end
     end
@@ -1533,6 +1588,7 @@ local function LayoutCarousel()
     local show = #posters > 1
     arrows[1]:SetShown(show)
     arrows[2]:SetShown(show)
+    row:SetAlpha(1)
     PaintDots(true)
 end
 
@@ -1564,7 +1620,7 @@ function Turn(i)
         PaintEdge(p)
     end
     SetAura(posters[cur].id)
-    PaintDots()
+    RunDots()
     anim = { t = 0, dur = TURN_TIME, kind = "turn", from = from, to = to }
 end
 
@@ -1742,6 +1798,7 @@ local function StepOpen(t)
             p:SetAlpha(1 - side)
         end
     end
+    row:SetAlpha(1 - side)
     carousel:SetAlpha(1 - r)
     PlaceGame(0, 14 * (1 - r), r)
 end
@@ -1799,6 +1856,7 @@ local function StepBack(t)
             p:SetAlpha(side)
         end
     end
+    row:SetAlpha(side)
 end
 
 local function EndBack()
@@ -1844,7 +1902,7 @@ local function OnUpdate(_, elapsed, stepping)
         end
     end
     if not carousel:IsShown() then return end
-    StepDots(elapsed)
+    StepDots(elapsed, paused and not stepping)
     for _, tex in ipairs({ auraFrom, auraTo }) do
         local a = tex:GetAlpha()
         local d = (tex.target or 0) - a
@@ -1903,36 +1961,22 @@ local function BuildPosters()
     for i = 1, #posters do
         local d = dots[i]
         if not d then
-            d = CreateFrame("Button", nil, carousel)
-            d:SetSize(22, 14)
-            -- a rounded pill: two circles and the bar between their centres
-            d.tex = CreateFrame("Frame", nil, d)
-            d.tex:SetHeight(6)
-            d.tex:SetPoint("CENTER")
-            d.capL = d.tex:CreateTexture(nil, "ARTWORK")
-            d.capL:SetTexture(CIRCLE)
-            d.capL:SetSize(6, 6)
-            d.capL:SetPoint("LEFT")
-            d.capR = d.tex:CreateTexture(nil, "ARTWORK")
-            d.capR:SetTexture(CIRCLE)
-            d.capR:SetSize(6, 6)
-            d.capR:SetPoint("RIGHT")
-            d.mid = d.tex:CreateTexture(nil, "ARTWORK")
-            d.mid:SetTexture("Interface\\Buttons\\WHITE8X8")
-            d.mid:SetPoint("TOPLEFT", 3, 0)
-            d.mid:SetPoint("BOTTOMRIGHT", -3, 0)
+            d = CreateFrame("Button", nil, row)
+            d:SetSize(DOT_STEP, 14)
+            d:SetFrameLevel(row:GetFrameLevel() + 1)
+            d.pip = d:CreateTexture(nil, "ARTWORK")
+            d.pip:SetTexture(CIRCLE)
+            d.pip:SetPoint("CENTER")
+            d.pip:SetSize(PILL_H, PILL_H)
             d:SetScript("OnClick", function(self) if not anim then Turn(self.index) end end)
-            d:SetScript("OnEnter", function(self) self.hover = true DrawDot(self) end)
-            d:SetScript("OnLeave", function(self) self.hover = nil DrawDot(self) end)
+            d:SetScript("OnEnter", function(self) self.hover = true end)
+            d:SetScript("OnLeave", function(self) self.hover = nil end)
             dots[i] = d
         end
         d.index = i
+        d:ClearAllPoints()
+        d:SetPoint("CENTER", row, "BOTTOMLEFT", SlotX(i), ROW_Y)
         d:Show()
-    end
-    local total = #posters * 22
-    for i = 1, #posters do
-        dots[i]:ClearAllPoints()
-        dots[i]:SetPoint("BOTTOMLEFT", carousel, "BOTTOM", -total / 2 + (i - 1) * 22, 8)
     end
     if cur > #posters then cur = 1 end
 end
@@ -1998,6 +2042,27 @@ function GamesUI:CreatePanel(parent)
         t:SetVertexColor(1, 0.92, 0.75, 0.10 + (i % 4) * 0.04)
         motes[i] = { tex = t, x = (i * 97) % FALLBACK_W, y = (i * 53) % FALLBACK_H, v = 4 + (i % 5) * 1.6, ph = i }
     end
+    -- the dots' row, and the runner above its dots: a rounded pill (two circles and the bar between their centres).
+    -- The row lies above the posters (their shadows fall over it; it fades with the neighbours when a game opens).
+    row = CreateFrame("Frame", nil, carousel)
+    row:SetSize(DOT_STEP, ROW_H)
+    row:SetPoint("BOTTOM", carousel, "BOTTOM", 0, 0)
+    row:SetFrameLevel(carousel:GetFrameLevel() + 100)
+    runner = CreateFrame("Frame", nil, row)
+    runner:SetFrameLevel(row:GetFrameLevel() + 4)
+    runner.parts = {}
+    for k, side in ipairs({ "LEFT", "RIGHT" }) do
+        local t = runner:CreateTexture(nil, "ARTWORK")
+        t:SetTexture(CIRCLE)
+        t:SetSize(PILL_H, PILL_H)
+        t:SetPoint(side)
+        runner.parts[k] = t
+    end
+    local mid = runner:CreateTexture(nil, "ARTWORK")
+    mid:SetColorTexture(1, 1, 1, 1)
+    mid:SetPoint("TOPLEFT", PILL_H / 2, 0)
+    mid:SetPoint("BOTTOMRIGHT", -PILL_H / 2, 0)
+    runner.parts[3] = mid
     dots = {}
     arrows = {}
     for k, right in ipairs({ false, true }) do
@@ -2165,16 +2230,20 @@ function GamesUI:StepAnim(sec)
     for _ = 1, math.ceil((sec or 0) / 0.01) do OnUpdate(nil, 0.01, true) end
 end
 GamesUI.__posters = posters
--- The dots' widths and colours (tests): { width, r, g, b, a } per dot
+-- The dots (tests): { size, r, g, b, a } per dot; and the runner: { left, right (row x), r, g, b, on its way, the
+-- row's frame level, the row's alpha }
 function GamesUI.__dots()
     local out = {}
     for i, d in ipairs(dots or {}) do
         if d:IsShown() then
-            local r, g, b, a = d.mid:GetVertexColor()
-            out[i] = { d.tex:GetWidth(), r, g, b, a }
+            local r, g, b, a = d.pip:GetVertexColor()
+            out[i] = { d.pip:GetWidth(), r, g, b, a }
         end
     end
     return out
+end
+function GamesUI.__runner()
+    return { run.L, run.R, run.c[1], run.c[2], run.c[3], flight ~= nil, row:GetFrameLevel(), row:GetAlpha() }
 end
 
 function GamesUI:OnInit()
