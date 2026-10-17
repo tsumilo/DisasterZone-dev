@@ -59,8 +59,28 @@ function renderRail() {
     box.append(b);
   }
   if (!list.length) box.append(el("div", "empty", !status || !status.flavorDir ? "Pick your game folder first." : checking ? "Reading the release list…" : "No games yet."));
-  const total = fillSegs($("rail-segs"), diskParts());
+  const parts = diskParts();
+  const total = fillSegs($("rail-segs"), parts);
   $("rail-disk").textContent = check ? fmtBytes(total) : "—";
+  renderDiskTip(parts, total);
+}
+
+// The disk meter's hover card: what each installed folder takes, biggest first.
+function renderDiskTip(parts, total) {
+  $("tip-total").textContent = check ? fmtBytes(total) : "—";
+  fillSegs($("tip-segs"), parts);
+  const rows = $("tip-rows");
+  rows.textContent = "";
+  for (const x of parts.slice().sort((a, b) => b.v - a.v)) {
+    const li = el("li");
+    const sw = el("i");
+    sw.style.background = "rgb(" + x.c + ")";
+    const share = total ? (x.v / total) * 100 : 0;
+    li.append(sw, el("span", "n", x.p.title), el("span", "pc", share >= 1 ? Math.round(share) + "%" : "<1%"), el("b", null, fmtBytes(x.v)));
+    rows.append(li);
+  }
+  $("tip-foot").textContent = check ? "Click to add or remove games in the Library."
+    : checkErr ? "The sizes show once the release list can be read." : "The sizes show once the release list has been read.";
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -69,18 +89,6 @@ function renderRail() {
 
 function renderLibrary() {
   if (!status) return;
-  const parts = diskParts();
-  const total = fillSegs($("lib-segs"), parts);
-  $("lib-disk").textContent = check ? fmtBytes(total) : "—";
-  const legend = $("lib-legend");
-  legend.textContent = "";
-  for (const x of parts) {
-    const s = el("span");
-    const sw = el("i");
-    sw.style.background = "rgb(" + x.c + ")";
-    s.append(sw, x.p.title + " " + fmtBytes(x.v));
-    legend.append(s);
-  }
 
   // the strip: an update waiting (or running) for these folders
   const strip = $("lib-strip");

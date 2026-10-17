@@ -24,10 +24,19 @@
     <div class="sect"><span>GAMES</span><b id="rail-count"></b></div>
     <div class="lib" id="rail-games"></div>
     <div class="rail-foot">
-      <button class="disk" data-go="library" aria-label="On this computer: open the Library">
-        <span class="r"><span>On this computer</span><b id="rail-disk">—</b></span>
-        <span class="segs" id="rail-segs"></span>
-      </button>
+      <div class="disk-wrap">
+        <button class="disk" data-go="library" aria-label="On this computer: open the Library" aria-describedby="disk-tip">
+          <span class="r"><span>On this computer</span><b id="rail-disk">—</b></span>
+          <span class="segs" id="rail-segs"></span>
+        </button>
+        <!-- what each folder takes, on hover -->
+        <div class="disk-tip" id="disk-tip" role="tooltip">
+          <div class="dt-head"><span class="label">On this computer</span><b id="tip-total">—</b></div>
+          <div class="segs" id="tip-segs"></div>
+          <ul class="dt-rows" id="tip-rows"></ul>
+          <div class="dt-foot" id="tip-foot">Click to add or remove games in the Library.</div>
+        </div>
+      </div>
       <div class="foot">
         <button class="ibtn" data-go="settings" aria-label="Settings" title="Settings"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
         <div class="v"><b id="foot-ver">Launcher</b><span id="foot-sub"></span></div>
@@ -140,11 +149,6 @@
           <div>
             <h1 class="ptitle">Library</h1>
             <div class="psub">Every game is its own download. Keep only the ones you play: removing one keeps your progress.</div>
-          </div>
-          <div class="dm">
-            <div class="r"><span>On this computer</span><b id="lib-disk">—</b></div>
-            <div class="segs" id="lib-segs"></div>
-            <div class="legend" id="lib-legend"></div>
           </div>
         </div>
         <div class="upstrip hidden" id="lib-strip"></div>

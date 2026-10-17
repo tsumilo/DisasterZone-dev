@@ -100,7 +100,7 @@ h1 { margin: 0; font-weight: inherit; }
 .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; flex: none; }
 .disk { display: block; width: 100%; padding: 12px 12px 13px; border: 0; border-radius: 12px; text-align: left; background: rgba(255, 255, 255, .025); box-shadow: inset 0 0 0 1px var(--line); transition: background .18s; }
 .disk:hover { background: rgba(255, 255, 255, .05); }
-.disk .r, .dm .r { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--text-3); }
+.disk .r { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--text-3); }
 .disk .r b { color: var(--text); font-weight: 600; font-size: 13px; }
 .segs { display: flex; gap: 2px; height: 6px; margin-top: 9px; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, .06); }
 .segs i { display: block; height: 100%; transition: width .3s ease-out; }
@@ -381,13 +381,6 @@ h1 { margin: 0; font-weight: inherit; }
 .keep p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
 
 /* ------------------------------------------------------------------ Library */
-.dm { width: 400px; padding: 14px 16px; border-radius: 14px; background: rgba(14, 14, 20, .55); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); backdrop-filter: blur(14px); }
-.dm .r { font-size: 13px; }
-.dm .r b { font: 700 20px/1 var(--ui); color: var(--text); }
-.dm .segs { height: 8px; margin-top: 10px; border-radius: 4px; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 12px; color: var(--text-3); }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend i { width: 8px; height: 8px; border-radius: 2px; }
 .upstrip { display: flex; align-items: center; gap: 14px; padding: 12px 12px 12px 18px; border-radius: 14px; color: var(--gold-hi);
   background: linear-gradient(90deg, rgba(226, 184, 74, .14), rgba(226, 184, 74, .04)); box-shadow: inset 0 0 0 1px rgba(226, 184, 74, .3); }
 .upstrip .tx { flex: 1; min-width: 0; }
@@ -648,7 +641,6 @@ mark { background: rgba(255, 210, 110, .28); color: #fff4d6; border-radius: 3px;
   .glower { grid-template-columns: minmax(0, 1fr) 280px; }
   .pn { grid-template-columns: 240px minmax(0, 1fr); }
   .secs { grid-template-columns: minmax(0, 1fr); }
-  .dm { width: 340px; }
 }
 @media (max-height: 760px) {
   .lockup img { width: 66px; height: 66px; }
@@ -680,3 +672,26 @@ mark { background: rgba(255, 210, 110, .28); color: #fff4d6; border-radius: 3px;
 /* the news cards' pictures take the room the window gives */
 .news .pic { flex: 1 1 auto; height: auto; min-height: 80px; }
 .news .bd { flex: none; }
+
+/* the rail's disk meter: what each folder takes, in a card beside it on hover (the Library has no meter of its own) */
+.disk-wrap { position: relative; }
+.disk-tip {
+  position: absolute; z-index: 30; left: calc(100% + 16px); bottom: -6px; width: 300px; padding: 16px 18px 14px; border-radius: 14px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(30, 30, 40, .97), rgba(15, 15, 21, .98));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09), 0 24px 60px rgba(0, 0, 0, .6), 0 0 0 1px rgba(0, 0, 0, .5); backdrop-filter: blur(16px);
+  opacity: 0; transform: translateX(-6px); transition: opacity .14s ease, transform .2s cubic-bezier(.2, .7, .2, 1);
+}
+.disk-tip::before { content: ""; position: absolute; left: 14%; right: 14%; top: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(255, 217, 120, .7), transparent); }
+.disk-tip::after { content: ""; position: absolute; left: -6px; bottom: 30px; width: 12px; height: 12px; transform: rotate(45deg); border-radius: 2px;
+  background: rgb(18, 18, 25); box-shadow: -1px 1px 0 rgba(255, 255, 255, .09); }
+.disk-wrap:hover .disk-tip, .disk:focus-visible + .disk-tip, .disk-tip.show { opacity: 1; transform: none; transition-delay: .12s; }
+.dt-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.dt-head b { font: 700 22px/1 var(--ui); color: var(--text); }
+.disk-tip .segs { height: 8px; margin: 12px 0 14px; border-radius: 4px; }
+.dt-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.dt-rows li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto 64px; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+.dt-rows li i { width: 8px; height: 8px; border-radius: 2px; }
+.dt-rows .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dt-rows .pc { font-size: 12px; color: var(--text-3); }
+.dt-rows b { text-align: right; font-weight: 600; color: var(--text); }
+.dt-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .07); font-size: 12px; color: var(--text-3); }
