@@ -42,8 +42,10 @@ B["GruulsLair:Gruul"] = {
         -- Range: Shatter 33671 radius 20 yd with falloff (client data via wowhead); DBM's TODO names 11/13/18 with 18
         -- the default -> 18 (was 15)
         { key = "range", kind = "range", yd = 18, text = "Shatter", on = "CAST 33525", stop = "CAST 33654", after = 1 },
-        -- Hurtful Strike: CM 8 (DBM and BW have none) -> 8
-        { key = "hurtful", kind = "bar", spell = 33813, role = "T", on = "SUCCESS 33813", cd = 8 },
+        -- Hurtful Strike: CM 8 (DBM and BW have none) -> 8. Our 17 Oct 2026 kill logged no SPELL_CAST_SUCCESS of it,
+        -- so its hit (or miss) restarts the bar too
+        { key = "hurtful", kind = "bar", spell = 33813, role = "T", on = { "SUCCESS 33813", "HIT 33813" }, cd = 8,
+          throttle = 3 },
         -- Reverberation: first BW 102 (CD), DBM comment "15 s after the 3rd Growth" (= 105), CM 115 -> {102, 115};
         -- again BW 31 (CD), DBM comment 32-48, CM 35-45 -> {31, 48}
         { key = "reverb", kind = "bar", spell = 36297, role = "H", start = { 102, 115 }, on = "SUCCESS 36297",

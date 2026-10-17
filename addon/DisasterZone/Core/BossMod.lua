@@ -797,7 +797,12 @@ end
 function BM:Expire(id, b)
     bars[id] = nil
     local a = b.a
-    if a and a.loop and a.cd and b.m and b.m.live then b.m:Bar(b.key, a.cd) end
+    if a and a.loop and a.cd and b.m and b.m.live then
+        b.m:Bar(b.key, a.cd)
+        -- (from the moment it ran out, not when the ticker saw it: a loop must not drift over the rounds)
+        local nb, late = bars[id], Now() - b.hi
+        if nb and late > 0 then nb.t0, nb.lo, nb.hi = nb.t0 - late, nb.lo - late, nb.hi - late end
+    end
 end
 
 -- The bars to show now, soonest first: { text, icon, rem, total, win (s left of its window, nil = none), role,

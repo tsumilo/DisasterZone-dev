@@ -165,10 +165,11 @@ B["SerpentshrineCavern:Vashj"] = {
         -- spawn: DBM uses the elemental's first Poison Bolt cast
         { key = "elementalup", kind = "warn", spell = 38253, text = "Tainted Elemental up: kill it", phase = 2,
           on = "CAST 38253", throttle = 30 },
-        -- Strider: first DBM 63, BW 63, CM 62 -> 63; again DBM 63, BW 63, CM 60 -> {60, 63}. Repeat trigger: Panic
-        -- Periodic 38257 goes on the Strider at spawn (CM); DBM and BW just loop the timer
-        { key = "strider", kind = "bar", text = "Coilfang Strider", icon = 38257, phase = 2, start = 63,
-          on = "AURA 38257", cd = { 60, 63 }, throttle = 10 },
+        -- Strider: first DBM 63, BW 63, CM 62 -> 63; again DBM 63, BW 63, CM 60 -> 63, looped as DBM and BW do. CM's
+        -- Panic Periodic 38257 on the spawn never reached our log (17 Oct 2026: Striders up, their Panic and Mind Blast
+        -- casts logged, the bar never restarted), so there is no spawn event to restart it on
+        { key = "strider", kind = "bar", text = "Coilfang Strider", icon = 38257, phase = 2, start = 63, cd = 63,
+          loop = true },
         -- Elite: first DBM 47.5, BW 47.5, CM 47 -> 47.5; repeats (47.5 / 46) have no spawn event: first only
         { key = "elite", kind = "bar", text = "Coilfang Elite", phase = 2, start = 47.5 },
         { key = "core", kind = "warn", spell = 38132, text = "Tainted Core on %t: pass it",
