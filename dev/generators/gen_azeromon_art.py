@@ -99,7 +99,7 @@ def build_atlas():
     for g in ("grass1", "wgrass1", "dgrass1", "jgrass1"):
         add(g + "_shade", shade_tile(atlas, index[g]), 0, 0)
     add("shadow", shadow_tile(), 0, 0)
-    redraw_props(atlas, index)
+    later = redraw_props(atlas, index)
     clean_stamp_margins(atlas, index)
     soften_tree_rings(atlas, index)
     # the forest beyond a map's edge: the shaded floor with darker trees tucked in, repeating seamlessly (the same
@@ -110,6 +110,11 @@ def build_atlas():
     # roofs (the rrhouse stamp) and the zone's gather nodes (appended, so earlier slots never move)
     for name, arr in blackrock_art.tiles(lambda n: np.array(atlas.crop(_cell_box(index[n])), dtype=np.float64)):
         add(name, Image.fromarray(arr, "RGBA"), 0, 0)
+    # ... and the ones of them that have their own hand-shaded sprite (Redridge's and the Steppes' trees, Blackrock's
+    # ore and herb nodes) are painted over their recolour
+    missing = redraw_props(atlas, index, only=later)
+    if missing:
+        raise SystemExit("props without an atlas slot: %s" % ", ".join(sorted(missing)))
     # the bigger Goldshire (0.27): the Lion's Pride, smithy, cottage, stable and well, cut from the finished house
     # stamps above (appended, so earlier slots never move)
     for name, img in azeromon_buildings.tiles(lambda n: np.array(atlas.crop(_cell_box(index[n])))):
@@ -170,7 +175,7 @@ def shadow_tile():
 
 
 RING = (117, 113, 97)
-RING_TREES = ("tree", "pine", "oak", "twintrees", "wtree")
+RING_TREES = ("tree", "pine", "oak", "twintrees")
 
 
 def soften_tree_rings(atlas, index):
@@ -202,18 +207,27 @@ def forest_tile(atlas, shade_i, tree_i):
     return out
 
 
-def redraw_props(atlas, index):
+def redraw_props(atlas, index, only=None):
+    """paints the hand-shaded sprites over their slots; returns the names whose slot is not in the atlas yet (tiles
+    appended later, like Blackrock's: call again with only= those once they are)"""
     furniture = {name: fn().image() for name, fn in azeromon_interiors.FURNITURE.items()}
+    later = set()
     for name, img in list(azeromon_props.images().items()) + list(furniture.items()):
         if name.rpartition("_")[0] in ("ruinwall", "cavewall", "arenawall"):
             continue                                   # walls are baked into the ground, by their neighbours
+        if only is not None and name not in only:
+            continue
         w, h = img.size[0] // 16, img.size[1] // 16
+        if (name if w == h == 1 else "%s_0_0" % name) not in index:
+            later.add(name)
+            continue
         if w == 1 and h == 1:
             _put_cell(atlas, index[name], img)
         else:
             for y in range(h):
                 for x in range(w):
                     _put_cell(atlas, index["%s_%d_%d" % (name, x, y)], img.crop((x * 16, y * 16, x * 16 + 16, y * 16 + 16)))
+    return later
 
 
 def clean_stamp_margins(atlas, index):
@@ -295,6 +309,42 @@ def recolor(img, light, dark=None, light_min_v=0.62, sat_mul=1.0, dark_rows=None
 
 def crop(sheet, c, r, w=1, h=1):
     return sheet.crop((c * 16, r * 16, (c + w) * 16, (r + h) * 16))
+
+
+# Red Voxel's big tree is drawn in four leaf greens, two of them the grass's own: a hue recolour split its dithered
+# crown into ground colour and leaf colour (a checkerboard) and left the grass under it as a patch. leafmap() gives
+# each green its step on a hand-picked ramp instead and drops the grass round the tree first.
+BIGTREE_GREENS = {(82, 75, 36): 0, (75, 105, 47): 1, (106, 190, 48): 2, (153, 229, 80): 3}
+
+
+def leafmap(img, steps, trunk=None):
+    """steps: four colours, darkest leaf first; trunk(rgb) -> rgb for the other colours (None keeps them)"""
+    out = img.copy()
+    px = out.load()
+    w, h = out.size
+    grass = {(106, 190, 48), (153, 229, 80)}
+    stack = [(x, y) for x in range(w) for y in (0, h - 1)] + [(x, y) for y in range(h) for x in (0, w - 1)]
+    seen = set()
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in seen or not (0 <= x < w and 0 <= y < h):
+            continue
+        seen.add((x, y))
+        if px[x, y][3] and px[x, y][:3] not in grass:
+            continue
+        px[x, y] = (0, 0, 0, 0)
+        stack += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if not a:
+                continue
+            k = BIGTREE_GREENS.get((r, g, b))
+            if k is not None:
+                px[x, y] = tuple(steps[k]) + (a,)
+            elif trunk:
+                px[x, y] = tuple(int(v) for v in trunk((r, g, b))) + (a,)
+    return out
 
 
 GOLD = (0.115, 0.62, 0.98)        # dry Westfall grass
@@ -401,7 +451,8 @@ def westfall_art():
         out.append(("wtall_" + n, recolor(crop(R, c, r), WHEAT, (0.10, 0.9, 0.9), light_min_v=0.0), 1, 1))
     out.append(("farmhouse", recolor(crop(R, 0, 0, 5, 6), GOLD, ROOF_RED, dark_rows=78), 5, 6))
     out.append(("stonehouse", recolor(crop(R, 0, 0, 5, 6), GOLD, ROOF_SLATE, dark_rows=78), 5, 6))
-    out.append(("wbigtree", recolor(crop(R, 5, 3, 3, 3), GOLD, OLIVE, light_min_v=0.80), 3, 3))
+    W = azeromon_props.WLEAF
+    out.append(("wbigtree", leafmap(crop(R, 5, 3, 3, 3), (W[0], W[1], W[3], W[5])), 3, 3))
     out.append(("wtree", recolor(crop(T, 4, 9), OLIVE, OLIVE), 1, 1))
     out.append(("sand", crop(T, 2, 1), 1, 1))
     out.append(("fence", draw(1, 1, fence), 1, 1))
@@ -865,7 +916,9 @@ def duskwood_art():
                     ("bl", 0, 8), ("b", 1, 8), ("br", 2, 8)):
         out.append(("dtall_" + n, shade(recolor(crop(R, c, r), DUSK_TALL, DUSK_LEAF, light_min_v=0.0)), 1, 1))
     out.append(("dtree", shade(recolor(crop(T, 6, 3), DUSK_LEAF, DUSK_LEAF)), 1, 1))       # the pine
-    out.append(("dbigtree", shade(recolor(crop(R, 5, 3, 3, 3), DUSK, DUSK_LEAF, light_min_v=0.80)), 3, 3))
+    F = azeromon_props.DFIR
+    out.append(("dbigtree", leafmap(crop(R, 5, 3, 3, 3), (F[1], F[2], F[4], F[5]),
+                                    lambda c: (c[0] * 0.7, c[1] * 0.74, c[2] * 0.92)), 3, 3))
     out.append(("darkhouse", shade(recolor(crop(R, 0, 0, 5, 6), DUSK, ROOF_DUSK, dark_rows=78), 0.56, 0.56, 0.68), 5, 6))
     out.append(("gravestone", draw(1, 1, gravestone), 1, 1))
     out.append(("ironfence", draw(1, 1, iron_fence), 1, 1))
@@ -990,7 +1043,8 @@ def jungle_art():
                     ("bl", 0, 8), ("b", 1, 8), ("br", 2, 8)):
         out.append(("jtall_" + n, recolor(crop(R, c, r), JUNGLE_TALL, JUNGLE_LEAF, light_min_v=0.0), 1, 1))
     out.append(("jtree", draw(1, 1, palm), 1, 1))
-    out.append(("jbigtree", recolor(crop(R, 5, 3, 3, 3), JUNGLE, JUNGLE_LEAF, light_min_v=0.80), 3, 3))
+    J = azeromon_props.PALM
+    out.append(("jbigtree", leafmap(crop(R, 5, 3, 3, 3), (J[0], J[1], J[3], J[4])), 3, 3))
     out.append(("bbhouse", recolor(crop(R, 0, 0, 5, 6), JUNGLE, ROOF_BB, dark_rows=78), 5, 6))
     out.append(("hut", draw(3, 3, hut), 3, 3))
     out.append(("ruinwall", draw(1, 1, ruin_wall), 1, 1))

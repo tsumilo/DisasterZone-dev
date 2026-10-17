@@ -206,56 +206,241 @@ def lamppost():
     return s
 
 
-def deadtree():
+# ---------------------------------------------------------------------------- trees: the themes' 'T' tile (16 x 16).
+# Forests pack them edge to edge and the ground baker tucks a darker copy between neighbours and casts each one's
+# silhouette, so crowns fill the tile's width, trunks stay short and no tree carries its own shadow.
+
+LIGHT = (-0.48, -0.66, 0.58)            # top left, a little toward us
+
+
+def _lit(dx, dy):
+    """brightness of a dome's surface at (dx, dy) in -1..1: about -0.8 (lower right) .. 1 (upper left)"""
+    nz = math.sqrt(max(0.0, 1 - min(1.0, dx * dx + dy * dy)))
+    return dx * LIGHT[0] + dy * LIGHT[1] + nz * LIGHT[2]
+
+
+def _pick(ramp, v):
+    return ramp[max(0, min(len(ramp) - 1, int(v * len(ramp))))]
+
+
+def _clump(s, cx, cy, rx, ry, ramp, seed, bias=0.0):
+    """one ball of leaves, lit on its own from the top left: a lobed edge, leaf clusters, specks of light"""
+    for y in range(int(cy - ry) - 2, int(cy + ry) + 2):
+        for x in range(int(cx - rx) - 2, int(cx + rx) + 2):
+            dx, dy = (x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry
+            ang = math.atan2(dy, dx)
+            edge = 1 + 0.13 * math.sin(ang * 5 + seed * 2.3) + 0.16 * (H(x, y, seed) - 0.5)
+            if dx * dx + dy * dy > edge * edge:
+                continue
+            v = (_lit(dx / edge, dy / edge) + 0.8) / 1.8 + bias
+            v += (H(x // 2 + (y // 2) % 2, y // 2, seed + 7) - 0.5) * 0.2
+            s.put(x, y, _pick(ramp, v))
+
+
+def _speck(s, ramp, pts):
+    """leaf tips catching the light: a lit pixel with a darker one under it"""
+    for x, y in pts:
+        if s.get(x, y) is not None and s.get(x, y + 1) is not None:
+            s.put(x, y, ramp[-1]); s.put(x, y + 1, ramp[-3])
+
+
+def _trunk(s, x0, top, ramp, roots=True):
+    """a two pixel trunk lit on the left, flaring into roots at the bottom row"""
+    for y in range(top, 16):
+        s.put(x0, y, ramp[2]); s.put(x0 + 1, y, ramp[1])
+    s.put(x0, top, ramp[3])
+    if roots:
+        s.put(x0 - 1, 15, ramp[2]); s.put(x0 + 2, 15, ramp[0]); s.put(x0 - 1, 14, ramp[1])
+
+
+WLEAF = [(34, 34, 16), (56, 54, 22), (84, 78, 30), (114, 104, 40), (146, 134, 56), (180, 168, 90)]      # Westfall
+AUTUMN = [(48, 12, 16), (82, 18, 20), (122, 28, 26), (160, 44, 30), (192, 72, 38), (220, 112, 58)]      # Redridge
+AMBER = [(66, 22, 12), (104, 38, 16), (142, 62, 22), (176, 92, 30), (204, 128, 48), (228, 170, 92)]
+WBARK = [(38, 28, 22), (64, 46, 34), (94, 70, 50), (126, 98, 72)]
+
+
+def oak(ramp, second=None, bark=WBARK, bias=0.0):
+    """a round broadleaf tree: back clumps darker, front ones brighter; `second` mixes in a few clumps of another
+    ramp (Redridge's amber among the red)"""
     s = Spr(16, 16)
-    def limb(x0, y0, x1, y1, c):
-        s.line(x0, y0, x1, y1, c)
-    s.rect(7, 9, 9, 15, BARK[2]); s.rect(7, 9, 7, 15, BARK[3]); s.rect(9, 10, 9, 15, BARK[1])
-    s.put(6, 15, BARK[1]); s.put(10, 15, BARK[1]); s.put(5, 15, BARK[0])
-    limb(8, 10, 3, 4, BARK[2]); limb(8, 9, 12, 3, BARK[2]); limb(8, 9, 8, 1, BARK[3])
-    limb(4, 5, 1, 4, BARK[1]); limb(11, 4, 14, 4, BARK[1]); limb(8, 3, 6, 0, BARK[2])
-    limb(5, 6, 5, 3, BARK[3]); limb(12, 3, 13, 1, BARK[2])
-    s.put(8, 12, BARK[0])                                                                            # a knot
+    _trunk(s, 7, 10, bark)
+    clumps = [(8, 6.2, 6.8, 5.4, -0.16, 0), (4.0, 7.8, 3.7, 3.3, -0.08, 0), (12.0, 7.8, 3.7, 3.3, -0.14, 0),
+              (8, 3.4, 4.4, 3.4, 0.04, 0), (4.6, 4.6, 3.1, 2.9, 0.04, 1), (11.4, 4.6, 3.1, 2.9, -0.04, 0),
+              (6.0, 9.6, 3.2, 2.5, -0.02, 1), (10.4, 9.8, 3.0, 2.4, -0.1, 0)]
+    for i, (cx, cy, rx, ry, b, alt) in enumerate(clumps):
+        _clump(s, cx, cy, rx, ry, second if (second and alt) else ramp, 11 + i * 3, b + bias)
+    _speck(s, ramp, ((3, 5), (6, 2), (9, 1), (5, 8), (2, 9), (8, 5), (12, 3), (7, 10)))
+    for x, y in ((12, 9), (13, 6), (10, 11), (14, 8)):                                         # the shaded side
+        if s.get(x, y) is not None: s.put(x, y, ramp[0])
+    s.outline(0.42)
+    return s
+
+
+def _shape(rows, ramp, base=2, marks=None):
+    """a hand-drawn silhouette ('#' filled) lit from the top left on its own: open space to the left or above a
+    pixel brightens it, to the right or below darkens it; other characters are colours from `marks` (None = empty)"""
+    s = Spr(len(rows[0]), len(rows))
+    marks = marks or {}
+    full = lambda x, y: (0 <= y < len(rows) and 0 <= x < len(rows[0]) and rows[y][x] != "."
+                         and marks.get(rows[y][x], 1) is not None)
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch == ".":
+                continue
+            if ch in marks:
+                s.put(x, y, marks[ch])
+                continue
+            v = base + (1.2 if not full(x - 1, y) else 0) + (0.8 if not full(x, y - 1) else 0) \
+                - (1.2 if not full(x + 1, y) else 0) - (0.5 if not full(x, y + 1) else 0)
+            s.put(x, y, ramp[max(0, min(len(ramp) - 1, int(round(v))))])
+    return s
+
+
+DFIR = [(10, 18, 26), (16, 30, 38), (24, 44, 52), (34, 62, 66), (50, 84, 80), (74, 112, 98), (112, 150, 128)]
+DBARK = [(30, 28, 30), (54, 50, 50), (84, 78, 72), (118, 110, 100), (154, 146, 132)]
+
+
+def fir():
+    """Duskwood's dark fir: four tiers of boughs, each one a skirt that widens down to a hem of needle tips hanging
+    lower at the ends; the tier above shades the top of the one below; moonlight catches the lower left edges"""
+    s = Spr(16, 16)
+    _trunk(s, 7, 12, DBARK)
+    tiers = [(7.0, 14.0, 8.0), (4.5, 11.0, 6.6), (2.0, 8.0, 5.0), (-0.6, 4.6, 3.2)]          # top, hem, half width
+
+    def hem(t, x):
+        dx = (x + 0.5 - 8) / t[2]
+        return t[1] + 1.1 * dx * dx
+
+    def inside(t, x, y):
+        top, bot, hw = t
+        f = (y + 0.5 - top) / (bot - top)
+        if f < 0 or abs(x + 0.5 - 8) > hw * min(1.0, f):
+            return False
+        return y + 0.5 <= hem(t, x) - (1 if x % 2 else 0)
+
+    for ti, t in enumerate(tiers):                                                          # lowest first
+        above = tiers[ti + 1] if ti + 1 < len(tiers) else None
+        for y in range(16):
+            for x in range(16):
+                if not inside(t, x, y):
+                    continue
+                v = 0.7 - 0.42 * (x + 0.5 - 8) / t[2]
+                shaded = above and y + 0.5 <= hem(above, x) + 1.6
+                if shaded:                                                                  # under the tier above
+                    v -= 0.34
+                if not inside(t, x, y + 1):                                                 # the hem's underside
+                    v -= 0.16
+                if (y + int(abs(x - 7.5) * 0.7)) % 3 == 0:                                  # needle chevrons
+                    v -= 0.08
+                s.put(x, y, _pick(DFIR, v))
+        for y in range(16):                                                                 # moonlit edge
+            if above and y + 0.5 <= hem(above, 4) + 1.6:
+                continue
+            for x in range(8):
+                if inside(t, x, y):
+                    s.put(x, y, DFIR[6] if inside(t, x, y + 1) else DFIR[5])
+                    break
+    s.put(7, 0, DFIR[6]); s.put(8, 0, DFIR[4])
     s.outline(0.5)
     return s
+
+
+DEADTREE = ["..#..........#..",
+            "..#......#...#..",
+            "...#.....#..#...",
+            ".#.#.....#..#...",
+            "..###.....##....",
+            "...m##....##.m..",
+            "...n.##..##..n..",
+            "......####......",
+            "......###.......",
+            "......###.......",
+            "......r##.......",
+            ".....#h##.......",
+            ".....#h##.......",
+            ".....#####......",
+            "....#######.....",
+            "..###.###.###..."]
+CHARRED = ["................",
+           "......#.........",
+           "..#...#....#....",
+           "..#..##...#.....",
+           "...#.#...##.....",
+           "...###..##......",
+           "....##.##.......",
+           ".....####.......",
+           "......###.......",
+           "......###.......",
+           "......###.......",
+           ".....####.......",
+           ".....####.......",
+           ".....#####......",
+           "....######......",
+           "...##.###.##...."]
+CHAR = [(14, 10, 10), (30, 22, 20), (46, 36, 32), (70, 60, 54), (104, 94, 86)]
+
+
+def deadtree(ramp=DBARK, embers=False, moss=True, shape=DEADTREE):
+    """a gnarled dead tree: two crooked limbs forking into twigs over a broken middle stub, a hollow in the trunk,
+    roots gripping the ground; Duskwood's has grey moss hanging, the Burning Steppes' is charred with embers"""
+    marks = {"h": ramp[0], "r": ramp[4], "m": (90, 102, 86) if moss else None, "n": (62, 72, 60) if moss else None}
+    s = _shape(shape, ramp, marks=marks)
+    for x, y in ((7, 9), (7, 13), (8, 14)):                                                 # bark grooves
+        s.put(x, y, ramp[1])
+    if embers:                                                                              # a glowing crack
+        for x, y, c in ((7, 10, 0), (7, 11, 1), (7, 12, 2), (6, 13, 3), (7, 13, 1)):
+            s.put(x, y, FIRE[c])
+        for x, y in ((2, 2), (6, 1), (5, 6), (6, 8)):                                       # ash on the lit edges
+            if s.get(x, y): s.put(x, y, (118, 110, 102))
+    s.outline(0.5)
+    return s
+
+
+def charredtree():
+    return deadtree(CHAR, embers=True, moss=False, shape=CHARRED)
+
+
+PALM = [(14, 46, 30), (24, 78, 40), (40, 114, 50), (70, 152, 60), (118, 190, 80), (170, 220, 120)]
+PBARK = [(54, 36, 24), (92, 64, 40), (134, 98, 60), (174, 138, 88)]
+
+
+def _bez(p0, p1, p2, n):
+    return [((1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0],
+             (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]) for t in (i / (n - 1) for i in range(n))]
 
 
 def palm():
+    """a palm: a ringed trunk curving up into a crown of arching fronds (a lit rib, leaflets hanging under it, the
+    fronds behind darker), coconuts under the crown"""
     s = Spr(16, 16)
-    for i, y in enumerate(range(6, 16)):                                                             # bent trunk
-        x = 8 + int(round(math.sin(i * 0.28) * 1.4))
-        c = WOOD[3] if i % 2 == 0 else WOOD[2]
-        s.put(x - 1, y, c); s.put(x, y, WOOD[1] if i % 2 else WOOD[2])
-    fr = [(-7, 2), (-6, -2), (-2, -5), (3, -5), (7, -2), (7, 3)]
-    for dx, dy in fr:                                                                                 # fronds
-        n = 7
-        for k in range(1, n + 1):
-            t = k / n
-            x = 8 + dx * t
-            y = 5 + dy * t + 2.2 * t * t
-            s.put(x, y, LEAF[3] if k < 4 else LEAF[2])
-            if k > 1: s.put(x, y + 1, LEAF[1])
-            if k in (2, 4, 6) and abs(dx) > 3: s.put(x, y - 1, LEAF[4])
-    s.ellipse(8, 5, 2.2, 1.6, lambda x, y: LEAF[3])
-    s.put(7, 6, (120, 80, 40)); s.put(9, 6, (96, 64, 32)); s.put(8, 7, (120, 80, 40))               # coconuts
-    s.outline(0.4)
-    return s
+    for y in range(6, 16):                                                                  # the trunk
+        t = (15 - y) / 9
+        x = int(round(5.6 + 2.6 * t * t))
+        ring = (y % 2 == 0)
+        s.put(x, y, PBARK[2] if ring else PBARK[3]); s.put(x + 1, y, PBARK[0] if ring else PBARK[1])
+        if y > 13: s.put(x - 1, y, PBARK[1])
+    s.put(5, 15, PBARK[0]); s.put(7, 15, PBARK[0])
+    c = (8.5, 5.0)
 
+    def frond(ctrl, tip, base, wide=False):
+        pts = _bez(c, ctrl, tip, 16)
+        for i, (x, y) in enumerate(pts):
+            t = i / (len(pts) - 1)
+            v = base + 0.08 - 0.2 * t
+            if t > 0.12:
+                s.put(x, y + 1, _pick(PALM, v - 0.2))                                       # leaflets
+                if wide and 0.25 < t < 0.75: s.put(x, y + 2, _pick(PALM, v - 0.38))
+        for x, y in pts:
+            s.put(x, y, _pick(PALM, base + 0.12))                                           # the rib
 
-def pine():
-    s = Spr(16, 16)
-    s.rect(7, 13, 8, 15, BARK[1]); s.put(7, 13, BARK[2])
-    tiers = [(1, 4.5, 2.5), (5, 6.0, 4.2), (9, 7.4, 6.0)]
-    for top, half, depth in tiers:
-        bot = top + depth
-        def f(x, y, top=top, bot=bot):
-            lx = (x - 8) / 7
-            if y >= bot - 0.8: return PINE[1]
-            return PINE[4] if lx < -0.45 and y < bot - 1 else PINE[3] if lx < 0 else PINE[2]
-        s.poly([(8, top - 0.5), (8 + half, bot), (8 - half, bot)], f)
-    for x, y in ((5, 8), (4, 12), (10, 11), (7, 4)):
-        s.put(x, y, PINE[4])
-    s.outline(0.5)
+    frond((6.5, 0.5), (3.5, 1.0), 0.28); frond((10.5, 0.5), (13.5, 1.2), 0.22)            # behind
+    frond((3.0, 2.0), (0.2, 8.0), 0.66, True); frond((14.0, 2.0), (15.8, 8.5), 0.5, True)  # the sides
+    frond((5.5, 4.0), (3.0, 10.5), 0.6); frond((11.5, 4.0), (13.0, 11.0), 0.46)           # in front
+    frond((7.5, 0.0), (5.5, 0.2), 0.7); frond((9.5, 0.0), (11.5, 0.4), 0.56)              # on top
+    for x, y, col in ((8, 6, (134, 92, 44)), (9, 6, (104, 70, 34)), (8, 7, (90, 60, 30))):  # coconuts
+        s.put(x, y, col)
+    s.put(8, 5, PALM[4])
+    s.outline(0.42)
     return s
 
 
@@ -482,48 +667,250 @@ def herb_mageroyal():
     return s
 
 
+def _blade(s, p0, ctrl, tip, ramp, wide=2, fade=False):
+    """a curved leaf or stem from p0 to tip: a lit upper edge over a darker underside while it is wide, a light tip;
+    `fade` lets the last pixels go see-through (Fadeleaf)"""
+    pts = _bez(p0, ctrl, tip, 14)
+    for i, (x, y) in enumerate(pts):
+        t = i / (len(pts) - 1)
+        if wide > 1 and t < 0.6:
+            s.put(x, y + 1, ramp[1])
+        c = ramp[2] if t < 0.45 else ramp[3] if t < 0.85 else ramp[4]
+        if fade and t > 0.7:
+            c = c + (int(255 * (1.15 - t)),)
+        s.put(x, y, c)
+
+
+def _rosette(s, x, y, ramp):
+    """a five pixel flower: lit upper left petal, dark lower right, a pale heart"""
+    s.put(x, y - 1, ramp[3]); s.put(x - 1, y, ramp[3]); s.put(x + 1, y, ramp[1]); s.put(x, y + 1, ramp[1])
+    s.put(x, y, ramp[-1])
+
+
 def herb_briarthorn():
+    """Briarthorn: three arching thorny canes from one root, small serrated leaves, pink flowers at the tips"""
     s = Spr(16, 16)
-    VINE = [(50, 30, 26), (90, 50, 38), (126, 74, 52), (160, 104, 70)]
-    pts = [(3, 12), (4, 10), (6, 9), (7, 7), (9, 6), (10, 4), (12, 3)]
-    pts2 = [(13, 12), (12, 10), (10, 10), (9, 8), (7, 5), (5, 4)]
-    for line in (pts, pts2):
-        for (x0, y0), (x1, y1) in zip(line, line[1:]):
-            s.line(x0, y0, x1, y1, VINE[2])
-        for x, y in line[1:-1:2]:
-            s.put(x, y - 1, VINE[3]); s.put(x + 1, y + 1, VINE[0])                                    # thorns
-    for x, y in ((5, 8), (11, 8), (8, 4), (12, 5)):
-        s.put(x, y, RED[2]); s.put(x, y - 1, RED[3]); s.put(x + 1, y, RED[1])                         # berries
-    for x, y in ((4, 11), (11, 11), (9, 9)):
-        s.put(x, y, LEAF[2]); s.put(x + 1, y, LEAF[3])
+    VINE = [(44, 24, 22), (80, 42, 34), (118, 66, 48), (156, 98, 68), (190, 136, 100)]
+    PINK = [(110, 26, 54), (176, 56, 92), (226, 106, 136), (250, 176, 196), (255, 236, 200)]
+    for x0, y0, dx, dy, n in ((7, 12, -1, -1, 3), (9, 12, 1, -1, 3), (6, 13, -1, 0, 3), (10, 13, 1, 0, 3)):
+        _leaf(s, x0, y0, dx, dy, n, LEAF)
+    canes = (((7, 13), (2, 10), (3, 4)), ((8, 13), (7, 6), (10, 2)), ((9, 13), (14, 10), (13, 5)))
+    for p0, c, tip in canes:
+        pts = _bez(p0, c, tip, 14)
+        for i, (x, y) in enumerate(pts):
+            s.put(x, y, VINE[3] if i < 9 else VINE[2])
+            if i % 4 == 2:                                                                  # thorns
+                s.put(x - 1, y - 1, VINE[4]); s.put(x + 1, y, VINE[0])
+    for x, y in ((4, 9), (12, 9), (8, 7)):                                                  # leaves on the canes
+        s.put(x, y, LEAF[3]); s.put(x + 1, y, LEAF[2]); s.put(x, y + 1, LEAF[1])
+    for x, y in ((3, 4), (10, 2), (13, 5)):
+        _rosette(s, x, y, PINK)
     s.outline(0.42)
     _node_shadow(s, 8, 6)
     return s
 
 
-def _ore_rock(ore):
+FADE = [(36, 64, 58), (66, 104, 92), (108, 150, 132), (160, 196, 178), (212, 234, 222)]
+
+
+def herb_fadeleaf():
+    """Fadeleaf: a rosette of long pale leaves whose tips fade away, small white buds in the middle"""
     s = Spr(16, 16)
-    def rock(x, y):
-        lx, ly = (x - 8) / 6.5, (y - 8.5) / 4.6
-        c = STONE[3] if lx + ly < -0.5 else STONE[2] if lx + ly < 0.6 else STONE[1]
-        if y <= 5 and lx < 0.3: c = STONE[4] if H(x, y, 3) < 0.5 else STONE[3]
-        return c
-    s.poly([(2, 12.5), (2, 9), (4, 6), (7, 4.5), (11, 5), (14, 8), (14.5, 12.5)], rock)
-    s.line(6, 7, 8, 10, STONE[1]); s.line(10, 6, 11, 9, STONE[1])                                     # cracks
-    for x, y in ((4, 9), (7, 6), (10, 9), (12, 7), (6, 11)):                                          # ore nuggets
-        s.put(x, y, ore[2]); s.put(x + 1, y, ore[1]); s.put(x, y - 1, ore[3]); s.put(x + 1, y + 1, ore[0])
-    s.put(8, 4, (255, 255, 240))                                                                      # a glint
+    base = (8, 13)
+    for ctrl, tip in (((5, 12), (1, 9)), ((5, 9), (3, 4)), ((7, 6), (7, 1)), ((10, 7), (12, 2)), ((12, 10), (15, 7)),
+                      ((10, 12), (13, 12))):
+        _blade(s, base, ctrl, tip, FADE, fade=True)
+    s.put(1, 10, FADE[1] + (120,)); s.put(14, 13, FADE[1] + (120,))
+    for x, y in ((7, 9), (9, 8), (8, 10)):                                                  # buds
+        s.put(x, y, (238, 244, 236)); s.put(x + 1, y + 1, FADE[2])
     s.outline(0.42)
-    _node_shadow(s, 8, 7)
+    _node_shadow(s, 8, 6)
     return s
 
 
+KB = [(66, 10, 24), (118, 18, 38), (172, 32, 54), (216, 70, 82), (246, 150, 146)]
+
+
+def herb_kingsblood():
+    """Kingsblood: broad dark leaves at the foot, a tall stalk hung with crimson bells, a bud on top"""
+    s = Spr(16, 16)
+    for ctrl, tip in (((5, 13), (2, 11)), ((5, 11), (4, 8)), ((11, 11), (12, 8)), ((11, 13), (14, 11))):
+        _blade(s, (8, 13), ctrl, tip, LEAF)
+    for y in range(3, 14):                                                                  # the stalk
+        s.put(8, y, LEAF[2] if y > 6 else LEAF[3])
+    for bx, by, side in ((6, 4, -1), (9, 6, 1), (6, 8, -1), (9, 10, 1)):                    # the bells
+        s.rect(bx, by, bx + 1, by + 1, KB[2])
+        s.put(bx, by, KB[3]); s.put(bx + 1, by + 1, KB[1])
+        s.put(bx + (2 if side > 0 else -1), by + 1, KB[1])
+        s.put(bx + (0 if side > 0 else 1), by + 2, KB[0])
+    s.put(8, 2, KB[3]); s.put(8, 1, KB[4]); s.put(9, 2, KB[1])                             # the bud
+    s.outline(0.42)
+    _node_shadow(s, 8, 6)
+    return s
+
+
+ASHLEAF = [(30, 40, 30), (50, 64, 44), (78, 94, 62), (110, 126, 84), (144, 158, 110)]
+
+
+def herb_firebloom():
+    """Firebloom: ash-green leaves under three flame-shaped flowers, red at the cup, yellow-white at the tip"""
+    s = Spr(16, 16)
+    for ctrl, tip in (((5, 13), (1, 12)), ((6, 11), (3, 9)), ((10, 11), (13, 9)), ((11, 13), (15, 12))):
+        _blade(s, (8, 13), ctrl, tip, ASHLEAF)
+    for (fx, fy), stem in (((4, 8), (5, 10)), ((8, 6), (8, 9)), ((12, 8), (11, 10))):
+        _blade(s, (8, 13), stem, (fx, fy + 2), ASHLEAF, wide=1)
+        for dx, dy, k in ((1, -5, 4), (0, -4, 4), (0, -3, 3), (-1, -2, 2), (0, -2, 3), (1, -2, 2), (-1, -1, 2),
+                          (0, -1, 3), (1, -1, 1), (-1, 0, 1), (0, 0, 2), (1, 0, 0), (0, 1, 0)):
+            s.put(fx + dx, fy + dy, FIRE[k])
+    s.outline(0.42)
+    _node_shadow(s, 8, 6)
+    return s
+
+
+SUNG = [(76, 66, 18), (124, 110, 28), (176, 158, 42), (218, 200, 68), (246, 236, 140)]
+
+
+def herb_sungrass():
+    """Sungrass: a fan of tall golden blades with a sunburst flower held above them"""
+    s = Spr(16, 16)
+    for ctrl, tip in (((4, 12), (1, 7)), ((5, 9), (4, 3)), ((11, 9), (12, 3)), ((12, 12), (15, 7)),
+                      ((6, 12), (2, 11)), ((10, 12), (14, 11))):
+        _blade(s, (8, 13), ctrl, tip, SUNG)
+    _blade(s, (8, 13), (8, 9), (8, 5), LEAF, wide=1)                                        # the flower's stem
+    for dx, dy in ((0, -2), (0, 2), (-2, 0), (2, 0), (-1, -1), (1, -1), (-1, 1), (1, 1)):    # rays
+        s.put(8 + dx, 3 + dy, SUNG[4] if dx <= 0 and dy <= 0 else SUNG[3])
+    s.put(8, 3, (236, 140, 40)); s.put(7, 3, (250, 186, 70)); s.put(8, 2, (250, 186, 70))  # the heart
+    s.outline(0.42)
+    _node_shadow(s, 8, 6)
+    return s
+
+
+# the boulder and the small rock at its foot, face by face: T top (in the light), L upper left, F front, R right
+# (turned away), D the underside; lower case = a pit in that face
+ORE_ROCK = ["................",
+            "................",
+            "....TTTT........",
+            "...TTTtTTT......",
+            "..LTTTTTTTTR....",
+            "..LLTTTTTTFRR...",
+            ".LLlLTTTFFFRR...",
+            ".LLLLLFFFfFFRR..",
+            "LLLLLFFFFFFFRR..",
+            "LlLLFFFFFFFRRr..",
+            "LLLFFfFFFFFRRTTT",
+            ".LLFFFFFFFRRLTtR",
+            ".LLFFFFFFRRDLLFR",
+            "..DDFFFFRRDDLFFR",
+            "................",
+            "................"]
+FACE = {"T": 4, "L": 3, "F": 2, "R": 1, "D": 0}
+
+
+def _facet_rock(ramp):
+    """the ore rock painted from ORE_ROCK; returns the sprite and each pixel's light (0..1) for the seams"""
+    s = Spr(16, 16)
+    lit = {}
+    for y, row in enumerate(ORE_ROCK):
+        for x, ch in enumerate(row):
+            if ch == ".":
+                continue
+            k = FACE[ch.upper()] - (1 if ch.islower() else 0)
+            s.put(x, y, ramp[max(0, k)])
+            lit[(x, y)] = FACE[ch.upper()] / 4.0
+    for y, row in enumerate(ORE_ROCK):                                                     # lit ridge on the top
+        for x, ch in enumerate(row):
+            if ch == "T" and y > 0 and ORE_ROCK[y - 1][x] == ".":
+                s.put(x, y, ramp[-1] if len(ramp) > 5 else ramp[4])
+    return s, lit
+
+
+def _vein(s, lit, pts, ore):
+    """a seam of ore along pts, its colour following the face it crosses"""
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+        for i in range(n):
+            t = i / max(1, n - 1)
+            x, y = int(round(x0 + (x1 - x0) * t)), int(round(y0 + (y1 - y0) * t))
+            if (x, y) in lit:
+                s.put(x, y, _pick(ore[:-1], lit[(x, y)]))
+
+
+def _nugget(s, lit, x, y, ore, glint=False):
+    """a lump of ore standing out of the rock: lit corner, dark corner, maybe a glint"""
+    if (x, y) not in lit:
+        return
+    s.put(x, y, ore[-2]); s.put(x + 1, y, ore[-3]); s.put(x, y + 1, ore[-3]); s.put(x + 1, y + 1, ore[0])
+    s.put(x, y - 1, ore[-1] if glint else ore[-2])
+
+
+def _crystal(s, x, base, h, ramp):
+    """a crystal point growing out of the rock: lit left face, darker right face, a bright tip"""
+    for y in range(base - h + 1, base + 1):
+        s.put(x, y, ramp[-2]); s.put(x + 1, y, ramp[1])
+    s.put(x, base - h, ramp[-1]); s.put(x + 1, base - h + 1, ramp[2])
+
+
+def _ore_node(ore, rock=STONE, seams=True, crystals=None, glow=False):
+    """a gatherable vein: a faceted boulder with a smaller rock and a pebble at its foot, seams of ore crossing the
+    faces and lumps standing out; crystal ores grow points out of the top; Dark Iron's seams glow"""
+    s, lit = _facet_rock(rock)
+    if seams:
+        _vein(s, lit, [(1, 10), (3, 8), (5, 7), (7, 6), (9, 6), (10, 5)], ore)
+        _vein(s, lit, [(4, 12), (6, 11), (8, 10), (10, 9), (12, 8)], ore)
+    for i, (x, y) in enumerate(((5, 4), (8, 8), (2, 6), (13, 10))):
+        _nugget(s, lit, x, y, ore, glint=(i == 1))
+    for x, base, h in crystals or ():
+        _crystal(s, x, base, h, ore)
+    if glow:                                                                                # the seams' heat
+        for (x, y), v in lit.items():
+            c = s.get(x, y)
+            if c in ore[1:-1] and H(x, y, 21) < 0.3:
+                s.put(x, y, ore[-1])
+    s.outline(0.42)
+    _node_shadow(s, 8, 7.6)
+    return s
+
+
+COPPER = [(92, 40, 20), (156, 76, 34), (210, 122, 60), (240, 172, 112), (252, 226, 190)]
+TIN = [(64, 82, 102), (112, 136, 160), (166, 192, 214), (212, 230, 244), (248, 252, 255)]
+IRONORE = [(64, 30, 22), (112, 54, 34), (160, 86, 52), (198, 128, 88), (232, 186, 150)]
+GOLDORE = [(108, 68, 14), (176, 124, 26), (230, 182, 52), (252, 222, 108), (255, 250, 210)]
+MITHRIL = [(46, 80, 104), (82, 132, 162), (130, 186, 212), (186, 228, 244), (244, 254, 255)]
+TRUESILVER = [(84, 82, 108), (136, 134, 166), (190, 188, 216), (230, 230, 248), (255, 255, 255)]
+DARKIRON = [(86, 14, 10), (164, 34, 18), (226, 82, 30), (252, 156, 56), (255, 226, 150)]
+BASALT = [(16, 12, 14), (30, 24, 26), (48, 38, 40), (70, 56, 56), (96, 80, 76)]
+WARM = [(40, 34, 32), (66, 58, 54), (96, 86, 78), (128, 118, 106), (162, 152, 136)]
+
+
 def vein_copper():
-    return _ore_rock([(96, 44, 20), (170, 86, 40), (224, 132, 64), (250, 196, 130)])
+    s = _ore_node(COPPER)
+    for x, y in ((5, 8), (10, 10), (13, 11)):                                               # verdigris
+        if s.get(x, y): s.put(x, y, (70, 150, 120))
+    return s
 
 
 def vein_tin():
-    return _ore_rock([(70, 84, 96), (130, 150, 166), (188, 204, 214), (236, 244, 250)])
+    return _ore_node(TIN)
+
+
+def vein_iron():
+    return _ore_node(IRONORE, rock=WARM)
+
+
+def vein_gold():
+    return _ore_node(GOLDORE)
+
+
+def vein_mithril():
+    return _ore_node(MITHRIL, crystals=((4, 5, 3), (7, 3, 3), (10, 4, 2)))
+
+
+def vein_truesilver():
+    return _ore_node(TRUESILVER, crystals=((5, 4, 3), (9, 3, 2)))
+
+
+def vein_darkiron():
+    return _ore_node(DARKIRON, rock=BASALT, glow=True)
 
 
 BLUE = [(26, 40, 74), (44, 66, 116), (70, 100, 160), (120, 150, 204)]
@@ -591,20 +978,31 @@ def crate():
 
 
 def barrel():
-    """the Defias' powder keg"""
+    """the Defias' powder keg: bulging staves round a lit left side, two iron hoops, the lid with its bung and a
+    lit fuse"""
     s = Spr(16, 16)
-    def stave(x, y):
-        lx = (x - 8) / 5.5
-        c = WOOD[3] if lx < -0.3 else WOOD[2] if lx < 0.4 else WOOD[1]
-        if x % 3 == 0: c = WOOD[1]
-        return c
-    s.ellipse(8, 9.5, 5.6, 6.2, stave)
-    s.ellipse(8, 4.2, 5, 1.6, lambda x, y: WOOD[4])
-    for y in (5, 13):
-        for x in range(3, 14):
-            if s.get(x, y): s.put(x, y, IRON[2] if x < 9 else IRON[1])
-    s.rect(6, 8, 10, 10, RED[2]); s.put(7, 9, (250, 230, 200)); s.put(9, 9, (250, 230, 200))           # the powder mark
-    s.put(8, 3, (40, 30, 24)); s.put(9, 2, (200, 180, 140))                                            # a fuse
+    for y in range(5, 16):
+        hw = 4.6 + 1.1 * math.sin(math.pi * (y - 5) / 10)
+        for x in range(16):
+            lx = (x + 0.5 - 8) / hw
+            if abs(lx) > 1:
+                continue
+            v = 0.66 - 0.42 * lx - 0.3 * lx * lx
+            if (math.asin(max(-0.99, min(0.99, lx))) / (math.pi / 2) * 3 + 3.5) % 1 < 0.22:
+                v -= 0.2                                                                    # stave seams
+            s.put(x, y, _pick(WOOD, v))
+    for y in (7, 13):                                                                       # hoops
+        for x in range(16):
+            if s.get(x, y) is not None:
+                lx = (x + 0.5 - 8) / 5.6
+                s.put(x, y, IRON[3] if lx < -0.4 else IRON[2] if lx < 0.4 else IRON[1])
+                if s.get(x, y - 1) is not None and lx < 0.2: s.put(x, y - 1, _pick(WOOD, 0.2))
+    s.ellipse(8, 4.6, 4.9, 1.9, lambda x, y: WOOD[4] if y < 4 else WOOD[3])                # the lid
+    for x in range(4, 12):
+        s.put(x, 5, WOOD[2])
+    s.put(4, 4, WOOD[2]); s.put(11, 4, WOOD[1])
+    s.put(10, 4, (40, 28, 22)); s.put(10, 3, (70, 56, 40)); s.put(11, 2, (70, 56, 40))      # bung + fuse
+    s.put(12, 1, FIRE[3]); s.put(12, 0, FIRE[4]); s.put(13, 1, FIRE[2])
     s.outline(0.42)
     return s
 
@@ -678,6 +1076,8 @@ def scarecrow():
 
 
 def windmill():
+    """a stone mill: the tapered tower, a thatched cap, four lattice sails (a spar, a frame of bars round the
+    canvas) turning about a wooden hub"""
     s = Spr(32, 48)
     def tower(x, y):
         lx = (x - 16) / 9
@@ -685,19 +1085,36 @@ def windmill():
         if y % 5 == 4 or (x + (y // 5) * 3) % 7 == 0: c = STONE[1] if lx < 0.4 else STONE[0]
         return c
     s.poly([(7, 47.5), (10, 18), (22, 18), (25, 47.5)], tower)
-    s.rect(14, 38, 18, 47, WOOD[1]); s.rect(15, 39, 17, 47, (40, 26, 20))                               # door
-    s.rect(15, 26, 17, 29, BLUE[1]); s.put(15, 26, BLUE[3])                                              # window
-    s.poly([(8, 19), (16, 10), (24, 19)], lambda x, y: WOOD[3] if x < 16 else WOOD[2])                  # cap
-    hub = (16, 16)
-    for ang in (0.35, 0.35 + math.pi / 2, 0.35 + math.pi, 0.35 + 3 * math.pi / 2):                       # sails
-        for r in range(2, 15):
-            for w in range(-2, 3):
-                x = hub[0] + math.cos(ang) * r - math.sin(ang) * w
-                y = hub[1] + math.sin(ang) * r + math.cos(ang) * w
-                c = CANVAS[3] if (r + w) % 3 else WOOD[2]
-                if w in (-2, 2): c = WOOD[1]
-                s.put(x, y, c)
-    s.ellipse(16, 16, 1.6, 1.6, lambda x, y: WOOD[1])
+    s.rect(14, 38, 18, 47, WOOD[1]); s.rect(15, 39, 17, 47, (40, 26, 20)); s.put(15, 39, WOOD[2])  # door
+    s.rect(15, 27, 17, 30, (30, 34, 50)); s.put(15, 27, BLUE[2]); s.rect(14, 31, 18, 31, STONE[4])  # window
+    def cap(x, y):
+        lx = (x - 16) / 8.5
+        c = THATCH[4] if lx < -0.45 else THATCH[3] if lx < 0.05 else THATCH[2] if lx < 0.5 else THATCH[1]
+        if (y - 11) % 3 == 2: c = THATCH[max(0, THATCH.index(c) - 1)]
+        return c
+    s.ellipse(16, 18.5, 8.6, 6.2, cap)
+    for x in range(8, 25):
+        s.put(x, 20 + (1 if H(x, 2) < 0.5 else 0), THATCH[1] if x > 17 else THATCH[2])        # ragged eave
+    for y in range(12, 22):
+        for x in range(32):
+            if y >= 19 and s.get(x, y) in THATCH: pass
+    hx, hy = 16, 17
+    for k in range(4):
+        a = 0.35 + k * math.pi / 2
+        ux, uy = math.cos(a), math.sin(a)
+        px, py = -uy, ux
+        for y in range(48):
+            for x in range(32):
+                dx, dy = x + 0.5 - hx, y + 0.5 - hy
+                u, w = dx * ux + dy * uy, dx * px + dy * py
+                if 0 <= u <= 15.5 and abs(w) < 0.75:
+                    s.put(x, y, WOOD[1])                                                    # the spar
+                elif 3.5 <= u <= 15.5 and 0.75 <= w <= 4.6:
+                    frame = (u % 3.0) < 0.9 or w > 3.8 or u > 14.6
+                    lit = (ux + uy) < 0
+                    s.put(x, y, (WOOD[3] if lit else WOOD[2]) if frame else (CANVAS[4] if lit else CANVAS[3]))
+    s.ellipse(hx, hy, 2.0, 2.0, lambda x, y: WOOD[2] if x < hx else WOOD[1])
+    s.put(hx - 1, hy - 1, IRON[3]); s.put(hx, hy, IRON[2])
     s.outline(0.42)
     return s
 
@@ -727,14 +1144,39 @@ def mineentrance():
 
 
 def mast():
+    """a ship's mast: shrouds with ratlines behind, the pole with iron bands, two yards with their sails furled and
+    lashed, a crow's nest and a black flag"""
     s = Spr(16, 48)
-    s.rect(7, 0, 8, 47, WOOD[2]); s.rect(7, 0, 7, 47, WOOD[3])
-    s.rect(2, 6, 13, 7, WOOD[2]); s.rect(3, 26, 12, 27, WOOD[2])                                       # yards
-    s.rect(2, 8, 13, 12, CANVAS[3]); s.rect(2, 12, 13, 12, CANVAS[2])                                  # furled sail
-    for x in range(3, 13, 3):
-        s.put(x, 10, CANVAS[1])
-    s.line(2, 7, 0, 47, (120, 100, 70)); s.line(13, 7, 15, 47, (120, 100, 70))                         # ropes
-    s.rect(6, 0, 9, 1, (40, 40, 44)); s.put(10, 1, (30, 30, 30)); s.put(11, 2, (30, 30, 30))             # a black flag
+    ROPE, ROPED = (126, 104, 72), (86, 70, 50)
+    shrouds = [(5.5, 12, 0.5, 47), (10.5, 12, 15.5, 47)]
+    for x0, y0, x1, y1 in shrouds:
+        s.line(x0, y0, x1, y1, ROPE)
+    for y in range(18, 47, 4):                                                              # ratlines
+        t = (y - 12) / 35
+        s.line(5.5 + (0.5 - 5.5) * t, y, 6, y, ROPED); s.line(9, y, 10.5 + 5 * t, y, ROPED)
+    for y in range(1, 48):                                                                  # the pole
+        s.put(7, y, WOOD[3]); s.put(8, y, WOOD[1])
+    for y in (22, 38):
+        s.put(7, y, IRON[3]); s.put(8, y, IRON[1])
+    for yy, x0, x1 in ((16, 1, 14), (31, 2, 13)):                                           # yards + furled sails
+        s.rect(x0, yy, x1, yy, WOOD[3]); s.put(x1, yy, WOOD[1])
+        for x in range(x0, x1 + 1):
+            if x in (7, 8):
+                continue
+            sag = 1 if 2 < x - x0 < x1 - x0 - 2 and (x % 5) else 0
+            s.put(x, yy + 1, CANVAS[4] if x < 8 else CANVAS[3])
+            s.put(x, yy + 2, CANVAS[2] if x < 8 else CANVAS[1])
+            if sag: s.put(x, yy + 3, CANVAS[1])
+            if (x - x0) % 4 == 1:
+                s.put(x, yy + 1, ROPED); s.put(x, yy + 2, ROPED)                            # lashings
+    s.rect(5, 9, 10, 12, WOOD[2]); s.rect(5, 9, 10, 9, WOOD[4])                             # crow's nest
+    s.rect(5, 10, 5, 12, WOOD[3]); s.rect(10, 10, 10, 12, WOOD[1])
+    for x in (7, 9): s.put(x, 11, WOOD[1])
+    for x, y in ((9, 1), (10, 1), (11, 1), (12, 2), (9, 2), (10, 2), (11, 2), (12, 3), (13, 3), (9, 3), (10, 3),
+                 (11, 3), (12, 4)):
+        s.put(x, y, (34, 32, 38))                                                           # the black flag
+    s.put(10, 2, (220, 214, 200)); s.put(11, 3, (150, 146, 138))
+    s.put(7, 0, WOOD[4]); s.put(8, 0, WOOD[2])
     s.outline(0.42)
     return s
 
@@ -773,11 +1215,15 @@ def trophyboard():
 
 # atlas name -> sprite; multi-tile ones are stamps (cut into name_x_y cells by the atlas build)
 PROPS = {"sign": sign, "wantedboard": wantedboard, "forge": forge, "anvil": anvil, "alchemy": alchemy,
-         "lamppost": lamppost, "deadtree": deadtree, "jtree": palm, "dtree": pine,
+         "lamppost": lamppost, "deadtree": deadtree, "jtree": palm, "dtree": fir,
+         "wtree": lambda: oak(WLEAF), "rtree": lambda: oak(AUTUMN, AMBER, bias=-0.1), "stree": charredtree,
          "tent": tent, "hut": hut, "totem": totem,
          "node_peacebloom": herb_peacebloom, "node_silverleaf": herb_silverleaf, "node_earthroot": herb_earthroot,
          "node_mageroyal": herb_mageroyal, "node_briarthorn": herb_briarthorn, "node_copper": vein_copper,
-         "node_tin": vein_tin,
+         "node_tin": vein_tin, "node_iron": vein_iron, "node_gold": vein_gold, "node_mithril": vein_mithril,
+         "node_truesilver": vein_truesilver, "node_darkiron": vein_darkiron,
+         "node_fadeleaf": herb_fadeleaf, "node_kingsblood": herb_kingsblood, "node_firebloom": herb_firebloom,
+         "node_sungrass": herb_sungrass,
          "gravestone": gravestone, "ironfence": ironfence, "fence": fence, "crate": crate, "barrel": barrel,
          "hay": hay, "pumpkin": pumpkin, "cannon": cannon, "scarecrow": scarecrow, "windmill": windmill,
          "mineentrance": mineentrance, "mast": mast, "plinth": plinth, "plinthempty": plinthempty,

@@ -15,6 +15,9 @@ ns.AzeroChangelog = {
           "Some beasts have two different attacks.",
           "Shinies show their own colours in pixel art too.",
           "Prefer the 3D models? /dz azeromon look 3d",
+          "Sharper trees in Duskwood, Westfall, Redridge and beyond.",
+          "Every ore vein and herb redrawn, each with its own look.",
+          "Powder kegs, ship masts and windmills redrawn too.",
       } },
     { version = "0.34.1", date = "16 October 2026", title = "Room at the inn",
       lines = {
