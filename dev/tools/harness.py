@@ -1866,6 +1866,11 @@ class Client:
     def _load_one(self, rel, missing, addon=None, folder=None, ns=None):
         addon, folder = addon or self.addon_name, folder or self.addon_dir
         chunkname = "@Interface/AddOns/%s/%s" % (addon, rel.replace("\\", "/"))
+        if addon == ADDON_NAME and rel.replace("\\", "/") == "Core/DevPlan.lua":
+            # (the developer's own plan is git-ignored and changes as they plan: tests get the shipped stub, empty)
+            self._set_time()
+            self.M.load_file("", chunkname, addon, ns)
+            return
         src = _chunk(os.path.join(folder, rel), chunkname)  # re-checked per boot: agents edit while tests run
         if src is None:
             missing.append(rel)
