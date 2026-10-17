@@ -1,5 +1,6 @@
 """Broad multi-client UI scenario (GM + officer + two raiders) that touches every tab and window, then prints
-world.report() and checks the unknown template fields / methods the addon relies on.
+world.report() and checks the unknown template fields / methods the addon relies on. Also the main window's
+background build of every page after it first opens: the harness leaves that off elsewhere (World(prebuild_pages)).
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_broad.py
 """
@@ -10,9 +11,49 @@ from _common import case, run_all, no_errors, World, Client, install_helpers, st
 KNOWN_OK_FIELDS = set()
 
 
+def built_pages(c):
+    return set(c.eval_py("""
+      local out = {}
+      for _, p in ipairs(ns.MainFrame:GetPageStats()) do if p.panel then out[#out + 1] = p.key end end
+      return out""") or [])
+
+
+@case
+def opening_the_window_builds_every_other_page_in_the_background():
+    # the game's way (the harness leaves it off unless asked: World(prebuild_pages=True)): after the window first
+    # opens, every page the player can open is built (and the heavy ones painted once), one per frame, quietly
+    w = World(prebuild_pages=True)
+    gm = Client(w, "Gm", guild_rank=0, class_file="WARRIOR", talents=(0, 5, 51))
+    gm.load_addon()
+    w.tick(3)
+    gm.slash("/dz")
+    w.tick(0.1)
+    first = built_pages(gm)
+    w.tick(10)
+    built = built_pages(gm)
+    assert len(first) == 1 and len(built) > 15, (first, built)
+    # nothing is left for a first visit: opening every page builds no other
+    keys = gm.eval_py("local out = {} for _, p in ipairs(ns.MainFrame:GetPageStats()) do out[#out + 1] = p.key end "
+                      "return out")
+    for key in keys:
+        gm.eval("ns.MainFrame:Open(...)", key)
+        w.tick(0.1)
+    assert built_pages(gm) == built, sorted(built_pages(gm) - built)
+    no_errors(w)
+    # the harness's default: a page is built when it is first shown
+    w2 = World()
+    c = Client(w2, "Gm", guild_rank=0, class_file="WARRIOR", talents=(0, 5, 51))
+    c.load_addon()
+    w2.tick(3)
+    c.slash("/dz")
+    w2.tick(10)
+    assert built_pages(c) == first, built_pages(c)
+    no_errors(w2)
+
+
 @case
 def broad_session_all_windows_then_report():
-    w = World()
+    w = World(prebuild_pages=True)    # (as in the game: every page built in the background too)
     gm = Client(w, "Gm", guild_rank=0, class_file="WARRIOR", talents=(0, 5, 51))
     off = Client(w, "Off", guild_rank=1, class_file="PRIEST", talents=(10, 41, 0))
     r1 = Client(w, "Rai", guild_rank=3, class_file="MAGE", talents=(0, 0, 41))

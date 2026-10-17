@@ -41,10 +41,41 @@ shows in each of them.
 Writing tests: put the shared world-building first (`r = setup()`, `w, c = solo()`), and keep per-case tweaks after
 it. Two cases that start with the same statement share that work.
 
+## One server per run, pre-loaded clients (2026-10-17)
+
+`run_all` starts one `tools/testserver.py` in WSL per run and sends it every suite that runs there (stdin: one job per
+line, stdout: one exit code per job; its log is `tf_e/<out>/_testserver.log`). The server imports the harness once,
+reads the addon's bytecode, and pre-loads 16 clients (`harness.build_templates`, `DZ_TEMPLATES=n` to change the
+number, `0` = none): for each client number (`Client.index`, which fixes a client's `GetTime` offset) a runtime in
+which the addon's ~390 files already ran. Then it forks a process per suite; forkrun forks per case from there.
+
+A client's boot used to run all those files (~130 ms of ~140). `Client.load_addon` now takes over the pre-loaded
+runtime of its number instead (~10 ms) when nothing would come out differently (`Client._template_mismatch`):
+
+- the files ran with nothing saved, at the template's time, as a default client of a default world: so the client
+  has no saved variables, boots at that same moment (at `world.now == 0`, its first login), uses the default addon
+  folder and options, and nothing touched its runtime before `load_addon` (`c.M`, `c.eval`, a `preload_lua`, a
+  tick, a world that stores data with the saved variables like `seed_guild_council`);
+- what the files read while the template loaded is recorded and checked: the player (only at a line listed in
+  `harness.TEMPLATE_NAME_CHECKS`: today Core/Perf.lua's developer-name test), saved variables, the clock, items;
+  a new file-time read of the player makes every client load its files itself until it is listed (or removed);
+- the files must be the ones it ran (times and sizes as this process sees them), and the suite must not have
+  replaced how the harness loads files (`harness._loading_hooks`).
+
+Anything else boots as before. `DZ_TEMPLATE_LOG=<file>` logs every decision (`taken` or why not). With
+`DZ_TEMPLATES=n` a suite run by hand builds its own before forking (slower than the server's, same results).
+`DZ_SERVER=0` makes `run_all` start a `wsl.exe` per suite as before. If the server dies, the suites it had not
+finished run that way too.
+
+Worktrees made on Windows (`C:\Users\emilo\DZ-wt\...`) can run in WSL since `run.sh` points git at their git folder
+(`GIT_DIR`/`GIT_WORK_TREE`): `dz.sh` sends their suites there when their `run.sh` has that.
+
 ## What differs from Windows
 
 - The addon folder is reached through `/mnt/c` (9P, slow per file): the harness checks a file's time once per process
   (forgetting it when the process writes the file) and keeps its bytecode in `/var/cache/dz-bc`, by path, time and
   size. `run.sh` prunes entries unused for two weeks.
 - Each case's process writes its own dependency record part (`tools/testmap_rec.py`), and `run_all` merges them.
+  A suite forked from the server also carries what the server read (the harness, the files the pre-loaded clients
+  ran, the functions they called while loading).
 - Python is the distro's (3.14); Windows has 3.13.

@@ -277,21 +277,11 @@ def lua_long_string(b):
     return "[" + eq + "[\n" + s + "]" + eq + "]"
 
 
+_LUA_QUOTE = str.maketrans({"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t"})
+
+
 def lua_quoted(s):
-    out = ['"']
-    for ch in s:
-        if ch == "\\":
-            out.append("\\\\")
-        elif ch == '"':
-            out.append('\\"')
-        elif ch == "\n":
-            out.append("\\n")
-        elif ch == "\t":
-            out.append("\\t")
-        else:
-            out.append(ch)
-    out.append('"')
-    return "".join(out)
+    return '"' + s.translate(_LUA_QUOTE) + '"'
 
 
 def outbox_lua(bundle):

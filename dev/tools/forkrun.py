@@ -205,6 +205,9 @@ def run_cases(cases, one):
             harness.warm()           # every fork starts with the addon's bytecode read
         except Exception:  # noqa: BLE001 - only a cache
             pass
+        n = int(os.environ.get("DZ_TEMPLATES") or 0)
+        if n and not harness._TEMPLATES_BUILT:   # (tools/testserver.py built them before it forked this suite)
+            harness.build_templates(n)       # pre-loaded clients every case's fork can take over
     plans = [(name, fn, _plan(fn)) for name, fn in cases]
     # group by the first set-up statement; a group shares its longest common run of set-up statements
     groups, order = {}, []

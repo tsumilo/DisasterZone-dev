@@ -247,6 +247,91 @@ def command(f, env):
             to_wsl(f)]
 
 
+# One test server per run in WSL (tools/testserver.py): it loads the harness and pre-loads TEMPLATES clients once,
+# then forks a process per suite. A suite the server cannot take (it is gone, or never came up) runs as before, in a
+# wsl.exe of its own. DZ_TEMPLATES=0 turns the pre-loaded clients off; DZ_SERVER=0 the server.
+TEMPLATES = int(os.environ.get("DZ_TEMPLATES") or 16)
+SERVER_ENV = ("DZ_COVER", "DZ_SHARD", "DZ_SCALE_N")   # what differs per suite (the rest is the server's)
+
+
+class TestServer:
+    def __init__(self, log_path):
+        env = dict(os.environ)
+        env.update(testmap.env_for("_testserver"))   # (recording on, like the suites: it reads their inputs)
+        env["DZ_TEMPLATES"] = str(TEMPLATES)
+        cmd = command(os.path.join(SCRATCH, "tools", "testserver.py"), env)
+        env["WSLENV"] += ":DZ_TEMPLATES" + (":DZ_TEMPLATE_LOG/p" if env.get("DZ_TEMPLATE_LOG") else "")
+        self._log = open(log_path, "w", encoding="utf-8")
+        self.proc = subprocess.Popen(cmd, cwd=SCRATCH, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=self._log)
+        self.lock = threading.Lock()
+        self.waiting = {}            # job id -> (event, [rc])
+        self.ids = iter(range(1, 1 << 30))
+        self.dead = False
+        self.templates = None
+        self.cpu = 0.0               # processor seconds of the suites it ran (their case processes included)
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        try:
+            for raw in self.proc.stdout:
+                try:
+                    msg = json.loads(raw)
+                except ValueError:
+                    continue
+                if msg.get("ready"):
+                    self.templates = msg.get("templates")
+                    continue
+                with self.lock:
+                    got = self.waiting.pop(msg.get("id"), None)
+                if got:
+                    got[1].append(msg.get("rc"))
+                    self.cpu += msg.get("cpu") or 0.0
+                    got[0].set()
+        finally:
+            with self.lock:
+                self.dead = True
+                for ev, _ in self.waiting.values():
+                    ev.set()
+                self.waiting.clear()
+
+    def run(self, f, env, out_path):
+        """Runs suite f in the server; its exit code, or None when the server could not run it."""
+        ev, box = threading.Event(), []
+        job = {"suite": os.path.relpath(f, SCRATCH).replace("\\", "/"), "out": to_wsl(out_path),
+               "timeout": TIMEOUT, "env": {}}
+        for k in SERVER_ENV:
+            if env.get(k):
+                job["env"][k] = to_wsl(env[k]) if k == "DZ_COVER" else env[k]
+        with self.lock:
+            if self.dead:
+                return None
+            job["id"] = next(self.ids)
+            self.waiting[job["id"]] = (ev, box)
+            try:
+                self.proc.stdin.write((json.dumps(job) + "\n").encode("utf-8"))
+                self.proc.stdin.flush()
+            except OSError:
+                self.waiting.pop(job["id"], None)
+                return None
+        ev.wait(TIMEOUT + 120)
+        return box[0] if box else None
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+        self._log.close()
+
+
+SERVER = None
+
+
 # -- running ---------------------------------------------------------------------------------------------------------
 _failed = threading.Event()  # -x: set by the first failure
 
@@ -265,18 +350,31 @@ def run(task):
     if n > 1:
         env["DZ_SHARD"] = "%d/%d" % (i, n)
     t0 = time.time()
+    out_path = os.path.join(OUT, name + ".txt")
+    rc = None
     try:
-        p = subprocess.run(command(f, env), cwd=SCRATCH, capture_output=True, text=True, timeout=TIMEOUT, env=env,
-                           encoding="utf-8", errors="replace")
-        out = p.stdout + "\n" + p.stderr
-        rc = p.returncode
-    except subprocess.TimeoutExpired as e:
-        out = "TIMEOUT\n" + str(e.stdout or "")
-        rc = -1
+        if SERVER is not None and on_wsl(f):
+            rc = SERVER.run(f, env, out_path)     # (the suite wrote its output to out_path itself)
+            if rc is not None:
+                try:
+                    with open(out_path, encoding="utf-8", errors="replace") as fh:
+                        out = fh.read()
+                except OSError:
+                    out = ""
+                if rc == -9:
+                    out, rc = "TIMEOUT\n" + out, -1
+        if rc is None:
+            try:
+                p = subprocess.run(command(f, env), cwd=SCRATCH, capture_output=True, text=True, timeout=TIMEOUT,
+                                   env=env, encoding="utf-8", errors="replace")
+                out = p.stdout + "\n" + p.stderr
+                rc = p.returncode
+            except subprocess.TimeoutExpired as e:
+                out = "TIMEOUT\n" + str(e.stdout or "")
+                rc = -1
     finally:
         release_slot(slot)
     dt = time.time() - t0
-    out_path = os.path.join(OUT, name + ".txt")
     with open(out_path, "w", encoding="utf-8") as fh:
         fh.write(out)
     summary = [l for l in out.splitlines() if l.startswith("--") and ("passed" in l or "case" in l)]
@@ -297,16 +395,22 @@ def line(name, rc, summary, dt):
 t_start = time.time()
 results = []
 not_run = []  # -x: never started after the first failure
-with ThreadPoolExecutor(max_workers=jobs) as ex:
-    for fut in as_completed([ex.submit(run, t) for t in tasks]):
-        name, rc, summary, fails, dt = fut.result()
-        if rc is None:
-            not_run.append(name)
-            continue
-        results.append((name, rc, summary, fails, dt))
-        print(line(name, rc, summary, dt))
-        for l in fails:
-            print("      " + l)
+if os.environ.get("DZ_SERVER") != "0" and any(on_wsl(t[0]) for t in tasks):
+    SERVER = TestServer(os.path.join(OUT, "_testserver.log"))
+try:
+    with ThreadPoolExecutor(max_workers=jobs) as ex:
+        for fut in as_completed([ex.submit(run, t) for t in tasks]):
+            name, rc, summary, fails, dt = fut.result()
+            if rc is None:
+                not_run.append(name)
+                continue
+            results.append((name, rc, summary, fails, dt))
+            print(line(name, rc, summary, dt))
+            for l in fails:
+                print("      " + l)
+finally:
+    if SERVER is not None:
+        SERVER.close()
 wall = time.time() - t_start
 
 # remember this run's durations for the next run's order (merged: a filtered run keeps the others)
@@ -332,6 +436,9 @@ print("== %d suite run(s), %d failed, %.0fs wall, %.0fs total%s" % (
     len(results), len(bad), wall, sum(r[4] for r in results),
     ("; %d skipped: nothing they depend on changed since their last run (--all runs them)" % len(skipped))
     if skipped else ""))
+if SERVER is not None and SERVER.cpu:
+    print("   (WSL test server: %d pre-loaded clients, %.0fs processor time for its suites)" % (
+        SERVER.templates or 0, SERVER.cpu))
 for name, rc, summary, fails, dt in bad:
     print("   FAILED " + line(name, rc, summary, dt))
 for name, (rc, summary, fails, out) in sorted(stale_fails):

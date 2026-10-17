@@ -84,8 +84,7 @@ def _stat_tree(root):
 
 
 def read(root, rel):
-    with open(os.path.join(root, rel), "rb") as fh:
-        return fh.read().decode("utf-8")
+    return release.read(os.path.join(root, rel)).decode("utf-8")      # (kept by file identity: copies are links)
 
 
 def write(root, rel, text):

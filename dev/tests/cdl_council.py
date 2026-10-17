@@ -89,29 +89,17 @@ def _seed_client(c):
     return bool(fn(SEED_LUA, c.runtime.table(*s["members"]), s["phase"], s["by"], s["rev"], s["recvAt"], gk))
 
 
-_orig_apply_saved = harness.Client._apply_saved
-
-
-def _apply_saved_with_seed(self, headers):
-    _orig_apply_saved(self, headers)
-    if getattr(self.world, "cdl_council_seed", None):
-        _seed_client(self)
-
-
-if not getattr(harness.Client, "_cdl_seed_patched", False):
-    harness.Client._apply_saved = _apply_saved_with_seed
-    harness.Client._cdl_seed_patched = True
-
-
 def seed_guild_council(w, names, phase=1, guild=GUILD, by=None, realm=REALM):
     """Every client of `guild` in world `w` has the GM's guild council list stored (db.council.guild), as if the
     GM had picked `names` some time ago and the list reached everyone. Applied to each client when it loads
-    (clients created later, relogs with an older copy) and right away to clients already loaded (followed by a
-    roster refresh, so CONFIG_UPDATED fires as it would for an accepted CG). `by` = the GM's name, if any."""
+    (clients created later, relogs with an older copy: World.on_saved_applied) and right away to clients already
+    loaded (followed by a roster refresh, so CONFIG_UPDATED fires as it would for an accepted CG). `by` = the GM's
+    name, if any."""
     seeds = getattr(w, "cdl_council_seed", None)
     if seeds is None:
         seeds = {}
         w.cdl_council_seed = seeds
+        w.on_saved_applied.append(_seed_client)
     rev = int(w.server_time0) - SEED_REV_OFFSET
     prev = seeds.get(guild)
     if prev and prev["rev"] >= rev:
