@@ -1291,6 +1291,7 @@ ShowEnd = function(kind)
     f.lede:SetText(naxx and win and (run.stage == "frost" and "Kel'Thuzad falls. The necropolis lurches and lifts away north."
             or ((finale and finale.horseman and "The Four Horsemen fall" or ((finale and finale.name or "The master") .. " falls")) .. " at " .. Rd.Clock(run.t) .. ". " .. (ST.name or "The quarter") .. " is cleared."))
         or win and "The Pale Rider claimed you at the fifteenth minute. The Argent Dawn counts it a victory."
+        or run.gaveUp and ("You gave up the line at " .. Rd.Clock(run.t) .. ".")
         or ("Slain by |cffffffff" .. (run.killer or "the Scourge") .. "|r at " .. Rd.Clock(run.t) .. "."))
     f.lede:ClearAllPoints() f.lede:SetPoint("TOP", f, "TOPLEFT", cx, -y)
     local newBest = floor(run.t) > prevBest and prevBest > 0
@@ -1371,31 +1372,6 @@ local function TickEnd(dt)
     if f.win then f.glow:Tick(f.t, Easing(k), 0.85) end
 end
 
-local function BuildPause()
-    local f = CreateFrame("Frame", nil, stage)
-    f:SetAllPoints()
-    f.panel = KitTex(f, "panel", "BACKGROUND")
-    f.title = Words(f, 28, MORPHEUS) f.title:SetText("Paused") f.title:SetTextColor(244 / 255, 207 / 255, 106 / 255)
-    f.go = CreateFrame("Button", nil, f)
-    f.go.bg = Slice3(f.go, "gb_big", "BACKGROUND", 0, 19)
-    f.go.label = Words(f.go, 15, MORPHEUS) f.go.label:SetText("Resume") f.go.label:SetTextColor(1, 231 / 255, 168 / 255) f.go.label:SetPoint("CENTER")
-    f.go:SetScript("OnClick", function() ClosePause() end)
-    f:Hide()
-    return f
-end
-local function ShowPause()
-    overlay = "pause"
-    run.paused = true
-    ClearOv()
-    local f = ov.pause
-    f:Show()
-    local H = StageH()
-    local x, y = OV_W / 2 - 130, H / 2 - 60
-    KitAt(f.panel, f, x, y, 260, 120)
-    f.title:ClearAllPoints() f.title:SetPoint("TOP", f, "TOPLEFT", OV_W / 2, -(y + 18))
-    f.go:ClearAllPoints() f.go:SetPoint("TOP", f, "TOPLEFT", OV_W / 2, -(y + 66)) f.go:SetSize(116, 36) f.go.bg:Place(f.go, 0, 0, 116, 36)
-end
-ClosePause = function() CloseOv(false) end
 
 ---------------------------------------------------------------------------
 -- talents: the Argent Dawn's three trees on the classic talent frame's paintings, bought with banked gold
@@ -1860,6 +1836,58 @@ local function Scene(parent, level)
     end
     return s
 end
+
+-- the pause: the world dimmed, a plate with where the run stands, Resume and a way out (the run ends as a death:
+-- its gold is banked as usual)
+local function BuildPause()
+    local f = CreateFrame("Frame", nil, stage)
+    f:SetAllPoints()
+    f.dim = f:CreateTexture(nil, "BACKGROUND", nil, -8) f.dim:SetAllPoints() f.dim:SetColorTexture(6 / 255, 4 / 255, 10 / 255, 0.55)
+    f.plate = Slice9(f, "pl_grey", "BACKGROUND", 0, 18)
+    f.eyebrow = Words(f, 9) f.eyebrow:SetTextColor(MUTE[1], MUTE[2], MUTE[3])
+    f.title = Words(f, 30, MORPHEUS) f.title:SetText("Paused") f.title:SetTextColor(244 / 255, 207 / 255, 106 / 255) f.title:SetShadowOffset(0, -2)
+    f.stats = Words(f, 11) f.stats:SetTextColor(0.85, 0.8, 0.72)
+    f.go = CreateFrame("Button", nil, f)
+    f.go.bg = Slice3(f.go, "gb_big", "BACKGROUND", 0, 19)
+    f.go.label = Words(f.go, 15, MORPHEUS) f.go.label:SetText("Resume") f.go.label:SetTextColor(1, 231 / 255, 168 / 255) f.go.label:SetPoint("CENTER")
+    f.go:SetScript("OnClick", function() ClosePause() end)
+    f.go:SetScript("OnEnter", function(self) self.bg:SetKit("gb_bighov") Sound("hover", 0.03) end)
+    f.go:SetScript("OnLeave", function(self) self.bg:SetKit("gb_big") end)
+    f.quit = Pill(f, function() UI.GiveUp() end, { size = 11 })
+    f.hint = Words(f, 9) f.hint:SetTextColor(110 / 255, 100 / 255, 118 / 255) f.hint:SetText("Esc resumes")
+    f:Hide()
+    return f
+end
+local function ShowPause()
+    overlay = "pause"
+    run.paused = true
+    ClearOv()
+    local f = ov.pause
+    f:Show()
+    local H = StageH()
+    local W, PH = 340, 236
+    local x, y = OV_W / 2 - W / 2, floor(H / 2 - PH / 2)
+    local cx = OV_W / 2
+    f.plate:Place(f, x, y, W, PH)
+    local ST = run.ST
+    f.eyebrow:SetText((ST and ST.name or "Eastern Plaguelands"):upper():gsub("(.)", "%1 "):gsub(" $", ""))
+    f.eyebrow:ClearAllPoints() f.eyebrow:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 26))
+    f.title:ClearAllPoints() f.title:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 42))
+    f.stats:SetText(Rd.Clock(run.t) .. "   \194\183   level " .. run.level .. "   \194\183   " .. run.kills .. " slain   \194\183   " .. run.gold .. " gold")
+    f.stats:ClearAllPoints() f.stats:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 86))
+    f.go:ClearAllPoints() f.go:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 116)) f.go:SetSize(150, 38) f.go.bg:Place(f.go, 0, 0, 150, 38)
+    f.go.bg:SetKit("gb_big")
+    local qw = f.quit:Set(run.attract and "Back to the title" or "Give up the run", false, 26)
+    f.quit:ClearAllPoints() f.quit:SetPoint("TOPLEFT", f, "TOPLEFT", cx - qw / 2, -(y + 166))
+    f.hint:ClearAllPoints() f.hint:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 204))
+end
+-- giving up: the run ends where it stands (a death: gold banked, the end screen as usual)
+function UI.GiveUp()
+    if not run or run.over then return end
+    run.over, run.gaveUp = "death", true
+    ShowEnd("death")
+end
+ClosePause = function() CloseOv(false) end
 
 -- the title (the mockup's): the logo with the legendary star behind it, three hero cards (plate, a glass window with
 -- the hero on a lit floor, name, difficulty, kit), the menu of glass pills, the week's challenge and the Argent

@@ -168,6 +168,24 @@ def a_bot_plays_the_whole_run_without_an_error():
 
 
 @case
+def giving_up_from_the_pause_ends_the_run_and_banks_its_gold():
+    w, c = boot()
+    c.eval("ns.Games:Open('holdtheline')")
+    w.tick(1.0)
+    c.eval("ns.HTLGame.Data().bank = 0 ns.HTLUI.Start('PALADIN')")
+    w.tick(0.3)
+    c.eval("ns.HTLUI._Run().gold = 41 ns.HTLUI._Key('ESCAPE')")
+    w.tick(0.2)
+    assert c.eval_py("return ns.HTLUI._Overlay()") == "pause"
+    c.eval("ns.HTLUI.GiveUp()")
+    w.tick(0.3)
+    no_errors(w)
+    assert c.eval_py("return ns.HTLUI._Overlay()") == "end"
+    assert c.eval_py("return ns.HTLUI._Run().over") == "death"
+    assert c.eval_py("return ns.HTLGame.Data().bank") == 41
+
+
+@case
 def esc_pauses_and_the_lab_opens():
     w, c = boot()
     c.eval("ns.Games:Open('holdtheline')")
