@@ -189,20 +189,33 @@ function Meter:GetLive()
     return live
 end
 
+-- A live trash fight nobody has hit anything in yet (and nobody died in): not shown until it has. After a boss a
+-- lingering DoT tick on a player starts one, and Finish drops it when the group leaves combat; shown, the panels
+-- flipped trash / last fight / trash with every tick (feedback #34, 2026-10-16).
+local function Empty(seg)
+    return seg.live and seg.kind == "trash" and not (seg.foes and next(seg.foes)) and #(seg.deaths or {}) == 0
+end
+
 -- Fights for the menu: newest first (the live one on top), then "all".
 function Meter:GetFights()
     local d = self:Data()
     local out = {}
-    for i = #(d.segs or {}), 1, -1 do out[#out + 1] = d.segs[i] end
+    for i = #(d.segs or {}), 1, -1 do
+        if not Empty(d.segs[i]) then out[#out + 1] = d.segs[i] end
+    end
     return out, d.all
 end
 
--- sel: "cur" (the live fight, else the newest), "all", or a fight id.
+-- sel: "cur" (the live fight, else the newest; a live one with nothing in it yet waits), "all", or a fight id.
 function Meter:GetSegment(sel)
     local d = self:Data()
     local segs = d.segs or {}
     if sel == "all" then return d.all end
-    if sel == nil or sel == "cur" then return segs[#segs] end
+    if sel == nil or sel == "cur" then
+        local n = #segs
+        if n > 1 and Empty(segs[n]) then return segs[n - 1] end
+        return segs[n]
+    end
     for i = #segs, 1, -1 do if segs[i].id == sel then return segs[i] end end
     return segs[#segs]
 end

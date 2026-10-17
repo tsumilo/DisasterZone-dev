@@ -276,6 +276,30 @@ def boss_fights_take_over_the_pull_and_note_kill_or_wipe():
 
 
 @case
+def a_dot_tick_after_the_boss_keeps_the_boss_fight_shown():
+    # feedback #34 (2026-10-16, SSC): after a kill, every lingering tick on a player started a trash fight that showed
+    # and was dropped two seconds later: the panels flipped trash / last fight / trash
+    r = Raid()
+    r.combat(True, "Victhar")
+    r.cl.fire("ENCOUNTER_START", 731, "Void Reaver", 4, 25)
+    r.hit("Gina", 1000)
+    r.cl.fire("ENCOUNTER_END", 731, "Void Reaver", 4, 25, 1)
+    boss_id = r.seg()["id"]
+    for _ in range(3):
+        r.boss_hits("Victhar", 300)                          # the boss's DoT ticks on after the kill
+        assert r.cl.eval("return ns.Meter:IsRecording()") is True
+        assert r.seg()["id"] == boss_id                      # the panels keep the boss
+        assert r.cl.eval("return ns.Meter:GetFights()[1].id") == boss_id
+        r.end_fight()
+        assert r.seg()["id"] == boss_id and r.segs() == 1     # dropped: nobody hit anything
+        r.combat(True, "Victhar")
+    # real trash: shown as soon as someone hits it
+    r.hit("Gina", 700, dst=r.add, dst_name="Crystalcore Devastator")
+    assert r.seg()["kind"] == "trash" and r.seg()["id"] != boss_id
+    r.w.assert_no_errors()
+
+
+@case
 def trash_adds_up_between_bosses_when_asked():
     r = Raid()
     r.cl.eval("ns.DB:SetSetting('meters.split', 'boss')")
