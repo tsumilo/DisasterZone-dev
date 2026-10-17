@@ -80,6 +80,52 @@ def data_is_consistent():
     no_errors(w)
 
 
+@case
+def every_road_off_a_map_leads_into_the_next_one():
+    """Walking off any open edge tile lands where G:TryStep puts you; from there the next map must open up, not leave
+    you in a pocket (2026-10-17: south from Zul'Mamwe left you in a one-tile alcove of the arena's north wall)."""
+    w, c = game()
+    pockets = c.eval_py(r"""
+      local Maps, G = ns.AzeroMaps, ns.Azero
+      local out = {}
+      for id, def in pairs(Maps) do
+        if type(def) == "table" and def.rows and def.edges and not def.dynamic then
+          local m = G.Compile(id)
+          for side, e in pairs(def.edges) do
+            local t = G.Compile(e.map)
+            local n = (side == "north" or side == "south") and m.w or m.h
+            for i = 0, n - 1 do
+              local x = (side == "west") and 0 or (side == "east") and m.w - 1 or i
+              local y = (side == "north") and 0 or (side == "south") and m.h - 1 or i
+              if not m.solid[m.key(x, y)] then
+                local tx, ty
+                if side == "north" or side == "south" then tx, ty = x + (e.dx or 0), (side == "north") and t.h - 1 or 0
+                else tx, ty = (side == "west") and t.w - 1 or 0, y + (e.dy or 0) end
+                tx, ty = G.OpenSpot(t, tx, ty)
+                local seen, stack, count = { [t.key(tx, ty)] = true }, { { tx, ty } }, 1
+                while #stack > 0 and count < 40 do
+                  local p = table.remove(stack)
+                  for _, d in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+                    local nx, ny = p[1] + d[1], p[2] + d[2]
+                    if nx >= 0 and ny >= 0 and nx < t.w and ny < t.h then
+                      local k = t.key(nx, ny)
+                      if not seen[k] and not t.solid[k] then seen[k] = true; count = count + 1; stack[#stack + 1] = { nx, ny } end
+                    end
+                  end
+                end
+                if count < 40 then out[#out + 1] = ("%s %s at %d,%d -> %s %d,%d: %d tiles"):format(id, side, x, y, e.map, tx, ty, count) end
+              end
+            end
+          end
+        end
+      end
+      table.sort(out)
+      return out
+    """)
+    assert pockets == [], pockets
+    no_errors(w)
+
+
 # -- mechanics --------------------------------------------------------------------------------------------------------
 
 @case

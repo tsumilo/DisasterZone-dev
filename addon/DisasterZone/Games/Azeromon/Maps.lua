@@ -497,7 +497,7 @@ Maps.arena = {
     theme = "arena",
     rows = {
         "TTTTTTT..TTTTTTT",
-        "TiTTTTTTTTTTTTiT",
+        "TiTTTTT..TTTTTiT",
         "T..............T",
         "T..............T",
         "T..............T",
