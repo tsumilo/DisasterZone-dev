@@ -3977,12 +3977,7 @@ function Amb.Night(m, g, px, py)
                          (0.6 + 0.08 * math.sin(now * 9) * math.sin(now * 5.3)) * k)
                 end
             end
-            -- the player's lantern (outdoors)
-            if not g.indoor then
-                gn = gn + 1
-                Glow(gn, HX * TILE + TILE / 2, HY * TILE + TILE * 0.6, 44 * S, 1, 0.7, 0.35,
-                     (0.4 + 0.05 * math.sin(now * 7)) * k)
-            end
+            -- (the player carries no light: a glow round them with no lantern to be seen read as them glowing)
         end
     end
     for i = n + 1, #Amb.lightTex do Amb.lightTex[i]:Hide() end
@@ -4921,7 +4916,6 @@ function Amb.LightBegin(m, g, px, py)
                 L.AddLight(nn.id or nn.def.id or nn.def.name, x + 12, y + 9)
             end
         end
-        if not g.indoor then L.AddLight("me", px * 16 + 8, py * 16 + 9.6) end   -- the player's own lantern
     end
     return true
 end

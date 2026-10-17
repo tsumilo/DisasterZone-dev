@@ -178,7 +178,10 @@ def people_at_night_get_shadows_and_rims_instead_of_the_blob():
     assert st["contacts"] >= 1 and st["shadows"] >= 1 and st["rims"] > 0, st
     assert not st["playerBlob"] and st["playerFile"].endswith("chars_clean"), st
     assert c.eval("return ns.AzeroUI._ShadowsShown()") == 0
-    assert st["lights"] >= 2 and st["live"] >= 1, st         # the lamps in view, the player's lantern
+    assert st["lights"] >= 2, st                             # the lamps in view
+    # the player carries no light: nothing glows round them and nobody is lit by them
+    assert c.eval("return ns.AzeroLight.State('me') and ns.AzeroLight.State('me').vme == nil")
+    assert all(not k.startswith("vme") for p in ("crier", "npc0") for k in (c.eval_py("return ns.AzeroLight.State(%r)" % p) or {}))
     no_errors(w)
 
 
