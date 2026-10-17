@@ -27,7 +27,8 @@ Demo.PULL = PULL
 -- The page's groups, in order.
 Demo.GROUPS = {
     screen = { { "combat", "Combat" }, { "frames", "Frames and bars" }, { "class", "Class tools" }, { "guild", "Guild" } },
-    moment = { { "loot", "Loot" }, { "rules", "Loot rules scenarios" }, { "raid", "Raid night" }, { "tour", "Look around" } },
+    moment = { { "loot", "Loot" }, { "rules", "Loot rules scenarios" }, { "raid", "Raid night" },
+               { "class", "Class tools" }, { "tour", "Look around" } },
 }
 
 local parts, order = {}, {}         -- key -> def; every def in page order

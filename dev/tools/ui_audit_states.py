@@ -1630,7 +1630,7 @@ SHOT_HUD = ("__MOCK.real_geometry = true; __MOCK.ranged_speed = 2.2; "
 WAR_HUD = ("__MOCK.real_geometry = true; "
            "local names = { [29707] = 'Heroic Strike', [25231] = 'Cleave', [30335] = 'Bloodthirst', [1680] = 'Whirlwind', "
            "[25236] = 'Execute', [30033] = 'Rampage', [2048] = 'Battle Shout', [2687] = 'Bloodrage', [25212] = 'Hamstring', "
-           "[30330] = 'Mortal Strike', [25242] = 'Slam' }; "
+           "[30330] = 'Mortal Strike', [25242] = 'Slam', [12328] = 'Sweeping Strikes', [11585] = 'Overpower' }; "
            "local old = GetSpellInfo; GetSpellInfo = function(x, ...) if names[x] then return names[x] end "
            "for _, n in pairs(names) do if n == x then return n end end return old(x, ...) end; "
            "__MOCK.spell_cd = __MOCK.spell_cd or {}; "
@@ -1648,10 +1648,32 @@ WAR_HUD = ("__MOCK.real_geometry = true; "
            "__MOCK.fire('UNIT_ATTACK_SPEED', 'player'); "
            "W.OnMH(GetTime() - %s); if oh then W.OnOH(GetTime() - 1.0) end; ns.WarriorSwingHUD:Update()")
 
-def war_hud(theme, at="1.7", style="both", rage=62, oh="2.6", queued="false", spec="fury"):
+def war_hud(theme, at="1.7", style="both", rage=62, oh="2.6", queued="false", spec="fury", sit=None):
     return opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.theme', '%s'); " % theme
+                  + ("ns.Situation:SetDemo(%s); " % sit if sit else "")
                   + (WAR_HUD % at).replace("STYLE", style).replace("RAGE", str(rage)).replace("OH_SPEED", oh)
                   .replace("QUEUED", queued).replace("SPEC", spec))
+
+
+# Situations (Core/Situation.lua, feedback #30): a situation played on the timer (Situation:SetDemo: the Demo page's
+# moments use it too), Arms with a two-hander unless said.
+SIT_PACK = "{ kind = 'pack', n = 4 }"
+SIT_HELD = "{ kind = 'pack', n = 3, held = { key = 'poly', name = 'Polymorph', icon = 'Interface\\\\Icons\\\\Spell_Nature_Polymorph' } }"
+SIT_PLAYER = "{ kind = 'player', cls = 'ROGUE', who = 'Rogue' }"
+SIT_LOCKED = "{ kind = 'pack', n = 5, locked = true }"
+# (a state on one tool: the others the earlier states switched on go off)
+SIT_ONLY = ("ns.WarriorSwing.IsMine = function() return false end; ns.WarriorSwing:Refresh(); "
+            "ns.SwingTimer.IsRet = function() return false end; ns.SwingTimer:Refresh(); "
+            "ns.ShotTimer.IsMine = function() return false end; ns.ShotTimer:Refresh(); ")
+
+
+def sit_war(theme, sit, rage=64, at="1.0", extra=""):
+    st = war_hud(theme, at=at, style="bar", rage=rage, oh="nil", spec="arms", sit=sit)
+    if extra:
+        st = opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.theme', '%s'); ns.Situation:SetDemo(%s); %s"
+                    % (theme, sit, extra) + (WAR_HUD % at).replace("STYLE", "bar").replace("RAGE", str(rage))
+                    .replace("OH_SPEED", "nil").replace("QUEUED", "false").replace("SPEC", "arms"))
+    return st
 
 
 # The Dock (UI/LookDock.lua): the game's bottom bars stood in for (containers of 45 px buttons with a Ret paladin's
@@ -2683,6 +2705,28 @@ STATES = [
     ("Warrior swing timer - two-hander", war_hud("halo", at="-0.45", style="bar", rage=53, oh="nil", spec="arms")),
     ("Warrior swing timer - two-hander slate", war_hud("slate", at="-0.45", style="bar", rage=53, oh="nil", spec="arms")),
     ("Settings - Warrior swing timer", demo("ns.SettingsUI:SelectSection('war')", "settings")),
+    ("Situations - warrior pack halo", sit_war("halo", SIT_PACK)),
+    ("Situations - warrior pack sigil", sit_war("sigil", SIT_PACK)),
+    ("Situations - warrior pack gilded", sit_war("gilded", SIT_PACK)),
+    ("Situations - warrior pack slate", sit_war("slate", SIT_PACK)),
+    ("Situations - warrior pack pips", sit_war("pips", SIT_PACK)),
+    ("Situations - warrior pack classic", sit_war("classic", SIT_PACK)),
+    ("Situations - warrior held halo", sit_war("halo", SIT_HELD, rage=58)),
+    ("Situations - warrior player halo", sit_war("halo", SIT_PLAYER, rage=20,
+                                                 extra="ns.WarriorSwing.state.opUntil = GetTime() + 4; ")),
+    ("Situations - warrior locked halo", sit_war("halo", SIT_LOCKED, rage=47)),
+    ("Situations - ret player", opened("home", "ns.MainFrame:Close(); " + SIT_ONLY + "ns.Situation:SetDemo({ kind = 'player', "
+                                       "cls = 'PRIEST', who = 'Priest' }); ns.SwingTimer.state.demoStun = GetTime() + 4; "
+                                       + (SWING_HUD % "1.2").replace("STYLE", "bar"))),
+    ("Situations - hunter player", opened("home", "ns.MainFrame:Close(); " + SIT_ONLY + "ns.Situation:SetDemo({ kind = 'player', "
+                                          "cls = 'PRIEST', who = 'Priest' }); __MOCK.known_spells[5116] = true; "
+                                          "local o5 = GetSpellInfo; GetSpellInfo = function(x, ...) if x == 5116 or x == 'Concussive Shot' "
+                                          "then return 'Concussive Shot' end return o5(x, ...) end; "
+                                          + (SHOT_HUD % "0.25").replace("STYLE", "bar"))),
+    ("Settings - Situations search", demo("ns.SettingsUI.searchBox:SetText('situation'); ns.SettingsUI:Search('situation')", "settings")),
+    ("Settings - Situations search pack", demo("ns.SettingsUI.searchBox:SetText('pack'); ns.SettingsUI:Search('pack')", "settings")),
+    ("Settings - Situations search stance", demo("ns.SettingsUI.searchBox:SetText('stance'); ns.SettingsUI:Search('stance')", "settings")),
+    ("Settings - Situations search sting", demo("ns.SettingsUI.searchBox:SetText('sting'); ns.SettingsUI:Search('sting')", "settings")),
     ("Dock - flat", opened("home", DOCK_STATE.replace("LOOK", "flat"))),
     ("Dock - halo", opened("home", DOCK_STATE.replace("LOOK", "halo"))),
     ("Dock - sigil", opened("home", DOCK_STATE.replace("LOOK", "sigil"))),

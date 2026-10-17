@@ -38,7 +38,7 @@ SwingTimer.OVERLAP, SwingTimer.MARGIN, SwingTimer.GCD = OVERLAP, MARGIN, GCD
 
 -- Spells by a known id (names come from GetSpellInfo, so any client language works)
 local IDS = {
-    soc = 20375, sob = 31892, cs = 35395, judge = 20271, exo = 879, cons = 26573,
+    soc = 20375, sob = 31892, cs = 35395, judge = 20271, exo = 879, cons = 26573, hoj = 853,
 }
 SwingTimer.IDS = IDS
 -- Icons: the spell's own when the client knows it (Seal of the Martyr gets its own), these otherwise
@@ -46,8 +46,13 @@ local ICONS = {
     soc = "Interface\\Icons\\Ability_Warrior_InnerRage", sob = "Interface\\Icons\\Spell_Holy_SealOfBlood",
     cs = "Interface\\Icons\\Spell_Holy_CrusaderStrike", judge = "Interface\\Icons\\Spell_Holy_RighteousFury",
     exo = "Interface\\Icons\\Spell_Holy_Excorcism_02", cons = "Interface\\Icons\\Spell_Holy_InnerFire",
-    wait = "Interface\\Icons\\INV_Misc_PocketWatch_01",
+    hoj = "Interface\\Icons\\Spell_Holy_SealOfMight", wait = "Interface\\Icons\\INV_Misc_PocketWatch_01",
 }
+-- Stuns and incapacitates on the target (one id of each; the client names every rank alike): Seal of Command's
+-- Judgement does double damage then ("456 to 504 if the target is stunned or incapacitated", the TBC tooltip).
+local STUNS = { 853, 408, 1833, 20253, 7922, 12809, 20549, 5211, 9005, 22570, 24394, 12355, 15269, 20170, 30283, 5530,
+                12798, 16922, 1776, 6770, 20066 }
+local HOJ_CD = 60
 
 local MARTYR = 348700            -- Seal of the Martyr: the Alliance's Seal of Blood in TBC Classic, same twist
 local names = {}                 -- key -> localized spell name
@@ -93,6 +98,10 @@ ns.ClassKit:Register({
 function SwingTimer:IsRet()
     return ns.ClassKit:IsMine("swing")
 end
+
+-- Situations (Core/Situation.lua): no pack for Ret (the twist is the same on one target or many, and Consecration
+-- doesn't pay its mana), only a player.
+ns.Situation:Register("swing", { kinds = { player = true }, active = function() return SwingTimer.active and true or false end })
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Latency
@@ -206,6 +215,31 @@ local function TargetType()
     return t
 end
 
+-- Until when the target is stunned or incapacitated (0: it isn't).
+local stunNames
+local function StunnedUntil(now)
+    if state.demoStun then return state.demoStun end
+    if not stunNames then
+        stunNames = {}
+        for _, id in ipairs(STUNS) do
+            local n = GetSpellInfo and GetSpellInfo(id)
+            if n then stunNames[n] = true end
+        end
+    end
+    if not UnitDebuff or not (UnitExists and UnitExists("target")) then return 0 end
+    local untilT = 0
+    for i = 1, 40 do
+        local n, _, _, _, _, expires = UnitDebuff("target", i)
+        if not n then break end
+        if stunNames[n] then
+            expires = tonumber(expires) or 0
+            untilT = max(untilT, expires > 0 and expires or now + 1)
+        end
+    end
+    return untilT
+end
+SwingTimer.StunnedUntil = StunnedUntil
+
 local UNDEAD_DEMON = { Demon = true, Undead = true, ["Dämon"] = true, ["Untoter"] = true, ["Démon"] = true,
     ["Mort-vivant"] = true, ["Demonio"] = true, ["No-muerto"] = true }
 
@@ -220,11 +254,17 @@ function SwingTimer:Snapshot(now)
                   cons = Get("use.cons", false) and Known("cons") }
     if use.exo and not UNDEAD_DEMON[TargetType() or ""] then use.exo = false end
     if use.cons and manaMax > 0 and mana / manaMax * 100 < (tonumber(Get("consMana", 40)) or 40) then use.cons = false end
+    -- against a player: Seal of Command's Judgement on a stunned target; Hammer of Justice to set it up (opt-in)
+    local sit = ns.Situation:Info("swing", now)
+    local player = sit.kind == "player"
+    use.stunJudge = player and Get("stunJudge", true) and true or false
+    use.hoj = player and Get("hoj", false) and Known("hoj") or false
     return {
+        sit = sit, stunUntil = (use.stunJudge or use.hoj) and StunnedUntil(now) or 0,
         now = now, nextSwing = nxt, lastSwing = state.last or (nxt - sp), speed = sp, lat = self:Latency(),
         gcdReady = now + GcdLeft(now), seal = state.seal, use = use,
         ready = { cs = now + CdLeft("cs", now), judge = now + CdLeft("judge", now), exo = now + CdLeft("exo", now),
-                  cons = now + CdLeft("cons", now) },
+                  cons = now + CdLeft("cons", now), hoj = now + CdLeft("hoj", now) },
         gcd = state.gcd, cd = state.cd,
     }
 end
@@ -238,7 +278,10 @@ end
 --                                                              WoWSims leaves both off)
 --   5. no Command, Judgement on cooldown, its GCD ends before the next window closes, >= 0.5 s after a swing
 --                                                           -> Seal of Command
--- plus: no seal at all -> Seal of Command. The 0.4 s of rule 1 is on the server's clock; on ours the window is one
+-- plus: no seal at all -> Seal of Command.
+-- Against a player (Core/Situation.lua), before all of them: Seal of Command up and the target stunned or
+-- incapacitated -> Judgement (Command's does double then); Hammer of Justice (opt-in) to stun it when Command is up and
+-- Judgement is ready or nearly. The 0.4 s of rule 1 is on the server's clock; on ours the window is one
 -- round trip earlier and MARGIN inside both edges (the press zone). Haste: the swing length is the client's
 -- UnitAttackSpeed read on every pass (a running swing is rescaled the moment it changes, UNIT_ATTACK_SPEED), and the
 -- GCD and cooldowns are the durations the client last reported, so nothing here is a fixed number.
@@ -254,6 +297,8 @@ function SwingTimer.Run(snap, horizon)
     local rd = {}
     for k, v in pairs(snap.ready) do rd[k] = v end
     local use, G, CD = snap.use, snap.gcd, snap.cd
+    local stunUntil, stunFrom = snap.stunUntil or 0, t
+    rd.hoj = rd.hoj or t
     local steps = {}
     for _ = 1, 40 do
         if t > horizon then break end
@@ -261,7 +306,10 @@ function SwingTimer.Run(snap, horizon)
         local zone0, zone1 = nxt - OVERLAP + MARGIN - lat, nxt - MARGIN - lat
         local gcdOk = t >= gcd - 0.001
         local act, twist
-        if seal == "soc" and gcdOk and t >= zone0 and t <= zone1 then act, twist = "sob", nxt
+        if use.stunJudge and seal == "soc" and t >= rd.judge and t >= stunFrom and t + lat < stunUntil then act = "judge"
+        elseif use.hoj and seal == "soc" and gcdOk and t >= rd.hoj and rd.judge - t <= 0.5 and stunUntil <= t + lat then
+            act = "hoj"
+        elseif seal == "soc" and gcdOk and t >= zone0 and t <= zone1 then act, twist = "sob", nxt
         elseif seal == "sob" and gcdOk and use.cs and t >= rd.cs then act = "cs"
         elseif seal == "sob" and gcdOk and t >= rd.judge and t - last <= 0.8 then act = "judge"
         elseif seal == "sob" and gcdOk and use.exo and t >= rd.exo then act = "exo"
@@ -273,6 +321,9 @@ function SwingTimer.Run(snap, horizon)
         if act then
             steps[#steps + 1] = { key = act, at = t, twist = twist }
             if act == "judge" then rd.judge = t + CD.judge; seal = nil
+            elseif act == "hoj" then
+                -- (the stun lands one round trip later: Judgement after that)
+                gcd, rd.hoj, stunFrom, stunUntil = t + G, t + HOJ_CD, t + lat, t + lat + 6
             else
                 gcd = t + G
                 if act == "sob" or act == "soc" then seal = act end
@@ -281,6 +332,8 @@ function SwingTimer.Run(snap, horizon)
         else
             -- jump to the next moment a rule could fire
             local cand = { gcd, zone0, nxt + 0.001, last + 0.5, rd.cs, rd.judge }
+            if use.hoj then cand[#cand + 1] = rd.hoj end
+            if stunFrom > t then cand[#cand + 1] = stunFrom end
             if use.exo then cand[#cand + 1] = rd.exo end
             if use.cons then cand[#cand + 1] = rd.cons end
             local nt = huge
@@ -483,6 +536,10 @@ local function DemoSwings(on)
             acc = 0
             local now = GetTime()
             state.speed = 3.5
+            -- (a duel on the Demo page: the target is stunned for 6 s out of every 14)
+            local d = ns.Situation:Demo()
+            if d and d.kind == "player" then state.demoStun = (now % 14 < 6) and (now - now % 14 + 6) or 0
+            else state.demoStun = nil end
             state.seal = "soc"
             state.sealExpires = now + 25
             if not state.last or now - state.last >= state.speed then

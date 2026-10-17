@@ -16,4 +16,7 @@
 	<Binding name="DISASTERZONE_RECRUITPOST" category="ADDONS">
 		DisasterZone_PostRecruit()
 	</Binding>
+	<Binding name="DISASTERZONE_SITUATION" category="ADDONS">
+		DisasterZone_SituationNext()
+	</Binding>
 </Bindings>
