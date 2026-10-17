@@ -49,9 +49,11 @@ TIMINGS = os.path.join(TF_E, "timings.json")
 # its own 8 slots, and three sessions testing at once ran 24 suites on 12 cores (2026-10-12: the PC crawled).
 SLOT_DIR = os.environ.get("DZ_SLOT_DIR") or os.path.join(
     os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "DisasterZone", "test-slots")
-# 8 on this machine (12 cores, 20 threads): measured 2026-10-12 on 46 suites, 8 workers finished in 113 s, 12 in 119 s
-# (each suite ran 1.6x slower: the Lua heaps fight over memory and caches) and 6 in 126 s.
-SLOTS = int(os.environ.get("DZ_TEST_SLOTS") or max(2, min(8, (os.cpu_count() or 8) - 6)))
+# 12 on this machine (12 cores, 20 threads). 2026-10-12, a process per suite: 8 workers were best (at 12 each suite ran
+# 1.6x slower, the Lua heaps fighting over memory). 2026-10-17, with the WSL test server's pre-loaded clients: the
+# whole --all run (284 suite runs, WoW and another session running) took 617 s at 8 and 415 s at 12, the suites as
+# fast at 12 as at 8 (4858 s / 4905 s summed).
+SLOTS = int(os.environ.get("DZ_TEST_SLOTS") or max(2, min(12, (os.cpu_count() or 8) - 8)))
 MIN_FREE_MB = 1500
 TIMEOUT = 1500
 
