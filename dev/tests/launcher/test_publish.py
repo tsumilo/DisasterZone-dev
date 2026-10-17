@@ -1,8 +1,9 @@
 """Desktop launcher, part 1: what release.py publishes for it (tools/launchlib.py, release.py launcher-keygen/publish).
 
 Covers: Ed25519 against the RFC 8032 vectors; a published tree checks out (signature, every object, the changelog
-notes); a second release writes only the objects that changed; tampering (manifest, object, other key) is caught;
-publish refuses a zip that is not the release's, a missing key, and taking a channel back without --force.
+notes, the packs read from each folder's TOC); a second release writes only the objects that changed; tampering
+(manifest, object, other key) is caught; publish refuses a zip that is not the release's, a missing key, and taking a
+channel back without --force; the pack rules (TOC lines, folder names, the zip's read-me).
 Never touches the real keys, releases or dist folders: every path release.py writes is pointed into a temp folder.
 
 Run: luaenv\\Scripts\\python.exe tests\\launcher\\test_publish.py [-k name]
@@ -28,6 +29,25 @@ import launchlib  # noqa: E402
 import release  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="dzlaunch_")
+
+# A game pack's TOC as release.py writes it (CRLF, like the 3D rooms' TOC).
+CHESS_TOC = ("## Interface: 20506\r\n## Title: |cffff8000Disaster|rZone \u00b7 Karazhan Chess\r\n"
+             "## Notes: Play Medivh's echo, or a guildmate.\r\n## Dependencies: DisasterZone\r\n"
+             "## X-DZ-Pack: chess\r\n## X-DZ-Kind: game\r\n## X-DZ-Build: 0123abcd\r\n\r\nLoad.lua\r\nChess.lua\r\n"
+             "Done.lua\r\n")
+
+# release.py hands publish the folders it finds next to the addon (the packs branch); until it does, publish here
+# reads every folder the test's zip holds.
+_read_zip_tree = launchlib.read_zip_tree
+
+
+def _every_folder(zip_path, folders):
+    with zipfile.ZipFile(zip_path) as zf:
+        tops = {n.partition("/")[0] for n in zf.namelist() if "/" in n}
+    return _read_zip_tree(zip_path, list(folders) + sorted(tops - set(folders)))
+
+
+launchlib.read_zip_tree = _every_folder
 
 CHANGELOG = """local addonName, ns = ...
 ns.CHANGELOG = {
@@ -55,19 +75,27 @@ def sandbox(name):
     return root
 
 
-def fake_release(version, build, files=None, rooms=None, zip_build=None):
-    """A release record + dist zip as 'release.py full' leaves them (only what publish reads)."""
+def fake_release(version, build, files=None, rooms=None, zip_build=None, games=None):
+    """A release record + dist zip as 'release.py full' leaves them (only what publish reads). games: {folder:
+    {path: text}}, by default one game pack (Chess)."""
     files = dict(files or {})
     files.setdefault("Core/BuildInfo.lua", 'DisasterZoneBuild = {\n    id = "%s",\n    assetPack = 3,\n}\n'
                      % (zip_build or build))
     files.setdefault("Data/Changelog.lua", CHANGELOG % (version, version))
-    files.setdefault("DisasterZone.toc", "## Version: %s\n" % version)
+    files.setdefault("DisasterZone.toc", "## Title: |cffff8000Disaster|rZone\n## Version: %s\n" % version)
+    # (the 3D rooms' TOC without the pack lines: an older Rooms TOC still reads as the rooms Extra)
     rooms = rooms if rooms is not None else {"DisasterZone_Rooms.toc": "## LoadOnDemand: 1\n", "Rooms/A.lua": "-- a\n"}
+    games = games if games is not None else {
+        "DisasterZone_Chess": {"DisasterZone_Chess.toc": CHESS_TOC, "Chess.lua": "-- chess\n"}}
     with zipfile.ZipFile(os.path.join(release.DIST, "DisasterZone-%s.zip" % version), "w") as zf:
+        zf.writestr("Read me.txt", "Replace the folders, don't paste over them.\n")
         for rel, text in files.items():
             zf.writestr("DisasterZone/" + rel, text)
         for rel, text in rooms.items():
             zf.writestr("DisasterZone_Rooms/" + rel, text)
+        for folder, tree in games.items():
+            for rel, text in tree.items():
+                zf.writestr(folder + "/" + rel, text)
     with open(os.path.join(release.RELEASES, "%s.json" % version), "w") as fh:
         json.dump({"version": version, "build": build, "assetPack": 3, "files": {}, "commit": "c0ffee"}, fh)
     with open(os.path.join(release.RELEASES, "base.json"), "w") as fh:
@@ -148,8 +176,17 @@ def a_published_tree_checks_out():
     assert "seq 1" in text, text
     m = manifest(out)
     assert (m["format"], m["channel"], m["seq"], m["version"], m["build"], m["assetPack"]) == (
-        1, "stable", 1, "1.0.0", "b1", 3), m
-    assert sorted(m["folders"]) == ["DisasterZone", "DisasterZone_Rooms"]
+        2, "stable", 1, "1.0.0", "b1", 3), m
+    assert sorted(m["folders"]) == ["DisasterZone", "DisasterZone_Chess", "DisasterZone_Rooms"]
+    assert "Read me.txt" not in json.dumps(m["folders"])
+    assert m["packs"] == [
+        {"id": "core", "folder": "DisasterZone", "kind": "core", "title": "DisasterZone", "tagline": "",
+         "required": True, "defaultOn": True},
+        {"id": "rooms", "folder": "DisasterZone_Rooms", "kind": "extra", "title": "3D rooms", "tagline": "",
+         "required": False, "defaultOn": True},
+        {"id": "chess", "folder": "DisasterZone_Chess", "kind": "game", "title": "Karazhan Chess",
+         "tagline": "Play Medivh's echo, or a guildmate.", "required": False, "defaultOn": False},
+    ], m["packs"]
     a = m["folders"]["DisasterZone"]["Core/A.lua"]
     assert a["size"] == 250 and a["sha256"] == hashlib.sha256(b"-- a\n" * 50).hexdigest(), a
     assert "Rooms/A.lua" in m["folders"]["DisasterZone_Rooms"]
@@ -260,6 +297,85 @@ def full_with_publish_hands_the_new_release_to_publish():
         release.cmd_full = real_full
     assert (got[0].publish, got[0].channel) == (True, "beta"), got[0]
     assert (got[1].publish, got[1].channel) == (False, "stable"), got[1]
+
+
+@case
+def packs_come_from_the_tocs():
+    toc = lambda *lines: ("\r\n".join(lines) + "\r\n").encode()
+    core = {"DisasterZone.toc": toc("## Title: |cffff8000Disaster|rZone", "## Notes: Loot council.")}
+    tree = {"DisasterZone": core,
+            "DisasterZone_Rooms": {"DisasterZone_Rooms.toc": toc("## Title: |cffff8000Disaster|rZone 3D rooms",
+                                                                  "## X-DZ-Pack: rooms", "## X-DZ-Kind: extra")},
+            "DisasterZone_Azeromon": {"DisasterZone_Azeromon.toc": toc(
+                "## Title: |cffff8000Disaster|rZone \u00b7 Azeromon", "## Notes: Tame and battle.",
+                "##  x-dz-pack : azeromon", "## X-DZ-Kind: game")}}
+    packs = launchlib.pack_list(tree)
+    assert [(p["id"], p["kind"], p["title"], p["defaultOn"]) for p in packs] == [
+        ("core", "core", "DisasterZone", True), ("rooms", "extra", "3D rooms", True),
+        ("azeromon", "game", "Azeromon", False)], packs
+    assert packs[0]["tagline"] == "Loot council." and packs[0]["required"]
+
+    def refuses(extra, needle):
+        bad = dict(tree, **extra)
+        try:
+            launchlib.pack_list(bad)
+        except ValueError as e:
+            assert needle in str(e), (needle, str(e))
+            return
+        raise AssertionError("accepted: %s" % sorted(extra))
+    refuses({"DisasterZone_Chess": {"DisasterZone_Chess.toc": toc("## X-DZ-Kind: game")}}, "X-DZ-Pack")
+    refuses({"DisasterZone_Chess": {"DisasterZone_Chess.toc": toc("## X-DZ-Pack: chess", "## X-DZ-Kind: core")}},
+            "X-DZ-Kind")
+    refuses({"DisasterZone_Chess": {"DisasterZone_Chess.toc": toc("## X-DZ-Pack: Ch ess", "## X-DZ-Kind: game")}},
+            "bad pack id")
+    refuses({"DisasterZone_Chess": {"DisasterZone_Chess.toc": toc("## X-DZ-Pack: azeromon", "## X-DZ-Kind: game")}},
+            "two folders")
+    refuses({"DisasterZone_Chess": {"Chess.lua": b"-- no toc"}}, "has no DisasterZone_Chess.toc")
+    refuses({"DisasterZone-Chess": {"DisasterZone-Chess.toc": toc("## X-DZ-Pack: chess")}}, "release folder")
+    refuses({"DisasterZone_Bridge": {"DisasterZone_Bridge.toc": toc("## X-DZ-Pack: bridge")}}, "release folder")
+    try:
+        launchlib.pack_list({"DisasterZone_Rooms": tree["DisasterZone_Rooms"]})
+        raise AssertionError("a release without the core")
+    except ValueError as e:
+        assert "needs the DisasterZone folder" in str(e), e
+
+
+@case
+def the_zip_may_hold_only_its_folders_and_the_read_me():
+    root = sandbox("zipshape")
+    path = os.path.join(root, "x.zip")
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("Read me.txt", "hi")
+        zf.writestr("DisasterZone/DisasterZone.toc", "## Title: x\n")
+        zf.writestr("DisasterZone_Chess/Chess.lua", "-- c\n")
+    tree = _read_zip_tree(path, ["DisasterZone", "DisasterZone_Chess", "DisasterZone_Rooms"])
+    assert sorted(tree) == ["DisasterZone", "DisasterZone_Chess"], tree      # (an empty folder is left out)
+    try:
+        _read_zip_tree(path, ["DisasterZone"])
+        raise AssertionError("a folder nobody listed was accepted")
+    except ValueError as e:
+        assert "unexpected entry DisasterZone_Chess/Chess.lua" in str(e), e
+    with zipfile.ZipFile(path, "a") as zf:
+        zf.writestr("notes.txt", "stray")
+    try:
+        _read_zip_tree(path, ["DisasterZone", "DisasterZone_Chess"])
+        raise AssertionError("a stray root file was accepted")
+    except ValueError as e:
+        assert "unexpected entry notes.txt" in str(e), e
+
+
+@case
+def verify_tree_checks_the_packs_match_the_folders():
+    root = sandbox("packcheck")
+    ok("launcher-keygen")
+    out = os.path.join(root, "pub")
+    fake_release("1.0.0", "b1")
+    ok("publish", "--out", out)
+    key = launchlib.load_key(release.LAUNCHER_KEY_PATH)
+    m = manifest(out)
+    m["packs"] = [p for p in m["packs"] if p["id"] != "chess"]
+    launchlib.write_tree(out, m, {}, key)
+    assert any("don't match the folders" in p for p in launchlib.verify_tree(out, "stable", key["public"]))
 
 
 @case
