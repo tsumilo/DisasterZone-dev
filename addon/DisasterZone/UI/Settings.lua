@@ -1026,6 +1026,7 @@ function SettingsUI:SetMoreOpen(sec, open)
     if not (sec and sec.fold) then return end
     Set(MorePath(sec), open and true or nil)
     self:Relayout(sec)
+    if sec.kitBody then self:LayoutClassTools() end
     self:LayoutView()
 end
 
@@ -2344,12 +2345,14 @@ function SettingsUI:BuildClassTools(sec)
         body.y = 0
         body.key = key
         body.fitW = BODY_W - 2 * KIT_INSET
+        body.kitBody = true             -- (rows that need a switch and a More options fold work here too)
         -- (its rows go into the search under Combat > Class tools > the tool)
         local outer = self.ctx
         if outer then
             self.ctx = { cat = outer.cat, card = outer.card, kit = key, path = { outer.path[1], outer.path[2], kit.label } }
         end
         if kit.settings then kit.settings(self, body) else body.height = 0 end
+        if body.dynamic then self:Relayout(body) end
         self.ctx = outer
         body:SetHeight(max(1, body.height or 0))
         card.body = body
@@ -4690,6 +4693,19 @@ function SettingsUI:Refresh()
     -- (the sections that hide rows: stacked again for what is on now)
     for _, sec in pairs(self.sections) do
         if sec.dynamic then self:Relayout(sec) end
+    end
+    -- (and the class tools' cards that do: their heights follow)
+    local ct = self.sections and self.sections.classtools
+    if ct and ct.cards then
+        local moved = false
+        for _, card in ipairs(ct.cards) do
+            if card.body.dynamic then
+                self:Relayout(card.body)
+                card.body:SetHeight(max(1, card.body.height or 0))
+                moved = true
+            end
+        end
+        if moved then self:LayoutClassTools() end
     end
     -- (a card that is no longer there for me: back to its group's tiles)
     if self.mode == "card" and self.section and not self:CardVisible(self.section) then

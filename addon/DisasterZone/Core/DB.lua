@@ -77,11 +77,22 @@ local DEFAULTS = {
         -- latencyMs / sound as the swing timer's; hsLine = the Heroic Strike line in rage (0 = WoWSims': 40, two-handed
         -- Arms 80); number = rage in numbers; motion = the rage globe / bar moves (eases, sways, bubbles);
         -- ohBright = the off-hand ring brightens while Heroic Strike is queued;
-        -- use.* = the presses the planner may suggest (Hamstring weaving off, as it only pays with Sword Spec / WF)
+        -- use.* = the presses the planner may suggest (Hamstring weaving off, as it only pays with Sword Spec / WF);
+        -- rage = the rage globe / bar in the timer (off: the next press takes the middle, as on the Ret and Hunter rings)
         war = { enabled = false, style = "bar", idle = false, scale = 1, latencyMs = 0, hsLine = 0, number = true,
                 motion = true, ohBright = true, sound = false,
                 use = { bt = true, ms = true, ww = true, slam = true, exe = true, rampage = true, shout = true,
-                        brage = true, ham = false, hs = true } },
+                        brage = true, ham = false, hs = true }, rage = true },
+        -- Resource bar (Core/Resource.lua, UI/ResourceBar.lua; feedback #26): every class. theme = a class tool look;
+        -- shape bar | upright | globe; num ring | bar | pct | full | off (mana shows a percent); marks.<CLASS> = the
+        -- presses picked for a mark (none until the player picks); icons = spell icons instead of pegs; hsLine /
+        -- queued / swing = the warrior extras (swing = the next swing's rage, opt-in); tick ring | spark | off; rule =
+        -- the five-second rule on the ring; cap = warn before capping; combo = combo points (#27); formMana = druid mana
+        -- under the forms; show always | combat | active (in combat, or not at rest); restAlpha = out of combat;
+        -- color game | class | own (own = { r, g, b })
+        power = { enabled = false, theme = "halo", shape = "bar", num = "ring", marks = {}, icons = false, hsLine = true,
+                  queued = true, swing = false, tick = "ring", rule = true, cap = true, combo = true, formMana = true,
+                  show = "active", restAlpha = 0.4, color = "game", own = { r = 0.62, g = 0.36, b = 1 }, scale = 1 },
         -- Blessings (Core/Blessings.lua, UI/BlessingsBar.lua): paladins. bar "group" (party and raid) | "raid" | "off";
         -- warnMin = a blessing counts as running out this many minutes before it ends; free = anyone may assign
         -- me (Pally Power's Free Assignment); symbols = warn under this many Symbols of Kings; pets = pets count

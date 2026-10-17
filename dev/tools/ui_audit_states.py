@@ -162,7 +162,7 @@ def close_all(cl):
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
                               'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZLookLongNames', 'DZAuditFull', 'DZGroupStage',
-                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves', 'DisasterZoneReserveDemo', 'DisasterZoneKeyBinds' }) do
+                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves', 'DisasterZoneReserveDemo', 'DisasterZoneKeyBinds', 'DisasterZoneResourceBar' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       -- (the shared pop-ups of UI:Toast, which replaced some of the named ones above)
@@ -1648,8 +1648,42 @@ WAR_HUD = ("__MOCK.real_geometry = true; "
            "__MOCK.fire('UNIT_ATTACK_SPEED', 'player'); "
            "W.OnMH(GetTime() - %s); if oh then W.OnOH(GetTime() - 1.0) end; ns.WarriorSwingHUD:Update()")
 
+# Resource bar (Core/Resource.lua, UI/ResourceBar.lua; feedback #26): Gina's bar switched on and always shown, its
+# snapshot a fixed moment (KIND: rage = Fury 62 with marks and the Heroic Strike line; cat = 58 energy, the tick ring,
+# combo points, druid mana; rogue = 31 energy before a tick; mana = a healer 81% with the regen tick), in THEME / SHAPE.
+RES_SAMPLES = {
+    "rage": "{ kind = 'rage', v = 62, mx = 100, line = 40, fight = true, marks = { { key = 'ww', cost = 25 }, "
+            "{ key = 'bt', cost = 30 } } }",
+    "cat": "{ kind = 'energy', v = 58, mx = 100, tick = 0.35, ghost = 20, cp = 4, mana = { pct = 61, shift = 22 }, "
+           "fight = true, marks = { { key = 'rip', cost = 30 }, { key = 'shred', cost = 42 } } }",
+    "rogue": "{ kind = 'energy', v = 31, mx = 100, tick = 0.8, ghost = 20, cp = 3, fight = true, marks = { "
+             "{ key = 'snd', cost = 25 }, { key = 'evis', cost = 35 }, { key = 'ss', cost = 40 } } }",
+    "mana": "{ kind = 'mana', v = 8100, mx = 10000, tick = 0.6, ghost = 150, fight = true, marks = {} }",
+    "cap": "{ kind = 'energy', v = 94, mx = 100, tick = 0.85, ghost = 20, cp = 5, cap = true, fight = true, marks = { "
+           "{ key = 'snd', cost = 25 }, { key = 'evis', cost = 35 }, { key = 'ss', cost = 40 } } }",
+    "held": "{ kind = 'rage', v = 47, mx = 100, line = 40, held = 12, fight = true, marks = { { key = 'ww', cost = 25 }, "
+            "{ key = 'bt', cost = 30 } } }",
+}
+RES_HUD = ("__MOCK.real_geometry = true; local R = ns.Resource; R.Snapshot = function() return SAMPLE end; "
+           "ns.DB:SetSetting('power.enabled', true); ns.DB:SetSetting('power.show', 'always'); "
+           "ns.DB:SetSetting('power.restAlpha', 1); ns.DB:SetSetting('power.theme', 'THEME'); "
+           "ns.DB:SetSetting('power.shape', 'SHAPE'); ns.DB:SetSetting('power.num', 'NUM'); ns.ResourceBar:Refresh()")
+
+
+def res_hud(theme, shape="bar", kind="rage", num="ring"):
+    return opened("home", "ns.MainFrame:Close(); " + RES_HUD.replace("SAMPLE", RES_SAMPLES[kind])
+                  .replace("THEME", theme).replace("SHAPE", shape).replace("NUM", num))
+
+
+def war_hud_bare(theme):
+    """The Warrior swing timer with "Rage in the timer" off (D-10): the next press in the middle, no globe."""
+    return opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.rage', false); ns.DB:SetSetting('war.theme', '%s'); " % theme
+                  + (WAR_HUD % "1.7").replace("STYLE", "bar").replace("RAGE", "62").replace("OH_SPEED", "2.6")
+                  .replace("QUEUED", "false").replace("SPEC", "fury"))
+
+
 def war_hud(theme, at="1.7", style="both", rage=62, oh="2.6", queued="false", spec="fury"):
-    return opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.theme', '%s'); " % theme
+    return opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.rage', true); ns.DB:SetSetting('war.theme', '%s'); " % theme
                   + (WAR_HUD % at).replace("STYLE", style).replace("RAGE", str(rage)).replace("OH_SPEED", oh)
                   .replace("QUEUED", queued).replace("SPEC", spec))
 
@@ -2666,6 +2700,40 @@ STATES = [
     ("Swing timer theme - classic", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('swing.theme', 'classic'); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
     ("Shot timer theme - classic", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'classic'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer theme - pips", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'pips'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
+    ("Resource bar - halo bar rage", res_hud("halo", "bar", "rage")),
+    ("Resource bar - halo upright cat", res_hud("halo", "upright", "cat")),
+    ("Resource bar - halo globe rogue", res_hud("halo", "globe", "rogue")),
+    ("Resource bar - halo bar mana", res_hud("halo", "bar", "mana")),
+    ("Resource bar - sigil bar rage", res_hud("sigil", "bar", "rage")),
+    ("Resource bar - sigil upright cat", res_hud("sigil", "upright", "cat")),
+    ("Resource bar - sigil globe rogue", res_hud("sigil", "globe", "rogue")),
+    ("Resource bar - sigil bar mana", res_hud("sigil", "bar", "mana")),
+    ("Resource bar - slate bar rage", res_hud("slate", "bar", "rage")),
+    ("Resource bar - slate upright cat", res_hud("slate", "upright", "cat")),
+    ("Resource bar - slate globe rogue", res_hud("slate", "globe", "rogue")),
+    ("Resource bar - slate bar mana", res_hud("slate", "bar", "mana")),
+    ("Resource bar - gilded bar rage", res_hud("gilded", "bar", "rage")),
+    ("Resource bar - gilded upright cat", res_hud("gilded", "upright", "cat")),
+    ("Resource bar - gilded globe rogue", res_hud("gilded", "globe", "rogue")),
+    ("Resource bar - gilded bar mana", res_hud("gilded", "bar", "mana")),
+    ("Resource bar - pips bar rage", res_hud("pips", "bar", "rage")),
+    ("Resource bar - pips upright cat", res_hud("pips", "upright", "cat")),
+    ("Resource bar - pips globe rogue", res_hud("pips", "globe", "rogue")),
+    ("Resource bar - pips bar mana", res_hud("pips", "bar", "mana")),
+    ("Resource bar - classic bar rage", res_hud("classic", "bar", "rage")),
+    ("Resource bar - classic upright cat", res_hud("classic", "upright", "cat")),
+    ("Resource bar - classic globe rogue", res_hud("classic", "globe", "rogue")),
+    ("Resource bar - classic bar mana", res_hud("classic", "bar", "mana")),
+    ("Resource bar - halo bar capping", res_hud("halo", "bar", "cap")),
+    ("Resource bar - halo bar heroic strike queued", res_hud("halo", "bar", "held")),
+    ("Resource bar - halo bar number on the bar", res_hud("halo", "bar", "rage", "bar")),
+    ("Settings - Resource bar", demo("ns.DB:SetSetting('power.enabled', true); ns.SettingsUI:SelectSection('power')", "settings")),
+    ("Warrior swing timer rage off - halo", war_hud_bare("halo")),
+    ("Warrior swing timer rage off - sigil", war_hud_bare("sigil")),
+    ("Warrior swing timer rage off - gilded", war_hud_bare("gilded")),
+    ("Warrior swing timer rage off - slate", war_hud_bare("slate")),
+    ("Warrior swing timer rage off - pips", war_hud_bare("pips")),
+    ("Warrior swing timer rage off - classic", war_hud_bare("classic")),
     ("Warrior swing timer theme - halo", war_hud("halo")),
     ("Warrior swing timer theme - sigil", war_hud("sigil")),
     ("Warrior swing timer theme - slate", war_hud("slate")),

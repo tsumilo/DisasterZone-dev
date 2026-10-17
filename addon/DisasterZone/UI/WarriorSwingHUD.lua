@@ -24,6 +24,9 @@ local D = {
     VARIANT = "warrior",
 }
 function D.Get(path, default) return ST.Get(path, default) end
+-- "Rage in the timer" (war.rage) off: the face without the globe or rage row (RingFace's warrior_bare); the resource bar
+-- (UI/ResourceBar.lua) can carry the rage instead.
+function D:Variant() return ST.Get("rage", true) and "warrior" or "warrior_bare" end
 function D:IsActive() return ST.active end
 function D:IsDemo() return ST:IsDemo() end
 function D:Current() return ST:Current() end
@@ -127,6 +130,9 @@ if ns.ClassKit then ns.ClassKit:Extend("war", { iconPath = "Interface\\Icons\\Ab
     S:DropdownSetting(sec, "Heroic Strike line", "Queue it when your rage is over this.", "war.hsLine", 0, lines,
         "Auto uses WoWSims' line: 40 rage for Fury and dual-wield Arms, 80 for Arms with a two-hander. Raise it if "
             .. "you run out of rage for Bloodthirst or Mortal Strike.")
+    S:SwitchSetting(sec, "Rage in the timer", "Off: the globe (or the rage bar) goes and the next press takes the middle "
+        .. "of the ring, as on the Ret and Hunter rings. The resource bar (Class tools) can show your rage instead.",
+        "war.rage", true)
     S:SwitchSetting(sec, "Rage number", "Your rage in numbers on the globe or bar.", "war.number", true)
     S:SwitchSetting(sec, "Moving rage", "The globe's rage sways, sloshes when it changes and bubbles; "
         .. "bars slide to the new value. Off: it just shows the level.", "war.motion", true)

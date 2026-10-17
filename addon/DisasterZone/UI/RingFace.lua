@@ -85,6 +85,28 @@ RF.VARIANT = {
     },
 }
 
+-- The warrior's face with "Rage in the timer" off (war.rage; the resource bar, UI/ResourceBar.lua, can carry the rage
+-- instead): no globe and no rage row; on the round and tile looks the next press takes the middle, sized to sit inside
+-- the off-hand ring, the presses after it left of the ring; middleWeapon: the main-hand weapon there while the
+-- rotation is hidden (an empty hole otherwise).
+do
+    local bare = {}
+    local MIDDLE = { halo = 74, sigil = 78, gilded = 70 }
+    for key, v in pairs(RF.VARIANT.warrior) do
+        local c = {}
+        for k, val in pairs(v) do c[k] = val end
+        c.globe, c.rage = nil, nil
+        if MIDDLE[key] then
+            c.big = { MIDDLE[key], 0, 0 }
+            c.queueFromBig, c.bigBezel = nil, nil
+            c.padL = 66                      -- (room for the presses after it, left of the ring, inside the frame)
+            c.middleWeapon = true
+        end
+        bare[key] = c
+    end
+    RF.VARIANT.warrior_bare = bare
+end
+
 -- The timer themes: the class tool themes' names, with tips for a timer.
 RF.THEMES = {
     { key = "halo", name = "Halo", tip = "A ring of flat strokes around the round next press." },
@@ -670,9 +692,9 @@ function RF:BuildExtra(face)
         x.ohBorder:Place(ring, g.W / 2 + g.x0 - 7, g.H / 2 - og.y - og.band - 2, g.len + 14, og.band * 2 + 4)
     end
 
-    -- rage
+    -- rage (none with "Rage in the timer" off: the warrior_bare variant)
     local r = g.rage
-    if not r then
+    if not r and g.globe then
         local D = g.globe[1]
         local gl = CreateFrame("Frame", nil, ring)
         gl:SetFrameLevel(ring:GetFrameLevel() + 1)
@@ -756,7 +778,7 @@ function RF:BuildExtra(face)
         gl.num = UI:Text(gl, "emph", { 1, 0.95, 0.84 }, { font = NARROW, shadow = true, justify = "CENTER" })
         gl.num:SetPoint("CENTER", 0, 0)
         x.globe, x.D = gl, D
-    elseif r.kind == "bar" then
+    elseif r and r.kind == "bar" then
         local b = CreateFrame("Frame", nil, ring)
         b:SetFrameLevel(ring:GetFrameLevel() + 1)
         b:SetSize(g.len, r.h)
@@ -787,7 +809,7 @@ function RF:BuildExtra(face)
         end
         b.W = g.len
         x.bar = b
-    else
+    elseif r then
         local pg = Merge(g, { y = r.y })
         x.pips = Cells(ring, pg, "ARTWORK", 2)
         x.pipLine = Part(ring, "OVERLAY", WHITE)
@@ -1051,7 +1073,9 @@ local SAMPLE = {
 -- size and, for faces whose queue sits outside their left, the queue's width).
 local function SampleFace(parent, key, prefix)
     local sm = SAMPLE[prefix] or SAMPLE.swing
-    local face = RF:BuildFace(parent, key, sm.variant)
+    local variant = sm.variant
+    if prefix == "war" and ns.DB and ns.DB:GetSetting("war.rage") == false then variant = "warrior_bare" end
+    local face = RF:BuildFace(parent, key, variant)
     local g = face.geo
     face.big.icon:SetTexture(sm.big)
     face.seal.icon:SetTexture(sm.badge)

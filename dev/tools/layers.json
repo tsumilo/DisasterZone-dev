@@ -108,6 +108,7 @@
   "Core/SwingPractice.lua": 3,
   "Core/ShotTimer.lua": 3,
   "Core/WarriorSwing.lua": 3,
+  "Core/Resource.lua": 3,
   "Core/ClassPlanner.lua": 3,
   "Core/Blessings.lua": 3,
   "Core/Totems.lua": 3,
@@ -155,8 +156,8 @@
   ["^UI/(MyLog\\w*|Meter\\w*)\\.lua$", "Combat"],
 
   ["^Data/Classes/", "ClassTools"],
-  ["^Core/(SwingTimer|SwingPractice|ShotTimer|WarriorSwing|ClassPlanner|Blessings|Totems)\\.lua$", "ClassTools"],
-  ["^UI/(SwingTimerHUD|RingFace|SwingPracticeUI|ShotTimerHUD|WarriorSwingHUD|PlannerWindow|BlessingsUI|BarFace|ClassBar|BlessingsBar|TotemsUI|TotemBar)\\.lua$", "ClassTools"],
+  ["^Core/(SwingTimer|SwingPractice|ShotTimer|WarriorSwing|Resource|ClassPlanner|Blessings|Totems)\\.lua$", "ClassTools"],
+  ["^UI/(SwingTimerHUD|RingFace|SwingPracticeUI|ShotTimerHUD|WarriorSwingHUD|ResourceFace|ResourceBar|PlannerWindow|BlessingsUI|BarFace|ClassBar|BlessingsBar|TotemsUI|TotemBar)\\.lua$", "ClassTools"],
 
   ["^UI/(Style|Widgets|Popup|Menu|TooltipSkin|DatePicker)\\.lua$", "Kit"],
   ["^UI/Comp/", "Kit"],

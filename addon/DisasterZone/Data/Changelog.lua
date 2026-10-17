@@ -8,6 +8,23 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.6.0", date = "22 October 2026", title = "Class tools for every fight",
       sections = {
+          { heading = "Resource bar", area = "class", kind = "new", hi = true, open = "settings/classtools",
+            lead = "Your rage, energy or mana on a bar you set up yourself, for every class.", lines = {
+              { "A bar for what you spend: rage, energy or mana; Druids by their form.", fb = { 26 }, by = { "Vicnado" }, k = "idea" },
+              { "Six looks, as a bar, standing upright or as a globe; Edit layout moves and stretches it.", fb = { 26 }, by = { "Vicnado" }, k = "idea" },
+              "Marks at the cost of presses you pick, lit while you can press them. None at first.",
+              "Energy: the next tick fills a ring, and the bar glows when that tick would be wasted.",
+              "Mana: the five-second rule runs on the ring after each cast, then the regen ticks.",
+              "Warriors: the Heroic Strike line, and the rage a queued Heroic Strike will take.",
+              { "Combo points under the bar for Rogues and Cat form.", fb = { 27 }, by = { "Vicnado" }, k = "idea" },
+              "Druids: your mana under Bear and Cat form, a mark per shapeshift it still pays for.",
+              "Settings > Class tools > Resource bar. It starts off; try it from the Demo page.",
+          } },
+          { heading = "Swing timer (Warriors)", area = "class", kind = "changed", ["for"] = "WARRIOR",
+            open = "settings/classtools", lines = {
+              "Rage in the timer: switch it off and the next press takes the middle of the ring.",
+              "With Show rotation off too, your main-hand weapon sits there.",
+          } },
           { heading = "The Audit log", area = "guild", kind = "new", open = "audit",
             lead = "For the GM and the guild council: every change in the addon, who made it, and when.", lines = {
               "Raids, sign-ups, loot, strategies, notes, guests, roles and rules: before and after.",

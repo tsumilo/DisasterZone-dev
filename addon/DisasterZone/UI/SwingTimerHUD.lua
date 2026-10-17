@@ -42,6 +42,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingTimerHUD.lua", ...) then r
 --                                        lane's window brightens toward its end (the twist lands there)
 --   Lane(cur, now)                       marks { { t, strong } } (up to 4) and windows { { t0, t1 } } for the lane
 --   StepWidth(step, snap)                how long a step's lane block is (optional: the GCD)
+--   Variant()                            optional: the variant now (a setting can change it: the warrior's rage)
 --   VARIANT                              optional: the face's variant (UI/RingFace.lua RF.VARIANT, "warrior"), then
 --   Extra(cur, now)                      what RingFace:PaintExtra draws every frame, and
 --   RestExtra()                          { oh (true: show the empty off-hand cycle), rage, line } while resting
@@ -90,15 +91,17 @@ local function NewRing(D)
     -- at the one worn now; UI/RingFace.lua).
     local faces, lanes = {}, {}
     local function Wear(key)
-        if frame.themeKey == key then return end
+        local variant = D.Variant and D:Variant() or D.VARIANT
+        local fk = variant and (key .. ":" .. variant) or key       -- (each variant of a theme is its own face)
+        if frame.faceKey == fk then return end
         if frame.face then frame.face.root:Hide(); frame.lane:Hide() end
-        if not faces[key] then
-            faces[key] = ns.RingFace:BuildFace(frame, key, D.VARIANT)
-            lanes[key] = ns.RingFace:BuildLane(frame, key, { span = LANE_SPAN, back = LANE_BACK, gold = GOLD, fade = D.FADE })
+        if not faces[fk] then
+            faces[fk] = ns.RingFace:BuildFace(frame, key, variant)
+            lanes[fk] = ns.RingFace:BuildLane(frame, key, { span = LANE_SPAN, back = LANE_BACK, gold = GOLD, fade = D.FADE })
         end
-        local face = faces[key]
-        frame.themeKey, frame.face = key, face
-        frame.bar, frame.big, frame.seal, frame.small, frame.lane = face.root, face.big, face.seal, face.small, lanes[key]
+        local face = faces[fk]
+        frame.themeKey, frame.faceKey, frame.face = key, fk, face
+        frame.bar, frame.big, frame.seal, frame.small, frame.lane = face.root, face.big, face.seal, face.small, lanes[fk]
         face.root:ClearAllPoints()
         -- (a face with its next press beside it, D.VARIANT: the frame has room for that on the left)
         face.root:SetPoint("TOP", frame, "TOP", (face.geo.padL or 0) / 2, -20)
@@ -271,7 +274,18 @@ local function NewRing(D)
         -- the next press in the middle: dimmed until due, a small pop when it changes
         local big = frame.big
         local showRotation = Practicing() or Get("rotation", true)
-        big:SetShown(showRotation)
+        -- (a face whose middle is the next press, the rotation hidden: the main-hand weapon there instead of a hole)
+        local weapon = not showRotation and frame.face.geo.middleWeapon
+        big:SetShown(showRotation or weapon or false)
+        if weapon then
+            big:SetScale(1)
+            big.icon:SetTexture(D:RestIcon())
+            big.icon:SetDesaturated(false)
+            big.cd:Hide()
+            big.cdStart = nil
+            big.name:SetText("")
+            big.key:SetText("")
+        end
         if not showRotation then first = nil end
         if first then
             local dt = first.at - now

@@ -60,6 +60,8 @@ local function ClassPart(key, kit, class, order, label, desc, pull, word)
     Demo:RegisterPart({ key = key, kit = kit, class = class, group = "class", order = order, label = label, desc = desc,
         pull = pull, word = word })
 end
+ClassPart("power", "power", nil, 29, "Resource bar", "Your class's power in a made-up fight: rage from swings, "
+    .. "energy ticks and combo points, or mana with the five-second rule.", true, "resource")
 ClassPart("swing", "swing", "PALADIN", 30, "Seal twist timer", "A swing every 3.5 s with Seal of Command and the twist window.", true)
 ClassPart("bless", "bless", "PALADIN", 31, "Blessings", "A made-up Black Temple raid in the planner and on your blessings bar.", false, "blessings")
 ClassPart("totems", "totems", "SHAMAN", 32, "Totems", "A made-up raid in the planner; the bar's totems tick and Windfury counts down.")
