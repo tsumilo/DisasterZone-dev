@@ -2,8 +2,9 @@
 
 A published release is a folder tree (the public releases repository on GitHub, or any folder for tests):
 
-  channels/<channel>.json       the manifest: version, build, art pack, every file of both addon folders
-                                (path -> sha256, size, gzip size)
+  channels/<channel>.json       the manifest: version, build, art pack, every file of every addon folder
+                                (path -> sha256, size, gzip size), and the packs: one entry per folder, read from
+                                its TOC (format 2, launcher 0.4; see pack_list)
   channels/<channel>.json.sig   Ed25519 signature over the manifest's exact bytes: {"key": <key id>, "sig": <hex>}
   objects/<sha[:2]>/<sha>.gz    each file's content, gzip, named by the sha256 of the uncompressed bytes
 
@@ -21,10 +22,21 @@ import hashlib
 import io
 import json
 import os
+import re
 import zipfile
 
-FORMAT = 1
+# 2: the packs list (DisasterZone, the 3D rooms, one folder per game). Launcher 0.3 refuses it with "this release
+# needs a newer launcher" and keeps what it installed.
+FORMAT = 2
 CHANNELS = ("stable", "beta")
+CORE = "DisasterZone"
+ROOMS = "DisasterZone_Rooms"
+# the only folder names a release may hold (the launcher checks the same); DisasterZone_Bridge is the launcher's own
+PACK_FOLDER = re.compile(r"^DisasterZone(_[A-Za-z0-9]+)?$")
+RESERVED = ("DisasterZone_Bridge",)
+PACK_ID = re.compile(r"^[a-z0-9_]{1,32}$")
+# a root file of the zip that is not an addon folder (the launcher doesn't install it)
+README = "Read me.txt"
 
 # ---------------------------------------------------------------------------------------------------------------
 # Ed25519 (RFC 8032, section 6 reference implementation)
@@ -187,12 +199,13 @@ def object_path(sha):
 
 
 def read_zip_tree(zip_path, folders):
-    """{folder: {path inside the folder: bytes}} for the addon folders of a release zip (anything else in the zip
-    is an error: the launcher installs exactly what the manifest lists)."""
+    """{folder: {path inside the folder: bytes}} for the addon folders of a release zip: `folders` is every folder the
+    release has (release.py finds them). Besides those only the root "Read me.txt" may be in the zip, and it is left
+    out: the launcher installs exactly what the manifest lists."""
     out = {name: {} for name in folders}
     with zipfile.ZipFile(zip_path) as zf:
         for info in zf.infolist():
-            if info.is_dir():
+            if info.is_dir() or info.filename == README:
                 continue
             top, _, rel = info.filename.partition("/")
             if top not in out or not rel:
@@ -201,11 +214,80 @@ def read_zip_tree(zip_path, folders):
     return {k: v for k, v in out.items() if v}
 
 
+def toc_fields(data):
+    """{lowercase key: value} of a TOC's '## Key: value' lines (the first of each key)."""
+    out = {}
+    for line in data.decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if line.startswith("##") and ":" in line:
+            key, _, value = line[2:].partition(":")
+            out.setdefault(key.strip().lower(), value.strip())
+    return out
+
+
+_COLOUR = re.compile(r"\|c[0-9a-fA-F]{8}|\|r")
+
+
+def clean_title(title):
+    """A TOC title as the launcher shows it: no colour codes, no "DisasterZone \u00b7 " in front
+    ("|cffff8000Disaster|rZone \u00b7 Azeromon" -> "Azeromon"). install.rs clean_title is the same rule."""
+    t = _COLOUR.sub("", title).strip()
+    for prefix in ("DisasterZone \u00b7 ", "DisasterZone - ", "DisasterZone "):
+        if t.startswith(prefix) and t[len(prefix):].strip():
+            return t[len(prefix):].strip()
+    return t
+
+
+def pack_list(tree):
+    """The manifest's packs, one per folder of `tree`, from each folder's TOC. DisasterZone is the core (required).
+    Every other folder carries '## X-DZ-Pack: <id>' and '## X-DZ-Kind: game|extra' (DisasterZone_Rooms may leave them
+    out: id rooms, an extra). Title and tagline come from '## Title' and '## Notes'. Extras are on by default; games
+    wait for the launcher's picker. Order: core, extras, games."""
+    if CORE not in tree:
+        raise ValueError("a release needs the %s folder" % CORE)
+    packs = []
+    for folder in sorted(tree):
+        if not PACK_FOLDER.match(folder) or folder in RESERVED:
+            raise ValueError("%s: a release folder must be DisasterZone or DisasterZone_<letters and digits>" % folder)
+        toc = tree[folder].get(folder + ".toc")
+        if toc is None:
+            raise ValueError("%s has no %s.toc" % (folder, folder))
+        f = toc_fields(toc)
+        if folder == CORE:
+            pid, kind = "core", "core"
+        else:
+            pid = f.get("x-dz-pack") or ("rooms" if folder == ROOMS else "")
+            kind = f.get("x-dz-kind") or ("extra" if folder == ROOMS else "")
+            if not pid:
+                raise ValueError("%s.toc has no '## X-DZ-Pack: <id>' line" % folder)
+            if not PACK_ID.match(pid) or pid == "core":
+                raise ValueError("%s.toc: bad pack id %r (lowercase letters, digits, _)" % (folder, pid))
+            if kind not in ("extra", "game"):
+                raise ValueError("%s.toc: X-DZ-Kind must be game or extra, not %r" % (folder, kind))
+        fallback = "3D rooms" if folder == ROOMS else (folder[len(CORE) + 1:] or CORE)
+        packs.append({
+            "id": pid,
+            "folder": folder,
+            "kind": kind,
+            "title": clean_title(f.get("title", "")) or fallback,
+            "tagline": f.get("notes", ""),
+            "required": kind == "core",
+            "defaultOn": kind != "game",
+        })
+    ids = [p["id"] for p in packs]
+    for pid in ids:
+        if ids.count(pid) > 1:
+            raise ValueError("two folders carry the pack id %r" % pid)
+    order = {"core": 0, "extra": 1, "game": 2}
+    return sorted(packs, key=lambda p: (order[p["kind"]], p["folder"]))
+
+
 def build_manifest(tree, channel, seq, record, zip_info=None, notes=None, published=None):
     """The manifest (a dict) and {sha: gzip bytes} for every file of `tree` ({folder: {path: bytes}}).
     record: the release record from release.py full (version, build, assetPack, commit)."""
     if channel not in CHANNELS:
         raise ValueError("channel must be one of %s" % ", ".join(CHANNELS))
+    packs = pack_list(tree)
     objects, folders = {}, {}
     for folder in sorted(tree):
         files = {}
@@ -228,6 +310,7 @@ def build_manifest(tree, channel, seq, record, zip_info=None, notes=None, publis
         "published": published or "",
         "notes": notes or {},
         "folders": folders,
+        "packs": packs,
     }
     if zip_info:
         manifest["zip"] = zip_info
@@ -290,6 +373,10 @@ def verify_tree(out_dir, channel, pub_hex):
     if not check_signature(pub_hex, data, sig):
         return ["%s: bad signature" % base]
     manifest = json.loads(data.decode("ascii"))
+    listed = sorted(p["folder"] for p in manifest.get("packs", []))
+    if manifest.get("format", 1) >= 2 and listed != sorted(manifest["folders"]):
+        problems.append("the packs (%s) don't match the folders (%s)" % (", ".join(listed),
+                                                                        ", ".join(sorted(manifest["folders"]))))
     for folder, files in manifest["folders"].items():
         for rel, f in files.items():
             path = os.path.join(out_dir, *object_path(f["sha256"]).split("/"))
