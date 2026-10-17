@@ -54,6 +54,12 @@ function renderRail() {
       else if (kind === "get") st.append(icon("down", "s"));
       else if (kind === "wait") st.append(icon("wait", "s"));
       st.setAttribute("aria-label", text);
+      // (the download icon gets the game right here: the rest of the row opens its page)
+      if (kind === "get" && !working && !devCopy() && check) {
+        st.classList.add("act");
+        st.title = "Download and install " + p.title + " · " + fmtBytes(p.gz);
+        st.onclick = (e) => { e.stopPropagation(); installPack(p); };
+      }
       b.append(st);
     }
     b.title = p.title + " · " + text;
@@ -301,7 +307,9 @@ function renderGame(id) {
   chips.append(el("span", "chip", look.kicker));
   const [text, kind] = stateOf(p);
   const c = el("span", "chip small " + (kind === "ok" ? "ok" : kind === "busy" ? "gold busy" : kind === "wait" ? "gold" : ""));
-  c.append(el("span", "pip"), kind === "ok" ? "Installed" : kind === "get" ? "Not installed" : text);
+  const ct = el("span", null, kind === "ok" ? "Installed" : kind === "get" ? "Not installed" : text);
+  ct.id = "g-state";
+  c.append(el("span", "pip"), ct);
   chips.append(c);
   const logo = $("g-logo");
   logo.textContent = "";
@@ -315,9 +323,13 @@ function renderGame(id) {
   const main = el("button", "play");
   const locked = working || devCopy() || !check;
   if (busyPack(p)) {
-    main.append(el("span", null, "INSTALLING…"));
+    // (a bar of its own: the gold fill holds the same label in dark ink; paintGameBusy() moves them)
+    main.classList.add("notri", "busyb");
+    main.id = "g-busy";
+    const fill = el("span", "pfill");
+    fill.append(el("span", "lbl"));
+    main.append(el("span", "lbl"), fill);
     main.disabled = true;
-    wrap.classList.add("off");
   } else if (p.action === "remove") {
     main.classList.add("notri");
     main.append(el("span", null, "KEEP IT"));
@@ -341,7 +353,13 @@ function renderGame(id) {
   if (main.disabled) wrap.classList.add("off");
   wrap.append(main);
   act.append(wrap);
-  if (p.installed && look.cmd) {
+  if (busyPack(p)) {
+    const line = el("div", "bline");
+    line.id = "g-busy-line";
+    line.append(el("b"), el("span"));
+    act.append(line);
+    paintGameBusy();
+  } else if (p.installed && look.cmd) {
     const hint = el("div", "hint");
     hint.append(el("span", null, "Opens World of Warcraft. In game:"), el("span", "kbd", look.cmd));
     act.append(hint);
@@ -354,6 +372,48 @@ function renderGame(id) {
   renderWeekly(p);
   renderGameNotes(p);
   renderGameAbout(p);
+}
+
+// The game page while its game installs or updates: the button fills like a bar, and the chip and the line beside it
+// follow every progress event (renderProgress), without building the page again.
+function paintGameBusy() {
+  const b = $("g-busy");
+  const h = here();
+  if (!b || h.page !== "game") return;
+  const p = games().find((x) => x.id === h.arg);
+  if (!p || !busyPack(p)) return;
+  const [words, , pct, how] = stateOf(p);
+  for (const l of b.querySelectorAll(".lbl")) l.textContent = words.replace(/…$/, "").toUpperCase();
+  b.querySelector(".pfill").style.width = (pct || 0) + "%";
+  b.classList.toggle("ok", how === "ok");
+  $("g-state").textContent = words;
+  const [main, sub] = busyLine(p);
+  const line = $("g-busy-line");
+  line.children[0].textContent = main;
+  line.children[1].textContent = sub;
+}
+
+// Beside the button: this game's bytes while it downloads, else what the update is doing.
+function busyLine(p) {
+  if (!prog) return ["Starting…", ""];
+  const all = fmtMB(prog.done) + " of " + fmtMB(prog.total) + " in all";
+  if (prog.step === "download") {
+    const of = prog.dlOf[p.folder];
+    const got = Math.min(prog.dl[p.folder] || 0, of || 0);
+    if (of == null) return ["Starting…", ""];
+    if (!of || got >= of) return ["Waiting for the rest", all];
+    if (!got) return ["Waiting for its turn", all];
+    const left = prog.speed > 0 ? " · about " + duration((prog.total - prog.done) / prog.speed) + " left" : "";
+    return [fmtMB(got) + " of " + fmtMB(of), (prog.speed > 0 ? fmtBytes(prog.speed) + "/s" : "") + left];
+  }
+  if (prog.step === "stage") {
+    const [state, , how] = folderState(p);
+    if (how === "ok") return ["Checked", "against the signed release"];
+    return state === "Downloaded" ? ["Checked next", "against the signed release"] : ["Checking every file", "against the signed release"];
+  }
+  if (prog.step === "backup") return ["Backing up", "your saved variables and the folders being replaced"];
+  if (prog.step === "swap") return ["Swapping in", "the new folders, all at once"];
+  return ["Done", ""];
 }
 
 // The newest releases' sections about this game (its title in the heading).

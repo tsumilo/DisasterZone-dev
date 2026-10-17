@@ -53,7 +53,7 @@ h1 { margin: 0; font-weight: inherit; }
 /* hidden in the tray or minimised: no animations running */
 .win.paused .art, .win.paused .mist i, .win.paused .motes i, .win.paused .rays, .win.paused .glow, .win.paused .forge,
 .win.paused .playwrap::before, .win.paused .play::after, .win.paused .bar > i::after, .win.paused .bar > b, .win.paused .pip,
-.win.paused .ibtn.spin .ico { animation-play-state: paused !important; }
+.win.paused .ibtn.spin .ico, .win.paused .play.busyb .pfill::after { animation-play-state: paused !important; }
 
 /* ------------------------------------------------------------------ rail */
 .rail {
@@ -94,6 +94,8 @@ h1 { margin: 0; font-weight: inherit; }
 .lib .st.ok { color: var(--ok); }
 .lib .st.get { color: var(--gold-hi); background: rgba(226, 184, 74, .12); box-shadow: inset 0 0 0 1px rgba(226, 184, 74, .3); }
 .lib .st.wait { color: var(--gold-hi); }
+.lib .st.get.act { cursor: pointer; transition: background .15s, color .15s, transform .15s; }
+.lib .st.get.act:hover { color: #241500; background: linear-gradient(180deg, #ffe7a1, #e3ac34); box-shadow: 0 0 12px rgba(255, 200, 90, .45); transform: scale(1.08); }
 .lib button.off .th img { filter: grayscale(1) brightness(.55); }
 .lib button.off .t { color: var(--text-2); }
 .lib .empty { padding: 4px 12px; font-size: 12.5px; color: var(--text-3); }
@@ -734,3 +736,20 @@ mark { background: rgba(255, 210, 110, .28); color: #fff4d6; border-radius: 3px;
 .tl .ghost > span:last-child { flex: 1; display: flex; flex-direction: column; gap: 7px; padding-top: 3px; }
 .tl .ghost .g-v { width: 44px; height: 12px; }
 .doc .g-ban { height: 196px; border-radius: 0; }
+
+/* a game installing or updating: its button fills with molten gold like a bar. The fill holds the same label in dark
+   ink, as wide as the button, so the words read on both halves. Green once its files are checked. */
+.play.busyb { width: 330px; min-width: 0; padding: 0 24px; font-size: 18px; letter-spacing: .12em; }
+.play.busyb:disabled { color: rgba(255, 217, 120, .8); }
+.play.busyb > .lbl { position: relative; }
+.play.busyb .pfill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; overflow: hidden; transition: width .35s ease-out;
+  background: radial-gradient(120% 90% at 50% -20%, rgba(255, 255, 255, .55), transparent 55%), linear-gradient(180deg, #ffeab0 0%, #f6cb55 40%, #dc9b1d 56%, #f2c247 82%, #ffd978 100%);
+  box-shadow: inset -1px 0 0 rgba(255, 244, 210, .85), 6px 0 18px rgba(255, 190, 70, .35); }
+.play.busyb .pfill::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(115deg, rgba(255, 255, 255, 0) 0 14px, rgba(255, 255, 255, .22) 14px 22px); animation: flow 1.1s linear infinite; }
+.play.busyb .pfill .lbl { position: absolute; z-index: 1; left: 0; top: 0; bottom: 0; width: 330px; display: flex; align-items: center; justify-content: center;
+  color: #1c1000; text-shadow: 0 1px 0 rgba(255, 244, 210, .7); }
+.play.busyb.ok .pfill { background: radial-gradient(120% 90% at 50% -20%, rgba(255, 255, 255, .45), transparent 55%), linear-gradient(180deg, #c8f7d8, #6fd197 50%, #3f9e62); }
+.play.busyb.ok .pfill .lbl { color: #052611; text-shadow: 0 1px 0 rgba(220, 255, 230, .6); }
+.bline { display: flex; flex-direction: column; gap: 4px; text-shadow: 0 1px 8px rgba(0, 0, 0, .9); }
+.bline b { font-size: 15px; font-weight: 600; color: var(--text); }
+.bline span { font-size: 13px; color: var(--text-2); }

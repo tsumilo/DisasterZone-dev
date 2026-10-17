@@ -308,6 +308,7 @@ function renderProgress() {
   renderSpeed();
   renderFolders();
   renderRail();
+  paintGameBusy();
 }
 
 function renderSpeed() {
