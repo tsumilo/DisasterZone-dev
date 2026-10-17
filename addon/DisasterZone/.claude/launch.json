@@ -25,6 +25,20 @@
       "runtimeArgs": ["-m", "http.server", "8796", "--bind", "127.0.0.1", "--directory", "C:\\Users\\emilo\\CDLoot-dev\\dev\\art\\casc"],
       "port": 8796,
       "autoPort": false
+    },
+    {
+      "name": "mockups-packs",
+      "runtimeExecutable": "C:\\Users\\emilo\\CDLoot-dev\\dev\\luaenv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "8798", "--bind", "127.0.0.1", "--directory", "C:\\Users\\emilo\\CDLoot-dev\\dev\\art\\casc"],
+      "port": 8798,
+      "autoPort": false
+    },
+    {
+      "name": "mockups-fx",
+      "runtimeExecutable": "C:\\Users\\emilo\\CDLoot-dev\\dev\\luaenv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "8797", "--bind", "127.0.0.1", "--directory", "C:\\Users\\emilo\\CDLoot-dev\\dev\\art\\casc"],
+      "port": 8797,
+      "autoPort": false
     }
   ]
 }

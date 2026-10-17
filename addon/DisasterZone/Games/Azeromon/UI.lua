@@ -2789,7 +2789,11 @@ function Scr.CastBar(parent)
 end
 
 function Scr.SetCastBar(f, c)
-    if not c then f:Hide() return end
+    if not c then
+        f:Hide()
+        if f.restore then f.restore() end           -- (cracked by an interrupt: back in place for the next cast)
+        return
+    end
     f:Show()
     f.name:SetText(c.name)
     if c.unstoppable then
@@ -3296,11 +3300,14 @@ local function PlayEvent(e)
     elseif e.t == "interrupt" then
         Anim(BattleModelFor(e.side), 9)
         RefreshBattleBoxes()
+        BT.anim = ns.AzeroFx.Break(e)                  -- 0.42: what it gathered shatters, its cast bar cracks
     elseif e.t == "castend" or e.t == "mark" or e.t == "guard" or e.t == "unstoppable" or e.t == "combo" then
         RefreshBattleBoxes()
         -- 0.41: a guard's shell forms; a mark landing pops in its colours (both then stay while the snapshot has them)
+        -- 0.42: an interrupt bounces off a cast that can't be interrupted (its iron chain flares)
         if e.t == "guard" then BT.anim = ns.AzeroFx.Guard(e)
-        elseif e.t == "mark" then BT.anim = ns.AzeroFx.Mark(e) end
+        elseif e.t == "mark" then BT.anim = ns.AzeroFx.Mark(e)
+        elseif e.t == "unstoppable" then BT.anim = ns.AzeroFx.Shrug(e) end
     elseif e.t == "sfx" then
         if not (e.sound == "catch" and ns.AzeroTaming.TakeQuiet()) then ns.AzeroSound:Play(e.sound) end
     elseif e.t == "exp" then
@@ -6553,6 +6560,20 @@ local function BuildBattle()
             end
         end,
         shakeOn = function() return not G:Data().noShake end,
+        -- an interrupted cast's bar turns red, shakes and drops away; put back once it hides (Scr.SetCastBar)
+        castBar = function(side, p)
+            local bar, box = R[side .. "Cast"], R[side .. "Box"]
+            if not bar then return end
+            local function place(dx, dy)
+                bar:ClearAllPoints()
+                if side == "foe" then bar:SetPoint("TOPLEFT", box, "BOTTOMLEFT", dx, -6 + dy)
+                else bar:SetPoint("BOTTOMRIGHT", box, "TOPRIGHT", dx, 6 + dy) end
+            end
+            bar.restore = function() bar.restore = nil place(0, 0) bar:SetAlpha(1) end
+            place(p < 0.4 and (floor(p * 30) % 2 == 0 and -3 or 3) or 0, -8 * p * p)
+            bar:SetAlpha(1 - p)
+            bar.edge:SetColorTexture(0.88, 0.34, 0.29, 1)
+        end,
     })
 
     -- HP boxes, laid out like the GBA games: name + type, level, status; an "HP" tag and bar;

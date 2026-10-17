@@ -75,7 +75,10 @@ F.BLOOD = Ramp({ "#ef6a58", "#c93a2f", "#8e1f19", "#4a0e0b" })
 F.SMOKE = Ramp({ "#857a74", "#5e5450", "#3e3634", "#24201f" })
 F.DUST = Ramp({ "#e8dcbc", "#c8b48a", "#9c8660", "#6e5a3c" })
 F.WHITE = C("#ffffff")
+F.IRON = Pal({ o = "#15161a", d = "#2a2c34", m = "#4c505c", l = "#7d828f", h = "#c4c8d2", w = "#eef0f4" })
+F.BLOOM = Pal({ d = "#2d5e1a", p = "#d9628f", P = "#ffb0cf", y = "#ffe08a", o = "#7a2448" })
 local GOLD, HEAL, VOLT, BONE, BARK, STONE, FLAME = F.GOLD, F.HEAL, F.VOLT, F.BONE, F.BARK, F.STONE, F.FLAME
+local IRON = F.IRON
 local FIRE_R, BLOOD = F.FIRE_R, F.BLOOD
 local SHADE = C("#0c1006")
 -- a mark's colour (its pop, the blink as it lands)
@@ -304,6 +307,14 @@ GL.feather = Glyph({ ".hhhw", "mml.." })
 GL.crystal = Glyph({ "..h..", ".hlm.", "hllmd", ".lmd.", "..d.." })
 GL.crystalS = Glyph({ ".h.", "hld", ".d." })
 GL.daze = Glyph({ ".y.", "yYy", ".y." })
+GL.leaf = { Glyph({ ".lh", "lmd", "do." }), Glyph({ "hl.", "dml", ".od" }) }
+GL.sprout = Glyph({ "l.l", ".m.", ".m.", ".d." })
+GL.bud = Glyph({ ".p.", "pPp", ".d.", ".d." })
+GL.bloom = Glyph({ "..pPp..", ".pPPPp.", "pPPyPPp", ".pPPPp.", "..pdp..", "...d..." })
+GL.lock = Glyph({ ".ooo.", "o...o", "ooooo", "lhhll", "lhoml", "mmmmm" })
+GL.up = Glyph({ "..h..", ".hlh.", "hl.lh" })
+GL.down = Glyph({ "hl.lh", ".hlh.", "..h.." })
+GL.fist = Glyph({ ".oooooo.", "odllllho", "odmmllhh", "odmmmlho", "odmmmmlo", ".oooooo." })
 F.DAZE = Pal({ y = "#ffd84a", Y = "#fffbe0" })
 
 -- generated sprites: a ball lit from the top left ("lit"), glowing from its core ("core"); a comet heading right;
@@ -340,6 +351,8 @@ local function Ball(r, ramp, mode)
                     local nz = sqrt(max(0, 1 - d * d))
                     local I = -0.55 * nx - 0.6 * ny + 0.58 * nz
                     c = edge and ramp[1] or I > 0.8 and ramp[5] or I > 0.45 and ramp[4] or I > 0.05 and ramp[3] or ramp[2]
+                elseif mode == "void" then                 -- dark at its heart, a lit rim ({ o, d, m, h })
+                    c = edge and ramp[4] or d > 0.72 and ramp[3] or d > 0.42 and ramp[2] or ramp[1]
                 else
                     c = edge and ramp[1] or d < 0.35 and ramp[5] or d < 0.62 and ramp[4] or d < 0.85 and ramp[3] or ramp[2]
                 end
@@ -413,6 +426,59 @@ local function Rock(r, ramp, kk)
     return gen[k]
 end
 F.Rock = Rock
+-- a cog with `teeth` teeth (kk 0..2 turns it a third of a tooth); ramp = { o, d, m, l, h }
+local function Gear(r, ramp, kk, teeth)
+    local k = key("g", r, tostring(ramp), kk, teeth)
+    if gen[k] then return gen[k] end
+    local D, c0, ph = 2 * r + 3, r + 1, kk * TAU / teeth / 3
+    local function inside(i, j)
+        local dx, dy = i - c0, j - c0
+        local d = sqrt(dx * dx + dy * dy)
+        if d < max(1.1, r * 0.32) then return false end
+        return d <= r - 0.6 or (d <= r + 1.2 and cos(teeth * (atan2(dy, dx) + ph)) > 0.25)
+    end
+    local pts = {}
+    for j = 0, D - 1 do
+        for i = 0, D - 1 do
+            if inside(i, j) then
+                local edge = not inside(i - 1, j) or not inside(i + 1, j) or not inside(i, j - 1) or not inside(i, j + 1)
+                local I = (-0.7 * (i - c0) - 0.7 * (j - c0)) / (r + 1)
+                pts[#pts + 1] = { i, j, edge and ramp[1] or I > 0.35 and ramp[4] or I > -0.2 and ramp[3] or ramp[2] }
+            end
+        end
+    end
+    gen[k] = runsFrom(pts, D, D)
+    return gen[k]
+end
+F.Gear = Gear
+-- a sawblade (kk 0..2 turns it); ramp = { o, d, m, l, h }: steel teeth, a darker ring, a dark hub
+local function Saw(r, ramp, kk)
+    local k = key("s", r, tostring(ramp), kk)
+    if gen[k] then return gen[k] end
+    local D, c0, ph = 2 * r + 3, r + 1, kk * TAU / 10 / 3
+    local function inside(i, j)
+        local dx, dy = i - c0, j - c0
+        local f = ((atan2(dy, dx) + ph) * 10 / TAU) % 1
+        return sqrt(dx * dx + dy * dy) <= r - 0.8 + 1.8 * (1 - f)
+    end
+    local pts = {}
+    for j = 0, D - 1 do
+        for i = 0, D - 1 do
+            if inside(i, j) then
+                local edge = not inside(i - 1, j) or not inside(i + 1, j) or not inside(i, j - 1) or not inside(i, j + 1)
+                local dx, dy = i - c0, j - c0
+                local d = sqrt(dx * dx + dy * dy)
+                local I = (-0.7 * dx - 0.7 * dy) / (r + 1)
+                local c = d < 1.2 and ramp[1] or edge and (I > 0 and ramp[5] or ramp[2]) or abs(d - r * 0.55) < 0.5 and ramp[2]
+                          or I > 0.3 and ramp[4] or ramp[3]
+                pts[#pts + 1] = { i, j, c }
+            end
+        end
+    end
+    gen[k] = runsFrom(pts, D, D)
+    return gen[k]
+end
+F.Saw = Saw
 local function DrawGen(g, cx, cy, o) Stamp(g, floor(cx + 0.5) - floor(g.w / 2), floor(cy + 0.5) - floor(g.h / 2), nil, o) end
 F.DrawGen = DrawGen
 
@@ -716,7 +782,13 @@ local function DrawPart(p)
         Disc(x, y, r, r * 0.85, p.cols[3], aa, lay)
         Disc(x - 1, y - 1, max(1, r - 1), max(1, (r - 1) * 0.85), p.cols[2], aa, lay)
         if r > 2.5 then Disc(x - 1.5, y - 1.5, max(1, r - 2.5), max(1, (r - 2.5) * 0.85), p.cols[1], aa, lay) end
-    elseif k == "leaf" then
+    elseif k == "shard" then
+        if q < 0.8 then
+            Put(x, y - 1, 1, 3, p.cols[2], a, lay) Put(x - 1, y, 3, 1, p.cols[2], a, lay) Put(x, y, 1, 1, p.cols[1], a, lay)
+        else Put(x, y, 1, 1, p.cols[2], a, lay) end
+    elseif k == "chunk" then
+        Put(x, y, 3, 2, p.cols[2], a, lay) Put(x, y - 1, 2, 1, p.cols[3], a, lay) Put(x + 1, y + 1, 2, 1, p.cols[1], a, lay)
+    elseif k == "leaf" or k == "petal" then
         local fl = sin(p.age * 11 + p.seed) > 0
         local xs = x + sin(p.age * 5 + p.seed) * (p.sway or 1.5)
         Put(xs, y, fl and 2 or 1, fl and 1 or 2, p.cols[1], a, lay)
@@ -984,6 +1056,69 @@ local function Zigzag(ps, x0, y0, x1, y1, segs, amp, cols)
     for k = 2, #path do Line(ps, path[k - 1][1], path[k - 1][2], path[k][1], path[k][2], cols[2]) end
 end
 F.Zigzag = Zigzag
+-- a jagged line on the ground (cracks, a fissure): points from (x0, y0) to (x1, y1) every `step`, jittered sideways
+function F.CrackPath(x0, y0, x1, y1, step, jit)
+    local out = {}
+    local dx, dy = x1 - x0, y1 - y0
+    local L = sqrt(dx * dx + dy * dy)
+    if L == 0 then L = 1 end
+    local n = max(2, floor(L / step + 0.5))
+    local nx, ny = -dy / L, dx / L
+    for i = 0, n do
+        local f = i / n
+        local j = (i == 0 or i == n) and 0 or rr(-jit, jit)
+        out[#out + 1] = { x0 + dx * f + nx * j, y0 + dy * f + ny * j }
+    end
+    return out
+end
+-- draws a path as far as `upto` (0..1) of its length, shifted ox, oy
+function F.DrawPath(ps, path, upto, c, ox, oy)
+    ox, oy = ox or 0, oy or 0
+    local n = (#path - 1) * clamp(upto, 0, 1)
+    local k = floor(n)
+    for i = 1, k do Line(ps, path[i][1] + ox, path[i][2] + oy, path[i + 1][1] + ox, path[i + 1][2] + oy, c) end
+    if k < #path - 1 and n > k then
+        local f, a, b = n - k, path[k + 1], path[k + 2]
+        Line(ps, a[1] + ox, a[2] + oy, lerp(a[1], b[1], f) + ox, lerp(a[2], b[2], f) + oy, c)
+    end
+end
+-- a stone spike pushing out of the ground: base (x, y), W wide and H tall in full, shown up to `rise` (0..1)
+function F.Spike(x, y, W, H, rise, pal)
+    Z = Z + 1
+    local vis = floor(H * clamp(rise, 0, 1) + 0.5)
+    for r = 0, vis - 1 do
+        local hw = max(0, floor((r + (H - vis) + 1) * W / (2 * H) + 0.5))
+        local yy = y - vis + r
+        if hw <= 0 then Put(x, yy, 1, 1, pal.h)
+        else
+            Put(x - hw, yy, hw, 1, pal.l) Put(x, yy, hw, 1, pal.d)
+            Put(x - hw - 1, yy, 1, 1, pal.o) Put(x + hw, yy, 1, 1, pal.o)
+            if r == 0 then Put(x - 1, yy, 1, 1, pal.h) end
+        end
+    end
+end
+-- a vine growing up from (x0, y0) to length len, curling; cols = { shade, stem, tip, leaf, leaf shade }
+function F.Vine(ps, x0, y0, len, phase, curl, cols)
+    local s = 0
+    while s <= len do
+        local x, y = x0 + sin(s * 0.42 + phase) * curl, y0 - s
+        ps:Add(x + 1, y, cols[1])
+        ps:Add(x, y, s > len - 1.5 and cols[3] or cols[2])
+        s = s + 0.5
+    end
+    local k = 4
+    while k < len - 1 do
+        local xs = x0 + sin(k * 0.42 + phase) * curl
+        local sd = (floor(k / 5) % 2 == 1) and 1 or -1
+        ps:Add(xs + sd, y0 - k, cols[4]) ps:Add(xs + 2 * sd, y0 - k - 1, cols[4]) ps:Add(xs + 2 * sd, y0 - k, cols[5])
+        k = k + 5
+    end
+end
+-- the sound of a screech or a shout: a ")" arc facing right (facing > 0) or "(" facing left
+function F.SoundArc(ps, x, y, r, facing, c)
+    if facing > 0 then Arc(ps, x, y, r * 0.55, r, -0.95, 0.95, c)
+    else Arc(ps, x, y, r * 0.55, r, pi - 0.95, pi + 0.95, c) end
+end
 
 ---------------------------------------------------------------------------
 -- Guards: each type's shell round the beast (k: how far it has formed, 0..1; fl: it flares when hit; tw: its age)
@@ -1314,10 +1449,30 @@ local POPS = {
 
 F.CASTS, F.CAST_OF = {}, {}
 local CS = {}                                -- [side] = { key, id, tw, ... }: the wind-up on screen
+local CH = {}                                -- [side] = { tw, flare }: the iron chain of a cast that can't be interrupted
+local BROKEN = {}                            -- [side] = true: an interrupt broke the cast (until the snapshot drops it)
 local function CastKey(id)
     if not id then return nil end
     local key = F.CAST_OF[id] or (F.CastFor and F.CastFor(id))
     return key and F.CASTS[key] and key or nil
+end
+-- can't be interrupted: an iron chain turns slowly round its feet (flare: an interrupt bounced off it)
+local function ChainRing(side, tw, flare)
+    local p = Pts(side)
+    local rx, ry, cx, cy = floor(p.w * 0.6 + 4.5), 4, p.feet[1], p.feet[2] - 1
+    local pf, pb = NewPS(), NewPS()
+    local s = 0
+    while s < TAU do
+        local a = s + tw * 0.8
+        local x, y = cx + cos(a) * rx, cy + sin(a) * ry
+        local set = sin(a) > 0 and pf or pb
+        local link = floor(s * rx / 2.2) % 2 == 1
+        set:Add(x, y, flare > 0.2 and IRON.w or link and IRON.h or IRON.m)
+        set:Add(x, y + 1, IRON.o)
+        s = s + 0.03
+    end
+    pb:Flush("under", 0.95) pf:Flush("over", 0.95)
+    if flare > 0 then Glow(cx, cy - 2, rx * 1.2, C("#e8ecf5"), 0.35 * flare, "under") end
 end
 
 ---------------------------------------------------------------------------
@@ -1356,8 +1511,10 @@ local function Ambient(side, s, dt)
     else
         GS[side] = nil
     end
-    -- a cast winding up
-    local key = s.cast and CastKey(s.cast.id)
+    -- a cast winding up (not once an interrupt has broken it), and the chain of one that can't be interrupted
+    local cast = s.cast
+    if not cast then BROKEN[side] = nil end
+    local key = cast and not BROKEN[side] and CastKey(cast.id)
     if key then
         local c = CS[side]
         if not c or c.key ~= key then c = { key = key, tw = 0 } CS[side] = c end
@@ -1365,6 +1522,15 @@ local function Ambient(side, s, dt)
         F.CASTS[key].windup(side, c, dt)
     else
         CS[side] = nil
+    end
+    if cast and cast.unstoppable then
+        local ch = CH[side]
+        if not ch then ch = { tw = 0, flare = 0 } CH[side] = ch end
+        ch.tw = ch.tw + dt
+        ch.flare = max(0, ch.flare - dt * 2.5)
+        ChainRing(side, ch.tw, ch.flare)
+    else
+        CH[side] = nil
     end
 end
 
@@ -1379,7 +1545,7 @@ function F.Frame(dt, snap)
     for _, side in ipairs(SIDES) do
         local s = snap and snap[side]
         if s and Visible(side) then Ambient(side, s, dt)
-        else MS[side] = {} GS[side] = nil CS[side] = nil end
+        else MS[side] = {} GS[side] = nil CS[side] = nil CH[side] = nil end
     end
     if run then run:Step(dt) end
     StepParts(dt)
@@ -1397,7 +1563,8 @@ function F.Frame(dt, snap)
 end
 
 -- The battle layer and its two beast frames (UI.lua's BuildBattle). opts: play(name, arg) a sound, anim(m, id) a
--- clip, scene(dx, dy) moves the backdrop with a shake, shakeOn() false when the player turned shaking off.
+-- clip, scene(dx, dy) moves the backdrop with a shake, shakeOn() false when the player turned shaking off,
+-- castBar(side, p) cracks a broken cast's bar (p 0..1 through it).
 function F.Attach(b, foeModel, allyModel, opts)
     opts = opts or {}
     local function layer(lvl)
@@ -1408,7 +1575,7 @@ function F.Attach(b, foeModel, allyModel, opts)
         return f
     end
     fx = { b = b, models = { foe = foeModel, ally = allyModel }, play = opts.play, anim = opts.anim, scene = opts.scene,
-           shakeOn = opts.shakeOn }
+           shakeOn = opts.shakeOn, castBar = opts.castBar }
     -- (the beasts are 2 levels up, the HP boxes 5: effects pass under the boxes)
     fx.under, fx.shade, fx.over = layer(1), layer(3), layer(4)
     fx.pools = { under = NewPool(fx.under, "block"), shade = NewPool(fx.shade, "block"), over = NewPool(fx.over, "block"),
@@ -1420,6 +1587,7 @@ function F.Reset()
     run, freeze, peak = nil, 0, 0
     for i = #PARTS, 1, -1 do PARTS[i] = nil end
     MS.foe, MS.ally, GS.foe, GS.ally, CS.foe, CS.ally = {}, {}, nil, nil, nil, nil
+    CH.foe, CH.ally, BROKEN.foe, BROKEN.ally = nil, nil, nil, nil
     SHK.amp, SHK.ox, SHK.oy = 0, 0, 0
     if not fx then return end
     LISTS.under.n, LISTS.over.n, GLOWS.under.n, GLOWS.over.n, STARS.n = 0, 0, 0, 0, 0
@@ -1528,6 +1696,57 @@ function F.Windup(e)
     return Anim(NewRun(0.5))
 end
 
+-- The "interrupt" event (side: the caster): the power it gathered shatters into shards and smoke, it flinches, and
+-- its cast bar cracks, shakes and drops away (UI.lua's castBar hook)
+function F.Break(e)
+    if not fx or not Visible(e.side) then return nil end
+    local side = e.side
+    local s = e.snap and e.snap[side]
+    local cast = s and s.cast
+    local key = cast and CastKey(cast.id)
+    local cs = key and F.CASTS[key]
+    local p = Pts(side)
+    local f = (cs and cs.focus) and cs.focus(side) or { p.c[1], p.c[2] - p.h * 0.1 }
+    local pal = PAL[cast and cast.type or ""] or PAL.BEAST
+    local cols = (cs and cs.cols) or { pal.w, pal.l }
+    BROKEN[side] = true
+    local r = NewRun(0.5)
+    r:At(0, function()
+        F.Clip(side, 9)
+        Spray(f[1], f[2], 14, { kind = "shard", cols = cols, s = { 40, 90 }, ay = 180, drag = 1.5, life = { 0.35, 0.6 } })
+        Spray(f[1], f[2], 4, { kind = "puff", cols = F.SMOKE, s = { 6, 16 }, ang = -pi / 2, spread = pi * 1.5, ay = -8,
+              life = { 0.5, 0.8 }, r0 = 1, r1 = 3, a = 0.8 })
+    end)
+    r:Span(0, 0.14, function(q)
+        Glow(f[1], f[2], 16 * (1 - q), F.WHITE, 0.45 * (1 - q))
+        Star(f[1], f[2], 34 * (1 - q), F.WHITE, 1 - q)
+        F.Light(side, F.WHITE, 0.2)
+    end)
+    r:Span(0, 0.45, function(q) if fx.castBar then fx.castBar(side, q) end end)
+    return Anim(r)
+end
+
+-- The "unstoppable" event (side: the caster): the interrupt bounces off; its chain flares, sparks fly back
+function F.Shrug(e)
+    if not fx or not Visible(e.side) then return nil end
+    local side = e.side
+    local by = side == "ally" and "foe" or "ally"
+    local r = NewRun(0.6)
+    r:At(0, function()
+        local ch = CH[side]
+        if ch then ch.flare = 1 end
+        local p, q = Pts(side), Pts(by)
+        Spray(p.c[1], p.c[2], 8, { kind = "spark", cols = { IRON.w, IRON.h, IRON.l }, s = { 50, 90 },
+              ang = atan2(q.c[2] - p.c[2], q.c[1] - p.c[1]), spread = pi * 0.7, ay = 120, life = { 0.25, 0.45 } })
+    end)
+    r:Span(0, 0.3, function(q)
+        local p = Pts(side)
+        if q < 0.4 then F.Light(side, C("#c4c8d2"), 0.2) end
+        Glow(p.feet[1], p.feet[2] - 4, p.w, C("#e8ecf5"), 0.3 * (1 - q), "under")
+    end)
+    return Anim(r)
+end
+
 -- what is on screen (tests): blocks this frame and the most since Reset, shades, glows, sparkles, particles, the
 -- effect playing, marks / shells / wind-ups per side
 function F.State()
@@ -1542,6 +1761,10 @@ function F.State()
         out.marks[side] = ids
         out.shell[side] = GS[side] and GS[side].type or nil
         out.windup[side] = CS[side] and CS[side].key or nil
+        out.chain = out.chain or {}
+        out.chain[side] = CH[side] and true or nil
+        out.broken = out.broken or {}
+        out.broken[side] = BROKEN[side] or nil
     end
     local bm = {}
     for _, side in ipairs(SIDES) do bm[side] = { dx = BM[side].ax or 0, dy = BM[side].ay or 0 } end
