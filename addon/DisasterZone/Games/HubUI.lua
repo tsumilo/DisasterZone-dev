@@ -33,7 +33,7 @@ local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 -- the games' colours (the front poster's edge, the room's glow, the rule under the text)
 local ACCENT = {
     bingo = ns.Style.C.GOLD, trainer = { 0.31, 0.83, 0.88 }, azeromon = { 0.53, 0.85, 0.42 },
-    chess = { 0.74, 0.58, 1 }, illidan = { 0.65, 0.94, 0.29 },
+    chess = { 0.74, 0.58, 1 }, illidan = { 0.65, 0.94, 0.29 }, holdtheline = { 1, 0.76, 0.32 },
 }
 local DEFAULT_ACCENT = ns.Style.C.GOLD
 
@@ -45,6 +45,7 @@ local LOGOS = {
     trainer = { file = MEDIA .. "Games\\logo_trainer", tw = 512, th = 256, k = 2, l = 17, t = 17, r = 474, b = 143, pack = 14 },
     chess = { file = MEDIA .. "Games\\logo_chess", tw = 512, th = 256, k = 2, l = 16, t = 3, r = 383, b = 114, pack = 14 },
     illidan = { file = MEDIA .. "Games\\logo_illidan", tw = 512, th = 256, k = 2, l = 17, t = 6, r = 429, b = 124, pack = 14 },
+    holdtheline = { file = MEDIA .. "HoldTheLine\\logo", tw = 512, th = 256, k = 2, l = 50, t = 95, r = 466, b = 158, pack = 15 },
     azeromon = { file = MEDIA .. "Azeromon\\title_logo", tw = 256, th = 64, k = 1, l = 1, t = 2, r = 139, b = 48, pack = 13,
                  nearest = true },
 }
@@ -374,6 +375,19 @@ INFO.illidan = function()
         out.faces = {}
         for i = 1, #list do out.faces[i] = list[i].key end
         out.foot = string.format("Today %d played  \194\183  %s %s", #list, list[1].name, B:ResultText(list[1].e))
+    end
+    return out
+end
+
+INFO.holdtheline = function()
+    local out = { kicker = "SURVIVORS", art = "kara" }
+    local data = Saved("holdtheline")
+    local wins, best, runs = tonumber(data.wins) or 0, tonumber(data.best) or 0, tonumber(data.runs) or 0
+    if runs > 0 then
+        local clock = string.format("%d:%02d", floor(best / 60), best % 60)
+        out.plates = { Plate(clock, "best", wins == 0), Plate(wins, Plural(wins, "win", "wins"), wins > 0), Plate(tonumber(data.kills) or 0, "slain") }
+    else
+        out.stat = "Not played yet"
     end
     return out
 end
@@ -887,6 +901,26 @@ COVERS.illidan = function(parent, poster)
     function c:Refresh() end
     function c:Tick(elapsed) if demo then demo:Tick(elapsed) end end
     c.demo = demo
+    return c
+end
+
+-- Hold the Line: the game playing itself (ns.HTLUI:NewPoster - its own engine and renderer, a Paladin then a Mage
+-- holding the line), filling the painting; it plays in front, the sides keep their painting.
+COVERS.holdtheline = function(parent, poster)
+    local c = ns.HTLUI and ns.HTLUI.NewPoster and ns.HTLUI:NewPoster(poster.artFrame)
+    if not c then return nil end
+    c.frontOnly = true
+    -- its view stacks ~40 frame levels (depth bands): the poster's words and shades go above them, once both exist
+    local function Raise(f, d) f:SetFrameLevel(f:GetFrameLevel() + d) for _, ch in ipairs({ f:GetChildren() }) do Raise(ch, d) end end
+    local tick = c.Tick
+    function c:Tick(elapsed)
+        if not self.raised and poster.top then
+            self.raised = true
+            local d = self.view.top:GetFrameLevel() + 2 - poster.over:GetFrameLevel()
+            if d > 0 then Raise(poster.over, d) Raise(poster.top, d) end
+        end
+        tick(self, elapsed)
+    end
     return c
 end
 

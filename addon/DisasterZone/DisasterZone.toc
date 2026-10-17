@@ -354,6 +354,15 @@ Games\Illidan\Game.lua
 Games\Illidan\Board.lua
 Games\Illidan\Attract.lua
 Games\Illidan\UI.lua
+Games\HoldTheLine\Data.lua
+Games\HoldTheLine\Art.lua
+Games\HoldTheLine\Kit.lua
+Games\HoldTheLine\Engine.lua
+Games\HoldTheLine\Render.lua
+Games\HoldTheLine\HUD.lua
+Games\HoldTheLine\Game.lua
+Games\HoldTheLine\Social.lua
+Games\HoldTheLine\UI.lua
 Games\Azeromon\Data.lua
 Games\Azeromon\Atlas.lua
 Games\Azeromon\Ground.lua

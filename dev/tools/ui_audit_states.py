@@ -343,6 +343,30 @@ BOI_AUD = ("BOI_AUD = BOI_AUD or {} local E = ns.BoI "
            "  for _, x in ipairs(r.map.list) do if x.type == 'boss' then boss = x end end "
            "  local nb = E.Neighbours(r.map, boss, true)[1] r.room = nb.room r.room.cleared = true E.ChangeRoom(r, E.OPP[nb.dir]) "
            "  r.mode = 'play' if setup then setup(r.bossF, r) end BOI_AUD.run(r, frames) end ")
+# Hold the Line: a Paladin run at level 7 with a hand of three (a spell rank-up, a blessing that awakens Ashbringer, gadget)
+HTL_LEVEL = ("ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
+             "local r = ns.HTLUI._Run() r.level, r.pending = 7, 1 ns.HTL.AddSpell(r, 'avenger') "
+             "ns.HTLUI._OpenLevelUp({ { kind = 'spell', id = 'avenger', r = 2 }, { kind = 'passive', id = 'crusader', r = 1 }, "
+             "{ kind = 'passive', id = 'fortitude', r = 1 } }) ")
+# Hold the Line: a Mage run that got somewhere (for the end screens)
+HTL_END = ("local d = ns.Games:GetData('holdtheline') d.best, d.runs, d.rep = 80, 4, 2600 "
+           "ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('MAGE') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
+           "local r = ns.HTLUI._Run() local E = ns.HTL for _, id in ipairs({ 'arcane', 'nova', 'blizzard', 'flamestrike' }) do E.AddSpell(r, id) end "
+           "E.AddPassive(r, 'intellect') E.AddPassive(r, 'might') r.legend.arcane = true "
+           "r.t, r.level, r.kills, r.gold, r.bossKills = 102, 11, 675, 140, 0 ")
+# Hold the Line's guild hall: a week of the guild's runs, some achievements, Honored with the Argent Dawn
+HTL_HALL = ("local S, d = ns.HTLSocial, ns.HTLGame.Data() local w, realm, now = S:Week(), '-' .. ns.Util.GetPlayerRealm(), time() "
+            "d.rep, d.runs, d.kills = 13210, 9, 6412 "
+            "for _, r in ipairs({ { 'Dinalingus', 'PALADIN', 900, 9412, 52, 'consecration', 1 }, { 'Lidevna', 'MAGE', 861, 6980, 41, 'arcane' }, "
+            "  { 'Victhar', 'WARRIOR', 708, 5207, 35 }, { 'Fazerblue', 'PALADIN', 652, 4880, 33 }, { 'Xiavor', 'MAGE', 607, 4105, 30 }, "
+            "  { 'Yubell', 'MAGE', 524, 3320, 26 }, { 'Quentrell', 'WARRIOR', 451, 2676, 22 } }) do "
+            "  local e = { b = { [r[2]] = { t = r[3], k = r[4], l = r[5], lg = r[6], w = r[7] or 0 } }, g = math.floor(r[4] / 9), r = r[4] * 2, p = r[5] * 6, "
+            "    ch = r[2] == 'WARRIOR' and { t = r[3] - 120, k = math.floor(r[4] / 2), c = 'WARRIOR' } or nil } "
+            "  S._Store(w, r[1] .. realm, e, e) end "
+            "local me = { b = { PALADIN = { t = 415, k = 2014, l = 19, w = 0 } }, g = 210, r = 13210, p = 75 } "
+            "S._Store(w, ns.Util.PlayerKey(), me, me) "
+            "d.ach = { line = now - 86400 * 3, ash = now - 86400 * 8, untouch = now - 86400 * 6, first5 = now - 86400 * 9, first10 = now - 86400 * 5, k1000 = now - 86400 * 7, friendly = now - 86400 * 4, honored = now - 86400 } "
+            "d.firsts = { ash = { who = ns.Util.PlayerKey(), t = now - 86400 * 8 }, tf = { who = 'Victhar' .. realm, t = now - 86400 * 2 }, palefirst = { who = 'Dinalingus' .. realm, t = now - 86400 * 5 } } ")
 BOI_BOARD = ("do local B, day, realm = ns.BoIBoard, ns.BoIBoard:Today(), '-' .. ns.Util.GetPlayerRealm() "
              "for _, e in ipairs({ { 'Xiavor', { c = 'MAGE', f = 5, w = true, t = 702, k = 61, i = 7 } }, "
              "  { 'Yubell', { c = 'WARLOCK', f = 5, w = true, t = 785, k = 70, i = 9 } }, "
@@ -2022,6 +2046,28 @@ STATES = [
     ("Games - Chess over", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.Chess:Prefs().moves = nil "
                                   "ns.GamesUI:Select('chess') ns.ChessUI:OpenGame(ns.Chess:Get('ov1'))")),
     # The Binding of Illidan: the title, a fight in a room, the bosses (god mode, a few seconds in)
+    ("Games - Hold the Line title", opened("games", "ns.GamesUI:Select('holdtheline') for _ = 1, 40 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line level-up", opened("games", HTL_LEVEL + "for _ = 1, 80 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line choosing", opened("games", HTL_LEVEL + "for _ = 1, 80 do ns.HTLUI._Tick(1 / 60) end "
+                                         "ns.HTLUI.TakeLevel(2) for _ = 1, 22 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line lab", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI.OpenLab('PALADIN') "
+                                    "for _ = 1, 90 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line legendary", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') "
+                                          "for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end local r = ns.HTLUI._Run() "
+                                          "r.chest = { items = { { kind = 'legend', id = 'consecration' }, { kind = 'gold', id = 'gold', r = 0 } }, gold = 25 } "
+                                          "for _ = 1, 200 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line title loading", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI._ShowTitle() ns.HTLUI._Tick(1 / 60)")),
+    ("Games - Hold the Line died", opened("games", HTL_END + "r.killer = 'Plagued Rat' ns.HTLUI._ShowEnd('death') for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line victory", opened("games", HTL_END + "r.t, r.bossKills = 900, 3 ns.HTLUI._ShowEnd('victory') for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line talents", opened("games", "local d = ns.Games:GetData('holdtheline') d.runs, d.bank = 9, 1460 "
+                                            "d.talents = { might = 5, swift = 3, area = 2, crit = 1, tough = 3, greed = 2, magnet = 1 } "
+                                            "ns.GamesUI:Select('holdtheline') ns.HTLUI.ShowTalents() for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line warrior lab", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI.OpenLab('WARRIOR') local r = ns.HTLUI._Run() r.labN = 160 "
+                                                "for _ = 1, 150 do ns.HTLUI._Tick(1 / 60) end r.p.atkT = 0.2 r.p.atkDir = 1 "
+                                                "r.fx[#r.fx + 1] = { kind = 'slash', x = r.p.x, y = r.p.y - 16, a = 0.6, r = 90, t = 0.08, dur = 0.24 } ns.HTLUI._Tick(1 / 60)")),
+    ("Games - Hold the Line leaderboard", opened("games", "ns.GamesUI:Select('holdtheline') " + HTL_HALL + "ns.HTLUI.ShowBoard() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line achievements", opened("games", "ns.GamesUI:Select('holdtheline') " + HTL_HALL + "ns.HTLUI.ShowAch() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line argent dawn", opened("games", "ns.GamesUI:Select('holdtheline') " + HTL_HALL + "ns.HTLUI.ShowDawn() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
     ("Games - Illidan title", opened("games", BOI_BOARD + "ns.GamesUI:Select('illidan') ns.BoIUI._Focus(true) ns.BoIUI._Draw()")),
     ("Games - Illidan grave", opened("games", BOI_BOARD + BOI_AUD + "local r = BOI_AUD.start(1) r.mode = 'play' "
                                      "r.graves = { { f = 1, rx = r.room.x, ry = r.room.y, x = 200, y = 330, who = 'Xiavor', cls = 'MAGE', by = 'Felhunter' } } "
@@ -2057,6 +2103,9 @@ STATES = [
                                      "r.room.cleared = true for _ = 1, 7 do ns.BoI.Step(r, { shoot = 'up' }) end ns.BoIUI._Focus(false) r.mode = 'dying' r.dyingT = 999 "
                                      "r.mode = 'play' ns.BoIUI._Focus(true) ns.BoIUI._Draw()")),
     # the poster in front: the game playing itself, four seconds in
+    ("Games - Hold the Line in front", opened("games", "local d = ns.Games:GetData('holdtheline') d.best, d.runs, d.wins, d.kills = 642, 7, 1, 5120 "
+                                             "ns.GamesUI:ShowHub() ns.GamesUI:ShowFront('holdtheline') "
+                                             "for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'holdtheline' then for _ = 1, 300 do p.cover:Tick(1 / 60) end end end")),
     ("Games - Illidan in front", opened("games", "local d = ns.Games:GetData('illidan') d.best, d.runs = 3, 4 "
                                         "ns.GamesUI:ShowHub() ns.GamesUI:ShowFront('illidan') "
                                         "for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'illidan' then for _ = 1, 240 do p.cover:Tick(1 / 60) end end end")),
