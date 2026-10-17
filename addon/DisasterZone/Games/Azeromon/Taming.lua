@@ -30,7 +30,9 @@ local C = {
 T.TIME = { lure = 0.62, open = 0.38, pull = 0.42, settle = 0.5, shake = 0.48, pip = 0.26, lock = 1.1, crack = 0.3,
            burst = 0.4 }
 local ORB_UP = 10 * P                    -- the orb's centre above the beast's feet
-local PIPS_DOWN = 13 * P                 -- the pips' centre below them
+local PIPS_UP = 22 * P                   -- the pips' centre above the feet: over the orb (below it, the
+                                         -- player's HP box would cover them on the foe's platform)
+local STAMP_UP = 40 * P                  -- TAMED!, over the pips
 
 local fx                                 -- the pieces, made on first use (Build)
 
@@ -114,11 +116,18 @@ local function Build(b)
     fx = { b = b, sparks = {} }
     -- the sigil lies on the ground, under the beast (models are 2 levels up): two rings and a paw
     local s = Piece(b, 1, 180, 60)
-    s.glow = Glow(s, 210, 60, C.gold, 0.35)
-    Ring(s, 28, 8, 2, C.gold, 0.9, 1)
-    Ring(s, 18, 5, 1, C.pale, 0.55, 1)
-    Disc(s, 5, 2, C.pale, 0.95, 2, nil, 0, -2)
-    for _, toe in ipairs({ { -9, 1 }, { -4, 3 }, { 2, 3 }, { 7, 1 } }) do Block(s, toe[1], toe[2], 2, 2, C.pale, 0.95, 2) end
+    -- (inside the platform's top, clear of its rim; gold with a shade below and right, lit from the top left like
+    -- the world, so it reads on light grass)
+    s.glow = Glow(s, 180, 50, C.gold, 0.3)
+    Ring(s, 25, 7, 1, C.beam, 1, 1)
+    Ring(s, 24, 6, 1, C.gold, 1, 1)
+    Ring(s, 18, 5, 1, C.gold, 0.8, 1)
+    Disc(s, 5, 2, C.shade, 1, 2, nil, 1, -3)
+    Disc(s, 5, 2, C.gold, 1, 3, nil, 0, -2)
+    for _, toe in ipairs({ { -9, 1 }, { -4, 2 }, { 2, 2 }, { 7, 1 } }) do
+        Block(s, toe[1], toe[2] - 1, 3, 3, C.shade, 1, 2)
+        Block(s, toe[1], toe[2], 2, 2, C.gold, 1, 3)
+    end
     fx.sigil = s
     -- light rising from it: four columns, fading toward the top
     local beams = Piece(b, 3, 180, 200)
@@ -404,7 +413,7 @@ function T.Anim(e, b, fm, am, play, anim)
                 pip.core:SetColorTexture(cc[1], cc[2], cc[3], on and 1 or 0.45)
             end
             pips.lit = lit
-            Place(pips, fx0, fy0 - PIPS_DOWN, 1)
+            Place(pips, fx0, fy0 + PIPS_UP, 1)
             pips:Show()
         else
             pips:Hide()
@@ -419,7 +428,7 @@ function T.Anim(e, b, fm, am, play, anim)
                 if shiny then play("shiny") end
             end)
             local q = min(1, (t - tEnd) / 0.2)
-            Place(stamp, fx0, fy0 + ORB_UP + 22 * P, 1.6 - 0.6 * q)
+            Place(stamp, fx0, fy0 + STAMP_UP, 1.6 - 0.6 * q)
             stamp:Show()
         else
             stamp:Hide()
@@ -520,11 +529,9 @@ function T.Card(info)
         c.head:SetPoint("TOPLEFT", 180, -16)
         c.head:SetTextColor(0.64, 0.42, 0.05)
         c.head:SetText("TAMED!")
-        c.star = c:CreateTexture(nil, "OVERLAY")
-        c.star:SetTexture(STAR)
-        c.star:SetBlendMode("ADD")
-        c.star:SetVertexColor(C.gold[1], C.gold[2], C.gold[3])
-        c.star:SetSize(26, 26)
+        c.star = c:CreateTexture(nil, "OVERLAY")              -- a shiny: the star its HP box wears
+        c.star:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_1")
+        c.star:SetSize(22, 22)
         c.star:SetPoint("CENTER", c, "TOPRIGHT", -26, -24)
         c.name = K.Font(c, 16, nil, true)
         c.name:SetPoint("TOPLEFT", 180, -38)
