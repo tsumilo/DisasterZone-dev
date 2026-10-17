@@ -12,7 +12,7 @@ Windows stays the fallback and the reference:
 | What | How |
 |---|---|
 | Everything on Windows, as before | `tf_e\run_all.py --windows` (or `set DZ_WSL=0`) |
-| Suites that always run on Windows | `WINDOWS_ONLY` in `tf_e\run_all.py`: `patch/` (whole addon trees staged over 9P are slow), `launcher/`, `scale/` (60 clients a shard need ~3.4 GB in Linux) |
+| Suites that always run on Windows | `WINDOWS_ONLY` in `tf_e\run_all.py`: `patch/` (whole addon trees staged over 9P are slow), `launcher/`, `scale/` (60 clients a shard need ~3.4 GB in Linux), `sync/test_mixed_versions.py` (old trees from git and the live folder) |
 | One suite in WSL by hand | `wsl -d Ubuntu-26.04 -e bash /mnt/c/Users/emilo/CDLoot-dev/dev/tools/wsl/run.sh tests/votes/test_votes.py -k name` |
 | One suite in WSL without forking | `wsl -d Ubuntu-26.04 -e env DZ_FORK=0 bash /mnt/c/Users/emilo/CDLoot-dev/dev/tools/wsl/run.sh tests/votes/test_votes.py` |
 | One suite on Windows | `luaenv\Scripts\python.exe tests\votes\test_votes.py` (forkrun runs the cases one after another there) |
