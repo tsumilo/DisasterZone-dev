@@ -2179,7 +2179,7 @@ Scr.STAT_TXT = { atk = "Attack", def = "Defense", spa = "Sp. Atk", spd = "Sp. De
 -- What a move does besides damage, in a few words ("" for a plain attack).
 function Scr.MoveEffectText(md)
     local e, out = md.effect, {}
-    if md.prio and md.prio > 0 then out[#out + 1] = "Always strikes first" end
+    if md.prio and md.prio > 0 and not md.role then out[#out + 1] = "Always strikes first" end
     if e and e.kind == "status" and Scr.STATUS_TXT[e.status] then
         local t = Scr.STATUS_TXT[e.status]
         out[#out + 1] = (e.chance and e.chance < 100) and string.format("%s (%d%%)", t[2], e.chance) or t[1]
@@ -2193,13 +2193,17 @@ function Scr.MoveEffectText(md)
     elseif e and e.kind == "drain" then
         out[#out + 1] = e.pct == 50 and "Heals half the damage dealt" or string.format("Heals %d%% of the damage dealt", e.pct)
     end
+    if md.role then         -- (0.37 kits: the move box's line; the cooldown is on the stats line)
+        local note = Scr.MoveNote(md)
+        if note ~= "" and note ~= "No cooldown" and not (e and e.kind == "stat") then out[#out + 1] = note end
+    end
     return table.concat(out, "; ")
 end
 
 function Scr.MoveStatsText(md, pp)
     return table.concat({ md.power > 0 and ("Power " .. md.power) or "Status",
         (md.acc or 0) > 0 and ("Acc " .. md.acc .. "%") or "Never misses",
-        "PP " .. (pp and (pp .. "/" .. md.pp) or md.pp) }, "   ")
+        "PP " .. (pp and (pp .. "/" .. md.pp) or md.pp), (md.cd or 0) > 0 and ("CD " .. md.cd) or nil }, "   ")
 end
 
 -- Card i (1 = left, 2 = right): a label, then the move's name, type, numbers and effect.
@@ -2306,7 +2310,8 @@ function Scr.OpenRelearnMoves(idx)
         onMove = function(i)
             R.moveCompare:Show()
             Scr.MoveCard(1, "REMEMBER", list[i])
-            Scr.TextCard(2, "LESSON", D.Money(G.RELEARN_PRICE), "You have " .. D.Money(G.save.money))
+            Scr.TextCard(2, "LESSON", G.RELEARN_PRICE > 0 and D.Money(G.RELEARN_PRICE) or "Free",
+                G.RELEARN_PRICE > 0 and ("You have " .. D.Money(G.save.money)) or "Swap as often as you like")
         end })
 end
 
@@ -2412,6 +2417,23 @@ function Chips.List(s)
                 lines = { string.format("x%.2f until it is switched out.", mult) } }
         end
     end
+    -- 0.37: timed marks (bleed, chill, ...), a guard, a cast being readied
+    if s.marks then
+        local ids = {}
+        for id in pairs(s.marks) do ids[#ids + 1] = id end
+        table.sort(ids)
+        for _, id in ipairs(ids) do
+            local mk, n = D.MARKS[id], s.marks[id]
+            if mk then
+                out[#out + 1] = { text = mk.short .. " " .. n, color = mk.color, title = mk.name,
+                    lines = { mk.desc, string.format("%d more %s.", n, n == 1 and "turn" or "turns") } }
+            end
+        end
+    end
+    if s.guard then
+        out[#out + 1] = { text = "GUARD " .. s.guard, color = { 0.42, 0.52, 0.78 }, title = "Guarding",
+            lines = { "Takes a quarter of the damage.", string.format("%d more %s.", s.guard, s.guard == 1 and "turn" or "turns") } }
+    end
     if s.flask and D.items[s.flask.id] then
         local def = D.items[s.flask.id]
         out[#out + 1] = { text = "FLASK " .. s.flask.n, color = { 0.55, 0.38, 0.78 }, title = def.name,
@@ -2491,9 +2513,114 @@ local function InfoBox(f, side)
     if f.exp then f.exp:Set(f.animExp or s.exp, 0.35, 0.65, 0.95) end
 end
 
+-- A cast being readied (0.37): a bar under the foe's box / over yours, gold, or grey when it can't be interrupted.
+function Scr.CastBar(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(280, 22)
+    f.bg = f:CreateTexture(nil, "BACKGROUND", nil, 0)
+    f.bg:SetAllPoints()
+    f.bg:SetColorTexture(0.09, 0.09, 0.12, 0.92)
+    f.edge = f:CreateTexture(nil, "BACKGROUND", nil, -8)          -- (under the dark bar: only its 2 px rim shows)
+    f.edge:SetPoint("TOPLEFT", -2, 2)
+    f.edge:SetPoint("BOTTOMRIGHT", 2, -2)
+    f.edge:SetColorTexture(0.79, 0.71, 0.54, 1)
+    f.fill = f:CreateTexture(nil, "ARTWORK")
+    f.fill:SetPoint("TOPLEFT")
+    f.fill:SetPoint("BOTTOMLEFT")
+    f.fill:SetWidth(140)
+    f.name = Font(f, 13, "OVERLAY", true)
+    f.name:SetPoint("LEFT", 8, 0)
+    f.name:SetJustifyH("LEFT")
+    f.name:SetWordWrap(false)
+    f.name:SetTextColor(1, 1, 1)
+    f.note = Font(f, 11, "OVERLAY")
+    f.note:SetPoint("RIGHT", -12, 0)
+    f.note:SetTextColor(0.92, 0.92, 0.95)
+    f:Hide()
+    return f
+end
+
+function Scr.SetCastBar(f, c)
+    if not c then f:Hide() return end
+    f:Show()
+    f.name:SetText(c.name)
+    if c.unstoppable then
+        f.fill:SetColorTexture(0.42, 0.45, 0.53, 1)
+        f.edge:SetColorTexture(0.62, 0.65, 0.72, 1)
+        f.note:SetText("can't interrupt")
+    else
+        f.fill:SetColorTexture(0.84, 0.55, 0.14, 1)
+        f.edge:SetColorTexture(0.79, 0.71, 0.54, 1)
+        f.note:SetText("lands next turn")
+    end
+    -- the bar grows to fit the name and the note (280 to 340); past that the name ends in "...": they never meet
+    f.name:SetWidth(0)
+    local noteW = f.note:GetStringWidth()
+    f:SetWidth(min(340, max(280, f.name:GetStringWidth() + noteW + 40)))
+    f.name:SetWidth(f:GetWidth() - 28 - noteW)
+end
+
 local function RefreshBattleBoxes()
     InfoBox(R.foeBox, "foe")
     InfoBox(R.allyBox, "ally")
+    if R.foeCast then
+        Scr.SetCastBar(R.foeCast, BT.snap and BT.snap.foe and BT.snap.foe.cast)
+        Scr.SetCastBar(R.allyCast, BT.snap and BT.snap.ally and BT.snap.ally.cast)
+    end
+end
+
+-- The coach (0.37): the simple rule list's pick for your beast and why, while it is on (until your first badge,
+-- unless set: /dz azeromon coach on | off | auto).
+function Scr.CoachOn()
+    local d = G:Data()
+    if d.coach ~= nil then return d.coach and true or false end
+    return G:BadgeCount() == 0
+end
+
+function Scr.Coach(b)
+    if not (b and b.ally and Scr.CoachOn()) or b.ally.cast then return nil end
+    local usable = {}
+    for i in ipairs(b.ally.mon.moves) do if b:Usable("ally", i) then usable[#usable + 1] = i end end
+    if #usable == 0 then return nil end
+    local i = b:Rotation("ally", usable)
+    local md = D.moves[b.ally.mon.moves[i].id]
+    local op = b.foe
+    local why
+    if op.cast and (md.interrupt or md.guard) then why = md.interrupt and "Coach: break the cast" or "Coach: guard the cast"
+    elseif md.payoff and b:PayoffActive("ally", md) then why = "Coach: combo now!"
+    elseif md.role == "setup" then why = "Coach: set up the combo"
+    elseif md.heal then why = "Coach: heal up"
+    elseif md.cast then why = "Coach: cast it now"
+    else why = "Coach: best hit now" end
+    return i, why
+end
+
+Scr.ROLE = {
+    filler = { "FILLER", { 0.52, 0.55, 0.64 } }, setup = { "SETUP", { 0.27, 0.60, 0.78 } },
+    payoff = { "PAYOFF", { 0.80, 0.58, 0.16 } }, nuke = { "CAST", { 0.86, 0.44, 0.18 } },
+    guard = { "GUARD", { 0.44, 0.54, 0.80 } }, interrupt = { "INTERRUPT", { 0.80, 0.30, 0.28 } },
+    heal = { "HEAL", { 0.30, 0.62, 0.30 } }, buff = { "BUFF", { 0.62, 0.42, 0.78 } },
+}
+
+-- One short line on what a move does (the move box's last line when the coach has nothing to say about it).
+function Scr.MoveNote(md)
+    if md.cast then return md.unstoppable and "Can't be interrupted" or "Lands next turn" end
+    if md.guard then return string.format("Soaks %d%% for %d turns", floor((1 - md.guard) * 100 + 0.5), md.guardTurns or 1) end
+    if md.interrupt then return "First. Breaks a cast" end
+    if md.heal then return string.format("Heals %d%%%s", floor(md.heal * 100 + 0.5), md.mark and " + Regrowth" or "") end
+    if md.payoff then
+        local mk = md.payoff.mark and D.MARKS[md.payoff.mark]
+        return string.format("x%s on %s%s", tostring(md.payoff.mult), mk and mk.short or "status", md.payoff.consume and ", uses it" or "")
+    end
+    if md.mark and D.MARKS[md.mark.id] then
+        return string.format("%s %s for %d turns", md.mark.who == "self" and "Self:" or "Leaves", D.MARKS[md.mark.id].short, md.mark.turns)
+    end
+    local e = md.effect
+    if e and e.kind == "stat" then
+        return string.format("%s %s", e.stages > 0 and "Raises" or "Lowers", D.statNames[e.stat] or e.stat)
+    end
+    if (md.cd or 0) == 0 and md.role then return "No cooldown" end
+    return ""
 end
 
 local function BattleModelFor(side) return side == "foe" and R.foeModel or R.allyModel end
@@ -2502,11 +2629,18 @@ local function OpenFightMenu()
     local b = G.battle
     local mon = b.ally.mon
     local items = {}
+    local coachSlot, coachWhy = Scr.Coach(b)
     for i = 1, 4 do
         local mv = mon.moves[i]
         if mv then
             local md = D.moves[mv.id]
-            items[i] = { text = md.name, move = mv, onSelect = function(idx, menu)
+            -- one thing on the right, never two: the turns a resting move still needs, or COMBO when its mark is up
+            local rest = b.ally.cd and b.ally.cd[i] or 0
+            local right, rightColor
+            if rest > 0 then right, rightColor = tostring(rest), { 0.55, 0.56, 0.62 }
+            elseif b.PayoffActive and b:PayoffActive("ally", md) then right, rightColor = "COMBO", { 0.80, 0.55, 0.04 } end
+            items[i] = { text = md.name, move = mv, right = right, rightColor = rightColor, disabled = rest > 0 or nil,
+                rest = rest, why = (i == coachSlot) and coachWhy or nil, onSelect = function(idx, menu)
                 if mv.pp <= 0 then
                     Message("There's no PP left for this move!")
                     return
@@ -2526,20 +2660,28 @@ local function OpenFightMenu()
     if actionMenu then actionMenu.frame:Hide() end
     R.textbox:Hide()
     local last = BT.lastMove[mon]
-    PushMenu(items, { anchor = { "BOTTOMLEFT", screen, "BOTTOMLEFT", 0, 0 }, w = SW - 170, h = BOX_H, rowH = 38, cols = 2,
-        level = 70, cursor = (last and mon.moves[last]) and last or 1, onCancel = function(menu)
+    -- the cursor starts on the coach's pick, else the last move (if it is not resting), else the first ready one
+    local cursor = coachSlot
+    if not cursor and last and mon.moves[last] and not items[last].disabled then cursor = last end
+    if not cursor then
+        for i = 1, 4 do if items[i] and items[i].move and not items[i].disabled then cursor = i break end end
+    end
+    PushMenu(items, { anchor = { "BOTTOMLEFT", screen, "BOTTOMLEFT", 0, 0 }, w = SW - 200, h = BOX_H, rowH = 38, cols = 2,
+        level = 70, cursor = cursor or 1, onCancel = function(menu)
             PopMenu(menu)
             info:Hide()
             if actionMenu then actionMenu.frame:Show() end
             R.textbox:Show()
         end,
         onMove = function(i, menu)
-            local mv = menu.items[i].move
+            local it = menu.items[i]
+            local mv = it.move
             -- the battle text box stays up (UpdateText shows it every frame) and spans the whole bottom: keep
             -- the info window over it and the move list, whatever level the screen sits at
             local lvl = max(R.textbox:GetFrameLevel(), menu.frame:GetFrameLevel()) + 5
             info:SetFrameLevel(lvl)
             info.type:SetFrameLevel(lvl + 1)
+            info.role:SetFrameLevel(lvl + 1)
             info:Show()
             if mv then
                 local md = D.moves[mv.id]
@@ -2548,14 +2690,35 @@ local function OpenFightMenu()
                 if frac <= 0.25 then info.pp:SetTextColor(0.86, 0.25, 0.2)
                 elseif frac <= 0.5 then info.pp:SetTextColor(0.9, 0.55, 0.1)
                 else info.pp:SetTextColor(INK[1], INK[2], INK[3]) end
+                -- (each item has its own place: PP | cooldown on top, type + role pills, power, effect, one note)
+                if (it.rest or 0) > 0 then
+                    info.cd:SetText(string.format("Ready in %d", it.rest))
+                    info.cd:SetTextColor(0.86, 0.45, 0.12)
+                else
+                    info.cd:SetText((md.cd or 0) > 0 and ("CD " .. md.cd) or "")
+                    info.cd:SetTextColor(0.42, 0.46, 0.56)
+                end
                 info.type:Set(D.types[md.type].name:upper(), D.types[md.type].color)
-                info.power:SetText(md.power > 0 and ("Power " .. md.power) or "Status move")
+                local role = md.role and Scr.ROLE[md.role]
+                if role then info.role:Set(role[1], role[2]) info.role:Show() else info.role:Hide() end
+                local combo = G.battle.PayoffActive and G.battle:PayoffActive("ally", md)
+                local pw = md.power
+                if combo and pw > 0 then pw = floor(pw * md.payoff.mult) end
+                info.power:SetText(md.power > 0 and ("Power " .. pw .. (combo and "  COMBO" or "")) or "Status move")
                 local foe = G.battle and G.battle.foe.mon
                 local txt, col = KH.EffectText(md, foe and D.species[foe.sp].type)
                 info.eff:SetText(txt)
                 info.eff:SetTextColor(col[1], col[2], col[3])
+                if it.why then
+                    info.note:SetText(it.why)
+                    info.note:SetTextColor(0.15, 0.26, 0.55)
+                else
+                    info.note:SetText(Scr.MoveNote(md))
+                    info.note:SetTextColor(0.36, 0.38, 0.44)
+                end
             else
-                info.pp:SetText("") info.type:Hide() info.power:SetText("")
+                info.pp:SetText("") info.type:Hide() info.role:Hide() info.power:SetText("") info.cd:SetText("")
+                info.note:SetText("")
             end
         end })
 end
@@ -2657,6 +2820,7 @@ function UI:BattleAct(action)
     -- only while the battle waits for this choice (a PvP turn that ran out has already forfeited)
     if b.need ~= "action" then CloseActionMenus() return end
     CloseActionMenus()
+    if b.ally.cast and action.kind ~= "forfeit" then action = { kind = "release" } end
     ClearText()
     if not b:Act(action) then
         Message("It won't have any effect.", function() BT.needShown = nil end)
@@ -2845,6 +3009,14 @@ local function PlayEvent(e)
         if e.t == "level" then ns.AzeroSound:Play("levelup") end
         R.allyBox.animExp = nil
         RefreshBattleBoxes()
+    elseif e.t == "cast" then                          -- 0.37: a cast is announced (its bar shows from the snapshot)
+        Anim(BattleModelFor(e.side), 54)
+        RefreshBattleBoxes()
+    elseif e.t == "interrupt" then
+        Anim(BattleModelFor(e.side), 9)
+        RefreshBattleBoxes()
+    elseif e.t == "castend" or e.t == "mark" or e.t == "guard" or e.t == "unstoppable" or e.t == "combo" then
+        RefreshBattleBoxes()
     elseif e.t == "sfx" then
         ns.AzeroSound:Play(e.sound)
     elseif e.t == "exp" then
@@ -2964,7 +3136,11 @@ local function UpdateBattle(dt)
     elseif b.need == "action" then
         BT.needShown = true
         RefreshBattleBoxes()
-        OpenActionMenu()
+        if b.ally.cast then
+            UI:BattleAct({ kind = "release" })      -- committed: the cast it announced lands now
+        else
+            OpenActionMenu()
+        end
     elseif b.need == "switch" then
         BT.needShown = true
         Message("Choose a beast to send out.", function()
@@ -6140,6 +6316,13 @@ local function BuildBattle()
     R.foeBox:SetPoint("TOPLEFT", b, "TOPLEFT", 14, -14)
     R.allyBox = info(280, 102, true)
     R.allyBox:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -10, BOX_H + 8)
+    -- a cast being readied: under the foe's box, over yours
+    R.foeCast = Scr.CastBar(b)
+    R.foeCast:SetPoint("TOPLEFT", R.foeBox, "BOTTOMLEFT", 0, -6)
+    R.foeCast:SetFrameLevel(R.foeBox:GetFrameLevel() + 1)
+    R.allyCast = Scr.CastBar(b)
+    R.allyCast:SetPoint("BOTTOMRIGHT", R.allyBox, "TOPRIGHT", 0, 6)     -- (grows to the left, away from the edge)
+    R.allyCast:SetFrameLevel(R.allyBox:GetFrameLevel() + 1)
 
     R.net = Tex(b, "OVERLAY", 3)
     R.net:SetSize(34, 34)
@@ -6147,16 +6330,25 @@ local function BuildBattle()
     R.net:Hide()
 
     -- on the screen like the menus and text box, not the battle layer (that one is scaled past the stage and clips)
-    R.moveInfo = Box(screen, 170, BOX_H, 75)
+    -- the move box: PP and cooldown, type and role, power, the effect against this foe, one note (coach / what it does)
+    R.moveInfo = Box(screen, 200, BOX_H, 75)
     R.moveInfo:SetPoint("BOTTOMRIGHT", screen, "BOTTOMRIGHT", 0, 0)
     R.moveInfo.pp = Font(R.moveInfo, 15, nil, true)
-    R.moveInfo.pp:SetPoint("TOPLEFT", 18, -14)
+    R.moveInfo.pp:SetPoint("TOPLEFT", 16, -12)
+    R.moveInfo.cd = Font(R.moveInfo, 12, nil, true)
+    R.moveInfo.cd:SetPoint("TOPRIGHT", -16, -14)
     R.moveInfo.type = Pill(R.moveInfo, 80, 20, 16)
-    R.moveInfo.type:SetPoint("TOPLEFT", 18, -38)
+    R.moveInfo.type:SetPoint("TOPLEFT", 16, -34)
+    R.moveInfo.role = Pill(R.moveInfo, 84, 20, 13)
+    R.moveInfo.role:SetPoint("TOPLEFT", 100, -34)
     R.moveInfo.power = Font(R.moveInfo, 13)
-    R.moveInfo.power:SetPoint("TOPLEFT", 18, -62)
+    R.moveInfo.power:SetPoint("TOPLEFT", 16, -60)
     R.moveInfo.eff = Font(R.moveInfo, 12, nil, true)            -- against this foe (KH.EffectText)
-    R.moveInfo.eff:SetPoint("TOPLEFT", 18, -84)
+    R.moveInfo.eff:SetPoint("TOPLEFT", 16, -76)
+    R.moveInfo.note = Font(R.moveInfo, 11, nil, true)
+    R.moveInfo.note:SetPoint("TOPLEFT", 16, -92)
+    R.moveInfo.note:SetWidth(170)
+    R.moveInfo.note:SetWordWrap(false)
     R.moveInfo:Hide()
 
     R.flash = Tex(b, "OVERLAY", 7)
@@ -6281,12 +6473,14 @@ function UI:CreatePanel(parent)
         c.pill = Pill(mc, 64, 18, 14)
         c.pill:SetPoint("TOPRIGHT", mc, "TOPLEFT", x0 + cw, -12)
         c.name = Font(mc, 15, nil, true)
-        c.name:SetPoint("TOPLEFT", x0, -32)
+        c.name:SetPoint("TOPLEFT", x0, -28)
         c.stats = Font(mc, 13)
-        c.stats:SetPoint("TOPLEFT", x0, -58)
-        c.effect = Font(mc, 13)
-        c.effect:SetPoint("TOPLEFT", x0, -80)
+        c.stats:SetPoint("TOPLEFT", x0, -50)
+        c.effect = Font(mc, 13)                                  -- (two lines at most: they end above the rim)
+        c.effect:SetPoint("TOPLEFT", x0, -69)
         c.effect:SetWidth(cw)
+        c.effect:SetJustifyH("LEFT")
+        if c.effect.SetMaxLines then c.effect:SetMaxLines(2) end
         c.effect:SetTextColor(0.36, 0.42, 0.55)
         mc.cards[i] = c
     end
@@ -6609,6 +6803,12 @@ function UI:OnInit()
         if cmd == "flip" then
             d.flipFacing = not d.flipFacing
             ns:Print("Azeromon: battle models turned the other way.")
+        elseif cmd == "coach" then
+            -- /dz azeromon coach on | off | auto: the move box's coach line (auto = until your first badge)
+            local want = (a or ""):lower()
+            if want == "on" then d.coach = true elseif want == "off" then d.coach = false else d.coach = nil end
+            ns:Print("Azeromon: the coach is %s.", d.coach == nil and "on until your first badge"
+                or (d.coach and "on" or "off"))
         elseif cmd == "look" then
             -- /dz azeromon look 3d | pixel: the beasts as their 3D models or as pixel art (the default)
             local want = (a or ""):lower()
@@ -6844,6 +7044,7 @@ UI._TextOnTop = function()
              menu = top and top.frame:GetFrameLevel() or 0, text = text.full }
 end
 UI._MoveEff = function() return R.moveInfo:IsShown() and R.moveInfo.eff:GetText() or nil end
+UI._MoveNote = function() return R.moveInfo:IsShown() and R.moveInfo.note:GetText() or nil end
 UI._Matchups = function(t) return KH.Matchups(t) end
 UI._TypeChart = function() return R.typeChart ~= nil and R.typeChart:IsShown() end
 UI._PerkLine = function() return R.money.perk:GetText() end

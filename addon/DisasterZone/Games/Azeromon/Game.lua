@@ -361,12 +361,27 @@ function G.MigrateGoldshire(s)
     end
 end
 
+-- Saves from before the battle rework (0.37): every beast relearns its type's kit (Data D.TYPE_KIT) at its level,
+-- with full PP. (Its old moves are gone from the learn lists; the Pet Trainer swaps the fourth slot.)
+function G.MigrateKits(s)
+    for _, list in ipairs({ s.party, s.box }) do
+        if type(list) == "table" then
+            for _, mon in ipairs(list) do
+                if type(mon) == "table" and D.species[mon.sp] and tonumber(mon.lvl) then
+                    mon.moves = M.DefaultMoves(mon.sp, mon.lvl)
+                end
+            end
+        end
+    end
+end
+
 function G:Load()
     self.co, self.pending = nil, nil
     self:RestoreUndo()
     local s = self:Data().save
     self.save = s
     if (tonumber(s.v) or 1) < 2 then G.MigrateGoldshire(s) end
+    if (tonumber(s.v) or 1) < 3 then G.MigrateKits(s) end
     s.v = D.SAVE_VERSION
     if ns.AzeroAftermath then ns.AzeroAftermath.Migrate() end
     local function clean(list)
@@ -707,6 +722,7 @@ function G:TrainerDef(id)
     local def = D.trainers[id]
     local t = {}
     for k, v in pairs(def) do t[k] = v end
+    t.id = id
     t.name = self:Fmt(def.name)
     t.intro = def.intro and self:Fmt(def.intro)
     t.lose = def.lose and self:Fmt(def.lose)
@@ -1528,7 +1544,7 @@ end
 
 -- The pet trainer: a beast can be reminded of any move it could know by its level, from its own list or its
 -- earlier form's, for a fee.
-G.RELEARN_PRICE = 500
+G.RELEARN_PRICE = 0         -- free since 0.37: the fourth slot (big cast / guard / interrupt) is swapped here
 
 function G:RelearnableMoves(mon)
     -- its own list and every earlier form's (a Tidecaller remembers the Murkling's moves too; a Heavy War Golem

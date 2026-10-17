@@ -198,23 +198,25 @@ def level_up_offers_a_fifth_move_and_replaces_the_chosen_one():
     r = c.eval_py(r"""
       local G, M, B, D = ns.Azero, ns.AzeroMon, ns.AzeroBattle, ns.AzeroData
       G:NewGame()
-      local mon = M.New("emberwhelp", 15, G.rng)
-      mon.exp = M.ExpForLevel(16) - 1
+      local mon = M.New("emberwhelp", 18, G.rng)
+      mon.exp = M.ExpForLevel(19) - 1
       G.save.party[1] = mon
       local before = {}
       for i, m in ipairs(mon.moves) do before[i] = m.id end
       local wild = M.New("wolfpup", 5, G.rng)
       wild.hp = 1
       local b = B.New({ party = G.save.party, foes = { wild }, wild = true, rng = G.rng })
-      T_AZ.learnSlot = 2
+      T_AZ.learnSlot = 4
       local res = T_AZ.fight(b)
       local after = {}
       for i, m in ipairs(mon.moves) do after[i] = m.id end
       return { res = res, lvl = mon.lvl, before = before, after = after }
     """)
-    assert r["res"] == "win" and r["lvl"] == 16, r
-    assert r["before"] == ["scratch", "growl", "ember", "leer"], r
-    assert r["after"] == ["scratch", "flamebreath", "ember", "leer"], r
+    # its type's kit (0.37): filler (its signature Flame Breath from 16), setup, payoff + the guard it knows by 18;
+    # at 19 the interrupt replaces slot 4
+    assert r["res"] == "win" and r["lvl"] == 19, r
+    assert r["before"] == ["sf_flamebreath", "kimmolate", "kincinerate", "kfireward"], r
+    assert r["after"] == ["sf_flamebreath", "kimmolate", "kincinerate", "kcounterspell"], r
     no_errors(w)
 
 
@@ -334,7 +336,7 @@ def a_broken_save_is_repaired_on_load():
     w, c = game()
     r = c.eval_py(r"""
       local G = ns.Azero
-      G:Data().save = { v = 1, map = "nowhere", x = 1, y = 1, money = "lots",
+      G:Data().save = { v = 3, map = "nowhere", x = 1, y = 1, money = "lots",
         party = { { sp = "emberwhelp", lvl = 900, hp = -5, moves = { { id = "nope" }, { id = "ember", pp = 99 } } },
                   { sp = "missingno", lvl = 5 } },
         bag = { net = 3, fake = 2, potion = -1 } }
@@ -348,6 +350,26 @@ def a_broken_save_is_repaired_on_load():
     assert r["map"] == "home" and r["party"] == 1 and r["lvl"] == 100 and r["hp"] == r["max"], r
     assert r["moves"] == 1 and r["pp"] == 25 and r["net"] == 3, r
     assert r.get("fake") is None and r.get("potion") is None and r["money"] == 0, r
+    no_errors(w)
+
+
+@case
+def an_old_save_relearns_the_type_kits():
+    """Saves from before 0.37: every beast (party and stable) relearns its type's kit at its level, full PP."""
+    w, c = game()
+    r = c.eval_py(r"""
+      local G = ns.Azero
+      G:Data().save = { v = 2, map = "town", x = 7, y = 23, money = 100,
+        party = { { sp = "murkling", lvl = 20, hp = 10, moves = { { id = "tackle", pp = 3 }, { id = "bite", pp = 1 } } } },
+        box = { { sp = "kobling", lvl = 4, hp = 5, moves = { { id = "scratch", pp = 2 } } } } }
+      G:Load()
+      local function ids(mon) local out = {} for i, m in ipairs(mon.moves) do out[i] = m.id .. "/" .. m.pp end return out end
+      return { v = G.save.v, party = ids(G.save.party[1]), box = ids(G.save.box[1]) }
+    """)
+    assert r["v"] == 3, r
+    # its signature Bite (10, a Shadow hit: power 60) is its filler by 20, then the kit's setup, payoff, a fourth
+    assert r["party"][:3] == ["sfx_bite/35", "kfrostshock/20", "kicelance/15"] and len(r["party"]) == 4, r
+    assert r["box"] == ["krockthrow/35", "kcrusharmor/20"], r
     no_errors(w)
 
 

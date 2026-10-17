@@ -67,17 +67,40 @@ end
 
 function M.MaxHP(mon) return M.Stat(mon, "hp") end
 
--- Moves known at `lvl`: the last four learnable ones (how wild / trainer creatures get their moves).
+-- Moves known at `lvl` (how wild / trainer creatures, starters and migrated saves get their moves). A beast on its
+-- type's kit (Data D.TYPE_KIT): its filler, setup and payoff, plus one fourth-slot move it knows by then (big cast,
+-- guard or interrupt), picked by species and level so trainers differ. A boss: its whole kit. Else the last four.
+local CORE = { filler = 1, setup = 2, payoff = 3 }
 function M.DefaultMoves(sp, lvl)
+    local s = D.species[sp]
     local list = {}
-    for _, e in ipairs(D.species[sp].learn) do
-        if e[1] <= lvl then
-            local dup
-            for _, m in ipairs(list) do if m == e[2] then dup = true end end
-            if not dup then list[#list + 1] = e[2] end
+    if s.kit then
+        for _, id in ipairs(s.kit) do list[#list + 1] = id end
+    else
+        for _, e in ipairs(s.learn) do
+            if e[1] <= lvl then
+                local dup
+                for _, m in ipairs(list) do if m == e[2] then dup = true end end
+                if not dup then list[#list + 1] = e[2] end
+            end
         end
+        local core, extra = {}, {}
+        for _, id in ipairs(list) do
+            local role = D.moves[id] and D.moves[id].role
+            if role and CORE[role] then core[CORE[role]] = id elseif role then extra[#extra + 1] = id end
+        end
+        if #extra > 0 or next(core) then
+            local pick = {}
+            for i = 1, 3 do if core[i] then pick[#pick + 1] = core[i] end end
+            if #extra > 0 then
+                local h = lvl
+                for i = 1, #sp do h = h + sp:byte(i) end
+                pick[#pick + 1] = extra[h % #extra + 1]
+            end
+            list = pick
+        end
+        while #list > 4 do table.remove(list, 1) end
     end
-    while #list > 4 do table.remove(list, 1) end
     local out = {}
     for i, id in ipairs(list) do out[i] = { id = id, pp = D.moves[id].pp } end
     return out

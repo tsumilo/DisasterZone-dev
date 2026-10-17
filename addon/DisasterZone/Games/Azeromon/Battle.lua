@@ -10,7 +10,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Battle.lua", ...) t
 --         { t = "sfx", sound } (a Sound.lua effect at that point of the playback)
 --         { t = "hp", side, from, to, max } { t = "faint", side } { t = "status", side } { t = "exp", mon }
 --         { t = "level", mon } { t = "throw", shakes, caught } { t = "end", result }
+--         0.37: { t = "cast", side, move } (announced, lands next turn) { t = "castend", side, interrupted }
+--         { t = "interrupt", side } { t = "unstoppable", side } { t = "mark", side, mark, turns } { t = "guard", side }
+--         { t = "combo", side } (a payoff hit while its mark was up)
 -- Sides: "ally" (the player) and "foe".
+-- 0.37 rules (Data.lua "0.37 battles"): moves rest `cd` turns after use; setups leave timed marks that payoffs cash
+-- in; big moves are casts that land a turn later and can be guarded or interrupted; every hit does 1 / D.BATTLE_HP of
+-- the Gen III damage (a boss: its own D.BOSS_HP), so fights last ~5 turns. A side: cd[slot], marks[id], cast, guard.
 local addonName, ns = ...
 
 local B = {}
@@ -29,7 +35,7 @@ local function Stage(s)
 end
 
 local function NewSide(mon)
-    return { mon = mon, stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 } }
+    return { mon = mon, stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }, cd = {}, marks = {}, guard = 0, guardT = 0 }
 end
 
 -- opts = { party, foes = { mon, ... }, wild = bool, trainer = def|nil, bag = { item = n }, rng = fn,
@@ -112,9 +118,16 @@ local function Snap(s)
             stages[st] = v
         end
     end
+    local marks
+    for id, n in pairs(s.marks or {}) do
+        if n > 0 then marks = marks or {} marks[id] = n end
+    end
+    local cast = s.cast and { name = s.cast.mv.name, unstoppable = s.cast.mv.unstoppable and true or nil,
+                              power = s.cast.mv.power or 0 } or nil
     return { sp = m.sp, name = M.Name(m), lvl = m.lvl, hp = m.hp, max = M.MaxHP(m), status = m.status, exp = M.ExpProgress(m),
              shiny = m.shiny, stages = stages, sleep = (m.status == "slp") and m.sleep or nil,
-             flask = m.flask and { id = m.flask.id, n = m.flask.n } or nil }
+             flask = m.flask and { id = m.flask.id, n = m.flask.n } or nil,
+             marks = marks, cast = cast, guard = ((s.guardT or 0) > 0) and s.guardT or nil }
 end
 
 function B:Emit(e)
@@ -153,11 +166,33 @@ function B:EffStat(side, stat, crit, attacking)
     end
     v = v * Stage(st)
     if stat == "spe" and s.mon.status == "par" then v = v / 4 end
+    if stat == "spe" and (s.marks.chill or 0) > 0 then v = v * D.MARKS.chill.speed end
     if stat == "atk" and s.mon.status == "brn" and attacking then v = v / 2 end
     return max(1, v)
 end
 
--- Returns damage, effectiveness, crit.
+-- A payoff move's mark (or status) is up: on the target, or on the user itself (Mech's charge).
+function B:PayoffActive(side, mv)
+    local p = mv.payoff
+    if not p then return false end
+    local t = self[p.self and side or (side == "ally" and "foe" or "ally")]
+    if p.mark then return (t.marks[p.mark] or 0) > 0 end
+    return p.status ~= nil and t.mon.status == p.status
+end
+
+-- What a hit on `side` is divided by: battles last ~5 turns (D.BATTLE_HP). A boss beast can have its own number
+-- (D.BOSS_HP), and so can a whole boss team led by an ordinary beast (D.TEAM_HP, by trainer id).
+function B:HpScale(side)
+    local t = side == "foe" and not self.pvp and not self.wild and self.trainer      -- (never the player's own beasts)
+    if t then
+        local sp = self[side].mon.sp
+        if D.BOSS_HP and D.BOSS_HP[sp] then return D.BOSS_HP[sp] end
+        if t.id and D.TEAM_HP and D.TEAM_HP[t.id] then return D.TEAM_HP[t.id] end
+    end
+    return D.BATTLE_HP or 1
+end
+
+-- Returns damage, effectiveness, crit, combo (a payoff hit while its mark was up).
 function B:Damage(atkSide, defSide, mv, forceCrit)
     local attacker, defender = self[atkSide].mon, self[defSide].mon
     local physical = mv.type == "NONE" or (D.types[mv.type] and D.types[mv.type].physical)
@@ -169,16 +204,23 @@ function B:Damage(atkSide, defSide, mv, forceCrit)
     if e and (e.kind == "vsstatus" or e.kind == "consume") and defender.status == e.status then
         power = floor(power * e.mult)                   -- Lava Burst on a burn, Conflagrate
     end
+    local combo = self:PayoffActive(atkSide, mv)
+    if combo then power = floor(power * mv.payoff.mult) end
     local base = floor(floor(floor(2 * attacker.lvl / 5 + 2) * power * A / Dv) / 50) + 2
     local eff = mv.type == "NONE" and 1 or D.Effectiveness(mv.type, D.species[defender.sp].type)
     if e and e.kind == "noresist" and eff > 0 and eff < 1 then eff = 1 end          -- Steam Jet
+    if mv.noImmune and eff == 0 then eff = 0.5 end                                 -- Rock Throw reaches fliers
     local stab = (mv.type == D.species[attacker.sp].type) and 1.5 or 1
-    local dmg = base * (crit and 2 or 1) * stab * eff * self.rng(85, 100) / 100
+    local roll = mv.tick and 92 or self.rng(85, 100)    -- a mark's tick is fixed when it lands: no dice
+    local dmg = base * (crit and 2 or 1) * stab * eff * roll / 100
     -- gear and flasks: a Fiery Chain Girdle takes the edge off fire, a Flask of Flowing Water sharpens water
     dmg = dmg * M.TypeMult(attacker, "typePower", mv.type) * M.TypeMult(defender, "resist", mv.type)
+    dmg = dmg / self:HpScale(defSide)
+    local ds = self[defSide]
+    if (ds.guardT or 0) > 0 and not mv.tick then dmg = dmg * (ds.guard or 1) end
     dmg = floor(dmg)
     if eff > 0 then dmg = max(1, dmg) else dmg = 0 end
-    return dmg, eff, crit
+    return dmg, eff, crit, combo
 end
 
 function B:SetHP(side, hp)
@@ -228,6 +270,48 @@ end
 function B:Trapped(side)
     local s, o = self[side], self[Other(side)]
     return s.trappedBy ~= nil and s.trappedBy == o.mon and o.mon.hp > 0
+end
+
+-- A timed mark on `side` (D.MARKS): bleed, chill, corrupt, ... (refreshed when it is already there)
+-- src/mv: who put it there and with what; a damage-over-time mark fixes its tick from them now.
+function B:Mark(side, mk, src, mv)
+    local s = self[side]
+    if not s or s.mon.hp <= 0 or not D.MARKS[mk.id] then return end
+    local again = (s.marks[mk.id] or 0) > 0
+    s.marks[mk.id] = mk.turns or 2
+    s.tick = s.tick or {}
+    s.tick[mk.id] = nil
+    if D.MARKS[mk.id].dot and src and src ~= side and mv then
+        s.tick[mk.id] = self:Damage(src, side, { power = D.MARK_DOT_POWER or 22, type = mv.type, tick = true }, false)
+    end
+    self:Emit({ t = "mark", side = side, mark = mk.id, turns = s.marks[mk.id] })
+    self:Emit({ t = "sfx", sound = mk.who == "self" and "statup" or "statdown" })
+    self:Say(again and "%s is %s again!" or "%s is %s!", self:SideName(side), D.MARKS[mk.id].name:lower())
+end
+
+-- The cast on `side` breaks (an interrupt, sleep, a flinch, fear): its move rests its cooldown, as if used.
+function B:BreakCast(side, why)
+    local s = self[side]
+    local c = s.cast
+    if not c then return end
+    s.cast = nil
+    if c.slot then s.cd[c.slot] = (c.mv.cd or 0) + 1 end
+    self:Emit({ t = "castend", side = side, interrupted = true })
+    self:Say("%s's %s fizzles%s!", self:SideName(side), c.mv.name, why and (" (" .. why .. ")") or "")
+end
+
+-- An interrupting hit on `side`: breaks its cast, unless the cast can't be interrupted.
+function B:Interrupt(side)
+    local c = self[side].cast
+    if not c or self[side].mon.hp <= 0 then return end
+    if c.mv.unstoppable then
+        self:Emit({ t = "unstoppable", side = side })
+        self:Say("%s can't be interrupted!", c.mv.name)
+        return
+    end
+    self:Emit({ t = "interrupt", side = side })
+    self:Emit({ t = "sfx", sound = "immune" })
+    self:BreakCast(side, "interrupted")
 end
 
 -- A flinch: the beast on `side` loses its move if it has not moved yet this turn (cleared at the end of the turn).
@@ -297,13 +381,16 @@ function B:ApplyEffect(side, mv, damaged)
     end
 end
 
--- Returns true when the move went off (for PP accounting the caller already paid).
-function B:UseMove(side, mv)
+-- Uses move `mv` from party slot `slot` (nil: Struggle). released: a cast announced last turn lands now.
+-- PP is paid by the caller when a move is chosen (a cast pays when it is announced).
+function B:UseMove(side, mv, slot, released)
     local user = self[side].mon
+    local me = self[side]
     local target = Other(side)
     local name = self:SideName(side)
+    if released and not me.cast then return end            -- broken earlier this turn (it already fizzled)
 
-    -- status that can stop the turn
+    -- status that can stop the turn (and breaks a cast)
     if user.status == "slp" then
         user.sleep = (user.sleep or 1) - 1
         if user.sleep <= 0 then
@@ -314,33 +401,51 @@ function B:UseMove(side, mv)
         else
             self:Emit({ t = "sfx", sound = "slp" })
             self:Say("%s is fast asleep.", name)
+            self:BreakCast(side, "asleep")
             return
         end
     elseif user.status == "par" and self.rng(1, 4) == 1 then
         self:Emit({ t = "sfx", sound = "par" })
         self:Say("%s is paralyzed! It can't move!", name)
+        self:BreakCast(side)
         return
     end
-    local me = self[side]
     if self.flinch and self.flinch[side] then
         self.flinch[side] = nil
         self:Say("%s flinched and couldn't move!", name)
+        self:BreakCast(side, "flinched")
         return
     end
     if me.panic then
         me.panic = nil
         self:Say("%s is panicking and can't move!", name)
+        self:BreakCast(side)
         return
     end
     if (me.fear or 0) > 0 then
         me.fear = me.fear - 1
         if self.rng(1, 100) <= (me.fearChance or 50) then
             self:Say("%s is too afraid to move!", name)
+            self:BreakCast(side, "afraid")
             return
         end
     end
 
-    self:Say("%s used %s!", name, mv.name)
+    -- a cast: announced now, lands next turn (it can be guarded, or interrupted unless it is unstoppable)
+    if mv.cast and not released then
+        me.cast = { slot = slot, mv = mv }
+        self:Emit({ t = "cast", side = side, move = mv })
+        self:Emit({ t = "sfx", sound = "statup" })
+        self:Say("%s begins %s %s!", name, mv.castVerb or "casting", mv.name)
+        return
+    end
+    if released then
+        me.cast = nil
+        self:Emit({ t = "castend", side = side })
+    end
+    if slot and (mv.cd or 0) > 0 then me.cd[slot] = mv.cd + 1 end       -- (counted down at the end of this turn)
+
+    self:Say(released and "%s unleashes %s!" or "%s used %s!", name, mv.name)
     self:Emit({ t = "attack", side = side, move = mv })
 
     if mv.acc > 0 and self.rng(1, 100) > mv.acc then
@@ -349,8 +454,26 @@ function B:UseMove(side, mv)
         return
     end
 
+    if mv.guard then
+        me.guard, me.guardT = mv.guard, mv.guardTurns or 1
+        self:Emit({ t = "guard", side = side })
+        self:Emit({ t = "sfx", sound = "statup" })
+        self:Say("%s braces behind %s!", name, mv.name)
+        return
+    end
+    if mv.heal then
+        local before = user.hp
+        self:SetHP(side, user.hp + max(1, floor(M.MaxHP(user) * mv.heal)))
+        if user.hp > before then
+            self:Emit({ t = "sfx", sound = "heal" })
+            self:Say("%s is restored!", name)
+        end
+        if mv.mark then self:Mark(mv.mark.who == "self" and side or target, mv.mark, side, mv) end
+        return
+    end
+
     if mv.power > 0 then
-        local dmg, eff, crit = self:Damage(side, target, mv)
+        local dmg, eff, crit, combo = self:Damage(side, target, mv)
         if eff == 0 then
             self:Emit({ t = "sfx", sound = "immune" })
             self:Say("It doesn't affect %s...", self:SideName(target))
@@ -359,6 +482,7 @@ function B:UseMove(side, mv)
         local before = self[target].mon.hp
         self:SetHP(target, before - dmg)
         local dealt = before - self[target].mon.hp
+        if combo then self:Emit({ t = "combo", side = side }) self:Say("Combo! %s hits hard!", mv.name) end
         if crit then self:Emit({ t = "sfx", sound = "crit" }) self:Say("A critical hit!") end
         if eff > 1 then
             self:Emit({ t = "sfx", sound = "super" })
@@ -367,6 +491,15 @@ function B:UseMove(side, mv)
             self:Emit({ t = "sfx", sound = "weak" })
             self:Say("It's not very effective...")
         end
+        if (self[target].guardT or 0) > 0 and dealt > 0 then self:Say("%s's guard soaks most of it!", self:SideName(target)) end
+        if combo and mv.payoff.consume then
+            local who = mv.payoff.self and side or target
+            if mv.payoff.mark and self[who].marks[mv.payoff.mark] then
+                self[who].marks[mv.payoff.mark] = nil
+                self:Emit({ t = "mark", side = who, mark = mv.payoff.mark, turns = 0 })
+            end
+        end
+        if mv.interrupt then self:Interrupt(target) end
         if mv.effect and mv.effect.kind == "drain" and dealt > 0 then
             local heal = max(1, floor(dealt * mv.effect.pct / 100))
             if user.hp < M.MaxHP(user) then
@@ -377,6 +510,7 @@ function B:UseMove(side, mv)
         elseif mv.effect then
             self:ApplyEffect(side, mv, true)
         end
+        if mv.mark and self[target].mon.hp > 0 then self:Mark(mv.mark.who == "self" and side or target, mv.mark, side, mv) end
         if dealt > 0 then self:AfterHit(side, target, mv) end
         if mv.recoil and dealt > 0 then
             self:SetHP(side, user.hp - max(1, floor(dealt / mv.recoil)))
@@ -385,6 +519,7 @@ function B:UseMove(side, mv)
         end
     else
         self:ApplyEffect(side, mv, false)
+        if mv.mark then self:Mark(mv.mark.who == "self" and side or target, mv.mark, side, mv) end
     end
 end
 
@@ -425,32 +560,164 @@ function B:HasPP(mon)
     return false
 end
 
+-- Can `side` use the move in party slot i now (PP left, not resting)?
+function B:Usable(side, i)
+    local slot = self[side].mon.moves[i]
+    return slot ~= nil and slot.pp > 0 and (self[side].cd[i] or 0) <= 0 and D.moves[slot.id] ~= nil
+end
+
+-- Any move `side` can use now (else it struggles).
+function B:CanFight(side)
+    for i in ipairs(self[side].mon.moves) do if self:Usable(side, i) then return true end end
+    return false
+end
+
+-- Priority of a chosen move: a guard goes first (2), an interrupt next (1); a cast landing has none.
+local function Prio(mv, released)
+    if released then return 0 end
+    return mv.prio or 0
+end
+
+-- End of turn for one side still standing: burn / poison, then its marks' damage or healing over time.
+-- Returns true when it took damage (callers check faints).
+function B:SideTicks(side)
+    local mon = self[side].mon
+    if mon.hp <= 0 then return false end
+    local hurt = false
+    if mon.status == "brn" or mon.status == "psn" then
+        self:SetHP(side, mon.hp - max(1, floor(M.MaxHP(mon) / 8)))
+        self:Emit({ t = "sfx", sound = mon.status })
+        self:Say("%s is hurt by its %s!", self:SideName(side), mon.status == "brn" and "burn" or "poison")
+        hurt = true
+    end
+    for _, id in ipairs({ "bleed", "immolate", "corrupt", "regrowth" }) do
+        local mk = D.MARKS[id]
+        if mon.hp > 0 and (self[side].marks[id] or 0) > 0 then
+            if mk.dot then
+                local tick = self[side].tick and self[side].tick[id]
+                self:SetHP(side, mon.hp - max(1, tick or floor(M.MaxHP(mon) / (D.MARK_DOT or 12))))
+                self:Emit({ t = "sfx", sound = "psn" })
+                self:Say("%s suffers from %s!", self:SideName(side), mk.name:lower())
+                hurt = true
+            elseif mk.hot and mon.hp < M.MaxHP(mon) then
+                self:SetHP(side, mon.hp + max(1, floor(M.MaxHP(mon) / mk.hot)))
+                self:Say("%s is healed by %s.", self:SideName(side), mk.name)
+            end
+        end
+    end
+    return hurt
+end
+
+-- End of turn: cooldowns, marks and guards count down.
+function B:Countdown(side)
+    local s = self[side]
+    for i, n in pairs(s.cd) do if n > 0 then s.cd[i] = n - 1 end end
+    for id, n in pairs(s.marks) do
+        if n > 1 then
+            s.marks[id] = n - 1
+        else
+            s.marks[id] = nil
+            if s.mon.hp > 0 then self:Emit({ t = "mark", side = side, mark = id, turns = 0 }) end
+        end
+    end
+    if (s.guardT or 0) > 0 then
+        s.guardT = s.guardT - 1
+        if s.guardT <= 0 then s.guard = 0 end
+    end
+end
+
 ---------------------------------------------------------------------------
 -- AI
 ---------------------------------------------------------------------------
 
-function B:FoeMoveIdx()
-    local mon = self.foe.mon
-    local usable = {}
-    for i, m in ipairs(mon.moves) do if m.pp > 0 then usable[#usable + 1] = i end end
-    if #usable == 0 then return nil end
-    if self.wild or self.rng(1, 100) > 70 then return usable[self.rng(1, #usable)] end
-    -- trainers: the hardest-hitting move, a status move now and then while the target is healthy
-    local best, bestScore = usable[1], -1
-    local defType = D.species[self.ally.mon.sp].type
-    for _, i in ipairs(usable) do
-        local mv = D.moves[mon.moves[i].id]
+-- The rule list a good player follows (and the foe AI, with some slop): answer a cast (interrupt it, or guard it),
+-- cash in a mark, set one up, heal when low, cast big, raise a stat, else the hardest hit. Returns a party slot.
+function B:Rotation(side, usable)
+    local me, op = self[side], self[Other(side)]
+    local moves = me.mon.moves
+    local function find(f)
+        for _, i in ipairs(usable) do
+            local mv = D.moves[moves[i].id]
+            if f(mv, i) then return i end
+        end
+    end
+    if op.cast then
+        local cm = op.cast.mv
+        local i = (not cm.unstoppable) and find(function(mv) return mv.interrupt end)
+        if i then return i end
+        if (cm.power or 0) > 0 then
+            i = find(function(mv) return mv.guard end)
+            if i then return i end
+        end
+    end
+    local i = find(function(mv) return mv.payoff and self:PayoffActive(side, mv) end)
+    if i then return i end
+    i = find(function(mv)
+        if mv.role ~= "setup" then return false end
+        if mv.mark then
+            local holder = (mv.mark.who == "self") and me or op
+            return (holder.marks[mv.mark.id] or 0) <= 0
+        end
+        if mv.effect and mv.effect.kind == "stat" then return (op.stages[mv.effect.stat] or 0) > -2 end
+        return true
+    end)
+    if i then return i end
+    if me.mon.hp < M.MaxHP(me.mon) * 0.55 then
+        i = find(function(mv) return mv.heal end)
+        if i then return i end
+    end
+    i = find(function(mv) return mv.cast and (mv.power or 0) > 0 end)
+    if i then return i end
+    i = find(function(mv) return mv.role == "buff" and mv.effect and (me.stages[mv.effect.stat] or 0) < 2 end)
+    if i then return i end
+    local best, bestScore = nil, -1
+    local defType = D.species[op.mon.sp].type
+    for _, k in ipairs(usable) do
+        local mv = D.moves[moves[k].id]
         local score
-        if mv.power > 0 then
-            score = mv.power * D.Effectiveness(mv.type, defType) * (mv.type == D.species[mon.sp].type and 1.5 or 1)
+        if mv.guard or mv.interrupt or mv.heal then
+            score = 1
+        elseif mv.power > 0 then
+            score = mv.power * D.Effectiveness(mv.type, defType) * (mv.type == D.species[me.mon.sp].type and 1.5 or 1)
+                * ((mv.acc > 0) and mv.acc / 100 or 1)
+            if mv.payoff then score = score * 0.6 end              -- keep the payoff for its mark
         else
             local e = mv.effect
-            local useful = e and (e.kind ~= "status" or not self.ally.mon.status)
-            score = useful and 25 or 0
+            score = (e and (e.kind ~= "status" or not op.mon.status)) and 25 or 0
         end
-        if score > bestScore then best, bestScore = i, score end
+        if score > bestScore then best, bestScore = k, score end
     end
-    return best
+    return best or usable[1]
+end
+
+-- The foe's action: (move, slot, released). A cast it announced lands; wild beasts pick at random; trainers follow
+-- the rule list, with a random pick 25 % of the time (bosses 10 %). nil move: it struggles.
+function B:FoeAction()
+    local s = self.foe
+    if s.cast then return s.cast.mv, s.cast.slot, true end      -- (it stays up until it lands: UseMove)
+    local mon = s.mon
+    local usable = {}
+    for i in ipairs(mon.moves) do if self:Usable("foe", i) then usable[#usable + 1] = i end end
+    if #usable == 0 then return STRUGGLE, nil, false end
+    local i
+    local slop = (self.trainer and self.trainer.class == "boss") and 10 or 25
+    if self.wild or self.rng(1, 100) <= slop then
+        i = usable[self.rng(1, #usable)]
+    else
+        i = self:Rotation("foe", usable)
+    end
+    local slot = mon.moves[i]
+    slot.pp = slot.pp - 1
+    return D.moves[slot.id], i, false
+end
+
+-- (old name, kept for anything that still asks: the slot the foe would pick, without spending PP)
+function B:FoeMoveIdx()
+    local usable = {}
+    for i in ipairs(self.foe.mon.moves) do if self:Usable("foe", i) then usable[#usable + 1] = i end end
+    if #usable == 0 then return nil end
+    if self.wild then return usable[self.rng(1, #usable)] end
+    return self:Rotation("foe", usable)
 end
 
 ---------------------------------------------------------------------------
@@ -464,6 +731,11 @@ function B:Act(a)
         return self:ForcedSwitch(a.idx)
     end
     if self.need ~= "action" or type(a) ~= "table" then return false end
+    -- a beast mid-cast is committed: its cast lands this turn, whatever was picked
+    if self.ally.cast then
+        if a.kind ~= "move" and a.kind ~= "release" then return false end
+        a = { kind = "release" }
+    end
 
     if a.kind == "run" then
         if not self.wild then
@@ -502,35 +774,33 @@ function B:Act(a)
         self:SendAlly(a.idx)
         self:FoeTurnOnly()
         return self:EndTurn()
-    elseif a.kind == "move" then
-        local slot = self.ally.mon.moves[a.idx]
-        local mine
-        if not self:HasPP(self.ally.mon) then
+    elseif a.kind == "move" or a.kind == "release" then
+        local mine, mySlot, myRelease
+        if a.kind == "release" then
+            local c = self.ally.cast
+            mine, mySlot, myRelease = c.mv, c.slot, true
+        elseif not self:CanFight("ally") then
             mine = STRUGGLE
         else
-            if not slot or slot.pp <= 0 then return false end
+            local slot = self.ally.mon.moves[a.idx]
+            if not slot or not self:Usable("ally", a.idx) then return false end
             slot.pp = slot.pp - 1
-            mine = D.moves[slot.id]
+            mine, mySlot = D.moves[slot.id], a.idx
         end
-        local fi = self:FoeMoveIdx()
-        local theirs = STRUGGLE
-        if fi then
-            local fs = self.foe.mon.moves[fi]
-            fs.pp = fs.pp - 1
-            theirs = D.moves[fs.id]
-        end
+        local theirs, theirSlot, theirRelease = self:FoeAction()
         local allyFirst
-        local pa, pf = mine.prio or 0, theirs.prio or 0
+        local pa, pf = Prio(mine, myRelease), Prio(theirs, theirRelease)
         if pa ~= pf then
             allyFirst = pa > pf
         else
             local sa, sf = self:EffStat("ally", "spe"), self:EffStat("foe", "spe")
             if sa ~= sf then allyFirst = sa > sf else allyFirst = self.rng(1, 2) == 1 end
         end
-        local order = allyFirst and { { "ally", mine }, { "foe", theirs } } or { { "foe", theirs }, { "ally", mine } }
+        local order = allyFirst and { { "ally", mine, mySlot, myRelease }, { "foe", theirs, theirSlot, theirRelease } }
+            or { { "foe", theirs, theirSlot, theirRelease }, { "ally", mine, mySlot, myRelease } }
         for _, step in ipairs(order) do
             if self.ally.mon.hp <= 0 or self.foe.mon.hp <= 0 then break end
-            self:UseMove(step[1], step[2])
+            self:UseMove(step[1], step[2], step[3], step[4])
             if self:CheckFaints() then break end
         end
         return self:EndTurn()
@@ -540,14 +810,8 @@ end
 
 function B:FoeTurnOnly()
     if self.foe.mon.hp <= 0 or self.ally.mon.hp <= 0 then return end
-    local fi = self:FoeMoveIdx()
-    local mv = STRUGGLE
-    if fi then
-        local fs = self.foe.mon.moves[fi]
-        fs.pp = fs.pp - 1
-        mv = D.moves[fs.id]
-    end
-    self:UseMove("foe", mv)
+    local mv, slot, released = self:FoeAction()
+    self:UseMove("foe", mv, slot, released)
     self:CheckFaints()
 end
 
@@ -557,13 +821,11 @@ function B:EndTurn()
     if self.need ~= "done" then self:TurnExtras({ "ally", "foe" }) end
     for _, side in ipairs({ "ally", "foe" }) do
         if self.need == "done" then break end
-        local mon = self[side].mon
-        if mon.hp > 0 and (mon.status == "brn" or mon.status == "psn") then
-            self:SetHP(side, mon.hp - max(1, floor(M.MaxHP(mon) / 8)))
-            self:Emit({ t = "sfx", sound = mon.status })
-            self:Say("%s is hurt by its %s!", self:SideName(side), mon.status == "brn" and "burn" or "poison")
-            self:CheckFaints()
-        end
+        if self:SideTicks(side) then self:CheckFaints() end
+    end
+    if self.need ~= "done" then
+        self:Countdown("ally")
+        self:Countdown("foe")
     end
     self.turn = self.turn + 1
     self:FlushLearn()
@@ -856,6 +1118,7 @@ local function IdxOf(b, side) return side == "ally" and b.allyIdx or b.foeIdx en
 function B:ValidPvP(side, a)
     if type(a) ~= "table" then a = {} end
     if a.kind == "forfeit" then return { kind = "forfeit" } end
+    if self[side].cast then return { kind = "release" } end              -- a cast lands, whatever was sent
     if a.kind == "switch" then
         local idx = tonumber(a.idx)                  -- (a string "2" from the wire is a number here, or nothing)
         idx = idx and idx == floor(idx) and idx or 0
@@ -866,9 +1129,9 @@ function B:ValidPvP(side, a)
     end
     local mon = self[side].mon
     local idx = tonumber(a.idx)
-    if a.kind == "move" and idx and mon.moves[idx] and mon.moves[idx].pp > 0 then return { kind = "move", idx = idx } end
-    for i, mv in ipairs(mon.moves) do
-        if mv.pp > 0 then return { kind = "move", idx = i } end
+    if a.kind == "move" and idx and self:Usable(side, idx) then return { kind = "move", idx = idx } end
+    for i in ipairs(mon.moves) do
+        if self:Usable(side, i) then return { kind = "move", idx = i } end
     end
     return { kind = "move", idx = 0 }         -- struggle
 end
@@ -876,9 +1139,10 @@ end
 -- My action: validated, handed to the network (pvp.onAction) and held until the opponent's arrives.
 function B:ActPvP(a)
     if self.need ~= "action" then return false end
-    if a.kind == "move" then
-        local slot = self.ally.mon.moves[a.idx]
-        if self:HasPP(self.ally.mon) and (not slot or slot.pp <= 0) then return false end
+    if self.ally.cast and a.kind ~= "forfeit" then
+        a = { kind = "release" }
+    elseif a.kind == "move" then
+        if self:CanFight("ally") and not self:Usable("ally", a.idx) then return false end
     elseif a.kind == "switch" then
         local mon = self.party[a.idx]
         if not mon or mon.hp <= 0 or a.idx == self.allyIdx or self:Trapped("ally") then return false end
@@ -963,11 +1227,17 @@ function B:PvPFaints()
     return true
 end
 
+-- (move, slot, released) for a validated action
 function B:PvPMove(side, a)
-    if a.idx == 0 then return STRUGGLE end
+    if a.kind == "release" then
+        local c = self[side].cast
+        if c then return c.mv, c.slot, true end
+        return STRUGGLE, nil, false
+    end
+    if a.idx == 0 then return STRUGGLE, nil, false end
     local slot = self[side].mon.moves[a.idx]
     slot.pp = slot.pp - 1
-    return D.moves[slot.id]
+    return D.moves[slot.id], a.idx, false
 end
 
 function B:ResolvePvP()
@@ -999,11 +1269,15 @@ function B:ResolvePvP()
 
     local movers = {}
     for _, side in ipairs({ p1, p2 }) do
-        if acts[side].kind == "move" then movers[#movers + 1] = { side = side, mv = self:PvPMove(side, acts[side]) } end
+        local k = acts[side].kind
+        if k == "move" or k == "release" then
+            local mv, slot, released = self:PvPMove(side, acts[side])
+            movers[#movers + 1] = { side = side, mv = mv, slot = slot, released = released }
+        end
     end
     if #movers == 2 then
         local a, b = movers[1], movers[2]          -- a is p1
-        local pa, pb = a.mv.prio or 0, b.mv.prio or 0
+        local pa, pb = Prio(a.mv, a.released), Prio(b.mv, b.released)
         local bFirst
         if pa ~= pb then
             bFirst = pb > pa
@@ -1016,22 +1290,19 @@ function B:ResolvePvP()
     local fainted = false
     for _, m in ipairs(movers) do
         if self.ally.mon.hp <= 0 or self.foe.mon.hp <= 0 then break end
-        self:UseMove(m.side, m.mv)
+        self:UseMove(m.side, m.mv, m.slot, m.released)
         if self:PvPFaints() then fainted = true break end
     end
     if self.need == "done" then return end
     self:TurnExtras({ p1, p2 })
 
-    -- end of turn: burn / poison, challenger first
-    for _, side in ipairs({ p1, p2 }) do
-        local mon = self[side].mon
-        if mon.hp > 0 and (mon.status == "brn" or mon.status == "psn") then
-            self:SetHP(side, mon.hp - math.max(1, math.floor(M.MaxHP(mon) / 8)))
-            self:Emit({ t = "sfx", sound = mon.status })
-            self:Say("%s is hurt by its %s!", self:SideName(side), mon.status == "brn" and "burn" or "poison")
-        end
-    end
+    -- end of turn: burn / poison and marks, challenger first; then everything counts down
+    for _, side in ipairs({ p1, p2 }) do self:SideTicks(side) end
     self:PvPFaints()
+    if self.need ~= "done" then
+        self:Countdown(p1)
+        self:Countdown(p2)
+    end
     if self.need ~= "done" then self.need = self.pvp.watch and "watch" or "action" end
 end
 

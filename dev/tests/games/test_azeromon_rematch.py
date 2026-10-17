@@ -54,6 +54,7 @@ def a_rematch_team_grows_and_evolves():
 @case
 def once_a_day_and_a_win_counts_for_bounties():
     w, c = game()
+    c.eval("T_AZ.policy = T_AZ.reader")                # (an even fight since 0.37: play the rule list, not the strongest move)
     c.eval("""local M = ns.AzeroMon                    -- (a Tidehunter: the grown-up team hits harder now)
       local m = M.New('tidehunter', 32, ns.Azero.rng) m.moves = M.DefaultMoves('tidehunter', 32)
       local m2 = M.New('tidehunter', 32, ns.Azero.rng) m2.moves = M.DefaultMoves('tidehunter', 32)

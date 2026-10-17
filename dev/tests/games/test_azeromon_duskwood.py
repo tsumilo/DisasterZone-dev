@@ -28,7 +28,7 @@ HAUNTED = (53234, 53235)
 def game(ui=False):
     w, c = solo("Alice", tick=2)
     c.eval(BOT)
-    c.eval("T_AZ.seed(9)")
+    c.eval("T_AZ.seed(9) T_AZ.policy = T_AZ.reader")       # (two beasts against three-beast bosses: play the rule list)
     c.eval("ns.Azero:NewGame() ns.Azero.clockHour = 12")
     c.eval("""local M = ns.AzeroMon
       local a = M.New('flamescale', 45, ns.Azero.rng) a.moves = M.DefaultMoves('flamescale', 45)
