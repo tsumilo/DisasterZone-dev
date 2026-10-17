@@ -30,6 +30,20 @@ function renderNotes() {
   const tl = $("n-list");
   tl.textContent = "";
   const doc = $("n-doc");
+  if (!list.length && releaseLoading()) {
+    doc.textContent = "";
+    for (const w of ["70%", "54%", "62%", "48%", "66%"]) {
+      const g = el("li", "ghost");
+      const tx = el("span");
+      tx.append(skel("g-v"), skel("g-t", w), skel("g-s"));
+      g.append(el("span", "node"), tx);
+      tl.append(g);
+    }
+    const body = el("div", "dbody2");
+    for (const w of ["30%", "96%", "88%", "92%", "60%"]) body.append(skel(w === "30%" ? "g-h" : "g-ln", w));
+    doc.append(skel("g-ban"), body);
+    return;
+  }
   if (!list.length) {
     doc.textContent = "";
     doc.append(el("div", "muted pad", checkErr ? "The patch notes show once the release list can be read: " + checkErr : "The patch notes show once the release list has been read."));

@@ -10,11 +10,13 @@ let picker = null;        // { pick: {id: keep}, then: "update" | undefined } wh
 // Rail
 // ---------------------------------------------------------------------------------------------------------------
 
-// What a game is doing now, for the rail and the cards: [text, kind] (kind: busy | wait | get | ok | "")
+// What a game is doing now, for the rail and the cards: [text, kind, bar %, how] (kind: busy | wait | get | ok | "").
+// While it updates, the same state as its row in Home's table (folderState: how = "" waiting, "go" or "ok").
 function stateOf(p) {
   if (busyPack(p)) {
-    const got = prog && prog.step === "download" && p.downloadBytes ? Math.floor(((prog.dl[p.folder] || 0) / p.downloadBytes) * 100) : null;
-    return [got != null && got >= 100 ? "Downloaded" : (p.installed ? "Updating" : "Installing") + (got != null ? " · " + got + "%" : "…"), "busy", got];
+    if (!prog) return [(p.installed ? "Updating" : "Installing") + "…", "busy", 0, "go"];
+    const [, frac, how, words] = folderState(p);
+    return [words, "busy", Math.round(frac * 100), how];
   }
   if (p.action === "remove") return ["Leaves with the next update", "wait"];
   if (!p.installed && p.wanted) return ["Installs with the next update", "wait"];
@@ -31,15 +33,15 @@ function renderRail() {
   $("rail-count").textContent = check ? list.filter((p) => p.installed).length + " of " + list.length : list.length ? String(list.length) : "";
   for (const p of list) {
     const look = lookOf(p);
-    const [text, kind, pct] = stateOf(p);
+    const [text, kind, pct, how] = stateOf(p);
     const b = el("button", (p.installed || p.wanted ? "" : "off") + (cur.page === "game" && cur.arg === p.id ? " on" : ""));
     b.style.setProperty("--acc", look.accent);
     const th = el("span", "th");
     if (!look.generic) th.append(img("games/" + p.id + ".jpg"));
     const tx = el("span", "tx");
-    tx.append(el("span", "t", p.title), el("span", "s" + (kind === "busy" ? " busy" : ""), text));
+    tx.append(el("span", "t", p.title), el("span", "s" + (kind === "busy" ? " busy " + (how || "idle") : ""), text));
     if (kind === "busy") {
-      const mini = el("span", "mini");
+      const mini = el("span", "mini" + (how === "ok" ? " ok" : ""));
       const f = el("i");
       f.style.width = (pct || 0) + "%";
       mini.append(f);
@@ -58,19 +60,45 @@ function renderRail() {
     b.onclick = () => go("game", p.id);
     box.append(b);
   }
-  if (!list.length) box.append(el("div", "empty", !status || !status.flavorDir ? "Pick your game folder first." : checking ? "Reading the release list…" : "No games yet."));
+  const loading = releaseLoading();
+  if (!list.length && loading) {
+    for (const w of ["66%", "52%", "74%", "58%"]) {
+      const g = el("div", "ghost");
+      const tx = el("span", "tx");
+      tx.append(skel("g-t", w), skel("g-s"));
+      g.append(skel("g-th"), tx);
+      box.append(g);
+    }
+  } else if (!list.length) {
+    box.append(el("div", "empty", !status || !status.flavorDir ? "Pick your game folder first." : checkErr ? "The release list couldn't be read." : "No games yet."));
+  }
   const parts = diskParts();
   const total = fillSegs($("rail-segs"), parts);
-  $("rail-disk").textContent = check ? fmtBytes(total) : "—";
-  renderDiskTip(parts, total);
+  $("rail-segs").classList.toggle("skel", loading);
+  sizeText($("rail-disk"), total, loading);
+  renderDiskTip(parts, total, loading);
+}
+
+// The meter's number: the size, a placeholder while the release list is read, or a dash without one.
+function sizeText(b, total, loading) {
+  b.textContent = check ? fmtBytes(total) : loading ? "" : "—";
+  if (!check && loading) b.append(skel("g-num"));
 }
 
 // The disk meter's hover card: what each installed folder takes, biggest first.
-function renderDiskTip(parts, total) {
-  $("tip-total").textContent = check ? fmtBytes(total) : "—";
+function renderDiskTip(parts, total, loading) {
+  sizeText($("tip-total"), total, loading);
   fillSegs($("tip-segs"), parts);
+  $("tip-segs").classList.toggle("skel", loading);
   const rows = $("tip-rows");
   rows.textContent = "";
+  if (loading) {
+    for (const w of ["58%", "44%", "66%"]) {
+      const li = el("li", "ghost");
+      li.append(skel("g-sw"), skel("g-n", w), el("span"), skel("g-b"));
+      rows.append(li);
+    }
+  }
   for (const x of parts.slice().sort((a, b) => b.v - a.v)) {
     const li = el("li");
     const sw = el("i");
@@ -80,7 +108,7 @@ function renderDiskTip(parts, total) {
     rows.append(li);
   }
   $("tip-foot").textContent = check ? "Click to add or remove games in the Library."
-    : checkErr ? "The sizes show once the release list can be read." : "The sizes show once the release list has been read.";
+    : loading ? "Reading the release list…" : "The sizes show once the release list can be read.";
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -137,7 +165,17 @@ function renderLibrary() {
   grid.textContent = "";
   const shown = list.filter((p) => libFilter === "all" || (libFilter === "installed") === !!p.installed);
   for (const p of shown) grid.append(gameCard(p));
-  if (!list.length) {
+  if (!list.length && releaseLoading()) {
+    for (const w of ["58%", "44%", "66%", "50%", "62%", "40%"]) {
+      const g = el("div", "cap ghost");
+      const meta = el("div", "meta");
+      const tx = el("span", "tx");
+      tx.append(skel("g-t", w), skel("g-s"));
+      meta.append(tx);
+      g.append(skel("g-art"), meta);
+      grid.append(g);
+    }
+  } else if (!list.length) {
     const why = !status.flavorDir ? "Pick your World of Warcraft folder in Settings first."
       : checkErr ? "The games show once the release list can be read: " + checkErr
       : !check ? "Looking for the newest release…"
@@ -198,9 +236,10 @@ function gameCard(p) {
   meta.append(tx);
   const locked = working || devCopy() || !check;
   if (busyPack(p)) {
-    const bar = el("span", "bar");
+    const [, , pct, how] = stateOf(p);
+    const bar = el("span", "bar" + (how === "ok" ? " okb" : ""));
     const f = el("i");
-    f.style.width = (stateOf(p)[2] || 0) + "%";
+    f.style.width = (pct || 0) + "%";
     bar.append(f);
     meta.append(bar);
   } else if (p.action === "remove") {
@@ -334,7 +373,8 @@ function renderGameNotes(p) {
   more.onclick = () => go("notes", rel ? rel.version : null);
   head.append(more);
   box.append(head);
-  if (!rel) { box.append(el("div", "muted", check ? "No changes to " + p.title + " in the recent releases." : "The patch notes show once the release list has been read.")); return; }
+  if (!rel && releaseLoading()) { box.append(skel("g-h", "34%"), skel("g-ln", "92%"), skel("g-ln", "80%"), skel("g-ln", "56%")); return; }
+  if (!rel) { box.append(el("div", "muted", check ? "No changes to " + p.title + " in the recent releases." : "The patch notes show once the release list can be read.")); return; }
   const cols = el("div", "cols");
   for (const s of secs.slice(0, 2)) {
     const col = el("div");

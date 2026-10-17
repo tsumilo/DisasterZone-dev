@@ -21,7 +21,7 @@ function demoApi() {
   const MB = 1048576;
   const params = new URLSearchParams(location.search);
   const mode = params.get("state") || "";
-  const later = mode === "ready" || mode === "updating";
+  const later = mode === "ready" || mode === "updating" || mode === "checking";
   const updated = mode === "updated" || later;
   const NEW = later ? "1.5.6" : "1.5.5";
   const lmode = params.get("launcher") || "";
@@ -124,6 +124,7 @@ function demoApi() {
           region: "EU", mine: ["Tsumil-Thunderstrike", "Ussyp-Thunderstrike"], raids, snapAt: now - 3 * 3600 };
         case "check": {
           await notesReady;
+          if (mode === "loading") await new Promise(() => {});   // (the release list never comes: placeholders)
           if (lmode.startsWith("gate")) throw "this release needs a newer launcher: download the newest launcher";
           const packs = release.map((p) => ({ id: p.id, folder: p.folder, kind: p.kind, title: p.title, tagline: p.tagline, required: p.required,
             defaultOn: p.defaultOn, installed: !!disk[p.folder], wanted: wanted(p), chosen: settings.packs[p.id] ?? null, action: action(p),
@@ -140,7 +141,8 @@ function demoApi() {
           const parts = release.filter((p) => download(p) > 0).map((p) => ({ folder: p.folder, of: download(p), got: 0 }));
           const total = parts.reduce((n, x) => n + x.of, 0);
           let done = 0, tick = 0;
-          emit("progress", { step: "download", done: 0, total, folderDone: 0 });
+          emit("progress", { step: "download", done: 0, total, folderDone: 0, folderTotal: 0 });
+          for (const x of parts) emit("progress", { step: "download", done: 0, total, folder: x.folder, folderDone: 0, folderTotal: x.of });
           for (;;) {
             const open = parts.filter((x) => x.got < x.of);
             if (!open.length) break;
@@ -149,12 +151,17 @@ function demoApi() {
             x.got = Math.min(x.of, x.got + Math.max(64 * 1024, Math.round(rate)));
             done = parts.reduce((n, y) => n + y.got, 0);
             tick++;
-            emit("progress", { step: "download", done, total, folder: x.folder, folderDone: x.got });
+            emit("progress", { step: "download", done, total, folder: x.folder, folderDone: x.got, folderTotal: x.of });
             if (mode === "updating" && done / total >= 0.64) await new Promise(() => {});   // (holds here for screenshots)
             await wait(120);
           }
-          for (const p of release.filter((q) => ["install", "update"].includes(action(q)))) {
-            for (let i = 1; i <= 4; i++) { emit("progress", { step: "stage", done: i, total: 4, folder: p.folder, folderDone: Math.round((p.files * i) / 4) }); await wait(90); }
+          const put = release.filter((q) => ["install", "update"].includes(action(q)));
+          for (const [k, p] of put.entries()) {
+            for (let i = 1; i <= 4; i++) {
+              emit("progress", { step: "stage", done: k * 4 + i, total: put.length * 4, folder: p.folder, folderDone: Math.round((p.files * i) / 4), folderTotal: p.files });
+              if (mode === "checking" && k === 1 && i === 2) await new Promise(() => {});   // (holds half way through the check)
+              await wait(90);
+            }
           }
           emit("progress", { step: "backup", done: 0, total: 1, folderDone: 0 });
           await wait(450);

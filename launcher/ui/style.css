@@ -88,6 +88,8 @@ h1 { margin: 0; font-weight: inherit; }
 .lib .t { font-weight: 600; font-size: 13.5px; line-height: 1.15; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lib .s { font-size: 11.5px; line-height: 1.2; color: var(--text-3); }
 .lib .s.busy { color: var(--gold-hi); }
+.lib .s.busy.ok { color: var(--ok); }
+.lib .s.busy.idle { color: var(--text-3); }
 .lib .st { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; }
 .lib .st.ok { color: var(--ok); }
 .lib .st.get { color: var(--gold-hi); background: rgba(226, 184, 74, .12); box-shadow: inset 0 0 0 1px rgba(226, 184, 74, .3); }
@@ -97,6 +99,7 @@ h1 { margin: 0; font-weight: inherit; }
 .lib .empty { padding: 4px 12px; font-size: 12.5px; color: var(--text-3); }
 .mini { width: 100%; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .08); overflow: hidden; margin-top: 4px; }
 .mini i { display: block; height: 100%; width: 0; border-radius: 2px; background: linear-gradient(90deg, #b98522, #ffd978); box-shadow: 0 0 8px rgba(255, 210, 110, .7); transition: width .3s; }
+.mini.ok i { background: linear-gradient(90deg, #3f9e62, #8ff0b0); box-shadow: 0 0 8px rgba(110, 230, 150, .45); }
 .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; flex: none; }
 .disk { display: block; width: 100%; padding: 12px 12px 13px; border: 0; border-radius: 12px; text-align: left; background: rgba(255, 255, 255, .025); box-shadow: inset 0 0 0 1px var(--line); transition: background .18s; }
 .disk:hover { background: rgba(255, 255, 255, .05); }
@@ -365,12 +368,14 @@ h1 { margin: 0; font-weight: inherit; }
 .raid .asof { color: var(--text-3); font-size: 12px; }
 .upd-lower { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
 .folders { display: flex; flex-direction: column; padding: 14px 18px 6px; min-height: 0; overflow-y: auto; }
-.frow { display: grid; grid-template-columns: minmax(0, 1fr) 84px 76px 160px 64px; align-items: center; gap: 14px; min-height: 52px; border-top: 1px solid rgba(255, 255, 255, .06); }
+.frow { display: grid; grid-template-columns: minmax(0, 1fr) 84px 76px 140px 104px; align-items: center; gap: 14px; min-height: 52px; border-top: 1px solid rgba(255, 255, 255, .06); }
 .frow.hd { min-height: 0; border-top: 0; padding-bottom: 10px; }
 .frow .fn { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .frow .fn img { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); }
+.frow .fn > span { min-width: 0; }
 .frow .fn b { display: block; font-size: 13.5px; font-weight: 600; line-height: 1.2; }
 .frow .fn small { display: block; font-size: 12px; line-height: 1.25; color: var(--text-3); }
+.frow .fn b, .frow .fn small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .frow .c { font-size: 13px; color: var(--text-2); white-space: nowrap; }
 .frow .st { font-size: 13px; font-weight: 600; text-align: right; color: var(--text-3); white-space: nowrap; }
 .frow .st.ok { color: var(--ok); } .frow .st.go { color: var(--gold-hi); }
@@ -675,15 +680,19 @@ mark { background: rgba(255, 210, 110, .28); color: #fff4d6; border-radius: 3px;
 
 /* the rail's disk meter: what each folder takes, in a card beside it on hover (the Library has no meter of its own) */
 .disk-wrap { position: relative; }
+/* (bottom: the arrow's middle, 36px up from the card's foot, sits on the meter's middle whatever its height) */
 .disk-tip {
-  position: absolute; z-index: 30; left: calc(100% + 16px); bottom: -6px; width: 300px; padding: 16px 18px 14px; border-radius: 14px; pointer-events: none;
-  background: linear-gradient(180deg, rgba(30, 30, 40, .97), rgba(15, 15, 21, .98));
+  position: absolute; z-index: 30; left: calc(100% + 16px); bottom: calc(50% - 36px); width: 300px; padding: 16px 18px 14px; border-radius: 14px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(30, 30, 40, .97), rgb(17, 17, 23) 62%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09), 0 24px 60px rgba(0, 0, 0, .6), 0 0 0 1px rgba(0, 0, 0, .5); backdrop-filter: blur(16px);
   opacity: 0; transform: translateX(-6px); transition: opacity .14s ease, transform .2s cubic-bezier(.2, .7, .2, 1);
 }
 .disk-tip::before { content: ""; position: absolute; left: 14%; right: 14%; top: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(255, 217, 120, .7), transparent); }
-.disk-tip::after { content: ""; position: absolute; left: -6px; bottom: 30px; width: 12px; height: 12px; transform: rotate(45deg); border-radius: 2px;
-  background: rgb(18, 18, 25); box-shadow: -1px 1px 0 rgba(255, 255, 255, .09); }
+/* the arrow: a turned square cut along its diagonal, so only the outer half shows (2px past the cut covers the card's
+   edge line under it); its two outer sides carry the card's hairline */
+.disk-tip::after { content: ""; position: absolute; left: -6px; bottom: 30px; width: 12px; height: 12px; box-sizing: border-box; transform: rotate(45deg);
+  border-left: 1px solid rgba(255, 255, 255, .09); border-bottom: 1px solid rgba(255, 255, 255, .09); border-bottom-left-radius: 2px;
+  background: rgb(17, 17, 23); clip-path: polygon(0 0, 2px 0, 100% calc(100% - 2px), 100% 100%, 0 100%); }
 .disk-wrap:hover .disk-tip, .disk:focus-visible + .disk-tip, .disk-tip.show { opacity: 1; transform: none; transition-delay: .12s; }
 .dt-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .dt-head b { font: 700 22px/1 var(--ui); color: var(--text); }
@@ -695,3 +704,33 @@ mark { background: rgba(255, 210, 110, .28); color: #fff4d6; border-radius: 3px;
 .dt-rows .pc { font-size: 12px; color: var(--text-3); }
 .dt-rows b { text-align: right; font-weight: 600; color: var(--text); }
 .dt-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .07); font-size: 12px; color: var(--text-3); }
+
+/* placeholders while the release list is on its way: soft blocks with a warm sheen passing over them (skel() in util.js) */
+.skel { display: block; border-radius: 6px; background: linear-gradient(100deg, rgba(255, 255, 255, .045) 38%, rgba(255, 233, 190, .11) 50%, rgba(255, 255, 255, .045) 62%) 0 0 / 300% 100%;
+  animation: sheen 1.7s ease-in-out infinite; }
+@keyframes sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+.g-t { height: 11px; }
+.g-s { height: 8px; width: 34%; }
+.g-ln { height: 9px; }
+.g-h { height: 13px; margin-bottom: 4px; }
+.g-num { display: inline-block; width: 46px; height: 10px; vertical-align: middle; }
+.lib .ghost { display: flex; align-items: center; gap: 11px; min-height: 46px; padding: 6px 10px; }
+.lib .ghost .g-th { width: 32px; height: 32px; flex: none; border-radius: 8px; }
+.lib .ghost .tx { gap: 7px; }
+.dt-rows .ghost .g-sw { width: 8px; height: 8px; border-radius: 2px; }
+.dt-rows .ghost .g-n { height: 9px; }
+.dt-rows .ghost .g-b { justify-self: end; width: 46px; height: 9px; }
+.news.ghost { pointer-events: none; }
+.news.ghost .g-pic { flex: 1 1 auto; min-height: 80px; border-radius: 0; }
+.news.ghost .bd { gap: 9px; padding-top: 14px; }
+.news.ghost:nth-child(2) .skel, .cap.ghost:nth-child(2) .skel { animation-delay: .12s; }
+.news.ghost:nth-child(3) .skel, .cap.ghost:nth-child(3) .skel { animation-delay: .24s; }
+.cap.ghost { pointer-events: none; }
+.cap.ghost .g-art { height: 156px; border-radius: 0; }
+.cap.ghost .tx { display: flex; flex-direction: column; gap: 8px; padding: 3px 0; }
+.gnotes > .skel + .skel { margin-top: 2px; }
+.tl .ghost { display: flex; gap: 14px; padding: 10px 12px 10px 8px; }
+.tl .ghost > span:last-child { flex: 1; display: flex; flex-direction: column; gap: 7px; padding-top: 3px; }
+.tl .ghost .g-v { width: 44px; height: 12px; }
+.doc .g-ban { height: 196px; border-radius: 0; }

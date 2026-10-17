@@ -67,7 +67,7 @@ async function start() {
     const q = new URLSearchParams(location.search);
     const page = q.get("page") || { games: "library", changelog: "notes" }[q.get("tab")] || q.get("tab");
     if (page) go(page, q.get("arg"));
-    if (q.get("state") === "updating") doUpdate();
+    if (["updating", "checking"].includes(q.get("state"))) doUpdate();
   }
   setInterval(() => { if (!working && !checking) runCheck(); checkLauncherUpdate(); }, RECHECK_MS);
 }

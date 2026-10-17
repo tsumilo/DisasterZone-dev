@@ -369,11 +369,14 @@ pub struct Progress {
     pub folder: Option<String>,
     /// that folder's own count so far: compressed bytes fetched (download) or files staged (stage)
     pub folder_done: u64,
+    /// what that count runs to in this update: the folder's compressed bytes to fetch (0: all of it was cached
+    /// already) or its files to stage. The download's first events give every folder's, before anything is fetched.
+    pub folder_total: u64,
 }
 
 impl Progress {
     pub fn step(step: &'static str, done: u64, total: u64) -> Self {
-        Progress { step, done, total, folder: None, folder_done: 0 }
+        Progress { step, done, total, folder: None, folder_done: 0, folder_total: 0 }
     }
 }
 
@@ -422,14 +425,23 @@ async fn download(layout: &Layout, src: &Source, plan: &Plan, progress: &Progres
     }
     let total: u64 = todo.iter().map(|(_, f)| f.gz).sum();
     let done = Arc::new(AtomicU64::new(0));
+    let mut of: BTreeMap<String, u64> = plan.put().into_iter().map(|f| (f, 0)).collect();
+    for (folder, f) in &todo {
+        *of.entry(folder.clone()).or_default() += f.gz;
+    }
+    let of = Arc::new(of);
     let per_folder: Arc<BTreeMap<String, AtomicU64>> =
         Arc::new(todo.iter().map(|(folder, _)| (folder.clone(), AtomicU64::new(0))).collect());
     progress(Progress::step("download", 0, total));
+    for (folder, t) in of.iter() {
+        progress(Progress { step: "download", done: 0, total, folder: Some(folder.clone()), folder_done: 0, folder_total: *t });
+    }
     let results: Vec<Result<()>> = stream::iter(todo)
         .map(|(folder, f)| {
             let cache = cache.clone();
             let done = done.clone();
             let per_folder = per_folder.clone();
+            let of = of.clone();
             let progress = progress.clone();
             async move {
                 let gz = src.get(&object_path(&f.sha256), false).await?;
@@ -437,7 +449,8 @@ async fn download(layout: &Layout, src: &Source, plan: &Plan, progress: &Progres
                 write_atomic(&cache.join(&f.sha256), &data)?;
                 let d = done.fetch_add(f.gz, Ordering::SeqCst) + f.gz;
                 let fd = per_folder[&folder].fetch_add(f.gz, Ordering::SeqCst) + f.gz;
-                progress(Progress { step: "download", done: d, total, folder: Some(folder), folder_done: fd });
+                let ft = of[&folder];
+                progress(Progress { step: "download", done: d, total, folder: Some(folder), folder_done: fd, folder_total: ft });
                 Ok(())
             }
         })
@@ -484,7 +497,14 @@ fn stage(layout: &Layout, m: &Manifest, plan: &Plan, progress: &ProgressFn) -> R
             n += 1;
             in_folder += 1;
             if n % 25 == 0 || n == total || in_folder == files.len() as u64 {
-                progress(Progress { step: "stage", done: n, total, folder: Some(folder.clone()), folder_done: in_folder });
+                progress(Progress {
+                    step: "stage",
+                    done: n,
+                    total,
+                    folder: Some(folder.clone()),
+                    folder_done: in_folder,
+                    folder_total: files.len() as u64,
+                });
             }
         }
     }
@@ -1049,6 +1069,48 @@ mod tests {
         assert_eq!(backups[0].folders, vec!["DisasterZone"]);
         assert!(make_plan(&fx.layout, &m2, &wanted(&fx.layout, &m2, &BTreeMap::new())).unwrap().up_to_date);
         assert!(!fx.layout.cache().exists());
+    }
+
+    #[tokio::test]
+    async fn each_folder_counts_to_its_own_total() {
+        let mut fx = Fixture::new();
+        let m = fx.publish("1.0", "b1", &[("Core/A.lua", "a1"), ("Core/B.lua", "b1")],
+            &[(ROOMS, ROOMS_FILES), ("DisasterZone_Chess", &[("Chess/A.lua", "c1"), ("Chess/B.lua", "c2")])]);
+        // the 3D rooms' objects are in the cache already (an update that stopped half way): nothing to fetch there
+        fs::create_dir_all(fx.layout.cache()).unwrap();
+        for f in m.folders[ROOMS].values() {
+            let z = fs::read(fx.pub_dir.join(object_path(&f.sha256))).unwrap();
+            let mut data = vec![];
+            flate2::read::GzDecoder::new(&z[..]).read_to_end(&mut data).unwrap();
+            fs::write(fx.layout.cache().join(&f.sha256), data).unwrap();
+        }
+        let seen: Arc<std::sync::Mutex<Vec<Progress>>> = Arc::default();
+        let log = seen.clone();
+        let choice: BTreeMap<String, bool> = [("chess".to_string(), true)].into();
+        update(&fx.layout, &fx.src(), &m, &wanted(&fx.layout, &m, &choice), 3, Arc::new(move |p| log.lock().unwrap().push(p)))
+            .await
+            .unwrap();
+        let seen = seen.lock().unwrap();
+        let dl: Vec<&Progress> = seen.iter().filter(|p| p.step == "download" && p.folder.is_some()).collect();
+        // every folder's total comes first, before a byte is fetched
+        let firsts: Vec<(&str, u64)> =
+            dl.iter().take_while(|p| p.folder_done == 0).map(|p| (p.folder.as_deref().unwrap(), p.folder_total)).collect();
+        assert_eq!(firsts.iter().map(|x| x.0).collect::<Vec<_>>(), vec!["DisasterZone", "DisasterZone_Chess", ROOMS]);
+        assert_eq!(firsts[2].1, 0);
+        for p in &dl {
+            assert!(p.folder_done <= p.folder_total, "{p:?}");
+        }
+        for (folder, total) in &firsts[..2] {
+            let last = dl.iter().rev().find(|p| p.folder.as_deref() == Some(*folder)).unwrap();
+            assert_eq!(last.folder_done, *total);
+            assert!(*total > 0);
+        }
+        let st: Vec<&Progress> = seen.iter().filter(|p| p.step == "stage").collect();
+        for p in &st {
+            assert!(p.folder_done <= p.folder_total, "{p:?}");
+        }
+        let chess = st.iter().rev().find(|p| p.folder.as_deref() == Some("DisasterZone_Chess")).unwrap();
+        assert_eq!((chess.folder_done, chess.folder_total), (3, 3)); // its TOC and two files
     }
 
     #[tokio::test]

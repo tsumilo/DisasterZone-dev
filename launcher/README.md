@@ -57,6 +57,7 @@ A development copy (BuildInfo id `"dev"`, or `DisasterZone` or any `DisasterZone
   challenge against the game's own Lua (node and lupa).
 - Serving `ui/` and opening it in a browser runs the window on demo data (`ui/js/demo.js`): 1.5.4 meeting the first
   release with game packs (the picker opens); `?state=updated` starts after that update; `?state=ready` has 1.5.6
-  waiting and `?state=updating` runs it and holds at 64%; `?page=library|notes|backups|settings` or
+  waiting and `?state=updating` runs it and holds at 64% (`?state=checking`: half way through checking the files);
+  `?state=loading` never gets the release list (the placeholders); `?page=library|notes|backups|settings` or
   `?page=game&arg=holdtheline` opens a page. `?launcher=ready|tray|fail|gate|gate-none|gate-fail` shows the
   launcher's own update states.

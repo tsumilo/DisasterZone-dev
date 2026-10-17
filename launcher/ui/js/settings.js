@@ -17,8 +17,9 @@ async function saveSettings(patch, recheck) {
   } catch (e) {
     toast(e);
   }
+  if (recheck) { check = null; checkErr = null; }   // (another version's list: placeholders until it is read)
   await loadStatus();
-  if (recheck) { check = null; await runCheck(); }
+  if (recheck) await runCheck();
 }
 
 async function setPath(path, flavor) {
@@ -29,6 +30,7 @@ async function setPath(path, flavor) {
     return;
   }
   check = null;
+  checkErr = null;
   await refreshAll();
 }
 

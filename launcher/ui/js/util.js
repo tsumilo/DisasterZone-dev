@@ -41,6 +41,14 @@ function icon(name, cls) {
   return s;
 }
 
+// A placeholder (a line, a picture's block) with a sheen passing over it, while what goes there is on its way.
+function skel(cls, width) {
+  const s = el("span", "skel" + (cls ? " " + cls : ""));
+  if (width) s.style.width = width;
+  s.setAttribute("aria-hidden", "true");
+  return s;
+}
+
 function img(src, cls, alt) {
   const i = el("img", cls);
   i.src = src;

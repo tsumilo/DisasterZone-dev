@@ -115,7 +115,7 @@ async function runCheck() {
   if (!status || !status.flavorDir || working) { renderHero(); return; }
   checking = true;
   $("btn-check").classList.add("spin");
-  renderHero();
+  renderAll();   // (the hero says Checking; without a list yet, the rail, cards and pages show placeholders)
   try {
     check = await api.invoke("check");
     checkErr = null;
@@ -201,9 +201,10 @@ let pickerAsked = false;  // the picker opened by itself once this start
 let installing = null;    // pack id an Install click is installing
 
 function packs() { return (check && check.packs) || []; }
+// The order games are listed in everywhere (rail, Library, the update's rows): GAME_ORDER, then by title.
+function gameRank(p) { const i = GAME_ORDER.indexOf(p.id); return i < 0 ? 99 : i; }
 function games() {
-  const rank = (p) => { const i = GAME_ORDER.indexOf(p.id); return i < 0 ? 99 : i; };
-  return packs().filter((p) => p.kind === "game").sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title));
+  return packs().filter((p) => p.kind === "game").sort((a, b) => gameRank(a) - gameRank(b) || a.title.localeCompare(b.title));
 }
 // Before the release list is read: the games installed (from the folders' TOCs).
 function installedGames() {
@@ -221,6 +222,9 @@ function titleOf(folder) {
 }
 function packOfFolder(folder) { return packs().find((x) => x.folder === folder) || null; }
 function diskOf(p) { return p.installed ? p.diskBytes || p.bytes : p.bytes; }
+// The release list is on its way and none is shown yet: what it fills shows placeholders meanwhile. (Not before a
+// check starts: with "check when the launcher starts" off, nothing is on its way.)
+function releaseLoading() { return !check && checking; }
 function devCopy() { return !!(status && status.installed && (status.installed.dev || status.installed.linked)); }
 function busyPack(p) { return updating && (installing === p.id || (p.wanted && (p.action === "install" || p.action === "update"))); }
 function playedText(t) {

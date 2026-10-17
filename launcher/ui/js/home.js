@@ -227,8 +227,9 @@ function renderLauncherGate(inst) {
 
 // ---------------------------------------------------------------------------------------------------------------
 // The update's progress: the steps, the bar, the speed graph, a row per folder. The Rust side reports
-// { step, done, total, folder, folderDone }: download (compressed bytes), stage (files staged and checked against the
-// release), backup (saved variables and the old folders), swap, done.
+// { step, done, total, folder, folderDone, folderTotal }: download (compressed bytes; its first events give every
+// folder's total), stage (files staged and checked against the release), backup (saved variables and the old
+// folders), swap, done. A folder's totals come from the update itself, not from the check before it.
 // ---------------------------------------------------------------------------------------------------------------
 
 const STEPS = ["download", "stage", "backup", "swap"];
@@ -238,8 +239,10 @@ let prog = null;
 function startProgress() {
   const list = packs().filter((p) => p.wanted && (p.action === "install" || p.action === "update" || p.required))
     .concat(packs().filter((p) => p.action === "remove"));
-  prog = { step: "download", pct: 0, dl: {}, stage: {}, samples: [], speeds: [], lastAt: 0, lastDone: 0, total: 0, done: 0,
-    rows: list.filter((p) => p.action !== "same" || p.required) };
+  // (rows in the rail's order: DisasterZone, the games, the Extras, then what leaves)
+  const rank = (p) => (p.action === "remove" ? 300 : p.kind === "core" ? 0 : p.kind === "game" ? 1 + gameRank(p) : 200);
+  prog = { step: "download", pct: 0, dl: {}, dlOf: {}, stage: {}, files: {}, samples: [], speeds: [], lastAt: 0, lastDone: 0, total: 0, done: 0,
+    rows: list.filter((p) => p.action !== "same" || p.required).sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title)) };
   showProgress({ step: "download", done: 0, total: check ? check.downloadBytes : 0 });
 }
 function endProgress() { prog = null; }
@@ -250,7 +253,10 @@ function showProgress(p) {
   if (p.step === "download") {
     prog.total = p.total;
     prog.done = p.done;
-    if (p.folder) prog.dl[p.folder] = p.folderDone;
+    if (p.folder) {
+      prog.dl[p.folder] = p.folderDone;
+      if (p.folderTotal != null) prog.dlOf[p.folder] = p.folderTotal;
+    }
     // speed: bytes over the last moment, sampled at most 4 times a second for the graph
     const t = performance.now();
     prog.samples.push([t, p.done]);
@@ -261,7 +267,10 @@ function showProgress(p) {
       if (b[0] > a[0]) { prog.speed = ((b[1] - a[1]) / (b[0] - a[0])) * 1000; prog.speeds.push(prog.speed); }
       if (prog.speeds.length > 80) prog.speeds.shift();
     }
-  } else if (p.step === "stage" && p.folder) prog.stage[p.folder] = p.folderDone;
+  } else if (p.step === "stage" && p.folder) {
+    prog.stage[p.folder] = p.folderDone;
+    if (p.folderTotal) prog.files[p.folder] = p.folderTotal;
+  }
   const w = WEIGHT[p.step] || [0, 100];
   const frac = p.total ? Math.min(1, p.done / p.total) : (p.step === "download" ? 0 : 1);
   prog.pct = Math.max(prog.pct, w[0] + w[1] * (p.step === "backup" || p.step === "swap" ? 0.5 : frac));
@@ -321,26 +330,37 @@ function renderSpeed() {
   $("sp-peakline").setAttribute("d", peak ? "M0 " + top + "H" + W : "");
 }
 
-// One folder of the update: its share of the download, then checked, then in place.
+// One folder of the update, the same in this table and on the rail: [state, bar 0..1, kind, words for the rail].
+// The bar runs through both steps that touch the folder: the download fills it to DL, checking the rest.
+// kind: "" waiting, "go" under way, "ok" checked or in place.
+const DL = 0.7;
 function folderState(p) {
-  if (p.action === "remove") return prog.step === "done" ? ["Removed", 1, "ok"] : ["Leaves", 0, ""];
-  if (p.action === "same") return ["No changes", 1, ""];
+  if (p.action === "remove") return prog.step === "done" ? ["Removed", 1, "ok", "Removed"] : ["Leaves", 0, "", "Leaves with this update"];
+  if (p.action === "same") return ["No changes", 1, "", "No changes"];
+  if (prog.step === "done") { const w = p.installed ? "Updated" : "Installed"; return [w, 1, "ok", w]; }
   const s = STEPS.indexOf(prog.step);
-  const staged = prog.stage[p.folder] || 0;
-  if (prog.step === "done") return ["Ready", 1, "ok"];
-  if (s >= 2 || (s === 1 && staged >= p.files)) return [s >= 2 ? "Ready" : "Checked", 1, "ok"];
-  if (s === 1) return [staged ? Math.floor((staged / p.files) * 100) + "%" : "Waiting", 1, "go"];
-  const got = prog.dl[p.folder] || 0;
-  const of = p.downloadBytes;
-  if (!of) return ["Cached", 1, ""];
-  return [got ? Math.floor((got / of) * 100) + "%" : "Waiting", Math.min(1, got / of), got ? "go" : ""];
+  if (s >= 2) return ["Checked", 1, "ok", "Checked"];
+  if (s === 1) {
+    const of = prog.files[p.folder] || p.files || 1;
+    const n = Math.min(prog.stage[p.folder] || 0, of);
+    if (n >= of) return ["Checked", 1, "ok", "Checked"];
+    if (!n) return ["Downloaded", DL, "go", "Downloaded"];
+    const pc = Math.floor((n / of) * 100);
+    return ["Checking " + pc + "%", DL + (1 - DL) * (n / of), "go", "Checking · " + pc + "%"];
+  }
+  const of = prog.dlOf[p.folder];
+  const got = Math.min(prog.dl[p.folder] || 0, of || 0);
+  if (of === 0 || (of && got >= of)) return ["Downloaded", DL, "go", "Downloaded"];   // (of 0: it was all in the cache)
+  if (!got) return ["Waiting", 0, "", "Waiting"];
+  const pc = Math.floor((got / of) * 100);
+  return [pc + "%", DL * (got / of), "go", "Downloading · " + pc + "%"];
 }
 
 function renderFolders() {
   const box = $("folders");
   box.textContent = "";
   const hd = el("div", "frow hd");
-  for (const [t, cls] of [["In this update"], ["Files"], ["Download"], ["Progress"], ["State", "r"]]) {
+  for (const [t, cls] of [["Folder"], ["Files"], ["Download"], ["Progress"], ["State", "r"]]) {
     const s = el("span", "label", t);
     if (cls) s.style.textAlign = "right";
     hd.append(s);
@@ -360,7 +380,7 @@ function renderFolders() {
     bar.append(fill);
     const files = p.action === "install" ? plural(p.files, "file", "files") : p.changed != null ? p.changed + " changed" : plural(p.files, "file", "files");
     row.append(fn, el("span", "c", p.action === "remove" ? "—" : files),
-      el("span", "c", p.action === "remove" ? "—" : fmtBytes(p.downloadBytes)), bar, el("span", "st " + cls, state));
+      el("span", "c", p.action === "remove" ? "—" : fmtBytes(prog.dlOf[p.folder] ?? p.downloadBytes)), bar, el("span", "st " + cls, state));
     box.append(row);
   }
   const still = packs().filter((p) => p.installed && p.action === "same" && !p.required).map((p) => p.title);
@@ -397,7 +417,20 @@ function renderNews() {
   const box = $("news");
   box.textContent = "";
   const rel = changelog()[0];
-  if (!rel) { box.append(el("div", "none", checking ? "Reading the release list…" : "The newest release's changes show here.")); return; }
+  if (!rel && releaseLoading()) {
+    for (const w of ["62%", "48%", "56%"]) {
+      const g = el("div", "news panel ghost");
+      const bd = el("span", "bd");
+      bd.append(skel("g-t", w), skel("g-ln", "94%"), skel("g-ln", "86%"), skel("g-ln", "42%"));
+      g.append(skel("g-pic"), bd);
+      box.append(g);
+    }
+    return;
+  }
+  if (!rel) {
+    box.append(el("div", "none", checkErr ? "The newest release's changes show once the release list can be read." : "The newest release's changes show here."));
+    return;
+  }
   const rank = { new: 0, changed: 1, fixed: 3 };
   const picks = rel.sections.slice().sort((a, b) => (rank[a.kind] ?? 2) - (rank[b.kind] ?? 2)).slice(0, 3);
   picks.forEach((s, i) => {
