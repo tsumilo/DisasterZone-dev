@@ -36,6 +36,8 @@
 CDLoot-dev/
   addon/DisasterZone/   -> JUNCTION to C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone  (the live addon)
   addon/DisasterZone_Rooms/ -> JUNCTION to ...\AddOns\DisasterZone_Rooms  (the 3D room data, a load-on-demand addon)
+  addon/DisasterZone_<Game>/ -> JUNCTIONS to ...\AddOns\DisasterZone_<Game>  (the six game packs: Azeromon, Bingo,
+                            Chess, HoldTheLine, Illidan, Trainer; dev/docs/GAME_PACKS.md)
   dev/
     docs/         SPEC.md + SPEC_ADDENDUM_A..H.md (design), research/ (api.md = verified 2.5.6 API notes),
                   impl/ (per-phase implementation, fix and review reports)
@@ -63,12 +65,15 @@ No `.git` or dev files end up in the AddOns folder you share with the guild.
 
 `addon/DisasterZone_Rooms` is the same kind of junction, for the second addon folder: the 3D rooms, their stand-ins and the Raid Trainer's floors (dev/generators/gen_rooms.py, gen_standins.py, gen_trainer_heights.py write there). DisasterZone loads it on demand (Render3D/Rooms.lua R3.LoadData); `release.py full` zips both folders, and room changes never travel as an in-game update.
 
+The game packs (`addon/DisasterZone_Azeromon`, `_Bingo`, `_Chess`, `_HoldTheLine`, `_Illidan`, `_Trainer`) are junctions too: each minigame is an addon folder of its own, loaded at login after DisasterZone when it is installed (dev/docs/GAME_PACKS.md, dev/tools/packs.py). Make the empty AddOns folder and its junction before a merge brings a new pack, or git writes the pack into the dev kit instead of the game.
+
 **Warning:** delete a junction with `rmdir addon\DisasterZone` (cmd) only. Never use a recursive delete (Explorer "delete", `rm -rf`, `Remove-Item -Recurse`): those can follow the junction and **delete the real addon**.
 
 If the junction is ever missing, recreate it (PowerShell):
 ```
 New-Item -ItemType Junction -Path C:\Users\emilo\CDLoot-dev\addon\DisasterZone -Target "C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 New-Item -ItemType Junction -Path C:\Users\emilo\CDLoot-dev\addon\DisasterZone_Rooms -Target "C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone_Rooms"
+foreach ($g in "Azeromon","Bingo","Chess","HoldTheLine","Illidan","Trainer") { $t = "C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone_$g"; New-Item -ItemType Directory -Force $t | Out-Null; New-Item -ItemType Junction -Path "C:\Users\emilo\CDLoot-dev\addon\DisasterZone_$g" -Target $t }
 ```
 
 <p align="center"><img src=".github/readme/divider.png" width="70%" alt=""></p>

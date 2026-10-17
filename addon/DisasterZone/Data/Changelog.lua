@@ -24,6 +24,13 @@ ns.CHANGELOG = {
               "Desecrated tokens make the Tier 3 sets: small bonuses, and the look at nine pieces.",
               "Frozen Runes buy Frost Resistance from Craftsman Wilhelm, against the lair's Chill.",
           } },
+          { heading = "Every game is its own install", area = "games", kind = "changed", open = "games",
+            lead = "Each game is an addon folder of its own now: keep only the ones you play.", lines = {
+              "The DisasterZone launcher's Games tab installs and removes them one at a time.",
+              "Without the launcher: copy the DisasterZone_<Game> folders you want from the zip.",
+              "Updating by hand? Delete the old DisasterZone folder first: the game art moved out.",
+              "A game you don't have still has a poster saying how to get it. Progress is kept.",
+          } },
           { heading = "Errors report themselves", area = "other", kind = "new", open = "feedback",
             lead = "When DisasterZone hits a Lua error, a bug report goes to the developer by itself.", lines = {
               "DisasterZone's errors no longer show in the game's error window or in BugSack.",
