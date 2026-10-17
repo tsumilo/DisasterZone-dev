@@ -24,6 +24,16 @@ ns.CHANGELOG = {
               "Desecrated tokens make the Tier 3 sets: small bonuses, and the look at nine pieces.",
               "Frozen Runes buy Frost Resistance from Craftsman Wilhelm, against the lair's Chill.",
           } },
+          { heading = "Azeromon: battles you can see", area = "games", kind = "changed", open = "games",
+            lead = "Beasts are pixel art now, battles have a plan, and every move plays its own effect.", lines = {
+              "Strong moves rest, setup marks pay off in combos, big casts land next turn: guard them.",
+              "Six moves per type and each beast's own signatures; a coach helps until your first badge.",
+              "Claws rake, waves roll, sawblades grind: every move and every boss cast has an effect.",
+              "Taming is a moment: a sigil, an orb that rocks for every check, and a card for your beast.",
+              "Every beast is pixel art made from its own model and sized by strength (or keep 3D).",
+              "Guildmates no longer vanish at doors or while they fight in WoW.",
+              "Sharper trees, ores and props, with real shadows; Stranglethorn is a deeper green.",
+          } },
           { heading = "Every game is its own install", area = "games", kind = "changed", open = "games",
             lead = "Each game is an addon folder of its own now: keep only the ones you play.", lines = {
               "The DisasterZone launcher's Games tab installs and removes them one at a time.",

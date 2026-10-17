@@ -263,6 +263,51 @@ def slash_arc(n=256, span=150.0, inner=0.58):
     return Image.fromarray(img, "RGBA")
 
 
+def exo_shaft(w=64, h=256, seed=7):
+    """Exorcism's column of light: a soft halo round a narrow white-hot core, feathered at the sides, faint
+    falling streaks, fading out toward the sky and softly at the foot (drawn tinted, additive)."""
+    rng = np.random.default_rng(seed)
+    x = (np.arange(w) + 0.5) / w * 2 - 1                          # -1..1 across
+    y = (np.arange(h) + 0.5) / h                                  # 0 at the top .. 1 at the foot
+    X, Y = np.meshgrid(x, y)
+    halo = np.exp(-(X / 0.42) ** 2) * 0.55
+    core = np.exp(-(X / 0.11) ** 2)
+    streak = np.zeros(w)
+    for _ in range(9):                                            # a few soft vertical streaks in the halo
+        c, sw, a = rng.uniform(-0.6, 0.6), rng.uniform(0.04, 0.1), rng.uniform(0.15, 0.4)
+        streak += a * np.exp(-((x - c) / sw) ** 2)
+    streaks = np.exp(-(X / 0.5) ** 2) * streak[None, :] * (0.6 + 0.4 * np.sin(Y * 9 + X * 3) ** 2)
+    along = np.clip(Y / 0.75, 0, 1) ** 1.6                        # sky: nothing; strongest low down
+    foot = np.clip((1 - Y) / 0.06, 0, 1) ** 0.7
+    edge = np.clip((1 - np.abs(X)) / 0.12, 0, 1)                  # never a hard side
+    a = np.clip((halo + core + streaks) * along * foot * edge, 0, 1)
+    img = np.zeros((h, w, 4), np.uint8)
+    img[..., 0] = img[..., 1] = img[..., 2] = 255
+    img[..., 3] = (a * 255).astype(np.uint8)
+    return Image.fromarray(img, "RGBA")
+
+
+def exo_sigil(n=256, spokes=12):
+    """Exorcism's sigil burned into the ground: a glow, two rings, a ring of short rune dashes and spokes."""
+    c = (np.arange(n) + 0.5) / n * 2 - 1
+    X, Y = np.meshgrid(c, c)
+    r = np.hypot(X, Y)
+    ang = np.arctan2(Y, X)
+    ring = lambda rad, wid: np.exp(-((r - rad) / wid) ** 2)
+    a = 0.5 * np.exp(-(r / 0.42) ** 2)
+    a += ring(0.9, 0.022) + 0.8 * ring(0.62, 0.016)
+    seg = (np.cos(ang * 24) > 0.35) * ring(0.76, 0.03) * 0.85    # a band of dashes between the rings
+    a += seg
+    sp = np.exp(-((np.sin(ang * spokes / 2)) * r / 0.018) ** 2) * (r > 0.2) * (r < 0.6) * 0.55
+    a += sp
+    a *= np.clip((1 - r) / 0.04, 0, 1)
+    a = np.clip(a, 0, 1)
+    img = np.zeros((n, n, 4), np.uint8)
+    img[..., 0] = img[..., 1] = img[..., 2] = 255
+    img[..., 3] = (a * 255).astype(np.uint8)
+    return Image.fromarray(img, "RGBA")
+
+
 def fx():
     d = OUT / "FX"
     d.mkdir(parents=True, exist_ok=True)
@@ -290,6 +335,8 @@ def fx():
     write_tga(disc(SITE / "fx" / "frost_tex.png"), d / "frost_disc.tga")
     write_tga(disc(SITE / "fx" / "lava.png"), d / "lava_disc.tga")
     write_tga(slash_arc(), d / "slash_arc.tga")
+    write_tga(exo_shaft(), d / "exo_shaft.tga")
+    write_tga(exo_sigil(), d / "exo_sigil.tga")
     print("fx", len(os.listdir(d)))
     return rows
 

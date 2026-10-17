@@ -584,12 +584,10 @@ end
 
 local function exorcismHit(t)
     local x, y = t.e.dead and t.x or t.e.x, t.e.dead and t.y or t.e.y
-    R.fx[#R.fx + 1] = { kind = "pillar", x = x, y = y, t = 0, dur = 0.7 }
-    flash("holy_star", x, y - 10, 160, C.HOLY, 0.35, { light = 300 })
-    flash("holy_flare", x, y - 30, 90, C.GOLD, 0.25)
-    ring("ring_blue", x, y, 10, 100, 0.45, C.GOLD, 1)
-    ring("ring_shards", x, y, 10, 80, 0.4, C.HOLY, 0.8)
-    emit({ img = "levelup_rays", tint = C.GOLD, x = x, y = y - 30, life = 0.8, s0 = 60, s1 = 80, sx = 1.2, sy = 1.4, a0 = 0.9, a1 = 0 })
+    R.fx[#R.fx + 1] = { kind = "pillar", x = x, y = y, t = 0, dur = 0.75 }
+    flash("holy_star", x, y - 14, 130, C.HOLY, 0.3, { light = 300 })
+    ring("ring_soft", x, y, 16, 120, 0.5, C.GOLD, 0.7)
+    for _ = 1, 10 do emit({ img = "glow_dot", tint = C.HOLY, x = x + vr(-14, 14), y = y, z = vr(0, 30), vz = vr(80, 240), vx = vr(-30, 30), life = vr(0.5, 0.9), s0 = vr(8, 12), s1 = 2, a0 = 1, a1 = 0, light = 20 }) end
     for _ = 1, 18 do local a = random() * TAU emit({ img = "sparkle", tint = C.GOLD, x = x, y = y, z = vr(0, 40), vx = cos(a) * vr(40, 180), vy = sin(a) * vr(30, 120), vz = vr(60, 260), g = 300, drag = 1.5, life = vr(0.5, 1), s0 = vr(8, 13), s1 = 2, bounce = 0.2 }) end
     puff(x, y, 4, { 190 / 255, 170 / 255, 130 / 255 }, { a = 0.35, s0 = 20, s1 = 60, spread = 2 })
     addDecal(x, y, 34, { 60 / 255, 46 / 255, 16 / 255 }, "gold")
