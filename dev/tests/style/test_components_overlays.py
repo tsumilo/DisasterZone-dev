@@ -237,13 +237,16 @@ def a_toast_held_for_the_fight_comes_when_it_ends():
     out = c.eval_py("""
         local UI = ns.UI
         local held = UI:Toast({ key = "h", title = "After the fight", combat = false, duration = 0 })
-        local now = UI:Toast({ key = "n", title = "Now", duration = 0 })
-        return { held = held == nil, now = now ~= nil and now:IsShown(), q = #UI:ToastQueue() }""")
-    assert out == {"held": True, "now": True, "q": 1}, out
+        local plain = UI:Toast({ key = "p", title = "Bingo!", duration = 0 })
+        local now = UI:Toast({ key = "n", title = "Now", combat = true, duration = 0 })
+        return { held = held == nil, plain = plain == nil, now = now ~= nil and now:IsShown(), q = #UI:ToastQueue() }""")
+    # (1.5.4, D-2: an unmarked toast waits for the fight's end too; combat = true is loot's, it shows)
+    assert out == {"held": True, "plain": True, "now": True, "q": 2}, out
     c.set_combat(False)
     w.tick(0.1)
-    out = c.eval_py("""local t = ns.UI:GetToast("h"); return { t ~= nil and t:IsShown(), #ns.UI:ToastQueue() }""")
-    assert out == [True, 0], out
+    out = c.eval_py("""local t, p = ns.UI:GetToast("h"), ns.UI:GetToast("p")
+        return { t ~= nil and t:IsShown(), p ~= nil and p:IsShown(), #ns.UI:ToastQueue() }""")
+    assert out == [True, True, 0], out
     no_errors(w)
 
 
