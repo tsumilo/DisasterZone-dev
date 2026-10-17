@@ -98,9 +98,16 @@ function renderHero() {
   $("lower-link").classList.toggle("hidden", updating);
   $("btn-check").disabled = working;
   if (updating) {
-    setChip("Updating", "gold");
     const v = check ? check.version : "";
-    setRel((status.installed && status.installed.present ? status.installed.version + " → " : "") + v, releaseTitle(v));
+    const from = status.installed && status.installed.present ? status.installed.version : null;
+    const adding = prog ? prog.rows.filter((p) => p.action === "install").map((p) => p.title) : [];
+    if (from && from === v && adding.length) {
+      setChip("Installing", "gold");
+      setRel(v, joinNames(adding));
+    } else {
+      setChip("Updating", "gold");
+      setRel((from && from !== v ? from + " → " : "") + v, releaseTitle(v));
+    }
     setMain("PLAY", null, { play: true });
     setSecond(null);
     setNotice(null);
@@ -242,7 +249,7 @@ function startProgress() {
   // (rows in the rail's order: DisasterZone, the games, the Extras, then what leaves)
   const rank = (p) => (p.action === "remove" ? 300 : p.kind === "core" ? 0 : p.kind === "game" ? 1 + gameRank(p) : 200);
   prog = { step: "download", pct: 0, dl: {}, dlOf: {}, stage: {}, files: {}, samples: [], speeds: [], lastAt: 0, lastDone: 0, total: 0, done: 0,
-    rows: list.filter((p) => p.action !== "same" || p.required).sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title)) };
+    rows: list.filter((p) => p.action !== "same").sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title)) };
   showProgress({ step: "download", done: 0, total: check ? check.downloadBytes : 0 });
 }
 function endProgress() { prog = null; }
@@ -307,8 +314,7 @@ function renderProgress() {
   }
   renderSpeed();
   renderFolders();
-  renderRail();
-  paintGameBusy();
+  paintBusy();
 }
 
 function renderSpeed() {
@@ -384,7 +390,7 @@ function renderFolders() {
       el("span", "c", p.action === "remove" ? "—" : fmtBytes(prog.dlOf[p.folder] ?? p.downloadBytes)), bar, el("span", "st " + cls, state));
     box.append(row);
   }
-  const still = packs().filter((p) => p.installed && p.action === "same" && !p.required).map((p) => p.title);
+  const still = packs().filter((p) => p.installed && p.action === "same").map((p) => p.title);
   if (still.length) {
     const row = el("div", "frow");
     row.append(el("span", "wide", joinNames(still) + (still.length === 1 ? " has" : " have") + " no changes."), el("span", "st", "Kept"));

@@ -13,6 +13,8 @@ let picker = null;        // { pick: {id: keep}, then: "update" | undefined } wh
 // What a game is doing now, for the rail and the cards: [text, kind, bar %, how] (kind: busy | wait | get | ok | "").
 // While it updates, the same state as its row in Home's table (folderState: how = "" waiting, "go" or "ok").
 function stateOf(p) {
+  if (gone(p)) return removing.done ? ["Removed", "busy", 0, "rm"] : ["Removing…", "busy", 100, "rm"];
+  if (queued.has(p.id)) return ["Installs after this update", "wait"];
   if (busyPack(p)) {
     if (!prog) return [(p.installed ? "Updating" : "Installing") + "…", "busy", 0, "go"];
     const [, frac, how, words] = folderState(p);
@@ -34,14 +36,14 @@ function renderRail() {
   for (const p of list) {
     const look = lookOf(p);
     const [text, kind, pct, how] = stateOf(p);
-    const b = el("button", (p.installed || p.wanted ? "" : "off") + (cur.page === "game" && cur.arg === p.id ? " on" : ""));
+    const b = el("button", (p.installed || p.wanted ? "" : "off") + (cur.page === "game" && cur.arg === p.id ? " on" : "") + (how === "rm" ? " rm" + (removing.done ? " out" : "") : ""));
     b.style.setProperty("--acc", look.accent);
     const th = el("span", "th");
     if (!look.generic) th.append(img("games/" + p.id + ".jpg"));
     const tx = el("span", "tx");
     tx.append(el("span", "t", p.title), el("span", "s" + (kind === "busy" ? " busy " + (how || "idle") : ""), text));
     if (kind === "busy") {
-      const mini = el("span", "mini" + (how === "ok" ? " ok" : ""));
+      const mini = el("span", "mini" + (how === "ok" ? " ok" : how === "rm" ? " rm" + (removing.done ? " out" : "") : ""));
       const f = el("i");
       f.style.width = (pct || 0) + "%";
       mini.append(f);
@@ -55,7 +57,7 @@ function renderRail() {
       else if (kind === "wait") st.append(icon("wait", "s"));
       st.setAttribute("aria-label", text);
       // (the download icon gets the game right here: the rest of the row opens its page)
-      if (kind === "get" && !working && !devCopy() && check) {
+      if (kind === "get" && (!working || updating) && !devCopy() && check) {
         st.classList.add("act");
         st.title = "Download and install " + p.title + " · " + fmtBytes(p.gz);
         st.onclick = (e) => { e.stopPropagation(); installPack(p); };
@@ -64,6 +66,7 @@ function renderRail() {
     }
     b.title = p.title + " · " + text;
     b.onclick = () => go("game", p.id);
+    b.dataset.id = p.id;
     box.append(b);
   }
   const loading = releaseLoading();
@@ -196,7 +199,8 @@ function renderLibrary() {
 
 function gameCard(p) {
   const look = lookOf(p);
-  const card = el("article", "cap" + (p.installed || p.wanted ? "" : " off"));
+  const card = el("article", "cap" + (p.installed || p.wanted ? "" : " off") + (gone(p) ? " rm" + (removing.done ? " out" : "") : ""));
+  card.dataset.id = p.id;
   card.style.setProperty("--acc", look.accent);
   card.tabIndex = 0;
   card.setAttribute("role", "link");
@@ -234,14 +238,21 @@ function gameCard(p) {
   const rooms = packs().find((x) => x.id === "rooms");
   const played = playedText(p.played);
   let line = p.tagline || look.tagline, cls = null;
-  if (p.action === "remove") { line = "Leaves with the next update"; cls = "warn"; }
+  if (gone(p)) { line = removing.done ? "Removed · it waits in Backups" : "Removing…"; cls = "rmv"; }
+  else if (queued.has(p.id)) { line = "Installs after this update"; cls = "go"; }
+  else if (p.action === "remove") { line = "Leaves with the next update"; cls = "warn"; }
   else if (!p.installed && p.wanted) { line = "Installs with the next update"; cls = "go"; }
   else if (p.installed && look.rooms && rooms && !rooms.installed) { line = "Plays flat while 3D rooms are off"; cls = "warn"; }
   else if (p.installed && played) { line = played; cls = "pl"; }
   tx.append(el("small", cls, line));
   meta.append(tx);
   const locked = working || devCopy() || !check;
-  if (busyPack(p)) {
+  const getLocked = (working && !updating) || devCopy() || !check;   // (during an update, Get queues the game)
+  if (gone(p)) {
+    const bar = el("span", "bar rm" + (removing.done ? " out" : ""));
+    bar.append(el("i"));
+    meta.append(bar);
+  } else if (busyPack(p)) {
     const [, , pct, how] = stateOf(p);
     const bar = el("span", "bar" + (how === "ok" ? " okb" : ""));
     const f = el("i");
@@ -253,10 +264,10 @@ function gameCard(p) {
     keep.disabled = locked;
     keep.onclick = (e) => { e.stopPropagation(); choose(p, true); };
     meta.append(keep);
-  } else if (!p.installed && !p.wanted) {
+  } else if (!p.installed && !p.wanted && !queued.has(p.id)) {
     const b = el("button", "btn sm gold");
     b.append(icon("down", "s"), "Get · " + fmtBytes(p.gz));
-    b.disabled = locked;
+    b.disabled = getLocked;
     b.onclick = (e) => { e.stopPropagation(); installPack(p); };
     meta.append(b);
   } else meta.append(el("span", "sz", fmtBytes(diskOf(p))));
@@ -270,7 +281,7 @@ function extraRow(p) {
   ic.append(icon("cube", "l"));
   const tx = el("span", "tx");
   tx.append(el("b", null, p.title), el("small", null, EXTRA_TEXT[p.id] || p.tagline || ""));
-  const sp = el("span", "sp", busyPack(p) ? "installing…" : fmtBytes(diskOf(p)));
+  const sp = el("span", "sp", gone(p) ? (removing.done ? "removed" : "removing…") : busyPack(p) ? "installing…" : fmtBytes(diskOf(p)));
   const tg = el("button", "tgl");
   tg.setAttribute("role", "switch");
   tg.setAttribute("aria-label", p.title);
@@ -305,8 +316,9 @@ function renderGame(id) {
   const chips = $("g-chips");
   chips.textContent = "";
   chips.append(el("span", "chip", look.kicker));
-  const [text, kind] = stateOf(p);
-  const c = el("span", "chip small " + (kind === "ok" ? "ok" : kind === "busy" ? "gold busy" : kind === "wait" ? "gold" : ""));
+  const [text, kind, , how] = stateOf(p);
+  page.classList.toggle("removing", how === "rm");
+  const c = el("span", "chip small " + (how === "rm" ? "rm" : kind === "ok" ? "ok" : kind === "busy" ? "gold busy" : kind === "wait" ? "gold" : ""));
   const ct = el("span", null, kind === "ok" ? "Installed" : kind === "get" ? "Not installed" : text);
   ct.id = "g-state";
   c.append(el("span", "pip"), ct);
@@ -322,7 +334,16 @@ function renderGame(id) {
   const wrap = el("span", "playwrap");
   const main = el("button", "play");
   const locked = working || devCopy() || !check;
-  if (busyPack(p)) {
+  if (gone(p)) {
+    // (the install's bar run backwards: full, draining away in muted rose, then empty)
+    const word = removing.done ? "REMOVED" : "REMOVING";
+    main.classList.add("notri", "busyb", "rm");
+    if (removing.done) main.classList.add("out");
+    const fill = el("span", "pfill");
+    fill.append(el("span", "lbl", word));
+    main.append(el("span", "lbl", word), fill);
+    main.disabled = true;
+  } else if (busyPack(p)) {
     // (a bar of its own: the gold fill holds the same label in dark ink; paintGameBusy() moves them)
     main.classList.add("notri", "busyb");
     main.id = "g-busy";
@@ -335,10 +356,14 @@ function renderGame(id) {
     main.append(el("span", null, "KEEP IT"));
     main.disabled = locked;
     main.onclick = () => choose(p, true);
+  } else if (queued.has(p.id)) {
+    main.classList.add("notri", "long");
+    main.append(el("span", null, "NEXT UP"));
+    main.disabled = true;
   } else if (!p.installed && !p.wanted) {
     main.append(el("span", null, "GET · " + fmtBytes(p.gz)));
     main.classList.add("long");
-    main.disabled = locked;
+    main.disabled = (working && !updating) || devCopy() || !check;
     main.onclick = () => installPack(p);
   } else {
     const tri = document.createElementNS(SVGNS, "svg");
@@ -353,7 +378,16 @@ function renderGame(id) {
   if (main.disabled) wrap.classList.add("off");
   wrap.append(main);
   act.append(wrap);
-  if (busyPack(p)) {
+  if (gone(p)) {
+    const line = el("div", "bline");
+    line.append(el("b", null, removing.done ? "Removed · " + fmtBytes(removing.bytes) + " freed" : "Moving it to Backups"),
+      el("span", null, removing.done ? "Backups can put it back" : "your progress stays in the saved variables"));
+    act.append(line);
+  } else if (queued.has(p.id)) {
+    const line = el("div", "bline");
+    line.append(el("b", null, "Installs after this update"), el("span", null, fmtBytes(p.gz) + " to download"));
+    act.append(line);
+  } else if (busyPack(p)) {
     const line = el("div", "bline");
     line.id = "g-busy-line";
     line.append(el("b"), el("span"));
@@ -372,6 +406,26 @@ function renderGame(id) {
   renderWeekly(p);
   renderGameNotes(p);
   renderGameAbout(p);
+}
+
+// While an update runs, the rail's rows and the Library's cards move with each progress event in place: building
+// them again each time would flicker and lose the hover and the click under the pointer.
+function paintBusy() {
+  for (const p of games()) {
+    if (!busyPack(p)) continue;
+    const [text, , pct, how] = stateOf(p);
+    const row = document.querySelector('#rail-games [data-id="' + p.id + '"]');
+    if (row) {
+      const s = row.querySelector(".s");
+      if (s) { s.textContent = text; s.className = "s busy " + (how || "idle"); }
+      const mini = row.querySelector(".mini");
+      if (mini) { mini.className = "mini" + (how === "ok" ? " ok" : ""); mini.firstChild.style.width = (pct || 0) + "%"; }
+      row.title = p.title + " · " + text;
+    }
+    const bar = document.querySelector('#lib-grid [data-id="' + p.id + '"] .bar');
+    if (bar) { bar.className = "bar" + (how === "ok" ? " okb" : ""); bar.firstChild.style.width = (pct || 0) + "%"; }
+  }
+  paintGameBusy();
 }
 
 // The game page while its game installs or updates: the button fills like a bar, and the chip and the line beside it
@@ -551,6 +605,7 @@ async function choose(p, on) {
 // Get on a game (and an Extra switched on): the pack goes in with the rest of the release, so a waiting update
 // comes along.
 async function installPack(p) {
+  if (working && updating && !queued.has(p.id)) { await queueInstall(p); return; }
   if (working) return;
   if (check && check.needsPick && p.kind === "game") { openPicker({ then: "update", tick: p.id }); return; }
   try { await api.invoke("set_packs", { packs: { [p.id]: true } }); } catch (e) { toast(e); return; }
@@ -558,6 +613,17 @@ async function installPack(p) {
   installing = p.id;
   if (check && check.needsPick) { openPicker({ then: "update" }); return; }
   await doUpdate();
+}
+
+// Get while an update runs: the game is kept from now on (the running update reads the settings again when it
+// ends, so this stays), and a second update installs it straight after.
+async function queueInstall(p) {
+  try { await api.invoke("set_packs", { packs: { [p.id]: true } }); } catch (e) { toast(e); return; }
+  queued.add(p.id);
+  toast(p.title + " installs right after this update.", true);
+  renderRail();
+  if (here().page === "library") renderLibrary();
+  if (here().page === "game") renderGame(here().arg);
 }
 
 async function removePack(p) {
@@ -572,16 +638,30 @@ async function turnOff(p) {
   else await choose(p, false);
 }
 
+// Taking a game out plays on its rail row, its card and its page: the colour drains from its picture and its bar
+// empties, then "Removed" for a moment. Moving a folder into Backups is quick, so the drain gets its own time.
+let removing = null;   // { id, bytes, done } while a pack is taken out
+function gone(p) { return !!(removing && removing.id === p.id); }
+
 async function takeOut(p, done) {
   if (working) return;
   working = true;
+  removing = { id: p.id, bytes: diskOf(p), done: false };
   renderAll();
+  let ok = false;
   try {
-    await api.invoke("remove_pack", { id: p.id, folder: p.folder });
-    toast(done + (status.wowRunning ? " It leaves the game at your next /reload." : ""), true);
+    await Promise.all([api.invoke("remove_pack", { id: p.id, folder: p.folder }), new Promise((r) => setTimeout(r, 1100))]);
+    ok = true;
   } catch (e) {
     toast(e);
   }
+  if (ok) {
+    removing.done = true;
+    renderAll();
+    toast(done + (status.wowRunning ? " It leaves the game at your next /reload." : ""), true);
+    await new Promise((r) => setTimeout(r, 900));
+  }
+  removing = null;
   working = false;
   await refreshAll();
 }

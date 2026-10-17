@@ -199,6 +199,7 @@ const ROOMS_COLOR = "122, 168, 240";
 
 let pickerAsked = false;  // the picker opened by itself once this start
 let installing = null;    // pack id an Install click is installing
+const queued = new Set(); // games a Get click asked for while an update ran: a second update installs them
 
 function packs() { return (check && check.packs) || []; }
 // The order games are listed in everywhere (rail, Library, the update's rows): GAME_ORDER, then by title.
@@ -273,8 +274,10 @@ async function doUpdate() {
   working = updating = true;
   startProgress();
   renderAll();
+  let ok = false;
   try {
     const out = await api.invoke("update");
+    ok = true;
     showProgress({ step: "done", done: 1, total: 1 });
     const added = (out.folders || []).filter((f) => f.action === "install" && f.folder !== "DisasterZone").map((f) => titleOf(f.folder));
     const what = added.length ? "DisasterZone " + out.version + " and " + joinNames(added) + " are installed."
@@ -288,6 +291,13 @@ async function doUpdate() {
   installing = null;
   endProgress();
   await refreshAll();
+  // games a Get click asked for while it ran: a second update installs them (after a failed one they just stay
+  // chosen, for the next update)
+  if (queued.size) {
+    queued.clear();
+    if (ok && check && !check.upToDate && !check.needsPick) await doUpdate();
+    else renderAll();
+  }
 }
 
 // Play (play.rs): the game already running comes to the front; else the chosen folder's version through Battle.net,
