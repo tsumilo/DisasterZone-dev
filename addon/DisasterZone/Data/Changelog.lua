@@ -36,6 +36,13 @@ ns.CHANGELOG = {
               "A slim demo bar shows what plays: click a part to stop it, or Stop all.",
               "/dz demo on still turns everything on; /dz demo list shows each part's word.",
           } },
+          { heading = "Hold the Line runs smoother", area = "games", kind = "changed", open = "games",
+            lead = "The same game, the same looks, with far less work behind each frame.", lines = {
+              "Busy late runs ask the game for about half as much per frame: only what changed.",
+              "Fast screens (120 Hz and up) no longer draw the same picture twice between steps.",
+              "Much less memory churn while you play, so fewer hitches when the game tidies up.",
+              "The screen no longer keeps shaking while the game is paused.",
+          } },
       } },
     { version = "1.5.5", date = "17 October 2026", title = "Hold the Line, Naxxramas and fixes from the raid",
       sections = {
