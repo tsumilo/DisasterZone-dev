@@ -76,13 +76,15 @@ local function SetTile(t, name)
     t:Show()
 end
 
-local function SetChar(t, sprite, face, frame)
-    local key = sprite .. face .. frame
+-- cut: show only the top `cut` rows (someone wading in the shallows: the legs are under the water, 0.46)
+local function SetChar(t, sprite, face, frame, cut)
+    local key = sprite .. face .. frame .. (cut or "")
     if t.charKey == key then return end
     t.charKey = key
     local c = (SPRITE_COL[sprite] or 3) + frame
     local r = FACE_ROW[face] or 0
-    t:SetTexCoord(c * 16 / 256 + E, (c + 1) * 16 / 256 - E, r * 16 / 128 + E, (r + 1) * 16 / 128 - E)
+    t:SetTexCoord(c * 16 / 256 + E, (c + 1) * 16 / 256 - E, r * 16 / 128 + E, (r * 16 + (cut or 16)) / 128 - E)
+    t:SetHeight(TILE * (cut or 16) / 16)
 end
 
 -- size is the old design size; drawn at 1.25x in the pixel font.
@@ -3170,6 +3172,20 @@ end
 local function StartBattleView(b)
     ApplyBattleTheme(G.map and G.map.def.theme)
     R.battleSkyAlpha = ApplySky(R.battleSky, G.map and G.map.def.outdoor, 0.75, G.map and G.map.def.gloom)
+    -- 0.45: the scene of the spot you stood on, at this hour and in this weather (BattleScene.lua); the old
+    -- picture, its colour bands and the flat tint step aside
+    local s = G.save
+    local how = ns.AzeroBattleScene.Begin(G.map, s and s.x, s and s.y, G.raining)
+    if how == "layers" then
+        local bg = R.bg
+        for _, x in ipairs({ bg.art, bg.clouds, bg.sky, bg.field, bg.stripe }) do if x then x:Hide() end end
+        if bg.clouds then bg.clouds.on = false end
+        for _, x in ipairs(bg.skyBands) do x:Hide() end
+        for _, x in ipairs(bg.fieldBands) do x:Hide() end
+        for _, x in ipairs(bg.platforms) do x:Hide() end
+        R.battleSky:Hide()
+        R.battleSkyAlpha = 0
+    end
     local foeSp = b.foe and b.foe.mon and D.species[b.foe.mon.sp]
     if b.wild and foeSp and (foeSp.rare or foeSp.legendary) and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
     ns.AzeroSound:Play("encounter")
@@ -3201,6 +3217,7 @@ end
 local function EndBattleView()
     BT.battle, BT.actionOpen = nil, nil
     ns.AzeroTaming.Reset()
+    ns.AzeroBattleScene.End()
     ns.AzeroFx.Reset()
     R.bagDesc:SetHeight(80)                  -- (the battle bag's was as tall as the text box)
     R.battle:Hide()
@@ -4671,6 +4688,7 @@ function Amb.Draw(m, g, px, py)
         Amb.Smoke(m, px, py)
     end
     Amb.Glints(m, g, px, py)
+    Amb.WaterLife(m, g, px, py, period)          -- (0.46: rain rings and puddles, moonlight, rings round a wader)
     Amb.Steps(m, px, py)
     if g then Amb.Acts(m, px, py) end      -- (maps without a baked ground have no ambient at all)
     if Amb.gurgles and Amb.gurglesAt ~= now then Amb.gurgles:Hide() end
@@ -4717,6 +4735,7 @@ local function BuildWorld()
     R.playerShadow = Shadow()
     R.playerShadow:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
     if ns.AzeroLight then ns.AzeroLight.Attach(world, TILE / 16, SetPixelTexture) end   -- light on people (Light.lua)
+    if ns.AzeroWater then ns.AzeroWater.Attach(world, TILE / 16, SetPixelTexture) end   -- water that reflects (Water.lua)
     -- what I say (Chat.lua), over my head
     R.player.say = Box(world, 100, 26, world:GetFrameLevel() + 15)
     R.player.say:EnableMouse(false)
@@ -4906,6 +4925,27 @@ function Amb.LightBegin(m, g, px, py)
     end
     return true
 end
+-- Water that reflects (Water.lua, 0.46): the frame's reflection rows; who wades (the shallows: legs under water)
+function Amb.WaterBegin(m, g, px, py)
+    Amb.waders = Amb.waders or {}
+    for i = #Amb.waders, 1, -1 do Amb.waders[i] = nil end
+    if not ns.AzeroWater then return false end
+    Amb.view = Amb.view or {}
+    local v = Amb.view
+    v.x0, v.y0 = (px - HX) * 16 - 16, (py - HY) * 16 - 16
+    v.x1, v.y1 = (px - HX + VW) * 16 + 16, (py - HY + VH) * 16 + 16
+    return ns.AzeroWater.Begin({ m = m, g = g, now = now, raining = Amb.raining, calm = G:Data().calm, view = v,
+        toScreen = function(mx, my) return (mx / 16 - px + HX) * TILE, (my / 16 - py + HY) * TILE end })
+end
+function Amb.Wades(m, x, y)
+    local k = m.shallow and m.key(floor(x + 0.5), floor(y + 0.5))
+    return k and m.shallow[k] and true or false
+end
+function Amb.WaterLife(m, g, px, py, period)
+    if not (ns.AzeroWater and Amb.view) then return end
+    ns.AzeroWater.Life({ m = m, now = now, raining = Amb.raining, calm = G:Data().calm, period = period, view = Amb.view,
+        waders = Amb.waders, pix = function(mx, my, w, h, r, gg, b, a, layer, sub) Amb.Pix(px, py, mx, my, w, h, r, gg, b, a, layer, sub) end })
+end
 
 local function DrawWorld()
     local s = G.save
@@ -4977,7 +5017,9 @@ local function DrawWorld()
     end
     -- player
     local lit = Amb.LightBegin(m, ground, px, py)
-    local Light = ns.AzeroLight
+    local Light, Water = ns.AzeroLight, ns.AzeroWater
+    local wet = Amb.WaterBegin(m, ground, px, py)
+    local wade = Amb.Wades(m, px, py)
     local frame = 1
     if walking or (G.bump and G.input.dir) then
         local f = G.moving and (G.moving.t / G.moving.dur) or (G.bump and (0.2 - G.bump) / 0.2 or 0)
@@ -4987,8 +5029,8 @@ local function DrawWorld()
     local pface, plift = s.face, 0
     if walking then Chat:Stand("me") else pface, frame, plift = KH.EmoteLook("me", s.face, frame) end
     Amb.CharsFile(R.player, lit)
-    R.playerShadow:SetShown(not lit)
-    SetChar(R.player, "hero", pface, frame)
+    R.playerShadow:SetShown(not lit and not wade)
+    SetChar(R.player, "hero", pface, frame, wade and 11 or nil)
     R.player:ClearAllPoints()
     R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE + plift * TILE / 16)
     KH.FitBubble(R.player.say, Chat:Bubble("me"))
@@ -5002,10 +5044,12 @@ local function DrawWorld()
         R.grassOver:SetShown(onTall and true or false)
         if R.player.legs then R.player.legs:Hide() end
     end
-    if lit then
+    if lit and not wade then
         Light.Person("me", Amb.CharCell("hero", pface, frame), px * 16, py * 16,
             { lift = plift, legs = (R.player.legs and R.player.legs:IsShown()) or R.grassOver:IsShown() })
     end
+    if wet then Water.Person("me", Amb.CharCell("hero", pface, frame), px * 16, py * 16, { wade = wade }) end
+    if wade then Amb.waders[#Amb.waders + 1] = { px * 16, py * 16 } end
     -- npcs
     local n = 0
     for _, npc in ipairs(G.npcs) do
@@ -5052,6 +5096,7 @@ local function DrawWorld()
                 Light.Person(npc.id or npc.def.id or ("npc" .. n), Amb.CharCell(npc.def.sprite or "bald", face, nframe),
                     nx * 16, ny * 16, { lift = (npc.def.lift or 0) + hop, legs = sp.legs and sp.legs:IsShown() })
             end
+            if wet and not npc.def.stone then Water.Person(nil, Amb.CharCell(npc.def.sprite or "bald", face, nframe), nx * 16, ny * 16) end
             local title = G.NpcTitle(npc.def)
             sp.title:SetText(title and ("<" .. title .. ">") or "")
             sp.name:SetText(G.NpcName(npc.def) or "")
@@ -5098,7 +5143,8 @@ local function DrawWorld()
         sp.shadow:ClearAllPoints()
         sp.shadow:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE)
         Amb.CharsFile(sp, lit)
-        SetChar(sp, "hero", pface, pframe)
+        local pwade = Amb.Wades(m, nx, ny)
+        SetChar(sp, "hero", pface, pframe, pwade and 11 or nil)
         local cc = RAID_CLASS_COLORS and p.class and RAID_CLASS_COLORS[p.class]
         if cc then
             sp:SetVertexColor(0.55 + cc.r * 0.45, 0.55 + cc.g * 0.45, 0.55 + cc.b * 0.45)
@@ -5109,12 +5155,14 @@ local function DrawWorld()
         end
         sp.label:SetText(p.name)
         sp:Show()
-        sp.shadow:SetShown(not lit)
+        sp.shadow:SetShown(not lit and not pwade)
         Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
-        if lit then
+        if lit and not pwade then
             Light.Person("peer:" .. tostring(p.key), Amb.CharCell("hero", pface, pframe), nx * 16, ny * 16,
                 { lift = lift, legs = sp.legs and sp.legs:IsShown() })
         end
+        if wet then Water.Person(nil, Amb.CharCell("hero", pface, pframe), nx * 16, ny * 16, { wade = pwade }) end
+        if pwade then Amb.waders[#Amb.waders + 1] = { nx * 16, ny * 16 } end
         sp.label:Show()
         local word = PEER_BUSY[p.status]
         local said = ns.AzeroChat:Bubble(p.key)
@@ -5129,6 +5177,7 @@ local function DrawWorld()
     end
     for i = pn + 1, #peerSprites do peerSprites[i]:Hide() peerSprites[i].shadow:Hide() if peerSprites[i].legs then peerSprites[i].legs:Hide() end peerSprites[i].label:Hide() peerSprites[i].bubble:Hide() end
     if lit then Light.End() end
+    if Water then Water.End() end
     -- banner / fade
     if G.banner then
         R.banner:Show()
@@ -6588,13 +6637,14 @@ local function BuildBattle()
             bg.clouds:SetTexture(MEDIA .. "Ground\\battle_clouds")
         end
         bg.clouds:SetAlpha(0.9)
-        b:SetScript("OnUpdate", function()
-            if bg.clouds:IsShown() then
-                local u = (now * 2) / 256
-                bg.clouds:SetTexCoord(-u, art.w / 256 - u, 0, 1)
-            end
-        end)
     end
+    b:SetScript("OnUpdate", function(_, elapsed)
+        if bg.clouds and bg.clouds:IsShown() then
+            local u = (now * 2) / 256
+            bg.clouds:SetTexCoord(-u, art.w / 256 - u, 0, 1)
+        end
+        ns.AzeroBattleScene.Update(elapsed)                          -- (battles where you stand, 0.45)
+    end)
     local fp = Tex(b, "BORDER")
     fp:SetSize(240, 60)
     fp:SetPoint("CENTER", b, "TOPLEFT", FOE_X, -FOE_Y)
@@ -6629,7 +6679,9 @@ local function BuildBattle()
                 t:ClearAllPoints()
                 t:SetPoint("TOPLEFT", b, "TOPLEFT", dx, dy)
             end
+            ns.AzeroBattleScene.Shake(dx, dy)                        -- (the layered scene shakes the same)
         end,
+        punch = function(side, amp) ns.AzeroBattleScene.Punch(side, amp) end,
         shakeOn = function() return not G:Data().noShake end,
         -- an interrupted cast's bar turns red, shakes and drops away; put back once it hides (Scr.SetCastBar)
         castBar = function(side, p)
@@ -6645,6 +6697,13 @@ local function BuildBattle()
             bar:SetAlpha(1 - p)
             bar.edge:SetColorTexture(0.88, 0.34, 0.29, 1)
         end,
+    })
+    -- 0.45: battles where you stand (BattleScene.lua): the layered scene, the beasts' light, the push-in on a hit
+    ns.AzeroBattleScene.Build(b, S3, SetPixelTexture, {
+        bleed = function() return R.bleed or 1 end,
+        models = function() return R.foeModel, R.allyModel end,
+        drift = function(dx, dy) ns.AzeroFx.Drift(dx, dy) end,
+        shakeOn = function() return not G:Data().noShake end,
     })
 
     -- HP boxes, laid out like the GBA games: name + type, level, status; an "HP" tag and bar;
@@ -7502,6 +7561,11 @@ UI._Sprite = function(which)
     local m = (which == "ally") and R.allyModel or R.foeModel
     return m and m.spr:State()
 end
+UI._Model = function(which) return (which == "ally") and R.allyModel or R.foeModel end
+UI._Bg = function()                  -- the old battle picture (hidden while a layered scene shows, 0.45)
+    local bg = R.bg
+    return bg and { art = bg.art and bg.art:IsShown() or false, clouds = bg.clouds and bg.clouds:IsShown() or false } or nil
+end
 UI._SpriteAnim = function(which, id) Anim((which == "ally") and R.allyModel or R.foeModel, id) end
 UI._ShowFoe = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7) end
 UI._ShowFoeShiny = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7, true) end
@@ -7567,6 +7631,7 @@ UI._ShadowsShown = function()
     for _, s in ipairs(sprites) do if s:IsShown() and s.shadow:IsShown() then n = n + 1 end end
     return n
 end
+UI._PlayerHeight = function() return R.player and R.player:GetHeight() or 0 end   -- (wading: the legs cut, 0.46)
 UI._Light = function()               -- light on people (Light.lua): textures on screen, the sheet the player uses
     local st = ns.AzeroLight.Stats()
     st.playerFile = R.player and R.player.charsFile or false

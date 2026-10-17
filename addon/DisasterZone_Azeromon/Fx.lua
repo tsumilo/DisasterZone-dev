@@ -622,7 +622,10 @@ function F.Ghost(side, dx, dy, a, c)
     s.ghosts[#s.ghosts + 1] = { dx, dy, a, c }
 end
 
-local SX, SY = 0, 0                          -- the shake's offset this frame (game pixels)
+local SX, SY = 0, 0                          -- the shake's offset this frame + the scene's drift (game pixels)
+local DX, DY = 0, 0                          -- the scene's drift (BattleScene.lua: the ground layer's slow sway)
+-- The beasts and the effects move with the ground when the scene drifts (whole game pixels).
+function F.Drift(dx, dy) DX, DY = floor((dx or 0) + 0.5), floor((dy or 0) + 0.5) end
 local function ApplyBeasts()
     for _, side in ipairs(SIDES) do
         local m, s = fx.models[side], BM[side]
@@ -691,14 +694,15 @@ local function StepShake(dt)
         if k > 0.3 and (not fx.shakeOn or fx.shakeOn()) then SHK.ox, SHK.oy = floor(rr(-k, k) + 0.5), floor(rr(-k * 0.6, k * 0.6) + 0.5)
         else SHK.ox, SHK.oy = 0, 0 end
     end
-    if SHK.ox ~= SX or SHK.oy ~= SY then
-        SX, SY = SHK.ox, SHK.oy
+    if SHK.ox + DX ~= SX or SHK.oy + DY ~= SY then
+        local shook = SHK.ox ~= SX - DX or SHK.oy ~= SY - DY
+        SX, SY = SHK.ox + DX, SHK.oy + DY
         for _, f in ipairs({ fx.under, fx.shade, fx.over }) do
             f:ClearAllPoints()
             f:SetPoint("TOPLEFT", fx.b, "TOPLEFT", SX * P, -SY * P)
             f:SetPoint("BOTTOMRIGHT", fx.b, "BOTTOMRIGHT", SX * P, -SY * P)
         end
-        if fx.scene then fx.scene(SX * P, -SY * P) end
+        if fx.scene and shook then fx.scene(SHK.ox * P, -SHK.oy * P) end
     end
 end
 
@@ -875,7 +879,10 @@ function F.React(run, X, t, o)
         if X.type and X.power > 0 then F.Sound("hit", X.type) end
         if X.guarded then F.GuardHit(X.b, X.hit, X) if o.shake then F.Shake(max(1, o.shake - 1), 0.12) end return end
         F.Clip(X.b, 9)
-        if o.shake then F.Shake(o.shake, o.shakeDur or 0.2) end
+        if o.shake then
+            F.Shake(o.shake, o.shakeDur or 0.2)
+            if fx.punch then fx.punch(X.b, o.shake) end            -- (BattleScene: the camera pushes in on it)
+        end
         if o.stop and o.stop > 0 then F.Hitstop(o.stop) end
     end)
     if X.guarded then return end
@@ -1579,7 +1586,7 @@ function F.Attach(b, foeModel, allyModel, opts)
         return f
     end
     fx = { b = b, models = { foe = foeModel, ally = allyModel }, play = opts.play, anim = opts.anim, scene = opts.scene,
-           shakeOn = opts.shakeOn, castBar = opts.castBar }
+           shakeOn = opts.shakeOn, castBar = opts.castBar, punch = opts.punch }
     -- (the beasts are 2 levels up, the HP boxes 5: effects pass under the boxes)
     fx.under, fx.shade, fx.over = layer(1), layer(3), layer(4)
     fx.pools = { under = NewPool(fx.under, "block"), shade = NewPool(fx.shade, "block"), over = NewPool(fx.over, "block"),

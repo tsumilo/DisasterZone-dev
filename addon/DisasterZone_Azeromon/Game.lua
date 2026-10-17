@@ -262,6 +262,13 @@ function G.Compile(id)
     end
     for _, wp in ipairs(def.warps or {}) do m.warp[key(wp.x, wp.y)] = wp end
     for _, tr in ipairs(def.triggers or {}) do m.trigger[key(tr.x, tr.y)] = tr end
+    -- 0.46: the shallows (def.shallows = { { x, y }, ... }): water by a shore you can wade into (UI.lua shows the
+    -- legs under the water line); still water for fishing from the next tile
+    m.shallow = {}
+    for _, p in ipairs(def.shallows or {}) do
+        local k = key(p[1], p[2])
+        if m.water[k] then m.shallow[k] = true m.solid[k] = nil end
+    end
     compiled[id] = m
     return m
 end

@@ -391,11 +391,12 @@ def opened(key, lua=None):
     return fn
 
 
-def azero_battle(map_id, x, y, foe, then=None, bag=None, lead="murkling"):
-    """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN); bag: the bag's Lua table"""
+def azero_battle(map_id, x, y, foe, then=None, bag=None, lead="murkling", pre=None):
+    """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN); bag: the bag's Lua table; pre: Lua
+    run before the battle starts (the hour, the rain: BattleScene picks its light at the start)"""
     def fn(w, c):
         g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New(%r, 12, ns.Azero.rng) }" % lead
-                     + (" ns.Azero.save.bag = %s" % bag if bag else ""))(w, c)
+                     + (" ns.Azero.save.bag = %s" % bag if bag else "") + (" " + pre if pre else ""))(w, c)
         import importlib.util
         spec = importlib.util.spec_from_file_location("_azero_bot", os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                       "..", "tests", "games", "_azero_bot.py"))
@@ -404,6 +405,9 @@ def azero_battle(map_id, x, y, foe, then=None, bag=None, lead="murkling"):
         g.eval(bot.BOT)
         g.eval("T_AZ.settle()")                              # past the opening tips
         g.eval("ns.AzeroUI._Focus(true)")
+        if pre:
+            g.eval(pre)                                      # (again: settling resets the weather)
+            w.tick(0.3)
         g.eval("ns.Azero:Run(function(gm) gm:WildBattle(%r, 8) end)" % foe)
         for _ in range(80):
             w.tick(0.2)
@@ -436,7 +440,7 @@ def azero_at(map_id, x, y, lua=None):
     return fn
 
 
-def azero_lit(map_id, x, y, hour, lua=None):
+def azero_lit(map_id, x, y, hour, lua=None, face="down"):
     """Azeromon at map_id x, y at an hour of the day, the picture alone: no paused veil, opening tips or key hints"""
     def fn(w, c):
         g = azero_at(map_id, x, y)(w, c)
@@ -447,7 +451,7 @@ def azero_lit(map_id, x, y, hour, lua=None):
             g.eval("ns.AzeroUI._HandleKey('A')")
             w.tick(0.3)
         g.eval("ns.Azero:Data().keys = setmetatable({}, { __index = function() return 99 end })")
-        g.eval("ns.Azero.clockHour = %r ns.Azero.forceRain = false ns.Azero:EnterMap(%r, %d, %d, 'down', true)" % (hour, map_id, x, y))
+        g.eval("ns.Azero.clockHour = %r ns.Azero.forceRain = false ns.Azero:EnterMap(%r, %d, %d, %r, true)" % (hour, map_id, x, y, face))
         if lua:
             g.eval(lua)
         g.eval("ns.AzeroUI._Focus(true)")
@@ -2205,6 +2209,19 @@ STATES = [
     ("Games - Azeromon light dawn", azero_lit("town", 17, 12, 6)),
     ("Games - Azeromon light day", azero_lit("town", 18, 12, 12)),
     ("Games - Azeromon light off", azero_lit("town", 23, 11, 23.2, "ns.Azero:Data().lights = false")),
+    # water that reflects (Water.lua, 0.46): the dock, wading, night, rain
+    ("Games - Azeromon water dock", azero_lit("lakeshire", 25, 12, 12, face="left")),
+    ("Games - Azeromon water wading", azero_lit("lakeshire", 21, 16, 12, face="left")),
+    ("Games - Azeromon water night", azero_lit("lakeshire", 24, 12, 23.2, face="left")),
+    ("Games - Azeromon water rain", azero_lit("lakeshire", 24, 12, 12, "ns.Azero.forceRain = true", face="left")),
+    ("Games - Azeromon water pond", azero_lit("town", 29, 13, 12, face="left")),
+    # battles where you stand (BattleScene.lua, 0.45): the spot, the hour, the weather
+    ("Games - Azeromon spot road night", azero_battle("town", 17, 3, "wolfpup", pre="ns.Azero.clockHour = 23 ns.Azero.forceRain = false")),
+    ("Games - Azeromon spot town day", azero_battle("town", 25, 15, "kobling", pre="ns.Azero.clockHour = 12 ns.Azero.forceRain = false")),
+    ("Games - Azeromon spot pond dusk", azero_battle("town", 30, 11, "lurkling", pre="ns.Azero.clockHour = 19 ns.Azero.forceRain = false")),
+    ("Games - Azeromon spot lake night", azero_battle("lakeshire", 21, 13, "murlocwarrior", pre="ns.Azero.clockHour = 23 ns.Azero.forceRain = false")),
+    ("Games - Azeromon spot pond rain", azero_battle("town", 30, 11, "lurkling", pre="ns.Azero.clockHour = 12 ns.Azero.forceRain = true")),
+    ("Games - Azeromon spot westfall dusk", azero_battle("westfall", 10, 10, "coyote", pre="ns.Azero.clockHour = 19 ns.Azero.forceRain = false")),
     ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),
     ("Games - Azeromon home", azero_at("home", 4, 5)),
     ("Games - Azeromon battle", azero_battle("route1", 11, 20, "kobling")),
