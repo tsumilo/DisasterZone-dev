@@ -201,8 +201,17 @@ def rel(path):
     except ValueError:
         return ap.replace("\\", "/")
     if r.startswith(".."):
+        r = r.replace("\\", "/")
+        if r.startswith("../DisasterZone_"):       # a game pack's file (tools/packs.py): with its folder
+            return r[3:]
         return ap.replace("\\", "/")
     return r.replace("\\", "/")
+
+
+def pack_dirs():
+    """The game packs next to the addon folder (tools/packs.py), checked with it."""
+    import packs  # noqa: E402
+    return list(packs.find_packs(ADDON_DIR).values())
 
 
 def iter_lua_files(root):
@@ -514,11 +523,13 @@ def check_uniformity(files, report, strict=False):
 def collect_targets(paths, include_libs):
     out = []
     if not paths:
-        paths = [ADDON_DIR]
+        paths = [ADDON_DIR] + pack_dirs()
     for p in paths:
         cand = p
         if not os.path.exists(cand) and os.path.exists(os.path.join(ADDON_DIR, p)):
             cand = os.path.join(ADDON_DIR, p)
+        elif not os.path.exists(cand) and p.replace("\\", "/").startswith("DisasterZone_"):
+            cand = os.path.join(os.path.dirname(os.path.normpath(ADDON_DIR)), p)   # (a pack path)
         if os.path.isdir(cand):
             for f in iter_lua_files(cand):
                 rp = rel(f)

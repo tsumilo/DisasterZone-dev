@@ -118,19 +118,33 @@ def find_toc(addon_dir):
     return os.path.join(addon_dir, tocs[0])
 
 
+def path_of(addon_dir, p):
+    """Where a TOC path is: in the addon folder, or (a game pack's, "DisasterZone_Chess/Chess.lua") next to it."""
+    head = p.split("/", 1)[0]
+    if head.startswith("DisasterZone_") and "/" in p:
+        return os.path.join(os.path.dirname(os.path.normpath(addon_dir)), p)
+    return os.path.join(addon_dir, p)
+
+
 def toc_files(addon_dir):
-    """Lua files the TOC loads, in load order (Libs/ excluded), as forward-slash paths relative to the addon."""
+    """Lua files the TOC loads, in load order (Libs/ excluded), as forward-slash paths relative to the addon; then
+    the game packs' (tools/packs.py: DisasterZone_<Game> next to the addon), with their folder."""
     out = []
-    with open(find_toc(addon_dir), encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            p = line.replace("\\", "/")
-            if not p.lower().endswith(".lua") or p.startswith("Libs/") or "/Libs/" in p:
-                continue
-            if os.path.isfile(os.path.join(addon_dir, p)):
-                out.append(p)
+    tocs = [(find_toc(addon_dir), "")]
+    if os.path.basename(os.path.normpath(addon_dir)) == "DisasterZone":
+        import packs  # noqa: E402
+        tocs += [(os.path.join(folder, name + ".toc"), name + "/") for name, folder in packs.find_packs(addon_dir).items()]
+    for toc, prefix in tocs:
+        with open(toc, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                p = prefix + line.replace("\\", "/")
+                if not p.lower().endswith(".lua") or p.startswith("Libs/") or "/Libs/" in p:
+                    continue
+                if os.path.isfile(path_of(addon_dir, p)):
+                    out.append(p)
     return out
 
 
@@ -288,7 +302,7 @@ def build(addon_dir=None, config=None, files=None):
     for i, f in enumerate(dm.files):
         fi = FileInfo()
         fi.path, fi.order = f, i
-        fi.raw = read_text(os.path.join(addon_dir, f))
+        fi.raw = read_text(path_of(addon_dir, f))
         fi.masked = mask(fi.raw)
         fi.nl = [m.start() for m in re.finditer("\n", fi.raw)]
         fi.lines = len(fi.nl) + 1

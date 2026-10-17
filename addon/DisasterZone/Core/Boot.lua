@@ -300,7 +300,7 @@ end
 ---------------------------------------------------------------------------
 
 local function Meta(folder, field)
-    local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    local get = C_AddOns and C_AddOns.GetAddOnMetadata
     if not get then return nil end
     local ok, v = pcall(get, folder, field)
     if ok then return v end

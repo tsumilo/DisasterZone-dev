@@ -24,7 +24,8 @@
   "Sync/": 4,
   "Render3D/": 5,
   "UI/": 5,
-  "Games/": 6
+  "Games/": 6,
+  "DisasterZone_": 6
  },
  "files": {
   "Core/Guild.lua": 2,
@@ -165,6 +166,7 @@
 
   ["^Core/", "Platform"],
   ["^Games/", "Games"],
+  ["^DisasterZone_", "Games"],
   ["^Data/", "Data"]
  ],
  "feature_order": [["Context"], ["Items"], ["Gear"], ["Guild"], ["Raids"], ["Loot"], ["Events", "Strategy", "Combat", "ClassTools"]],
