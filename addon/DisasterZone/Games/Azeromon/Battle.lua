@@ -10,6 +10,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Battle.lua", ...) t
 --         { t = "sfx", sound } (a Sound.lua effect at that point of the playback)
 --         { t = "hp", side, from, to, max } { t = "faint", side } { t = "status", side } { t = "exp", mon }
 --         { t = "level", mon } { t = "throw", shakes, caught } { t = "end", result }
+--         0.39: { t = "tamed", sp, lvl, shiny, fresh (new in the Bestiary), where = "party" | "box" } (after the catch)
 --         0.37: { t = "cast", side, move } (announced, lands next turn) { t = "castend", side, interrupted }
 --         { t = "interrupt", side } { t = "unstoppable", side } { t = "mark", side, mark, turns } { t = "guard", side }
 --         { t = "combo", side } (a payoff hit while its mark was up)
@@ -49,6 +50,7 @@ function B.New(opts)
     b.bag = opts.bag or {}
     b.rng = opts.rng or math.random
     b.onSeen, b.onCaught = opts.onSeen, opts.onCaught
+    b.isNew = opts.isNew           -- fn(sp): true when this species was never tamed before (the tamed card)
     b.catchMult, b.expMult = opts.catchMult or 1, opts.expMult or 1     -- class perks (never in player battles)
     b.prizeMult, b.perk = opts.prizeMult or 1, opts.perk
     b.events = {}
@@ -1068,22 +1070,39 @@ function B:UseItem(item, target)
     return false
 end
 
--- Gen III catch: returns true.
-function B:Catch(ballMult)
+-- Gen III catch values for the foe right now: a (>= 255 always tames) and bb, the bar each of the four checks
+-- (a roll of 0..65535) must stay under.
+function B:CatchValues(ballMult)
     local mon = self.foe.mon
     local maxhp = M.MaxHP(mon)
     local rate = D.species[mon.sp].catch
     local bonus = (mon.status == "slp") and 2 or ((mon.status and 1.5) or 1)
     local a = floor((3 * maxhp - 2 * mon.hp) * rate * ballMult / (3 * maxhp)) * bonus
+    if a >= 255 then return a, 65536 end
+    return a, floor(1048560 / sqrt(sqrt(16711680 / max(1, a))))
+end
+
+-- The chance (0..1) that a rod tames the foe this turn: all four checks hold. No dice are rolled.
+function B:TameOdds(item)
+    local def = D.items[item]
+    if not (def and def.use == "ball") or not self.wild then return 0 end
+    local a, bb = self:CatchValues(def.ball * (self.catchMult or 1))
+    if a >= 255 then return 1 end
+    return min(1, bb / 65536) ^ 4
+end
+
+-- Gen III catch: returns true.
+function B:Catch(ballMult)
+    local mon = self.foe.mon
+    local a, bb = self:CatchValues(ballMult)
     local shakes = 0
     if a >= 255 then
         shakes = 4
     else
-        local bb = floor(1048560 / sqrt(sqrt(16711680 / max(1, a))))
         while shakes < 4 and self.rng(0, 65535) < bb do shakes = shakes + 1 end
     end
     local caught = shakes >= 4
-    self:Emit({ t = "throw", shakes = min(3, shakes), caught = caught })
+    self:Emit({ t = "throw", shakes = min(3, shakes), caught = caught, shiny = mon.shiny and true or false })
     if not caught then
         local lines = { [0] = "Oh no! The beast broke free!", "Aww! It was almost tamed!",
                         "Aargh! So close!", "Shoot! It was nearly yours!" }
@@ -1092,7 +1111,10 @@ function B:Catch(ballMult)
     end
     self:Emit({ t = "sfx", sound = "catch" })
     self:Say("Gotcha! %s was tamed!", M.Name(mon))
+    local fresh = (self.isNew and self.isNew(mon.sp)) and true or false        -- (before onCaught records it)
     local where = self.onCaught and self.onCaught(mon)
+    self:Emit({ t = "tamed", sp = mon.sp, lvl = mon.lvl, shiny = mon.shiny and true or false, fresh = fresh,
+                where = where or "party" })
     if where == "box" then self:Say("%s was sent to the Stable Master.", M.Name(mon)) end
     return self:Finish("caught")
 end

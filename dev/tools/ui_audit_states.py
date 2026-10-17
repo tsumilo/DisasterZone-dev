@@ -390,10 +390,11 @@ def opened(key, lua=None):
     return fn
 
 
-def azero_battle(map_id, x, y, foe, then=None):
-    """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN)"""
+def azero_battle(map_id, x, y, foe, then=None, bag=None):
+    """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN); bag: the bag's Lua table"""
     def fn(w, c):
-        g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New('murkling', 12, ns.Azero.rng) }")(w, c)
+        g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New('murkling', 12, ns.Azero.rng) }"
+                     + (" ns.Azero.save.bag = %s" % bag if bag else ""))(w, c)
         import importlib.util
         spec = importlib.util.spec_from_file_location("_azero_bot", os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                       "..", "tests", "games", "_azero_bot.py"))
@@ -493,6 +494,50 @@ def azero_pet_trainer(sp, lvl, target):
             g.eval("ns.AzeroUI._HandleKey('down')")
             w.tick(0.05)
         w.tick(0.3)
+        g.eval("ns.AzeroUI._Focus(true)")
+        return g
+    return fn
+
+
+TAME_BAG = "{ net = 5, truesilverrod = 2, potion = 3 }"
+
+
+def azero_taming(shakes, caught, at, shiny=False):
+    """0.39: the taming moment frozen `at` seconds into its timeline ("end+x" = x after the last check)"""
+    def fn(w, c):
+        g = azero_battle("route1", 11, 20, "kobling", bag=TAME_BAG)(w, c)
+        g.eval("local K = ns.AzeroUI.Kit K.CloseAllMenus() K.SetText('You threw a Taming Rod!')")
+        w.tick(0.6)
+        g.eval("local K, T = ns.AzeroUI.Kit, ns.AzeroTaming "
+               "TAME_A = T.Anim({ shakes = %d, caught = %s, shiny = %s }, K.R.battle, K.R.foeModel, K.R.allyModel) "
+               "local TT = T.TIME local tEnd = TT.lure + TT.open + TT.pull + TT.settle + %d * (TT.shake + TT.pip) "
+               "local at = %s TAME_A.fn(math.min(1, at / TAME_A.dur))"
+               % (shakes, "true" if caught else "false", "true" if shiny else "false", shakes,
+                  at.replace("end", "tEnd")))
+        g.eval("ns.AzeroUI._Focus(true)")
+        return g
+    return fn
+
+
+def azero_battle_bag():
+    """0.39: the battle bag in a wild battle: each rod's odds to tame the beast now, beside its count"""
+    def fn(w, c):
+        g = azero_battle("route1", 11, 20, "kobling", bag=TAME_BAG)(w, c)
+        for k in ("up", "left", "right", "A", "down"):
+            g.eval("ns.AzeroUI._HandleKey(%r)" % k)
+            w.tick(0.1)
+        g.eval("ns.AzeroUI._Focus(true)")
+        return g
+    return fn
+
+
+def azero_tamed_card(info, line):
+    """0.39: the tamed card over the battle, its line in the text box"""
+    def fn(w, c):
+        g = azero_battle("route1", 11, 20, "kobling", bag=TAME_BAG)(w, c)
+        g.eval("local K = ns.AzeroUI.Kit K.CloseAllMenus() K.R.foeModel:SetAlpha(0) "
+               "ns.AzeroTaming.Card(%s) K.Message(%r)" % (info, line))
+        w.tick(1.5)
         g.eval("ns.AzeroUI._Focus(true)")
         return g
     return fn
@@ -2087,6 +2132,18 @@ STATES = [
     ("Games - Azeromon fight menu combo", azero_combo_menu()),
     ("Games - Azeromon cast bar", azero_cast_bar()),
     ("Games - Azeromon cast bar long", azero_cast_bar("bsecond_vancleef")),       # Rally the Brotherhood
+    ("Games - Azeromon battle odds", azero_battle("route1", 11, 20, "kobling", bag=TAME_BAG)),
+    ("Games - Azeromon battle bag odds", azero_battle_bag()),
+    ("Games - Azeromon taming sigil", azero_taming(3, True, "1.2")),
+    ("Games - Azeromon taming orb", azero_taming(3, True, "end - 0.6")),
+    ("Games - Azeromon taming tamed", azero_taming(3, True, "end + 0.15")),
+    ("Games - Azeromon taming tamed shiny", azero_taming(3, True, "end + 0.3", shiny=True)),
+    ("Games - Azeromon taming cracked", azero_taming(1, False, "end + 0.15")),
+    ("Games - Azeromon taming burst", azero_taming(1, False, "end + 0.5")),
+    ("Games - Azeromon tamed card", azero_tamed_card("{ sp = 'kobling', lvl = 8, fresh = true, where = 'party' }",
+                                                     "Kobling was added to your Bestiary!")),
+    ("Games - Azeromon tamed card stable", azero_tamed_card(
+        "{ sp = 'heavygolem', lvl = 60, shiny = true, fresh = false, where = 'box' }", "Take good care of Heavy War Golem!")),
     ("Games - Azeromon pet trainer cards", azero_pet_trainer("flamewyrm", 60, "Inferno")),   # signature cast
     # a beast's summary from the battle's PARTY menu: its pixel sprite at a whole-number scale in a menu frame
     ("Games - Azeromon summary sprite", azero_battle("route1", 11, 20, "kobling",
