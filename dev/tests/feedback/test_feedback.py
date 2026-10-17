@@ -450,5 +450,155 @@ def an_error_reports_itself_in_demo_mode_without_sending_it():
     w.assert_no_errors()
 
 
+# --- DisasterZone's errors never reach the screen (Core/Init.lua, "Errors") ------------------------------------
+
+DZ_STACK = "[string \"@Interface/AddOns/DisasterZone/UI/Y.lua\"]:5: in function <...>"
+OWNS = [
+    ("Interface/AddOns/DisasterZone/UI/X.lua:1: boom", "", True),
+    ("Interface\\AddOns\\DisasterZone_Rooms\\Rooms.lua:3: boom", "", True),
+    ("DisasterZone/UI/X.lua:9: boom", "", True),
+    # another addon's error, even with our code further down
+    ("Interface/AddOns/OtherAddon/x.lua:1: boom", DZ_STACK, False),
+    # the game's code: the first addon down the stack decides
+    ("Interface/FrameXML/UIParent.lua:100: bad argument",
+     "[string \"@Interface/FrameXML/UIParent.lua\"]:100: in function 'X'\n[C]: ?\n" + DZ_STACK, True),
+    ("Interface/SharedXML/Util.lua:7: bad",
+     "[string \"@Interface/SharedXML/Util.lua\"]:7: in function 'Y'\n"
+     "[string \"@Interface/AddOns/OtherAddon/z.lua\"]:2: in function <...>\n" + DZ_STACK, False),
+    ("[ADDON_ACTION_BLOCKED] AddOn 'DisasterZone' tried to call the protected function 'CastSpellByName()'.", None, True),
+    ("[ADDON_ACTION_FORBIDDEN] AddOn 'OtherAddon' tried to call the protected function 'X'.", None, False),
+    # a /run line that only says our name
+    ('[string "error(\\"DisasterZone test\\")"]:1: DisasterZone test', '[string "error(\\"DisasterZone t..."]:1: in main chunk',
+     False),
+]
+
+
+def shown_where(cl):
+    """Where each recorded error went: 'caught by DisasterZone' (the harness's tap: kept off the screen) or the
+    game's handler ('geterrorhandler()': on screen)."""
+    return cl.eval_py("local o = {} for _, e in ipairs(__MOCK.errors) do o[#o + 1] = e.where end return o")
+
+
+def noted(cl):
+    return [e["m"] for e in cl.eval_py("return %s:GetErrors()" % F)]
+
+
+@case
+def an_error_is_ours_by_where_it_happened():
+    w, c = standard()
+    a = c["Alfa"]
+    for msg, stack, ours in OWNS:
+        assert a.eval("return ns.OwnsError(...)", msg, stack) is ours, (msg, ours)
+    w.assert_no_errors()
+
+
+@case
+def our_errors_never_reach_the_screen_other_addons_errors_do():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    assert a.eval("return ns:ErrorMode()") == "handler"
+    a.eval("geterrorhandler()('Interface/AddOns/DisasterZone/UI/X.lua:1: boom')")
+    # an error inside one of our message handlers (our protected calls catch it themselves)
+    a.eval("ns:On('POLL_ANSWERED', ns.Feedback.Report); ns:Fire('POLL_ANSWERED')")
+    a.eval("geterrorhandler()('Interface/AddOns/OtherAddon/x.lua:1: theirs')")
+    assert shown_where(a) == ["caught by DisasterZone", "caught by DisasterZone", "geterrorhandler()"], shown_where(a)
+    got = noted(a)
+    assert len(got) == 2 and "UI/X.lua:1: boom" in got[0] and "Core/Feedback.lua" in got[1], got
+    w.clear_errors()
+
+
+@case
+def the_developer_still_sees_theirs_unless_in_demo_mode():
+    w, c = standard()
+    settle(w)
+    t = c["Tsumil"]
+    t.eval("geterrorhandler()('Interface/AddOns/DisasterZone/UI/X.lua:1: boom')")
+    assert "geterrorhandler()" in shown_where(t) and noted(t) == [], shown_where(t)
+    t.eval("ns.Demo:SetEnabled(true)")
+    w.clear_errors()
+    t.eval("geterrorhandler()('Interface/AddOns/DisasterZone/UI/X.lua:2: bang')")
+    assert shown_where(t) == ["caught by DisasterZone"] and len(noted(t)) == 1, (shown_where(t), noted(t))
+    t.eval("ns.Demo:SetEnabled(false)")
+    w.clear_errors()
+
+
+@case
+def errortest_raises_one_of_ours_in_demo_mode_only():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    assert a.slash("/dz errortest")
+    w.tick(1)
+    assert w.errors() == []
+    a.eval("ns.Demo:SetEnabled(true)")
+    a.slash("/dz errortest")
+    w.tick(1)
+    errs = a.eval_py("local o = {} for _, e in ipairs(__MOCK.errors) do o[#o + 1] = e.msg end return o")
+    assert len(errs) == 1 and "errortest" in errs[0] and a.eval("return ns.OwnsError(...)", errs[0]) is True, errs
+    a.eval("ns.Demo:SetEnabled(false)")
+    w.clear_errors()
+
+
+# BugGrabber keeps the game's error handler (seterrorhandler does nothing after it), lists errors and tells
+# EventRegistry; BugSack counts what it would show. The registry is the game's: [type][event][owner] = fn.
+BUGSACK_WORLD = r"""
+local reg = { callbackTables = { {}, {} } }
+function reg:GetCallbackTables() return self.callbackTables end
+function reg:RegisterCallback(event, func, owner)
+  owner = owner or {}
+  local t = self.callbackTables[2]
+  t[event] = t[event] or {}
+  t[event][owner] = func
+  return owner
+end
+function reg:UnregisterCallback(event, owner) local t = self.callbackTables[2][event]; if t then t[owner] = nil end end
+function reg:TriggerEvent(event, ...)
+  for _, byType in ipairs(self.callbackTables) do
+    local list = byType[event]
+    if list then for owner, fn in pairs(list) do fn(owner, ...) end end
+  end
+end
+EventRegistry = reg
+local db = {}
+BugGrabber = { GetDB = function() return db end }
+seterrorhandler(function(msg)
+  local e = { message = tostring(msg), stack = debugstack(3), counter = 1 }
+  db[#db + 1] = e
+  reg:TriggerEvent("BugGrabber.BugGrabbed", tostring(e))
+  return msg
+end)
+seterrorhandler = function() end
+SACK = { shown = 0 }
+reg:RegisterCallback("BugGrabber.BugGrabbed", function(_, id) SACK.shown = SACK.shown + 1 end, {})
+"""
+
+
+@case
+def with_bugsack_ours_leave_its_list_and_alert_theirs_stay():
+    w = World()
+    c = {}
+    for name, cls, rank in (("Gina", "PALADIN", 0), ("Tsumil", "PALADIN", 3), ("Alfa", "MAGE", 3)):
+        c[name] = Client(w, name, class_file=cls, guild_rank=rank)
+    a = c["Alfa"]
+    a.eval(BUGSACK_WORLD)
+    for x in c.values():
+        x.load_addon()
+    w.tick(3)
+    assert a.eval("return ns:ErrorMode()") == "buggrabber"
+    a.eval("geterrorhandler()('Interface/AddOns/DisasterZone/UI/X.lua:1: boom')")
+    assert a.eval_py("return { SACK.shown, #BugGrabber:GetDB() }") == [0, 0]
+    assert len(noted(a)) == 1
+    a.eval("geterrorhandler()('Interface/AddOns/OtherAddon/x.lua:1: theirs')")
+    assert a.eval_py("return { SACK.shown, #BugGrabber:GetDB() }") == [1, 1]
+    # a display that registers after DisasterZone loaded says so, and skips ours too
+    a.eval("EventRegistry:RegisterCallback('BugGrabber.BugGrabbed', function() SACK.late = (SACK.late or 0) + 1 end, {}) "
+           "EventRegistry:TriggerEvent('BugGrabber.DisplayRegistered')")
+    a.eval("geterrorhandler()('Interface/AddOns/DisasterZone/UI/Y.lua:2: bang')")
+    assert a.eval_py("return { SACK.shown, SACK.late or 0, #BugGrabber:GetDB() }") == [1, 0, 1]
+    assert len(noted(a)) == 2
+    w.clear_errors()
+
+
 if __name__ == "__main__":
     run_all()

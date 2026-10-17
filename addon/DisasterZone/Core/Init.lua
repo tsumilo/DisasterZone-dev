@@ -39,7 +39,10 @@ local function FallbackErrorHandler(err)
     return err
 end
 
+local CatchError    -- (below, "Errors": DisasterZone's own errors go to the feedback, never on screen)
+
 local function ErrorHandler()
+    if CatchError then return CatchError end
     local h = geterrorhandler and geterrorhandler()
     return h or FallbackErrorHandler
 end
@@ -85,6 +88,246 @@ else
     end
 end
 ns.SafeCall = SafeCall
+
+---------------------------------------------------------------------------
+-- Errors: DisasterZone's own Lua errors never reach the screen (the game's error window, BugSack). They go to the
+-- feedback (Core/Feedback.lua sets the sink: ns:SetErrorSink), which reports them to the developer; other addons'
+-- errors pass through untouched. Three ways in:
+--   * our protected calls (events, messages, OnInit / OnLogin: SafeCall above) use CatchError as their handler;
+--   * without BugGrabber, the game's error handler is wrapped (frame scripts, timers, everything else);
+--   * BugGrabber keeps the error handler to itself (seterrorhandler does nothing once it loaded): its new errors are
+--     looked at (EventRegistry "BugGrabber.BugGrabbed"), ours taken out of its list, and every other listener of that
+--     event (BugSack's sound, chat line and window, the error icons of UI packs) skips them.
+-- The sink may say no (the developer's own characters): such an error shows the usual way.
+---------------------------------------------------------------------------
+
+local strfind, strmatch, strgsub, tremove = string.find, string.match, string.gsub, table.remove
+
+local errorSink         -- function(msg, stack, count, locals) -> true (taken) | false (show it the usual way)
+local errorMode         -- "handler" (the game's handler wrapped) | "buggrabber" | nil
+local waiting = {}      -- errors caught before the sink was set (load time) or while it was busy: { msg, stack, ... }
+local inSink = false
+local gameHook          -- our wrapper of the game's error handler
+
+-- The file a message or a stack line starts with ("Interface/AddOns/X/y.lua"), "[C]" for the game's C code, or nil.
+local function PathOf(line)
+    line = strgsub(line, "\\", "/")
+    return strmatch(line, '^%s*%[string "@([^"]+)"%]') or strmatch(line, "^%s*([^%s:]+%.lua):%d")
+        or strmatch(line, "^%s*(%[C%])") or (strmatch(line, '^%s*%[string "=%[C%]"%]') and "[C]")
+end
+
+local function IsGameCode(path)
+    return path == "[C]" or strfind(path, "FrameXML/", 1, true) or strfind(path, "SharedXML", 1, true)
+        or strfind(path, "AddOns/Blizzard_", 1, true)
+end
+
+local function IsOursPath(path)
+    return strfind(path, "AddOns/DisasterZone", 1, true) ~= nil or strfind(path, "^DisasterZone") ~= nil
+end
+
+-- Is a Lua error DisasterZone's? Its message starts with the file it happened in: ours when that is one of our files.
+-- One in the game's own code (or without a place) is ours when the first addon code down the stack is ours; a
+-- blocked action names its addon.
+local function OwnsError(msg, stack)
+    if type(msg) ~= "string" then msg = tostring(msg) end
+    local name = strmatch(msg, "AddOn '([^']+)' tried")
+    if name then return strfind(name, "^DisasterZone") ~= nil end
+    local p = PathOf(msg)
+    if p and not IsGameCode(p) then return IsOursPath(p) end
+    if type(stack) == "string" then
+        for line in string.gmatch(stack, "[^\n]+") do
+            local q = PathOf(line)
+            if q and not IsGameCode(q) then return IsOursPath(q) end
+        end
+    end
+    return strfind(strgsub(msg, "\\", "/"), "AddOns/DisasterZone", 1, true) ~= nil
+end
+ns.OwnsError = OwnsError
+
+-- Shows an error the usual way (the sink said no, or failed).
+local function ShowError(msg)
+    local h = geterrorhandler and geterrorhandler()
+    if h then pcall(h, msg) else FallbackErrorHandler(msg) end
+end
+
+-- The errors that waited: to the sink now (each one at most once; new ones wait for the next turn).
+local function Drain()
+    if not errorSink or inSink or not waiting[1] then return end
+    local list = waiting
+    waiting = {}
+    for _, w in ipairs(list) do
+        inSink = true
+        local ok, taken = pcall(errorSink, w[1], w[2], w[3], w[4])
+        inSink = false
+        if not (ok and taken) then ShowError(w[1]) end
+    end
+end
+
+-- An error from any of the ways in. True: it was ours and is taken (it must not show); false: show it.
+local function Take(msg, stack, count, locals)
+    if not OwnsError(msg, stack) then return false end
+    local tap = ns.errorTap         -- (the test harness records every error caught here; nil in the game)
+    if tap then pcall(tap, msg, stack) end
+    if not errorSink or inSink then
+        -- (load time, or an error inside the sink's own work: it waits)
+        if #waiting < 20 then waiting[#waiting + 1] = { msg, stack, count, locals } end
+        return true
+    end
+    inSink = true
+    local ok, taken = pcall(errorSink, msg, stack, count, locals)
+    inSink = false
+    Drain()
+    -- (a sink that failed: the error shows rather than being lost)
+    return (ok and taken) and true or false
+end
+
+-- The stack and locals of the error being handled (called straight from a handler: level 3 is where it happened,
+-- as BugGrabber reads it). Locals only for a message not seen just before and never in a boss fight (they can take
+-- long to read).
+local lastLocals
+local function Locals(msg)
+    if msg == lastLocals or not debuglocals or (IsEncounterInProgress and IsEncounterInProgress()) then return nil end
+    lastLocals = msg
+    local ok, l = pcall(debuglocals, 4)
+    return ok and l or nil
+end
+
+CatchError = function(msg)
+    local stack = debugstack and debugstack(3, 12, 0) or nil
+    local ok, taken = pcall(Take, msg, stack, nil, Locals(msg))
+    if ok and taken then return msg end
+    local h = geterrorhandler and geterrorhandler()
+    if h then return h(msg) end
+    return FallbackErrorHandler(msg)
+end
+
+-- Without BugGrabber: our wrapper around the game's handler (the one before keeps every other error).
+local function HookGameHandler()
+    if not (geterrorhandler and seterrorhandler) then return false end
+    local prev = geterrorhandler()
+    if gameHook and prev == gameHook then return true end
+    local busy = false
+    local hook
+    hook = function(msg, ...)
+        if busy then return msg end
+        busy = true
+        local stack = debugstack and debugstack(3, 12, 0) or nil
+        local ok, taken = pcall(Take, msg, stack, nil, Locals(msg))
+        busy = false
+        if ok and taken then return msg end
+        if prev then return prev(msg, ...) end
+        return msg
+    end
+    seterrorhandler(hook)
+    if geterrorhandler() ~= hook then return false end     -- (BugGrabber keeps the handler to itself)
+    gameHook = hook
+    return true
+end
+
+local BG_EVENT = "BugGrabber.BugGrabbed"
+local bgOwner = {}
+local claimed, claimedN = {}, 0     -- [error table id] = BugGrabber's error table we took (kept: the id is never reused)
+local quieted = setmetatable({}, { __mode = "k" })
+
+-- One of BugGrabber's errors, by the id its event names. Ours is taken out of its list. True when ours.
+local function ClaimBug(id)
+    if type(id) ~= "string" then return false end
+    if claimed[id] then return true end
+    local BG = BugGrabber
+    local db = type(BG) == "table" and BG.GetDB and BG:GetDB()
+    if type(db) ~= "table" then return false end
+    for i = #db, 1, -1 do
+        local e = db[i]
+        if tostring(e) == id then
+            if type(e) ~= "table" or not Take(e.message, e.stack, e.counter, e.locals) then return false end
+            tremove(db, i)
+            if claimedN >= 200 then claimed, claimedN = {}, 0 end
+            claimed[id], claimedN = e, claimedN + 1
+            return true
+        end
+    end
+    return false
+end
+
+-- Every other listener of BugGrabber's new errors skips ours. EventRegistry keeps them per event as [owner] = fn (a
+-- closure is called with the error's id, a plain function with its owner and then the id); each is wrapped once.
+local function QuietListeners()
+    local reg = EventRegistry
+    local tables = type(reg) == "table" and reg.GetCallbackTables and reg:GetCallbackTables()
+    if type(tables) ~= "table" then return end
+    for _, byEvent in pairs(tables) do
+        local list = type(byEvent) == "table" and byEvent[BG_EVENT]
+        if type(list) == "table" then
+            for owner, fn in pairs(list) do
+                if owner ~= bgOwner and type(fn) == "function" and not quieted[fn] then
+                    local orig = fn
+                    local wrap = function(a, b, ...)
+                        local ok, mine = pcall(ClaimBug, type(a) == "string" and a or b)
+                        if ok and mine then return end
+                        return orig(a, b, ...)
+                    end
+                    quieted[wrap] = true
+                    list[owner] = wrap
+                end
+            end
+        end
+    end
+end
+
+local function HookBugGrabber()
+    local BG = BugGrabber
+    if type(BG) ~= "table" then return false end
+    local reg = EventRegistry
+    if type(reg) == "table" and reg.RegisterCallback then
+        pcall(reg.RegisterCallback, reg, BG_EVENT, function(_, id) pcall(ClaimBug, id) end, bgOwner)
+        -- (a display that loads later says so: quiet it too)
+        pcall(reg.RegisterCallback, reg, "BugGrabber.DisplayRegistered", function() pcall(QuietListeners) end, bgOwner)
+        pcall(QuietListeners)
+        return true
+    end
+    -- an older BugGrabber (CallbackHandler): its error table comes with the callback
+    if type(BG.RegisterCallback) == "function" then
+        return (pcall(BG.RegisterCallback, ns, "BugGrabber_BugGrabbed", function(_, e) pcall(ClaimBug, tostring(e)) end))
+    end
+    return false
+end
+
+local function HookErrors()
+    if errorMode ~= "buggrabber" and HookBugGrabber() then
+        errorMode = "buggrabber"
+    elseif errorMode == "buggrabber" then
+        pcall(QuietListeners)
+    elseif HookGameHandler() then
+        errorMode = "handler"
+    end
+end
+HookErrors()
+
+-- Feedback's sink (Core/Feedback.lua): every error of ours goes to it; what waited since load goes now.
+function ns:SetErrorSink(fn)
+    errorSink = type(fn) == "function" and fn or nil
+    Drain()
+end
+
+function ns:ErrorMode() return errorMode end
+
+do
+    -- At login: a BugGrabber that loaded after us (inside a UI pack), a display that registered late, another
+    -- addon's handler put over ours. A blocked action of ours is told to the sink when BugGrabber isn't there to
+    -- catch it (the game still shows its own line for it).
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    pcall(f.RegisterEvent, f, "ADDON_ACTION_BLOCKED")
+    pcall(f.RegisterEvent, f, "ADDON_ACTION_FORBIDDEN")
+    f:SetScript("OnEvent", function(_, event, addon, fn)
+        if event == "PLAYER_LOGIN" then
+            HookErrors()
+        elseif errorMode ~= "buggrabber" and type(addon) == "string" and strfind(addon, "^DisasterZone") then
+            pcall(Take, ("[%s] AddOn '%s' tried to call the protected function '%s'."):format(event, addon,
+                tostring(fn or "?")))
+        end
+    end)
+end
 
 ---------------------------------------------------------------------------
 -- Output

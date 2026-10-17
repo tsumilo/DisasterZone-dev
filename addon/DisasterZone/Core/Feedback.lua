@@ -716,10 +716,6 @@ local loginDone = false     -- (the login sync ran: the guild's reports are know
 local loginAt               -- GetTime() at login (how long the session ran before an error)
 local demoReported = {}     -- demo mode's db.feedbackAuto (never saved)
 
-local function IsOurs(text)
-    return type(text) == "string" and (strfind(text, "DisasterZone", 1, true) ~= nil)
-end
-
 -- An error's message without its "3x " count, the folders up to the addon's and the [string "@..."] wrapper.
 local function Bare(m)
     m = m:gsub("\\", "/"):gsub("^%d+x ", ""):gsub('%[string "@?([^"]*)"%]', "%1")
@@ -821,7 +817,7 @@ local ScheduleReports   -- (below)
 
 local function NoteError(msg, stack, count, locals)
     if type(msg) ~= "string" then msg = tostring(msg) end
-    if not (IsOurs(msg) or IsOurs(stack)) then return end
+    if not ns.OwnsError(msg, stack) then return end
     msg = Clean(msg, ERR_MSG_MAX) or "?"
     for _, e in ipairs(errors) do
         if e.m == msg then
@@ -859,34 +855,13 @@ function Feedback:RecentError()
     return nil
 end
 
-local function HookErrors()
-    -- BugGrabber (BugSack) owns the error handler when it is installed: its callback hands us each error
-    local BG = BugGrabber
-    if type(BG) == "table" and type(BG.RegisterCallback) == "function" then
-        local ok = pcall(BG.RegisterCallback, Feedback, "BugGrabber_BugGrabbed", function(_, bug)
-            if type(bug) == "table" then pcall(NoteError, bug.message, bug.stack, bug.counter, bug.locals) end
-        end)
-        if ok then return "buggrabber" end
-    end
-    if not (geterrorhandler and seterrorhandler) then return nil end
-    local prev = geterrorhandler()
-    local busy = false      -- (never into ourselves: a handler that calls back would loop)
-    local last              -- (the locals only for a message not seen just before: an error every frame stays cheap)
-    seterrorhandler(function(msg, ...)
-        if busy then return msg end
-        busy = true
-        local locals
-        if msg ~= last and debuglocals then
-            last = msg
-            local ok, l = pcall(debuglocals, 3)
-            if ok then locals = l end
-        end
-        pcall(NoteError, msg, debugstack and debugstack(3, 12, 0) or nil, nil, locals)
-        busy = false
-        if prev then return prev(msg, ...) end
-        return msg
-    end)
-    return "handler"
+-- Every DisasterZone error ends here (Core/Init.lua catches them, BugSack's or the game's window never shows them):
+-- noted for the bug form and the report by itself. The developer's own characters see theirs the usual way instead
+-- (BugSack, the game's error window), except in demo mode, where they go to the demo list like anyone's.
+local function Sink(msg, stack, count, locals)
+    if Feedback:AmIDev() and not DemoOn() then return false end
+    NoteError(msg, stack, count, locals)
+    return true
 end
 
 -- Is reporting by itself on (Settings > Notifications > Feedback)?
@@ -1488,7 +1463,17 @@ function Feedback:OnInit()
         end
         while #errors > ERRORS_KEPT do table.remove(errors, 1) end
     end
-    Feedback.errorHook = HookErrors()
+    ns:SetErrorSink(Sink)
+    Feedback.errorHook = ns:ErrorMode()
+    -- a real error in DisasterZone's code, the way a bug hits (for the developer, or anyone in demo mode, where it
+    -- stays in the demo list): the report, the pop-up, nothing on screen
+    ns:RegisterSlash("errortest", function()
+        if not (Feedback:AmIDev() or DemoOn()) then
+            ns:Print("errortest works in demo mode (/dz demo), so nothing reaches the developer.")
+            return
+        end
+        C_Timer.After(0, function() error("errortest: a test error from /dz errortest") end)
+    end, "a test Lua error, to see what happens to one (demo mode)")
     -- the last steps an error's report tells (pages and slash commands note themselves, Core/Init.lua ns:Trail)
     ns:RegisterEvent("PLAYER_REGEN_DISABLED", function() ns:Trail("fight started") end)
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() ns:Trail("fight ended") end)

@@ -30,6 +30,7 @@ EXPECTED_SETTINGS = {
                "lootBadges": True, "offspec": True},
     "dropPanelMode": "auto",
     "tooltip": {"enabled": True, "council": True, "maxNames": 5},
+    "feedbackAuto": True,
     "announceChannel": "RAID",
     "qualityThreshold": 4,
     "roll": {"duration": 30, "announce": True, "popup": True},

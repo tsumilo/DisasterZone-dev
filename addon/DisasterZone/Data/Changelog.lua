@@ -10,6 +10,7 @@ ns.CHANGELOG = {
       sections = {
           { heading = "Errors report themselves", area = "other", kind = "new", open = "feedback",
             lead = "When DisasterZone hits a Lua error, a bug report goes to the developer by itself.", lines = {
+              "DisasterZone's errors no longer show in the game's error window or in BugSack.",
               "It carries the error and what was going on: the page open, your group, your last steps.",
               "Somebody already reported the same error? You're added to theirs as a me too.",
               "Add details on the pop-up opens your report, to say what you were doing.",

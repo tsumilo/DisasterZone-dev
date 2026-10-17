@@ -60,6 +60,11 @@ M.create_paperdoll_slots()
 SlashCmdList = SlashCmdList or {}
 hash_SlashCmdList = {}
 M.ns = {}
+-- DisasterZone takes its own errors off the screen (Core/Init.lua, "Errors") and hands them to its feedback; the
+-- tap still records each one here, so a test never misses an error of the addon's.
+M.ns.errorTap = function(msg, stack)
+  M.record_error(msg, "caught by DisasterZone", type(stack) == "string" and stack or nil)
+end
 __NS = M.ns
 __MOCK = M
 
