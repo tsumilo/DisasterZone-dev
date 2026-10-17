@@ -93,6 +93,7 @@ local SYNC = {
     tombKeep = { I = TOMBSTONE_KEEP }, graveKeep = GRAVE_KEEP, maxGraves = MAX_GRAVES,
     tooBig = "this change is too big to share with the guild.",
     delay = function() return Prized:CanEdit() and DELAY_WRITER or DELAY_MEMBER end,
+    audit = "pz",                    -- (Core/Audit.lua: the audit log's kinds pz.I, pz.G, ...)
 }
 local sync = ns.DigestSync.New(SYNC)
 local Newer = sync.Newer

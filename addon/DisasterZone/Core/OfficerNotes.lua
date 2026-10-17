@@ -125,6 +125,7 @@ function Notes:Set(key, text)
     if (old and old.t or "") == text then return true end
     local rec = { t = text, rev = max(Now(), (old and old.rev or 0) + 1), by = Util.PlayerKey() }
     b[key] = rec
+    ns.AuditSaw("on.N", old, rec, { key = key, mine = true })
     for _, officer in ipairs(OnlineOfficers()) do SendNote(key, rec, officer) end
     ns:Fire("OFFICER_NOTES_UPDATED", key)
     return true
@@ -160,6 +161,7 @@ local function OnNote(sender, msg, dist)
     local old = Valid(b[key]) and b[key] or nil
     if old and (old.rev > msg.v or (old.rev == msg.v and old.t >= text)) then return end
     b[key] = { t = text, rev = msg.v, by = by }
+    ns.AuditSaw("on.N", old, b[key], { key = key, via = sender })
     ns:Fire("OFFICER_NOTES_UPDATED", key)
 end
 

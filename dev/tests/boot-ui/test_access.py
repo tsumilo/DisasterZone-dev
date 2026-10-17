@@ -25,7 +25,8 @@ GUILDLESS_TABS = ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas"
 
 def shown_tabs(c):
     # (Recruitment follows its own rule, the GM's recruiters and officers: tests/recruit checks it, not this suite)
-    return [t for t in (c.eval_py(TABS_LUA) or []) if t != "recruit"]
+    # (and the Audit log, the GM's and the guild council's: tests/audit checks it)
+    return [t for t in (c.eval_py(TABS_LUA) or []) if t != "recruit" and t != "audit"]
 
 
 def panel_shown(c, key):

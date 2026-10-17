@@ -8,6 +8,15 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.6.0", date = "22 October 2026", title = "Class tools for every fight",
       sections = {
+          { heading = "The Audit log", area = "guild", kind = "new", open = "audit",
+            lead = "For the GM and the guild council: every change in the addon, who made it, and when.", lines = {
+              "Raids, sign-ups, loot, strategies, notes, guests, roles and rules: before and after.",
+              "Filter by area or person, search, or drag across the last 30 days for one stretch.",
+              "Whole story: a raid, team or board from the day it was made, as it was at each step.",
+              "Removed something by mistake? Put back brings it back; the log keeps both changes.",
+              "Only the council and the GM keep it, by whisper between them, for 90 days.",
+              "Guild > Audit log, or /dz audit. Big changes can pop up too (Settings > Alerts).",
+          } },
           { heading = "Boss mods", area = "raids", kind = "fixed", open = "settings/bossmods", lines = {
               "Lurker: the submerge warning, the emerge bar and the next dive now show in the fight.",
               "Leotheras: the demon form timer now learns from your own pulls.",

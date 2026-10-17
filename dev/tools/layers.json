@@ -47,6 +47,9 @@
   "Core/Professions.lua": 3,
   "Core/GuildMap.lua": 3,
   "Core/OfficerNotes.lua": 3,
+  "Core/Audit.lua": 4,
+  "Core/AuditKinds.lua": 4,
+  "Core/AuditDemo.lua": 4,
   "Core/Recruit.lua": 3,
   "Core/RecruitIntro.lua": 3,
   "Core/RecruitMessage.lua": 3,
@@ -122,6 +125,7 @@
   ["^Core/(ItemDB|Gems|Currency|Materials|ShoppingList|Atlas|WornGems)\\.lua$", "Items"],
   ["^UI/(Atlas|AtlasShop|Tooltip|GemEditor|Picker)\\.lua$", "Items"],
 
+  ["^(Core|UI)/Audit(Kinds|Demo|UI|Story)?\\.lua$", "Audit"],
   ["^Core/(Professions|GuildMap|OfficerNotes|Feedback|Recruit|RecruitIntro|RecruitMessage)\\.lua$", "Guild"],
   ["^UI/(Members|GuildMapUI|Feedback|FeedbackSheet)\\.lua$", "Guild"],
 

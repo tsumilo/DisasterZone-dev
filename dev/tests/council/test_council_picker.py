@@ -495,7 +495,8 @@ def raid_leader_is_council_for_their_raid_and_loses_the_tab_after_leaving():
     w.tick(4)
     w.disband()
     w.tick(2)
-    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Lee"])
+    # (and, on the guild council now, the Audit log)
+    assert tabs(c["Lee"]) == ["home", "mybis", "gearsim", "consumables", "wardrobe", "atlas", "council", "raids", "lootrules", "mylog", "dungeons", "events", "polls", "audit", "members", "map", "games", "feedback", "changelog", "settings"], tabs(c["Lee"])
     no_errors(w)
 
 

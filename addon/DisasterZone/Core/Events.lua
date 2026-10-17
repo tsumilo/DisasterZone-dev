@@ -98,6 +98,7 @@ local SYNC = {
     tombKeep = { D = TOMBSTONE_KEEP, O = TOMBSTONE_KEEP }, graveKeep = GRAVE_KEEP, maxGraves = MAX_GRAVES,
     tooBig = "this event is too big to share with the guild: take some pieces out.",
     delay = function() return Events:AmIReviewer() and DELAY_REVIEWER or DELAY_MEMBER end,
+    audit = "ev",                    -- (Core/Audit.lua: the audit log's kinds ev.D, ev.O, ...)
 }
 local sync = ns.DigestSync.New(SYNC)
 local Newer = sync.Newer

@@ -284,6 +284,7 @@ local function Open(session)
         rec = { id = session.id, start = session.at, by = session.by, bosses = {}, att = {},
             last = GetServerTime() }
         raids[session.id] = rec
+        ns.AuditSaw("rl.R", nil, rec, { session = session })
         ns:Print("raid session started%s. The raid log is recording.",
             session.by and not Util.IsMe(session.by) and (" by " .. Util.ShortName(session.by)) or "")
     elseif rec.stop then
@@ -335,6 +336,7 @@ local function Close(rec, endedBy)
         Scan(rec)
         rec.stop = now
         rec.endedBy = endedBy
+        ns.AuditSaw("rl.E", nil, rec, {})
     else
         rec.stop = math.max(tonumber(rec.last) or rec.start or now, rec.start or 0)
         rec.autoEnded = true
@@ -733,6 +735,7 @@ function RaidLog:Delete(id)
     if not rec.stop then return false, "This raid is still running. End it first." end
     raids[id] = { id = id, start = rec.start, stop = rec.stop, g = rec.g, del = true, delAt = GetServerTime(),
                   delBy = Util.PlayerKey() }
+    ns.AuditSaw("rl.D", rec, raids[id], { mine = true })
     Changed(raids[id])
     self:OfferDigest()
     return true
@@ -1390,6 +1393,7 @@ local function MergeRecord(cur, e)
             if not c or v.at > (c.at or 0) or (v.at == c.at and (v.by or "") > (c.by or "")) then
                 cur[field] = cur[field] or {}
                 cur[field][key] = v
+                if field == "dc" then ns.AuditSaw("at.D", c, v, { rec = cur, key = key }) end
             end
         end
     end
@@ -1455,6 +1459,7 @@ function RaidLog:MergeRecord(r, fromKey)
     if e.del then
         e.g = g
         raids[e.id] = e
+        ns.AuditSaw("rl.D", cur, e, { via = fromKey })
         Changed(e)
         return true
     end

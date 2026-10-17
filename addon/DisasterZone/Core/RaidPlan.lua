@@ -123,6 +123,8 @@ local SIZES = { [10] = true, [25] = true }
 local STATUSES = { A = true, T = true, B = true, X = true }   -- Accept, Tentative, Bench, Absent
 
 local pending = {}                  -- ["kind:id"] = { kind, rec, via }: newer versions refused for now (MergeRecord)
+local AUDIT_MINE = { mine = true }  -- (Core/Audit.lua: what my own Commit changed)
+local auditQuiet = false            -- a re-stamp writes nobody's change: the audit log leaves it out
 local asks = {}                     -- [digest item] = true: records to ask a raid planner for (AskPlanner)
 local asked = {}                    -- [digest item] = rev: the version a planner was asked about last
 local restampQueued = false         -- a pass of RestampPass is scheduled
@@ -987,6 +989,7 @@ local function MergeRecord(root, kind, rec, via)
         return false
     end
     store[rec.id] = rec
+    if Trusted(root, kind, rec) then ns.AuditSaw("rp." .. kind, cur, rec, { via = via }) end
     local p = pending[kind .. ":" .. rec.id]
     if p and not Newer(p.rec, rec) then pending[kind .. ":" .. rec.id] = nil end
     -- a deleted raid takes its sign-ups with it (a deletion its writer may not make doesn't)
@@ -1028,6 +1031,7 @@ local function MergeSignup(root, occId, key, s)
         return false
     end
     occ[key] = s
+    ns.AuditSaw("rp.U", cur, s, { occ = occId, key = key })
     Touch()
     return true
 end
@@ -1056,6 +1060,7 @@ function Lineup.MergeWait(root, tid, ln, key, e)
         return false
     end
     list[key] = e
+    ns.AuditSaw("rp.W", cur, e, { tid = tid, ln = ln, key = key })
     return true
 end
 
@@ -1829,7 +1834,10 @@ local function OnBlacklist(sender, msg, dist)
     -- removals first: a marker beats an entry as old or older
     for k, v in pairs(x) do
         if v <= limit then
-            if rec.l[k] and Merge.EntryRev(rec.l[k]) <= v then rec.l[k] = nil; changed = true end
+            if rec.l[k] and Merge.EntryRev(rec.l[k]) <= v then
+                ns.AuditSaw("rp.BL", rec.l[k], nil, { key = k, at = v, via = sender })
+                rec.l[k] = nil; changed = true
+            end
             if (rec.x[k] or 0) < v then rec.x[k] = v end
         end
     end
@@ -1843,6 +1851,7 @@ local function OnBlacklist(sender, msg, dist)
             and (not cur or v > cv or (v == cv and Util.Hash(e) > Util.Hash(cur)))
             and (cur or CountTable(rec.l) < MAX_BLACKLIST) then
             rec.l[k] = e
+            ns.AuditSaw("rp.BL", cur, e, { key = k, via = sender })
             changed = true
         end
     end
@@ -1968,6 +1977,7 @@ function RaidPlan:SetBlacklisted(name, reason)
     local v = max(Now(), Merge.EntryRev(cur) + 1, (rec.x[key] or 0) + 1)
     rec.l[key] = { r = r, by = Util.PlayerKey(), at = cur and cur.at or Now(), v = v }
     rec.x[key] = nil
+    ns.AuditSaw("rp.BL", cur, rec.l[key], { key = key, mine = true })
     SaveBlacklist(rec)
     return true, key
 end
@@ -1978,6 +1988,7 @@ function RaidPlan:RemoveBlacklisted(key)
     if not rec or type(key) ~= "string" or not rec.l[key] then return false, "That player is not on the blacklist." end
     if type(rec.x) ~= "table" then rec.x = {} end
     rec.x[key] = max(Now(), Merge.EntryRev(rec.l[key]) + 1)
+    ns.AuditSaw("rp.BL", rec.l[key], nil, { key = key, at = rec.x[key], mine = true })
     Merge.TrimMarks(rec)
     rec.l[key] = nil
     SaveBlacklist(rec)
@@ -3057,8 +3068,10 @@ local function Commit(root, kind, rec)
     if not root[kind][clean.id] and CountTable(root[kind]) >= KIND_CAP[kind] then
         return false, "too many " .. (kind == "T" and "teams" or "raids") .. " planned"
     end
+    local prev = root[kind][clean.id]
     root[kind][clean.id] = clean
     Trusted(root, kind, clean)
+    if not auditQuiet then ns.AuditSaw("rp." .. kind, prev, clean, AUDIT_MINE) end
     if kind == "E" and clean.del then root.U[clean.id] = nil end
     if kind == "T" and clean.del then root.W[clean.id] = nil end
     Broadcast(kind, clean)
@@ -4078,7 +4091,10 @@ RestampPass = function()
                         ScheduleRestamp(RESTAMP_WAIT)
                         return
                     end
-                    if RateLimit("RPR:" .. kind .. ":" .. id, 600) and Commit(root, kind, new) then n = n + 1 end
+                    auditQuiet = true
+                    local wrote = RateLimit("RPR:" .. kind .. ":" .. id, 600) and Commit(root, kind, new)
+                    auditQuiet = false
+                    if wrote then n = n + 1 end
                 end
             end
         end

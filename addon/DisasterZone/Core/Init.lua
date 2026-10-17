@@ -534,6 +534,7 @@ local KNOWN_MESSAGES = {
     BINGO_UPDATED = true,   -- Council Bingo (Games/Bingo): game started / square marked / game ended
     BINGO_MOMENT = true,    -- (squareId, who, onMyCard) a square went off this moment (the toasts, the legendary takeover)
     OFFICER_NOTES_UPDATED = true,   -- (key | nil) an officer note, or my access to them, changed
+    AUDIT_UPDATED = true,           -- the audit log (Core/Audit.lua) changed: an entry, the last look, demo mode
     PROFESSIONS_UPDATED = true,   -- the guild's professions / recipes changed (Core/Professions.lua)
     SHOP_UPDATED = true,          -- my Atlas shopping list changed (Core/ShoppingList.lua)
     WARDROBE_UPDATED = true,      -- my outfits, what I wear or carry, or a swap changed (Core/Wardrobe.lua)

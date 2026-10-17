@@ -383,6 +383,7 @@ function H.Save(key, r)
     local clean = Recruit:Clean(r)
     if not clean then return false, "not a valid person" end
     b.p[key] = clean
+    if not H.Pretending() then ns.AuditSaw("rc.P", old, clean, { key = key, mine = true }) end
     b.x[key] = nil
     if not H.Pretending() then
         for _, who in ipairs(H.OnlineRecruiters()) do H.SendPerson(key, clean, who) end
@@ -610,8 +611,10 @@ function Recruit:Remove(key)
     end
     local b = H.Store(true)
     local rev = max(Now(), (r.rev or 0) + 1)
+    local was = b.p[k]
     b.p[k] = nil
     b.x[k] = { rev = rev, by = Me() }
+    if not H.Pretending() then ns.AuditSaw("rc.P", was, nil, { key = k, at = rev, mine = true }) end
     local GB = ns.GuestBook
     local e = GB and GB.GetNote and GB:GetNote(k)
     if e and e.recruit then GB:SetNote(k, nil, false) end
@@ -741,6 +744,7 @@ function H.OnPerson(sender, msg, dist)
     end
     b.p[key] = r
     b.x[key] = nil
+    ns.AuditSaw("rc.P", old, r, { key = key, via = sender })
     ns:Fire("RECRUIT_UPDATED", key)
 end
 
@@ -754,6 +758,7 @@ function H.OnRemove(sender, msg, dist)
     if (old and old.rev >= msg.v) or (x and x.rev >= msg.v) then return end
     b.p[key] = nil
     b.x[key] = { rev = msg.v, by = H.WireKey(msg.by) or sender }
+    if old then ns.AuditSaw("rc.P", old, nil, { key = key, at = msg.v, who = b.x[key].by, via = sender }) end
     ns:Fire("RECRUIT_UPDATED", key)
 end
 

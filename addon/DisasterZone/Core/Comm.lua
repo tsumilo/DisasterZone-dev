@@ -32,15 +32,17 @@ end
 -- "craftev" (CDLy) carries Disastercraft's combat: casts, hits, heals, auras, deaths, at most about once a second.
 -- "fb" (CDLb) carries the guild's feedback to the developer (Core/Feedback.lua): items, me-toos, replies, statuses.
 -- "boss" (CDLk) carries the boss mods' pulls (Core/BossLearn.lua): a few hundred bytes a pull, after it, never in a fight.
+-- "audit" (CDLz) carries the audit log between the guild council and the Guild Master (Core/Audit.lua): a prefix of its
+-- own, so its batches never hold back the guild's data.
 local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm",
     live = "CDLl", walk = "CDLw", run = "CDLr", event = "CDLe", eventmsg = "CDLf", map = "CDLq", craft = "CDLx",
-    craftev = "CDLy", fb = "CDLb", boss = "CDLk" }
+    craftev = "CDLy", fb = "CDLb", boss = "CDLk", audit = "CDLz" }
 local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL",
     walk = "NORMAL", run = "NORMAL", event = "NORMAL", eventmsg = "ALERT", map = "NORMAL", craft = "NORMAL",
-    craftev = "NORMAL", fb = "BULK", boss = "BULK" }
+    craftev = "NORMAL", fb = "BULK", boss = "BULK", audit = "BULK" }
 local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live",
     CDLw = "walk", CDLr = "run", CDLe = "event", CDLf = "eventmsg", CDLq = "map", CDLx = "craft", CDLy = "craftev",
-    CDLb = "fb", CDLk = "boss" }
+    CDLb = "fb", CDLk = "boss", CDLz = "audit" }
 Comm.CLASS_BY_PREFIX = CLASS_BY_PREFIX    -- (the Performance page names the prefixes by it)
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays; anyone:

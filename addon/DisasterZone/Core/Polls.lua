@@ -95,6 +95,7 @@ local SYNC = {
     tombKeep = { P = TOMBSTONE_KEEP }, graveKeep = GRAVE_KEEP, maxGraves = MAX_GRAVES,
     tooBig = "this poll is too big to share with the guild: ask fewer people or give fewer answers.",
     delay = function() return Polls:AmIAsker() and DELAY_ASKER or DELAY_MEMBER end,
+    audit = "pl",                    -- (Core/Audit.lua: the audit log's kinds pl.P, pl.V)
 }
 local sync = ns.DigestSync.New(SYNC)
 local Newer = sync.Newer

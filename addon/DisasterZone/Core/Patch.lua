@@ -1265,6 +1265,9 @@ function Patch:Publish()
         Stage(m, box.z0, box.z, srcs)
         publishedHere = true
         SendAnnounce()
+        if m.base ~= "selftest" and ns.AuditSaw then
+            ns.AuditSaw("pt.U", nil, { seq = m.seq, version = m.version, n = #m.items }, { mine = true })
+        end
         if m.base == "selftest" then     -- dev/tools/release.py selftest: addressed to no installed build
             ns:Print("published update %s (#%d): %d file(s). It is a self-test: no member installs it. "
                 .. "Now /dzpatch try, then /reload.", m.version, m.seq, #m.items)

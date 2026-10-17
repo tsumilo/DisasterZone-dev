@@ -82,6 +82,8 @@ Core\Layout.lua
 Core\Profiles.lua
 Core\Sync.lua
 Core\DigestSync.lua
+Core\Audit.lua
+Core\AuditKinds.lua
 Core\Professions.lua
 
 # Gear sim: a Lua port of WoWSims TBC (Sim\Core.lua explains)
@@ -188,6 +190,7 @@ Core\BiSExport.lua
 Core\WornGems.lua
 Core\Wardrobe.lua
 Core\Demo.lua
+Core\AuditDemo.lua
 Core\DemoScenarios.lua
 
 # 3D rooms (Blizzard's own meshes, drawn in the UI): shared by the strategy board and the Raid Trainer
@@ -281,6 +284,8 @@ UI\Changelog.lua
 UI\Feedback.lua
 UI\FeedbackSheet.lua
 UI\FeedbackPlan.lua
+UI\AuditUI.lua
+UI\AuditStory.lua
 UI\Notify.lua
 UI\PerfUI.lua
 UI\NotifySources.lua
