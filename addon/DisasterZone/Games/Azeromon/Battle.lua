@@ -10,7 +10,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Battle.lua", ...) t
 --         { t = "sfx", sound } (a Sound.lua effect at that point of the playback)
 --         { t = "hp", side, from, to, max } { t = "faint", side } { t = "status", side } { t = "exp", mon }
 --         { t = "level", mon } { t = "throw", shakes, caught } { t = "end", result }
---         0.38: { t = "tamed", sp, lvl, shiny, fresh (new in the Bestiary), where = "party" | "box" } (after the catch)
+--         0.39: { t = "tamed", sp, lvl, shiny, fresh (new in the Bestiary), where = "party" | "box" } (after the catch)
 --         0.37: { t = "cast", side, move } (announced, lands next turn) { t = "castend", side, interrupted }
 --         { t = "interrupt", side } { t = "unstoppable", side } { t = "mark", side, mark, turns } { t = "guard", side }
 --         { t = "combo", side } (a payoff hit while its mark was up)

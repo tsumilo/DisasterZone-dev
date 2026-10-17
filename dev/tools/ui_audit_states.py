@@ -503,7 +503,7 @@ TAME_BAG = "{ net = 5, truesilverrod = 2, potion = 3 }"
 
 
 def azero_taming(shakes, caught, at, shiny=False):
-    """0.38: the taming moment frozen `at` seconds into its timeline ("end+x" = x after the last check)"""
+    """0.39: the taming moment frozen `at` seconds into its timeline ("end+x" = x after the last check)"""
     def fn(w, c):
         g = azero_battle("route1", 11, 20, "kobling", bag=TAME_BAG)(w, c)
         g.eval("local K = ns.AzeroUI.Kit K.CloseAllMenus() K.SetText('You threw a Taming Rod!')")
@@ -520,7 +520,7 @@ def azero_taming(shakes, caught, at, shiny=False):
 
 
 def azero_battle_bag():
-    """0.38: the battle bag in a wild battle: each rod's odds to tame the beast now, beside its count"""
+    """0.39: the battle bag in a wild battle: each rod's odds to tame the beast now, beside its count"""
     def fn(w, c):
         g = azero_battle("route1", 11, 20, "kobling", bag=TAME_BAG)(w, c)
         for k in ("up", "left", "right", "A", "down"):
@@ -532,7 +532,7 @@ def azero_battle_bag():
 
 
 def azero_tamed_card(info, line):
-    """0.38: the tamed card over the battle, its line in the text box"""
+    """0.39: the tamed card over the battle, its line in the text box"""
     def fn(w, c):
         g = azero_battle("route1", 11, 20, "kobling", bag=TAME_BAG)(w, c)
         g.eval("local K = ns.AzeroUI.Kit K.CloseAllMenus() K.R.foeModel:SetAlpha(0) "

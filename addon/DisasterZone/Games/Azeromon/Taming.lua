@@ -1,5 +1,5 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Taming.lua", ...) then return end -- DisasterZone Games/Azeromon/Taming.lua
--- ns.AzeroTaming: the taming moment (0.38). A Taming Rod's lure arcs over, a paw sigil opens under the wild beast and
+-- ns.AzeroTaming: the taming moment (0.39). A Taming Rod's lure arcs over, a paw sigil opens under the wild beast and
 -- light pulls it into a golden orb. One pip lights per check of B:Catch that holds. Tamed: the sigil locks with
 -- sparkles and a TAMED! stamp, then a card shows the beast idling, where it went and whether it is new in your
 -- Bestiary. Broken free: the orb cracks and the beast bursts back out.

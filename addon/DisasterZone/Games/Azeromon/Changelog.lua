@@ -6,6 +6,18 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.39", date = "17 October 2026", title = "The taming moment",
+      lines = {
+          "Taming is a moment now: a lure, a sigil, a golden orb.",
+          "The orb rocks once for every check that holds.",
+          "It holds: sparkles, a TAMED! stamp and a card for it.",
+          "The card shows your new beast, its type and where it went.",
+          "First of its kind? NEW IN BESTIARY on the card.",
+          "It breaks free: the orb cracks and it bursts back out.",
+          "Wild battles show your best rod's odds to tame this turn.",
+          "Each rod in the battle bag shows its own odds.",
+          "Shinies are tamed in a shower of gold stars.",
+      } },
     { version = "0.38", date = "17 October 2026", title = "Guildmates in sight",
       lines = {
           "Guildmates walk right up to a door before going in.",

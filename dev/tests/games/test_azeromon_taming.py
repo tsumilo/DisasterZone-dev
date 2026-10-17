@@ -1,4 +1,4 @@
-"""Azeromon 0.38: the taming moment (Games/Azeromon/Taming.lua, B:TameOdds, the battle's "tamed" event).
+"""Azeromon 0.39: the taming moment (Games/Azeromon/Taming.lua, B:TameOdds, the battle's "tamed" event).
 
 Covers: the odds a rod shows are the exact chance of B:Catch's four checks (asleep and better rods raise them, a
 trainer's beast is never tamed); the wild battle's prompt names your best rod and its odds, and the battle bag shows
