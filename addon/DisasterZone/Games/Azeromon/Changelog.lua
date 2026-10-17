@@ -6,6 +6,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.38", date = "17 October 2026", title = "Guildmates in sight",
+      lines = {
+          "Guildmates walk right up to a door before going in.",
+          "Guildmates no longer vanish while they fight in WoW.",
+          "Guildmates on another version no longer stand frozen.",
+          "The number 5 no longer looks like a backwards S.",
+      } },
     { version = "0.37", date = "17 October 2026", title = "Battles with a plan",
       lines = {
           "Strong moves rest a few turns after you use them.",

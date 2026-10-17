@@ -484,8 +484,9 @@ def spectators_survive_long_turns_and_ghosts_free_their_slot():
     watch(c)
     run(w, (a, b, c), seconds=1)
     assert c.eval("return ns.AzeroWatch:Watching()")
-    # Alice's presence stops (WoW combat): the keepalive still carries the watch through a long turn
+    # Alice's presence stops (WoW combat, her updates lost): the keepalive still carries the watch through a long turn
     a.eval("InCombatLockdown = function() return true end")
+    a.eval("T_PVP.drop.AZP = 100000")
     run(w, (a, b, c), seconds=130)
     assert c.eval("return ns.AzeroWatch:Watching()"), log(c)
     assert a.eval("return ns.AzeroPvP:WatcherCount()") == 1
@@ -497,7 +498,8 @@ def spectators_survive_long_turns_and_ghosts_free_their_slot():
     reopen(c, w)
     c.eval("ns.Azero:EnterMap('town', 8, 10, 'up', true)")
     a.eval("InCombatLockdown = function() return false end")
-    run(w, (a, b, c), seconds=2)
+    a.eval("T_PVP.drop.AZP = 0")
+    run(w, (a, b, c), seconds=9)                    # (her next heartbeat: Carol sees her battling again)
     watch(c)
     run(w, (a, b, c), seconds=1)
     assert c.eval("return ns.AzeroWatch:Watching()")

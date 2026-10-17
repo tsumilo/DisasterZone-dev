@@ -2,8 +2,10 @@
 
 Covers: two guild clients with the game open see each other on the same map and replay each other's steps,
 presence traffic goes over GUILD on the separate game prefix (CDLg) at most about once a second, nothing is sent
-with the game closed or in combat, closing the game tells the others (AZL), a malformed or wrong-version update
-is ignored, peers on another map are not drawn, and pressing A on a peer does not error.
+with the game closed and only a heartbeat in combat (a long fight doesn't make anyone vanish), closing the game
+tells the others (AZL), someone walking through a door is seen reaching it before going in, a malformed or
+wrong-version update is ignored, one on a map this client can't show moves the peer off its maps at once, a silent
+peer survives a lost update or two, peers on another map are not drawn, and pressing A on a peer does not error.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_net.py [-k name]
 """
@@ -92,18 +94,21 @@ def presence_uses_the_game_prefix_over_guild_and_is_rate_limited():
 
 
 @case
-def closing_the_game_or_combat_stops_presence():
+def combat_slows_presence_to_a_heartbeat_and_closing_says_goodbye():
     w, a, b = two_players()
     assert peer(b, "Alice")
     a.set_combat(True)
     w.tick(0.5)
     n0 = len(w.addon_log)
-    a.eval("T_AZ.step('right')")    # the game releases the keyboard in combat, but a step must not be sent
-    w.tick(5)
-    assert game_msgs(w, n0, "Alice") == []
+    a.eval("ns.Azero.save.face = 'up'")     # a change that would go out at once out of combat
+    w.tick(40)
+    # a long WoW fight: only the heartbeat (every 8 s), and Bob still sees her (regression: gone after 25 s)
+    assert 3 <= len(game_msgs(w, n0, "Alice")) <= 6, len(game_msgs(w, n0, "Alice"))
+    assert peer(b, "Alice") is not None
     a.set_combat(False)
     w.tick(2)
-    # close the DisasterZone window: Alice says goodbye and disappears for Bob
+    # close the DisasterZone window: Alice says goodbye and disappears for Bob (in combat too)
+    a.set_combat(True)
     a.slash("/dz")
     w.tick(1)
     assert a.eval("return ns.AzeroNet:IsActive()") is False
@@ -115,27 +120,77 @@ def closing_the_game_or_combat_stops_presence():
 
 
 @case
+def walking_through_a_door_reaches_it_before_going_in():
+    w, a, b = two_players()
+    a.eval("ns.Azero:EnterMap('town', 12, 12, 'up', true)")
+    b.eval("ns.Azero:EnterMap('town', 14, 12, 'up', true)")
+    w.tick(2)
+    # Alice walks up to the cottage door (12, 8) in about a second, under one update
+    seen = []
+    for _ in range(60):
+        a.eval("ns.Azero:SetDir('up')")
+        w.tick(0.05)
+        p = peer(b, "Alice")
+        if p:
+            seen.append((p["x"], p["y"]))
+    a.eval("ns.Azero:SetDir(nil)")
+    w.tick(2)
+    assert a.eval("return ns.Azero.save.map") == "cottage"
+    # Bob saw her walk every tile up to the door (regression: she vanished from 12,11, three tiles short of it)
+    assert (12, 8) in seen and (12, 9) in seen, seen
+    assert peer(b, "Alice") is None and peer(b, "Alice", "cottage") is not None
+    # out again and on along the road: the walk on the new map follows the door
+    for d, n in (("down", 2), ("right", 2)):
+        for _ in range(n * 6):
+            a.eval("ns.Azero:SetDir(%r)" % d)
+            w.tick(0.05)
+    a.eval("ns.Azero:SetDir(nil)")
+    w.tick(3)
+    me = a.eval_py("return { ns.Azero.save.map, ns.Azero.save.x, ns.Azero.save.y }")
+    assert me[0] == "town", me
+    p = peer(b, "Alice", me[0])
+    assert p and (p["x"], p["y"], p["q"]) == (me[1], me[2], 0), (me, p)
+    no_errors(w)
+
+
+@case
 def bad_updates_are_ignored_and_peers_time_out():
     w, a, b = two_players()
+    a.eval("ns.AzeroNet:SetActive(false)")
+    a.eval("ns.AzeroNet.SetActive = function() end")     # keep Alice's own presence quiet: only what the case sends
     b.eval("ns.AzeroNet._Reset()")
-    for bad in ("{ t = 'AZP', v = 1, m = 'nowhere', x = 1, y = 1, f = 'up', p = '' }",
-                "{ t = 'AZP', v = 1, m = 'town', x = 999, y = 1, f = 'up', p = '' }",
+    for bad in ("{ t = 'AZP', v = 1, m = 'town', x = -1, y = 1, f = 'up', p = '' }",
+                "{ t = 'AZP', v = 1, m = 'town', x = 3.5, y = 1, f = 'up', p = '' }",
                 "{ t = 'AZP', v = 1, m = 'town', x = 3, y = 3, f = 'sideways', p = '' }",
                 "{ t = 'AZP', v = 1, m = 'town', x = 3, y = 3, f = 'up', p = 'UUXX' }",
-                "{ t = 'AZP', v = 99, m = 'town', x = 3, y = 3, f = 'up', p = '' }",
-                # an older client on the old, smaller Goldshire (no map revision): its spots don't fit this town
-                "{ t = 'AZP', v = 1, m = 'town', x = 8, y = 9, f = 'up', p = '' }"):
+                "{ t = 'AZP', v = 1, m = 'town', x = 3, y = 20, f = 'up', p = 'UUUUUUUUUUUUUUUUU' }",
+                "{ t = 'AZP', v = 99, m = 'town', x = 3, y = 3, f = 'up', p = '' }"):
         a.eval("ns.Comm:Send(%s, 'GUILD', nil, 'game')" % bad)
     w.tick(0.5)
     assert b.eval("return ns.AzeroNet:Count()") == 0
-    # a peer that goes silent (crash / disconnect) disappears
-    a.eval("ns.AzeroNet:SetActive(false)")
-    a.eval("ns.AzeroNet.SetActive = function() end")     # keep Alice silent
+    # well formed, but no spot of Bob's: a map he doesn't have, off its edge, or an older client on the old, smaller
+    # Goldshire (no map revision). Alice is around (counted), on none of his maps: walking off his town onto such a
+    # map she is gone from it at once (regression: she stood frozen where she was until the timeout)
+    here = "{ t = 'AZP', v = 1, m = 'town', x = 8, y = 9, f = 'up', p = '', r = 2 }"
+    for elsewhere in ("{ t = 'AZP', v = 1, m = 'nowhere', x = 1, y = 1, f = 'up', p = 'U' }",
+                      "{ t = 'AZP', v = 1, m = 'town', x = 999, y = 1, f = 'up', p = '' }",
+                      "{ t = 'AZP', v = 1, m = 'town', x = 8, y = 9, f = 'up', p = '' }"):
+        a.eval("ns.Comm:Send(%s, 'GUILD', nil, 'game')" % here)
+        w.tick(1.5)                                 # (one update a second past the server's burst)
+        assert peer(b, "Alice") is not None, elsewhere
+        a.eval("ns.Comm:Send(%s, 'GUILD', nil, 'game')" % elsewhere)
+        w.tick(1.5)
+        assert peer(b, "Alice") is None, elsewhere
+        assert b.eval("return ns.AzeroNet:Count()") == 1, elsewhere
+        assert b.eval("return ns.AzeroNet:PeerAt('town', 8, 9) == nil"), elsewhere
+    # a peer that goes silent (crash / disconnect) disappears, but not after a lost update or two
     b.eval("ns.AzeroNet._Reset()")
-    a.eval("ns.Comm:Send({ t = 'AZP', v = 1, m = 'town', x = 8, y = 9, f = 'up', p = '', r = 2 }, 'GUILD', nil, 'game')")
+    a.eval("ns.Comm:Send(%s, 'GUILD', nil, 'game')" % here)
     w.tick(1)
     assert peer(b, "Alice") is not None
-    w.tick(30)
+    w.tick(25)
+    assert peer(b, "Alice") is not None
+    w.tick(10)
     assert peer(b, "Alice") is None
     no_errors(w)
 
