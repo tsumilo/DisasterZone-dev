@@ -1861,6 +1861,7 @@ end
 local function ShowPause()
     overlay = "pause"
     run.paused = true
+    wipe(held)
     ClearOv()
     local f = ov.pause
     f:Show()
@@ -1879,6 +1880,7 @@ local function ShowPause()
     f.go.bg:SetKit("gb_big")
     local qw = f.quit:Set(run.attract and "Back to the title" or "Give up the run", false, 26)
     f.quit:ClearAllPoints() f.quit:SetPoint("TOPLEFT", f, "TOPLEFT", cx - qw / 2, -(y + 166))
+    f.hint:SetText(focused and "Esc resumes 9483 the game has your keys meanwhile" or "Your keys are the game's until you resume")
     f.hint:ClearAllPoints() f.hint:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 204))
 end
 -- giving up: the run ends where it stands (a death: gold banked, the end screen as usual)
@@ -1887,7 +1889,7 @@ function UI.GiveUp()
     run.over, run.gaveUp = "death", true
     ShowEnd("death")
 end
-ClosePause = function() CloseOv(false) end
+ClosePause = function() wipe(held) CloseOv(false) end
 
 -- the title (the mockup's): the logo with the legendary star behind it, three hero cards (plate, a glass window with
 -- the hero on a lit floor, name, difficulty, kit), the menu of glass pills, the week's challenge and the Argent
@@ -3261,8 +3263,10 @@ local function OnKeyDown(self, key)
         pcall(self.SetPropagateKeyboardInput, self, false)
         return
     end
-    if not InCombatLockdown() and self.SetPropagateKeyboardInput then pcall(self.SetPropagateKeyboardInput, self, not KEYS[key]) end
-    if not KEYS[key] then return end
+    -- (paused, every key but Esc goes on to the game: move, cast, open bags like in WoW's own menu-less pause)
+    local mine = KEYS[key] and overlay ~= "pause"
+    if not InCombatLockdown() and self.SetPropagateKeyboardInput then pcall(self.SetPropagateKeyboardInput, self, not mine) end
+    if not mine then return end
     held[key] = true
     if overlay == "level" and (key == "1" or key == "2" or key == "3") then UI.TakeLevel(tonumber(key)) end
     if (overlay == "chest" or overlay == "legend") and (key == "SPACE" or key == "ENTER") then
@@ -3399,6 +3403,7 @@ end
 function UI._Run() return run end
 function UI._SetRun(r) run = Hook(r) end
 function UI._View() return view end
+function UI._Root() return root end
 function UI._Overlay() return overlay end
 function UI._Key(key, up) if up then OnKeyUp(root, key) else OnKeyDown(root, key) end end
 function UI._Tick(dt) OnUpdate(root, dt) end

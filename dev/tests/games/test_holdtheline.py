@@ -186,6 +186,30 @@ def giving_up_from_the_pause_ends_the_run_and_banks_its_gold():
 
 
 @case
+def paused_the_game_gets_every_key_but_esc():
+    w, c = boot()
+    c.eval("ns.Games:Open('holdtheline')")
+    w.tick(1.0)
+    c.eval("ns.HTLUI.Start('PALADIN') ns.HTLUI.SetFocus(true)")
+    w.tick(0.3)
+    c.eval("ns.HTLUI._Key('W')")
+    assert not c.eval_py("return ns.HTLUI._Root():GetPropagateKeyboardInput()"), "playing, W is the game's"
+    c.eval("ns.HTLUI._Key('W', true) ns.HTLUI._Key('ESCAPE')")
+    w.tick(0.2)
+    assert c.eval_py("return ns.HTLUI._Overlay()") == "pause"
+    c.eval("ns.HTLUI._Key('W')")                   # (held down while paused: WoW moves you, the hero stays)
+    assert c.eval_py("return ns.HTLUI._Root():GetPropagateKeyboardInput()"), "paused, W should reach WoW"
+    c.eval("ns.HTLUI._Key('ESCAPE')")
+    assert not c.eval_py("return ns.HTLUI._Root():GetPropagateKeyboardInput()"), "Esc stays ours: it resumes"
+    assert c.eval_py("return ns.HTLUI._Overlay()") is None
+    p0 = c.eval_py("local r = ns.HTLUI._Run() return { x = r.p.x, y = r.p.y }")
+    w.tick(0.5)
+    p1 = c.eval_py("local r = ns.HTLUI._Run() return { x = r.p.x, y = r.p.y }")
+    assert p0 == p1, ("a key pressed during the pause walked the hero", p0, p1)
+    no_errors(w)
+
+
+@case
 def esc_pauses_and_the_lab_opens():
     w, c = boot()
     c.eval("ns.Games:Open('holdtheline')")
