@@ -296,7 +296,6 @@ async function play() {
       focused: name + " is already running: here it is.",
       running: name + " is already running.",
       command: "Starting your Play command…",
-      started: "Starting " + name + "…",
       launched: "Battle.net is opening " + name + ": press its Play button to start.",
       opened: "Opening Battle.net…",
     }[what] || "Starting " + name + "…", true);
