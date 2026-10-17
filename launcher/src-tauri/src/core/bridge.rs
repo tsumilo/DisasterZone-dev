@@ -382,6 +382,11 @@ pub fn newest_saved_variables(flavor_dir: &Path) -> Option<SystemTime> {
     saved_variables(flavor_dir).first().map(|(t, _)| *t)
 }
 
+/// The newest account's DisasterZone.lua.
+pub fn newest_saved_variables_path(flavor_dir: &Path) -> Option<PathBuf> {
+    saved_variables(flavor_dir).into_iter().next().map(|(_, p)| p)
+}
+
 /// DisasterZoneBridgeDB from the newest SavedVariables under a game folder.
 pub fn read_bridge_db(flavor_dir: &Path) -> Option<Value> {
     let (_, path) = saved_variables(flavor_dir).into_iter().next()?;

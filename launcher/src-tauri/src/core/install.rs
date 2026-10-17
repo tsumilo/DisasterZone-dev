@@ -360,10 +360,21 @@ pub fn make_plan(layout: &Layout, m: &Manifest, wanted: &[String]) -> Result<Pla
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
-    /// "download" | "stage" | "swap" | "done"
+    /// "download" | "stage" | "backup" | "swap" | "done"
     pub step: &'static str,
     pub done: u64,
     pub total: u64,
+    /// the folder this event is about (download: the object just fetched; stage: the folder being built)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// that folder's own count so far: compressed bytes fetched (download) or files staged (stage)
+    pub folder_done: u64,
+}
+
+impl Progress {
+    pub fn step(step: &'static str, done: u64, total: u64) -> Self {
+        Progress { step, done, total, folder: None, folder_done: 0 }
+    }
 }
 
 pub type ProgressFn = Arc<dyn Fn(Progress) + Send + Sync>;
@@ -402,26 +413,31 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
 async fn download(layout: &Layout, src: &Source, plan: &Plan, progress: &ProgressFn) -> Result<()> {
     let cache = layout.cache();
     fs::create_dir_all(&cache)?;
-    let mut todo: Vec<FileEntry> = vec![];
-    for (_, _, f) in &plan.fetch {
-        if !cache.join(&f.sha256).is_file() && !todo.iter().any(|t| t.sha256 == f.sha256) {
-            todo.push(f.clone());
+    // (an object two folders share is fetched once, and counts for the first of them)
+    let mut todo: Vec<(String, FileEntry)> = vec![];
+    for (folder, _, f) in &plan.fetch {
+        if !cache.join(&f.sha256).is_file() && !todo.iter().any(|(_, t)| t.sha256 == f.sha256) {
+            todo.push((folder.clone(), f.clone()));
         }
     }
-    let total: u64 = todo.iter().map(|f| f.gz).sum();
+    let total: u64 = todo.iter().map(|(_, f)| f.gz).sum();
     let done = Arc::new(AtomicU64::new(0));
-    progress(Progress { step: "download", done: 0, total });
+    let per_folder: Arc<BTreeMap<String, AtomicU64>> =
+        Arc::new(todo.iter().map(|(folder, _)| (folder.clone(), AtomicU64::new(0))).collect());
+    progress(Progress::step("download", 0, total));
     let results: Vec<Result<()>> = stream::iter(todo)
-        .map(|f| {
+        .map(|(folder, f)| {
             let cache = cache.clone();
             let done = done.clone();
+            let per_folder = per_folder.clone();
             let progress = progress.clone();
             async move {
                 let gz = src.get(&object_path(&f.sha256), false).await?;
                 let data = unpack(&gz, &f)?;
                 write_atomic(&cache.join(&f.sha256), &data)?;
                 let d = done.fetch_add(f.gz, Ordering::SeqCst) + f.gz;
-                progress(Progress { step: "download", done: d, total });
+                let fd = per_folder[&folder].fetch_add(f.gz, Ordering::SeqCst) + f.gz;
+                progress(Progress { step: "download", done: d, total, folder: Some(folder), folder_done: fd });
                 Ok(())
             }
         })
@@ -450,7 +466,9 @@ fn stage(layout: &Layout, m: &Manifest, plan: &Plan, progress: &ProgressFn) -> R
         plan.fetch.iter().map(|(a, b, _)| (a.as_str(), b.as_str())).collect();
     for folder in &put {
         fs::create_dir_all(root.join(folder))?;
-        for (rel, f) in m.folders.get(folder).unwrap_or(&empty) {
+        let files = m.folders.get(folder).unwrap_or(&empty);
+        let mut in_folder = 0u64;
+        for (rel, f) in files {
             let target = root.join(folder).join(rel);
             fs::create_dir_all(target.parent().unwrap())?;
             let from = if fetched.contains(&(folder.as_str(), rel.as_str())) {
@@ -464,8 +482,9 @@ fn stage(layout: &Layout, m: &Manifest, plan: &Plan, progress: &ProgressFn) -> R
                 return msg(format!("{folder}/{rel} changed while updating: try again"));
             }
             n += 1;
-            if n % 25 == 0 || n == total {
-                progress(Progress { step: "stage", done: n, total });
+            in_folder += 1;
+            if n % 25 == 0 || n == total || in_folder == files.len() as u64 {
+                progress(Progress { step: "stage", done: n, total, folder: Some(folder.clone()), folder_done: in_folder });
             }
         }
     }
@@ -582,12 +601,21 @@ fn swap_in(
     drop: &[String],
     reason: &str,
     keep: usize,
+    progress: Option<&ProgressFn>,
 ) -> Result<Option<String>> {
+    let tell = |step: &'static str| {
+        if let Some(p) = progress {
+            p(Progress::step(step, 0, 1));
+        }
+    };
     let before = installed(layout);
     let id = backup_id(layout, before.version.as_deref().unwrap_or("none"));
     let bdir = layout.backups().join(&id);
     fs::create_dir_all(&bdir)?;
+    tell("backup");
     let sv = backup_saved_variables(layout, &bdir)?;
+    // (the old folders move into the backup as the new ones move in: one step)
+    tell("swap");
     fs::create_dir_all(layout.addons())?;
 
     let mut moved_out: Vec<String> = vec![];
@@ -746,10 +774,9 @@ pub async fn update(
     }
     download(layout, src, &plan, &progress).await?;
     let staged = stage(layout, m, &plan, &progress)?;
-    progress(Progress { step: "swap", done: 0, total: 1 });
-    let backup = swap_in(layout, Some(&staged), &plan.put(), &plan.dropped(), "update", keep)?;
+    let backup = swap_in(layout, Some(&staged), &plan.put(), &plan.dropped(), "update", keep, Some(&progress))?;
     let _ = fs::remove_dir_all(layout.cache());
-    progress(Progress { step: "done", done: 1, total: 1 });
+    progress(Progress::step("done", 1, 1));
     Ok(Outcome {
         version: m.version.clone(),
         downloaded: plan.download_bytes,
@@ -769,7 +796,7 @@ pub fn remove(layout: &Layout, folder: &str, keep: usize) -> Result<Option<Strin
     if fs::symlink_metadata(layout.addons().join(folder)).is_err() {
         return Ok(None);
     }
-    swap_in(layout, None, &[], &[folder.to_string()], "remove", keep)
+    swap_in(layout, None, &[], &[folder.to_string()], "remove", keep, None)
 }
 
 /// Go back to how the addon folders were before backup `id` was made. Every backup from the newest down to `id` is
@@ -818,7 +845,7 @@ pub fn restore(layout: &Layout, id: &str, keep: usize) -> Result<Option<String>>
         }
     }
     // keep the backups just restored: the new one would otherwise push the oldest of them out
-    swap_in(layout, Some(&staged), &put, &drop, "restore", (keep + 1).max(pos + 2))
+    swap_in(layout, Some(&staged), &put, &drop, "restore", (keep + 1).max(pos + 2), None)
 }
 
 #[cfg(test)]

@@ -1112,7 +1112,8 @@ def _lua_list(t):
 
 def changelog_notes(addon_files, count=CHANGELOG_ENTRIES):
     """The newest `count` entries of Data/Changelog.lua as plain data for the launcher's changelog view:
-    [{version, date, title, sections: [{heading, kind, area, lead, lines: [text | {text, for}]}]}]."""
+    [{version, date, title, sections: [{heading, kind, area, lead, lines: [text | {text, for, by}]}]}] (by: who
+    asked for the line, when the changelog credits someone)."""
     src = addon_files.get("Data/Changelog.lua")
     if not src:
         return []
@@ -1136,11 +1137,33 @@ def changelog_notes(addon_files, count=CHANGELOG_ENTRIES):
                 if isinstance(line, str):
                     lines.append(line)
                 else:
-                    lines.append({"text": line[1], "for": line["for"] or ""})
+                    item = {"text": line[1], "for": line["for"] or ""}
+                    by = [str(b) for b in _lua_list(line.by)]
+                    if by:
+                        item["by"] = by
+                    lines.append(item)
             sections.append({"heading": s.heading or "", "kind": s.kind or "", "area": s.area or "",
                              "lead": s.lead or "", "lines": lines})
         out.append({"version": e.version or "", "date": e.date or "", "title": e.title or "", "sections": sections})
     return out
+
+
+HTL_FOLDER = ADDON_NAME + "_HoldTheLine"
+
+
+def htl_weekly_names(tree):
+    """The names of Hold the Line's weekly challenges in the game's own order (Data.lua's D.CHALLENGES, then what
+    Naxx.lua appends): the launcher's Hold the Line page works out this week's challenge the way the game does
+    (Social.lua S:Challenge) and needs the list to name it. [] when the release has no Hold the Line."""
+    files = tree.get(HTL_FOLDER) or {}
+    data = files.get("Data.lua", b"").decode("utf-8", "replace")
+    naxx = files.get("Naxx.lua", b"").decode("utf-8", "replace")
+    names = []
+    m = re.search(r"^D\.CHALLENGES = \{(.*?)^\}", data, re.S | re.M)
+    if m:
+        names += re.findall(r"^\s*\{\s*id\s*=\s*\"[^\"]+\",\s*name\s*=\s*\"([^\"]+)\"", m.group(1), re.M)
+    names += re.findall(r"table\.insert\(D\.CHALLENGES,\s*\{\s*id\s*=\s*\"[^\"]+\",\s*name\s*=\s*\"([^\"]+)\"", naxx)
+    return names
 
 
 def gh_exe():
@@ -1203,6 +1226,9 @@ def cmd_publish(args):
     if repo:
         zip_info["url"] = "https://github.com/%s/releases/download/release-%s/%s" % (repo, version, zip_name)
     notes = {"changelog": changelog_notes(tree[ADDON_NAME])}
+    weekly = htl_weekly_names(tree)
+    if weekly:
+        notes["htlWeekly"] = weekly
     manifest, objects = launchlib.build_manifest(tree, args.channel, seq, record, zip_info=zip_info, notes=notes,
                                                  published=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
 

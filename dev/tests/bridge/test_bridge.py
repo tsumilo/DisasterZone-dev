@@ -258,6 +258,34 @@ def snapshot_lists_upcoming_raids_with_signups():
     assert su["key"] == rp.K("Lee") and su["st"] == "accept" and su["class"] == "WARRIOR" and su["spec"] == "Protection", su
     assert su["role"] == "tank" and su["rev"] >= 1 and su["at"], su
     assert snap["teams"][tid] == "Main"
+    # (the launcher's Home gets the same raids, in DisasterZoneDB)
+    home = gina.eval_py("return DisasterZoneDB.launcher")
+    assert [r["id"] for r in home["raids"]] == ids and home["me"] == rp.K("Gina"), home
+    no_errors(w)
+
+
+@case
+def the_launchers_home_is_written_on_every_pc():
+    w, c = rp.world()
+    bob, rita = c["Bob"], c["Rita"]
+    tid = rp.team(bob, "Main", ["Lee", "Rita"])
+    t0 = rp.now(bob) + rp.DAY
+    occ = rp.create(bob, i="ssc", t=t0, tm=[tid])
+    hidden = rp.create(bob, i="gruul", t=t0 + 3600, pv=True)
+    w.tick(3)
+    assert rp.signup(rita, occ, "A", 1)["ok"] is True
+    w.tick(3)
+    rita.eval("ns.Bridge:OnLogin()")
+    rita.fire("PLAYER_LOGOUT")
+    home = rita.eval_py("return DisasterZoneDB.launcher")
+    assert home["me"] == rp.K("Rita") and home["at"], home
+    ids = [r["id"] for r in home["raids"]]
+    assert occ in ids and hidden not in ids, ids
+    r = [x for x in home["raids"] if x["id"] == occ][0]
+    assert r["t"] == t0 and r["name"] == "Serpentshrine Cavern" and r["inst"] == "ssc", r
+    assert r["signups"][0]["key"] == rp.K("Rita") and r["signups"][0]["st"] == "accept", r
+    # (no launcher linked here: no snapshot for the bot)
+    assert rita.eval("return DisasterZoneBridgeDB == nil or DisasterZoneBridgeDB.snap == nil")
     no_errors(w)
 
 

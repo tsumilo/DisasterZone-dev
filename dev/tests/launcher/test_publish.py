@@ -383,6 +383,32 @@ def objects_are_deterministic():
     assert launchlib.gz(b"same bytes" * 10) == launchlib.gz(b"same bytes" * 10)
 
 
+@case
+def changelog_lines_say_who_asked():
+    src = (b'local _, ns = ...\nns.CHANGELOG = {\n  { version = "9.9.9", date = "1 January 2027", title = "T", sections = {\n'
+           b'    { heading = "H", area = "games", kind = "new", lines = {\n      "plain",\n'
+           b'      { "asked for", fb = { 1 }, by = { "Vicnado", "Sl\\195\\164y" }, k = "idea" },\n'
+           b'      { "for the council", ["for"] = "council" },\n    } },\n  } },\n}\n')
+    n = release.changelog_notes({"Data/Changelog.lua": src})
+    sec = n[0]["sections"][0]
+    assert sec["area"] == "games" and sec["lines"][0] == "plain", sec
+    assert sec["lines"][1] == {"text": "asked for", "for": "", "by": ["Vicnado", "Släy"]}, sec["lines"][1]
+    assert sec["lines"][2] == {"text": "for the council", "for": "council"}, sec["lines"][2]
+
+
+@case
+def the_weekly_challenges_in_the_games_order():
+    data = b'D.CHALLENGES = {\n    { id = "a", name = "First", cls = "MAGE" },\n    { id = "b", name = "Second" },\n}\nD.X = 1\n'
+    naxx = b'table.insert(D.CHALLENGES, { id = "c", name = "Third", stage = "frost" })\n'
+    assert release.htl_weekly_names({release.HTL_FOLDER: {"Data.lua": data, "Naxx.lua": naxx}}) == ["First", "Second", "Third"]
+    assert release.htl_weekly_names({}) == []
+    # (the real game: the list the launcher's Hold the Line page names the week's challenge from)
+    real = os.path.join(os.path.dirname(DEV), "addon", release.HTL_FOLDER)
+    files = {f: open(os.path.join(real, f), "rb").read() for f in ("Data.lua", "Naxx.lua")}
+    names = release.htl_weekly_names({release.HTL_FOLDER: files})
+    assert len(names) >= 8 and names[0] == "The Hardest Line" and "Dance Night" in names, names
+
+
 if __name__ == "__main__":
     try:
         run_all()

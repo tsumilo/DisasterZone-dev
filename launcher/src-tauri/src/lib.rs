@@ -204,6 +204,8 @@ struct Check {
     packs: Vec<PackView>,
     /// the release has games and the one-time picker wasn't answered yet
     needs_pick: bool,
+    /// the id of the key whose signature on the release list checked out (Home's "signed release" line)
+    key_id: String,
 }
 
 /// One pack of the release as the Games tab and Home show it.
@@ -226,6 +228,8 @@ struct PackView {
     /// what Update does with it: "install" | "update" | "same" | "remove" | "" (not wanted, not installed)
     action: String,
     files: usize,
+    /// files Update fetches for it now (new or different from the release)
+    changed: usize,
     /// what the release's copy takes on disk, and its full download
     bytes: u64,
     gz: u64,
@@ -258,6 +262,7 @@ fn pack_views(lay: &Layout, m: &Manifest, s: &Settings, plan: &Plan) -> Vec<Pack
                 chosen: s.packs.get(&p.id).copied(),
                 action: action.into(),
                 files: m.folders.get(&p.folder).map_or(0, |f| f.len()),
+                changed: fp.map_or(0, |f| f.fetch),
                 bytes,
                 gz,
                 download_bytes: fp.map_or(0, |f| f.download_bytes),
@@ -273,9 +278,11 @@ async fn check() -> Result<Check> {
     let s = state::load();
     let lay = layout(&s)?;
     let src = Source::parse(&s.source())?;
-    let m = src.manifest(&ReleaseKey::builtin(), &s.channel).await?;
+    let key = ReleaseKey::builtin();
+    let m = src.manifest(&key, &s.channel).await?;
     let plan = install::make_plan(&lay, &m, &install::wanted(&lay, &m, &s.packs))?;
     Ok(Check {
+        key_id: key.id,
         packs: pack_views(&lay, &m, &s, &plan),
         needs_pick: m.has_games() && !s.packs_picked,
         older: m.seq < s.seen_seq.get(&s.channel).copied().unwrap_or(0),
@@ -435,6 +442,18 @@ fn play() -> Result<()> {
     crate::core::play::play(&state::load())
 }
 
+/// The character played last, the region and the guild's next raids, from the game's files (player.rs). Reading
+/// the SavedVariables takes a moment, so off the main thread; nothing found is an empty answer, not an error.
+#[tauri::command]
+async fn player() -> crate::core::player::Player {
+    tokio::task::spawn_blocking(|| match layout(&state::load()) {
+        Ok(lay) => crate::core::player::read(&lay.flavor_dir, crate::core::player::now()),
+        Err(_) => Default::default(),
+    })
+    .await
+    .unwrap_or_default()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -491,6 +510,7 @@ pub fn run() {
             open_releases,
             launcher_checked,
             play,
+            player,
             sync_status,
             sync_link,
             sync_unlink,

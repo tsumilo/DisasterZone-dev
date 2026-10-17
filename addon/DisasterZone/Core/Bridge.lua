@@ -507,6 +507,49 @@ local loginAt
 --   raids = { { id, t, name, title, note, size, teams = { id, ... }, locked, cancelled, leader, need, inst,
 --               signups = { { key, st = "accept"|..., class, spec, role, guest, at, rev }, ... } }, ... } }
 -- Private raids are left out: the bot posts in public channels.
+local function SnapRaids(RP, now)
+    local raids = {}
+    for _, v in ipairs(RP:GetRaids(now - SNAP_BACK, now + SNAP_AHEAD, true)) do
+        if not v.pv then
+            local su = {}
+            for key, s in pairs(RP:GetSignups(v.id)) do
+                local specs = s.c and ns.SPECS[s.c]
+                local spec = specs and s.sp and specs[s.sp]
+                su[#su + 1] = { key = key, st = ST_WORD[s.st] or s.st, class = s.c, spec = spec and spec.label or nil,
+                                role = ns.RaidComp and ns.RaidComp:RoleOf(s.c, s.sp) or nil, guest = s.guest or nil,
+                                at = s.at, rev = s.rev }
+            end
+            table.sort(su, function(a, b) return (a.at or 0) < (b.at or 0) end)
+            -- the comp the raid aims for: its team lineup's target comp (tanks, healers, damage), if it has one
+            local need
+            local tid = v.tm and v.tm[1]
+            local l = tid and RP.GetRaidLineup and RP:GetRaidLineup(v, tid)
+            if l and l.comp and ns.RaidComp then
+                local rc = ns.RaidComp:RoleCounts(l.comp)
+                if rc.tank + rc.healer + rc.melee + rc.ranged > 0 then
+                    need = { tank = rc.tank, heal = rc.healer, dps = rc.melee + rc.ranged }
+                end
+            end
+            raids[#raids + 1] = {
+                id = v.id, t = v.t, name = RP:GetRaidName(v), title = v.ti, note = v.no, size = v.sz,
+                teams = v.tm or {}, locked = v.lk or nil, cancelled = v.cancelled or nil,
+                leader = RP.GetRaidLeader and RP:GetRaidLeader(v.id) or nil, signups = su, need = need,
+                inst = v.i,
+            }
+        end
+    end
+    return raids
+end
+
+-- For the DisasterZone launcher's Home on every PC, linked or not (launcher/src-tauri/src/core/player.rs): the
+-- guild's next raids as the snapshot has them, kept in DisasterZoneDB (which no launcher uploads).
+-- db.launcher = { at, me, raids = <as in the snapshot> }
+function Bridge:LauncherHome()
+    local RP, Util = ns.RaidPlan, ns.Util
+    local now = Util.Now()
+    return { at = now, me = Util.PlayerKey(), raids = RP and SnapRaids(RP, now) or {} }
+end
+
 function Bridge:Snapshot()
     local RP, G, Util = ns.RaidPlan, ns.Guild, ns.Util
     local now = Util.Now()
@@ -574,41 +617,25 @@ function Bridge:Snapshot()
             end
         end
     end
-    for _, v in ipairs(RP:GetRaids(now - SNAP_BACK, now + SNAP_AHEAD, true)) do
-        if not v.pv then
-            local su = {}
-            for key, s in pairs(RP:GetSignups(v.id)) do
-                local specs = s.c and ns.SPECS[s.c]
-                local spec = specs and s.sp and specs[s.sp]
-                su[#su + 1] = { key = key, st = ST_WORD[s.st] or s.st, class = s.c, spec = spec and spec.label or nil,
-                                role = ns.RaidComp and ns.RaidComp:RoleOf(s.c, s.sp) or nil, guest = s.guest or nil,
-                                at = s.at, rev = s.rev }
-            end
-            table.sort(su, function(a, b) return (a.at or 0) < (b.at or 0) end)
-            -- the comp the raid aims for: its team lineup's target comp (tanks, healers, damage), if it has one
-            local need
-            local tid = v.tm and v.tm[1]
-            local l = tid and RP.GetRaidLineup and RP:GetRaidLineup(v, tid)
-            if l and l.comp and ns.RaidComp then
-                local rc = ns.RaidComp:RoleCounts(l.comp)
-                if rc.tank + rc.healer + rc.melee + rc.ranged > 0 then
-                    need = { tank = rc.tank, heal = rc.healer, dps = rc.melee + rc.ranged }
-                end
-            end
-            out.raids[#out.raids + 1] = {
-                id = v.id, t = v.t, name = RP:GetRaidName(v), title = v.ti, note = v.no, size = v.sz,
-                teams = v.tm or {}, locked = v.lk or nil, cancelled = v.cancelled or nil,
-                leader = RP.GetRaidLeader and RP:GetRaidLeader(v.id) or nil, signups = su, need = need,
-                inst = v.i,
-            }
-        end
-    end
+    out.raids = SnapRaids(RP, now)
     return out
 end
 
 function Bridge:OnLogin()
     loginAt = GetTime()
     local inbox = Inbox()
+    -- (saved variables are written at logout / reload: what launchers read is made then. Every PC gets the
+    -- launcher's Home (db.launcher); the snapshot only where a launcher is linked, which uploads it)
+    ns:RegisterEvent("PLAYER_LOGOUT", function()
+        if type(ns.db) == "table" then
+            local ok, home = pcall(Bridge.LauncherHome, Bridge)
+            ns.db.launcher = ok and home or nil
+        end
+        if inbox then
+            local ok, snap = pcall(Bridge.Snapshot, Bridge)
+            DB().snap = ok and snap or { at = time(), error = tostring(snap) }
+        end
+    end)
     if not inbox then return end   -- (no launcher linked on this PC)
     -- (records name guild members: they wait for the guild roster, which comes in a moment after login)
     local started = false
@@ -625,11 +652,6 @@ function Bridge:OnLogin()
     end
     apply()
     ns:On("ROSTER_UPDATED", apply)
-    -- (saved variables are written at logout / reload: the snapshot is made then, where a launcher uploads it)
-    ns:RegisterEvent("PLAYER_LOGOUT", function()
-        local ok, snap = pcall(Bridge.Snapshot, Bridge)
-        DB().snap = ok and snap or { at = time(), error = tostring(snap) }
-    end)
 end
 
 -- The guild member a name typed in Discord is ("lee", "Lee-Thunderstrike"), or nil.

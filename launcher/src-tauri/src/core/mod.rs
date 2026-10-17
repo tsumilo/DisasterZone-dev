@@ -6,6 +6,7 @@ pub mod error;
 pub mod install;
 pub mod manifest;
 pub mod play;
+pub mod player;
 pub mod source;
 pub mod state;
 pub mod wow;

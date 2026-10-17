@@ -7,189 +7,350 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="win">
-  <header class="head" data-tauri-drag-region>
-    <div class="art" data-tauri-drag-region></div>
+<div class="win" id="win">
+
+  <!-- Left rail: the pages, the games of the release, the disk meter -->
+  <aside class="rail">
     <div class="brand" data-tauri-drag-region>
-      <div class="halo"></div>
-      <img class="seal" src="seal.png" alt="" draggable="false">
-      <div class="titles" data-tauri-drag-region>
-        <div class="kicker" id="kicker" data-tauri-drag-region>LAUNCHER</div>
-        <div class="title" data-tauri-drag-region>DisasterZone</div>
-      </div>
+      <img src="seal.png" alt="" draggable="false">
+      <div data-tauri-drag-region><div class="nm" data-tauri-drag-region>DisasterZone</div><div class="sb" id="kicker" data-tauri-drag-region>LAUNCHER</div></div>
     </div>
-    <div class="winctl">
-      <button id="wmin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 10 10"><path d="M1 5.5h8"/></svg></button>
-      <button id="wclose" class="x" title="Close" aria-label="Close"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
-    </div>
-    <nav class="tabs">
-      <button class="tab active" data-tab="home">Home</button>
-      <button class="tab" data-tab="games">Games<span class="new hidden" id="games-new">NEW</span></button>
-      <button class="tab" data-tab="changelog">Changelog</button>
-      <button class="tab" data-tab="backups">Backups</button>
-      <button class="tab" data-tab="settings">Settings</button>
+    <nav class="nav" aria-label="Pages">
+      <button data-go="home"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7V20a1 1 0 0 1-1 1H15v-6H9v6H4.5a1 1 0 0 1-1-1z"/></svg>Home</button>
+      <button data-go="library"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></svg>Library<span class="new hidden" id="games-new">NEW</span></button>
+      <button data-go="notes"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h8l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z"/><path d="M15 3.5v4h4M9.5 12h5M9.5 16h5"/></svg>Patch notes<span class="dot hidden" id="notes-dot"></span></button>
+      <button data-go="backups"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4v4.5H8M12 8v4.2l2.8 1.8"/></svg>Backups</button>
     </nav>
-  </header>
+    <div class="sect"><span>GAMES</span><b id="rail-count"></b></div>
+    <div class="lib" id="rail-games"></div>
+    <div class="rail-foot">
+      <button class="disk" data-go="library" aria-label="On this computer: open the Library">
+        <span class="r"><span>On this computer</span><b id="rail-disk">—</b></span>
+        <span class="segs" id="rail-segs"></span>
+      </button>
+      <div class="foot">
+        <button class="ibtn" data-go="settings" aria-label="Settings" title="Settings"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
+        <div class="v"><b id="foot-ver">Launcher</b><span id="foot-sub"></span></div>
+      </div>
+    </div>
+  </aside>
 
-  <div class="lbar hidden" id="lbar"><span id="lbar-text"></span><button class="btn primary" id="lbar-btn">Install and restart</button></div>
-  <main>
+  <section class="main">
+    <header class="titlebar" data-tauri-drag-region>
+      <div class="hist">
+        <button class="ibtn glass" id="nav-back" aria-label="Back" title="Back" disabled><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6"/></svg></button>
+        <button class="ibtn glass" id="nav-fwd" aria-label="Forward" title="Forward" disabled><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="lbar hidden" id="lbar"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg><span id="lbar-text"></span><button class="btn sm gold" id="lbar-btn">Install and restart</button></div>
+      <div class="right" data-tauri-drag-region>
+        <div class="me hidden" id="me"><span class="av" id="me-av"></span><span class="who"><b id="me-name"></b><span id="me-spec"></span></span></div>
+        <div class="wc">
+          <button id="wmin" aria-label="Minimize" title="Minimize"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5.5h8"/></svg></button>
+          <button id="wmax" aria-label="Maximize" title="Maximize"><svg viewBox="0 0 10 10" aria-hidden="true"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
+          <button id="wclose" class="x" aria-label="Close" title="Close"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
+        </div>
+      </div>
+    </header>
+
     <!-- Home -->
-    <section class="page active" id="page-home">
-      <div class="grid">
-        <div class="card hero">
-          <div class="chip" id="state-chip">Checking</div>
-          <div class="ver"><span id="ver-main">…</span><span class="ver-next" id="ver-next"></span></div>
-          <div class="detail" id="detail">Looking for the newest release…</div>
-          <div class="packs hidden" id="h-packs"></div>
-          <div class="progress hidden" id="progress"><div class="bar"><i class="pbar-live" id="bar"></i></div><div class="ptext ptext-live" id="ptext"></div></div>
-          <div class="notice hidden" id="notice"></div>
+    <section class="page" id="page-home">
+      <div class="hero" id="hero">
+        <img class="art" src="art/hero.jpg" alt="" draggable="false">
+        <span class="rays"></span>
+        <span class="glow moon"></span>
+        <span class="forge"></span>
+        <div class="mist"><i class="m1"></i><i class="m2"></i><i class="m3"></i></div>
+        <div class="motes" id="h-motes"></div>
+        <div class="grade"></div>
+        <div class="grain"></div>
+        <div class="hero-body">
+          <div class="lockup">
+            <img src="seal.png" alt="" draggable="false">
+            <div><div class="wordmark">DisasterZone</div><div class="motto">LOOT · RAIDS · GAMES</div></div>
+          </div>
+          <div class="relrow">
+            <span class="chip" id="state-chip"><span class="pip"></span><span id="state-text">Checking</span></span>
+            <span class="rt" id="rel-text"></span>
+          </div>
+          <div class="prog hidden" id="h-prog">
+            <div class="pct-row">
+              <div class="pct"><span id="p-pct">0</span><small>%</small></div>
+              <div class="stats"><b id="p-main"></b><span id="p-sub"></span></div>
+            </div>
+            <div class="bar big"><i id="p-fill"></i><b id="p-head"></b></div>
+            <ol class="steps" id="p-steps">
+              <li data-step="download"><span class="n">1</span><span class="tx"><b>Download</b><small>Changed files only</small></span></li>
+              <li data-step="stage"><span class="n">2</span><span class="tx"><b>Verify</b><small>Against the release</small></span></li>
+              <li data-step="backup"><span class="n">3</span><span class="tx"><b>Back up</b><small>Old folders, saved variables</small></span></li>
+              <li data-step="swap"><span class="n">4</span><span class="tx"><b>Swap in</b><small>All folders at once</small></span></li>
+            </ol>
+          </div>
           <div class="actions">
-            <button class="btn primary big" id="btn-update" disabled>Update</button>
-            <button class="btn big" id="btn-play">Play</button>
-            <button class="ibtn" id="btn-check" title="Check again" aria-label="Check again"><svg viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3"/></svg></button>
-            <button class="link manage" data-goto="games">Manage games</button>
+            <span class="playwrap" id="main-wrap"><button class="play" id="btn-main"><svg class="tri" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.8v14.4L19 12z"/></svg><span id="btn-main-text">PLAY</span></button></span>
+            <button class="btn lg glassy hidden" id="btn-play"><svg class="ico s fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.8v14.4L19 12z"/></svg>Play</button>
+            <button class="flavor" id="btn-flavor" aria-label="Game version (Settings)" title="Game version: change it in Settings">
+              <span class="fi"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 4.2v9.6L12 21l-7.5-4.2V7.2z"/><path d="M12 8v8M8.5 10l3.5 2 3.5-2"/></svg></span>
+              <span class="ft"><span>World of Warcraft</span><b id="flavor-name">—</b></span>
+              <svg class="ico s car" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg>
+            </button>
+            <button class="ibtn glass lg" id="btn-check" aria-label="Check for updates" title="Check for updates"><svg class="ico l" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5V9h-4.5"/></svg></button>
+          </div>
+          <div class="notice hidden" id="notice"></div>
+          <div class="trust hidden" id="trust">
+            <svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v6c0 4.4-3.2 8-7.5 9-4.3-1-7.5-4.6-7.5-9V6z"/><path d="M8.8 12.2l2.3 2.3 4.2-4.6"/></svg>
+            <span id="trust-text"></span>
           </div>
         </div>
-        <div class="card news">
-          <div class="news-head">
-            <div class="label">What's new</div>
-            <button class="link" data-goto="changelog">Full changelog</button>
+        <div class="speed hidden" id="speed">
+          <div class="h-row"><span class="label">Download speed</span><span class="muted" id="sp-peak"></span></div>
+          <div class="big" id="sp-now">—</div>
+          <svg id="sp-graph" viewBox="0 0 294 92" preserveAspectRatio="none" aria-hidden="true">
+            <defs><linearGradient id="spd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd978" stop-opacity=".55"/><stop offset="1" stop-color="#ffd978" stop-opacity="0"/></linearGradient></defs>
+            <path id="sp-peakline" d="" stroke="rgba(255,255,255,.16)" stroke-dasharray="3 5" fill="none"/>
+            <path id="sp-area" fill="url(#spd)" d=""/>
+            <path id="sp-line" fill="none" stroke="#ffd978" stroke-width="2" vector-effect="non-scaling-stroke" d=""/>
+          </svg>
+          <div class="sig"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v6c0 4.4-3.2 8-7.5 9-4.3-1-7.5-4.6-7.5-9V6z"/><path d="M8.8 12.2l2.3 2.3 4.2-4.6"/></svg><span>Signed release</span><code id="sp-key"></code></div>
+        </div>
+      </div>
+
+      <div class="lower">
+        <div class="h-row"><span class="label" id="lower-label">In this release</span><button class="link" data-go="notes" id="lower-link">All patch notes<svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg></button></div>
+        <div class="cards" id="h-cards">
+          <div class="newsrow" id="news"></div>
+          <div class="raid hidden" id="raid"></div>
+        </div>
+        <div class="upd-lower hidden" id="h-upd">
+          <div class="panel folders" id="folders"></div>
+          <div class="panel keep">
+            <span class="ic"><svg class="ico l" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4v4.5H8M12 8v4.2l2.8 1.8"/></svg></span>
+            <div class="t">Backed up before the swap</div>
+            <p>Before anything is replaced, the folders this update changes and your saved variables go into Backups.</p>
+            <button class="link" data-go="backups">Open Backups<svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg></button>
           </div>
-          <div id="news"><div class="muted">Nothing yet.</div></div>
         </div>
       </div>
     </section>
 
-    <!-- Games: one card per game pack, the Extras below -->
-    <section class="page" id="page-games">
-      <div class="ghead">
-        <div class="gleft" id="g-left"></div>
-        <div class="dmeter">
-          <div class="top"><span class="muted">On this computer</span><b id="g-disk">—</b></div>
-          <div class="segs" id="g-segs"></div>
+    <!-- Library -->
+    <section class="page plain" id="page-library">
+      <div class="ambient"><img src="art/hero.jpg" alt="" draggable="false"></div>
+      <div class="scroll">
+        <div class="phead">
+          <div>
+            <h1 class="ptitle">Library</h1>
+            <div class="psub">Every game is its own download. Keep only the ones you play: removing one keeps your progress.</div>
+          </div>
+          <div class="dm">
+            <div class="r"><span>On this computer</span><b id="lib-disk">—</b></div>
+            <div class="segs" id="lib-segs"></div>
+            <div class="legend" id="lib-legend"></div>
+          </div>
         </div>
-      </div>
-      <div class="scroll gscroll">
-        <div class="ggrid" id="g-grid"></div>
-        <div id="g-extras"></div>
+        <div class="upstrip hidden" id="lib-strip"></div>
+        <nav class="utabs" id="lib-tabs" aria-label="Show"></nav>
+        <div class="grid" id="lib-grid"></div>
+        <div class="xlist" id="lib-extras"></div>
       </div>
     </section>
 
-    <!-- Changelog -->
-    <section class="page" id="page-changelog">
-      <div class="scroll" id="changelog"><div class="muted">The changelog shows once the release list has been read.</div></div>
+    <!-- One game -->
+    <section class="page" id="page-game">
+      <div class="hero game" id="g-hero">
+        <img class="art" id="g-art" src="art/hero.jpg" alt="" draggable="false">
+        <span class="forge"></span>
+        <div class="mist"><i class="m1"></i><i class="m2"></i></div>
+        <div class="motes" id="g-motes"></div>
+        <div class="grade"></div>
+        <div class="grain"></div>
+        <div class="hero-body">
+          <div class="chips" id="g-chips"></div>
+          <div class="glogo" id="g-logo"></div>
+          <div class="lead" id="g-lead"></div>
+          <div class="actions" id="g-actions"></div>
+        </div>
+        <div class="weekly hidden" id="g-weekly"></div>
+      </div>
+      <div class="lower glower">
+        <div class="panel gnotes" id="g-notes"></div>
+        <div class="panel about" id="g-about"></div>
+      </div>
+    </section>
+
+    <!-- Patch notes -->
+    <section class="page plain" id="page-notes">
+      <div class="ambient"><img src="art/raid-naxxramas.jpg" alt="" draggable="false"></div>
+      <div class="pn">
+        <div class="side">
+          <h1 class="ptitle">Patch notes</h1>
+          <label class="search"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input type="search" id="n-search" placeholder="Search every release" aria-label="Search every release" spellcheck="false"></label>
+          <ol class="tl" id="n-list"></ol>
+        </div>
+        <article class="doc" id="n-doc"><div class="muted pad">The patch notes show once the release list has been read.</div></article>
+      </div>
     </section>
 
     <!-- Backups -->
-    <section class="page" id="page-backups">
-      <div class="page-head">
-        <p class="muted">Every update first saves the folders it changes, plus your DisasterZone saved variables; removing a game saves its folder too. Restore one to go back to how things were before it.</p>
-        <button class="btn" id="btn-open-backups">Open folder</button>
+    <section class="page plain" id="page-backups">
+      <div class="ambient"><img src="art/hero.jpg" alt="" draggable="false"></div>
+      <div class="scroll">
+        <div class="phead">
+          <div>
+            <h1 class="ptitle">Backups</h1>
+            <div class="psub">Every update first saves the folders it changes, plus your DisasterZone saved variables; removing a game saves its folder too. Restore one to go back to how things were.</div>
+          </div>
+          <div class="sum">
+            <div class="stat"><span>Kept</span><b id="b-kept">—</b></div>
+            <div class="stat"><span>Keep the last</span><span class="step"><button class="ibtn" id="keep-minus" aria-label="Keep fewer">−</button><b id="keep">3</b><button class="ibtn" id="keep-plus" aria-label="Keep more">+</button></span></div>
+            <button class="btn lg" id="btn-open-backups"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>Open folder</button>
+          </div>
+        </div>
+        <div class="blist" id="backups"></div>
       </div>
-      <div class="scroll" id="backups"></div>
     </section>
 
     <!-- Settings -->
-    <section class="page" id="page-settings">
-      <div class="scroll">
-        <div class="rows">
-          <div class="group first">Game</div>
-          <div class="row">
-            <div class="rl"><div class="rt">World of Warcraft folder</div><div class="rd" id="set-path">Not set</div></div>
-            <div class="rc"><button class="btn" id="btn-pick">Change…</button></div>
-          </div>
-          <div class="row hidden" id="row-installs">
-            <div class="rl"><div class="rt">Found on this computer</div><div class="rd">The launcher found more than one install: pick yours.</div></div>
-            <div class="rc seg" id="set-installs"></div>
-          </div>
-          <div class="row">
-            <div class="rl"><div class="rt">Game version</div><div class="rd">Which game folder the addon goes into.</div></div>
-            <div class="rc seg" id="set-flavor"></div>
-          </div>
-          <div class="row">
-            <div class="rl"><div class="rt">Release channel</div><div class="rd">Beta gets new versions first, for testers.</div></div>
-            <div class="rc seg" id="set-channel">
-              <button class="btn" data-v="stable">Stable</button><button class="btn" data-v="beta">Beta</button>
+    <section class="page plain" id="page-settings">
+      <div class="ambient short"><img src="art/hero.jpg" alt="" draggable="false"></div>
+      <div class="sgrid">
+        <nav class="snav" id="snav" aria-label="Settings sections">
+          <h1 class="ptitle">Settings</h1>
+          <button data-sec="s-game"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 4.2v9.6L12 21l-7.5-4.2V7.2z"/></svg>Game</button>
+          <button data-sec="s-updates"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5V9h-4.5"/></svg>Updates</button>
+          <button data-sec="s-background"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="12" rx="2"/><path d="M8 20.5h8"/></svg>Background</button>
+          <button data-sec="s-play"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.8v14.4L19 12z"/></svg>Play</button>
+          <button data-sec="s-discord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v10h-9l-6 4z"/></svg>Discord</button>
+          <button data-sec="s-advanced"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/></svg>Advanced</button>
+          <button data-sec="s-about"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.5v.5"/></svg>About</button>
+        </nav>
+        <div class="scroll scards" id="s-scroll">
+          <div class="panel sc" id="s-game">
+            <div class="hdr"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 4.2v9.6L12 21l-7.5-4.2V7.2z"/></svg><b>GAME</b></div>
+            <div class="row">
+              <div class="rl"><div class="rt">World of Warcraft folder</div><div class="rd" id="set-found"></div></div>
+              <div class="rc"><span class="pathbox"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg><span id="set-path">Not set</span></span><button class="btn" id="btn-pick">Change</button></div>
+            </div>
+            <div class="row hidden" id="row-installs">
+              <div class="rl"><div class="rt">Found on this computer</div><div class="rd">The launcher found more than one install: pick yours.</div></div>
+              <div class="rc"><span class="seg" id="set-installs"></span></div>
+            </div>
+            <div class="row">
+              <div class="rl"><div class="rt">Game version</div><div class="rd">Which game folder the addon goes into.</div></div>
+              <div class="rc"><span class="seg" id="set-flavor"></span></div>
+            </div>
+            <div class="row">
+              <div class="rl"><div class="rt">AddOns folder</div><div class="rd mono" id="set-addons">—</div></div>
+              <div class="rc"><button class="btn" id="btn-open-addons">Open</button></div>
             </div>
           </div>
-          <div class="row">
-            <div class="rl"><div class="rt">Backups to keep</div><div class="rd">Each backup keeps only the folders an update changed, plus your saved variables.</div></div>
-            <div class="rc stepper"><button class="ibtn" id="keep-minus" aria-label="Fewer">−</button><span id="keep">3</span><button class="ibtn" id="keep-plus" aria-label="More">+</button></div>
+
+          <div class="panel sc" id="s-updates">
+            <div class="hdr"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5V9h-4.5"/></svg><b>UPDATES</b></div>
+            <div class="row">
+              <div class="rl"><div class="rt">Release channel</div><div class="rd">Beta gets new versions first, for testers.</div></div>
+              <div class="rc"><span class="seg" id="set-channel"><button data-v="stable">Stable</button><button data-v="beta">Beta</button></span></div>
+            </div>
+            <div class="row">
+              <div class="rl"><div class="rt">Check for updates on start</div><div class="rd">Look for a new release every time the launcher opens.</div></div>
+              <div class="rc"><button class="tgl" id="set-check" role="switch" aria-checked="true" aria-label="Check for updates on start"></button></div>
+            </div>
           </div>
-          <div class="row">
-            <div class="rl"><div class="rt">Check for updates on start</div><div class="rd">Look for a new release every time the launcher opens.</div></div>
-            <div class="rc"><button class="toggle" id="set-check" role="switch" aria-checked="true"><i></i></button></div>
+
+          <div class="panel sc" id="s-background">
+            <div class="hdr"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="12" rx="2"/><path d="M8 20.5h8"/></svg><b>BACKGROUND</b></div>
+            <div class="row">
+              <div class="rl"><div class="rt">Keep running in the tray</div><div class="rd">Closing the window keeps the launcher in the tray. It checks for a new release every 5 minutes and tells you when one is out.</div></div>
+              <div class="rc"><button class="tgl" id="set-tray" role="switch" aria-checked="false" aria-label="Keep running in the tray"></button></div>
+            </div>
+            <div class="row sub" id="row-auto">
+              <div class="rl"><div class="rt">Install updates by itself</div><div class="rd">Installs a new release in the background while World of Warcraft is closed, and tells you when it's done. The launcher updates itself the same way.</div></div>
+              <div class="rc"><button class="tgl" id="set-auto" role="switch" aria-checked="false" aria-label="Install updates by itself"></button></div>
+            </div>
+            <div class="row sub" id="row-autostart">
+              <div class="rl"><div class="rt">Start with the computer</div><div class="rd">Starts quietly in the tray when you log in.</div></div>
+              <div class="rc"><button class="tgl" id="set-autostart" role="switch" aria-checked="false" aria-label="Start with the computer"></button></div>
+            </div>
           </div>
-          <div class="group">Background</div>
-          <div class="row">
-            <div class="rl"><div class="rt">Keep running in the tray</div><div class="rd">Closing the window keeps the launcher in the tray. It checks for a new release every 5 minutes and tells you when one is out.</div></div>
-            <div class="rc"><button class="toggle" id="set-tray" role="switch" aria-checked="false"><i></i></button></div>
+
+          <div class="panel sc" id="s-play">
+            <div class="hdr"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.8v14.4L19 12z"/></svg><b>PLAY</b></div>
+            <div class="row">
+              <div class="rl"><div class="rt">Battle.net launch code</div><div class="rd">Optional. With a code (e.g. WoWC) Play starts the game; empty opens Battle.net.</div></div>
+              <div class="rc"><input class="field" id="set-code" placeholder="empty" spellcheck="false"></div>
+            </div>
+            <div class="row">
+              <div class="rl"><div class="rt">Play command</div><div class="rd">Optional, mostly for Linux: run this instead of Battle.net.</div></div>
+              <div class="rc"><input class="field wide" id="set-cmd" placeholder="e.g. lutris lutris:rungame/battlenet" spellcheck="false"></div>
+            </div>
           </div>
-          <div class="row sub" id="row-auto">
-            <div class="rl"><div class="rt">Install updates by itself</div><div class="rd">Installs a new release in the background while World of Warcraft is closed, and tells you when it's done. The launcher updates itself the same way.</div></div>
-            <div class="rc"><button class="toggle" id="set-auto" role="switch" aria-checked="false"><i></i></button></div>
+
+          <div class="panel sc" id="s-discord">
+            <div class="hdr"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v10h-9l-6 4z"/></svg><b>DISCORD</b></div>
+            <div class="row">
+              <div class="rl disc"><span class="dlg"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v10h-9l-6 4z"/></svg></span><span><span class="rt">Guild Discord sync</span><span class="rd" id="sync-state">Not linked.</span></span></div>
+              <div class="rc" id="sync-linked-btns"><button class="btn" id="btn-sync">Sync now</button><button class="btn ghost" id="btn-unlink">Unlink</button></div>
+            </div>
+            <div class="row" id="row-link">
+              <div class="rl"><div class="rt">Link this launcher</div><div class="rd">Type /launcher in the guild's Discord and paste the code it gives you. Your game's sign-ups, BiS lists and raids then reach Discord after each save, and what people change in Discord reaches your game at its next login or /reload.</div></div>
+              <div class="rc"><input class="field" id="set-linkcode" placeholder="code" spellcheck="false" autocomplete="off" maxlength="12"><button class="btn gold" id="btn-link">Link</button></div>
+            </div>
           </div>
-          <div class="row sub" id="row-autostart">
-            <div class="rl"><div class="rt">Start with the computer</div><div class="rd">Starts quietly in the tray when you log in.</div></div>
-            <div class="rc"><button class="toggle" id="set-autostart" role="switch" aria-checked="false"><i></i></button></div>
+
+          <div class="panel sc" id="s-advanced">
+            <div class="hdr"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/></svg><b>ADVANCED</b></div>
+            <div class="row">
+              <div class="rl"><div class="rt">Release source</div><div class="rd">Leave empty. For testing: another address or a local folder.</div></div>
+              <div class="rc"><input class="field wide" id="set-source" spellcheck="false"></div>
+            </div>
+            <div class="row">
+              <div class="rl"><div class="rt">Bot server</div><div class="rd">Leave empty. For testing: another address, e.g. http://127.0.0.1:8787.</div></div>
+              <div class="rc"><input class="field wide" id="set-server" spellcheck="false"></div>
+            </div>
           </div>
-          <div class="group">Play</div>
-          <div class="row">
-            <div class="rl"><div class="rt">Battle.net launch code</div><div class="rd">Optional. With a code (e.g. WoWC) Play starts the game; empty opens Battle.net.</div></div>
-            <div class="rc"><input class="field" id="set-code" placeholder="empty" spellcheck="false"></div>
-          </div>
-          <div class="row">
-            <div class="rl"><div class="rt">Play command</div><div class="rd">Optional, mostly for Linux: run this instead of Battle.net.</div></div>
-            <div class="rc"><input class="field wide" id="set-cmd" placeholder="e.g. lutris lutris:rungame/battlenet" spellcheck="false"></div>
-          </div>
-          <div class="group">Discord</div>
-          <div class="row">
-            <div class="rl"><div class="rt">Guild Discord sync</div><div class="rd" id="sync-state">Not linked.</div></div>
-            <div class="rc" id="sync-linked-btns"><button class="btn" id="btn-sync">Sync now</button><button class="btn" id="btn-unlink">Unlink</button></div>
-          </div>
-          <div class="row" id="row-link">
-            <div class="rl"><div class="rt">Link this launcher</div><div class="rd">Type /launcher in the guild's Discord and paste the code it gives you. Your game's sign-ups, BiS lists and raids then reach Discord after each save, and what people change in Discord reaches your game at its next login or /reload.</div></div>
-            <div class="rc"><input class="field" id="set-linkcode" placeholder="code" spellcheck="false" autocomplete="off" maxlength="12"><button class="btn primary" id="btn-link">Link</button></div>
-          </div>
-          <div class="group">Advanced</div>
-          <div class="row">
-            <div class="rl"><div class="rt">Release source</div><div class="rd">Leave empty. For testing: another address or a local folder.</div></div>
-            <div class="rc"><input class="field wide" id="set-source" spellcheck="false"></div>
-          </div>
-          <div class="row">
-            <div class="rl"><div class="rt">Bot server</div><div class="rd">Leave empty. For testing: another address, e.g. http://127.0.0.1:8787.</div></div>
-            <div class="rc"><input class="field wide" id="set-server" spellcheck="false"></div>
+
+          <div class="panel sc" id="s-about">
+            <div class="hdr"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.5v.5"/></svg><b>ABOUT</b></div>
+            <div class="row"><div class="rl"><div class="rt" id="about"></div><div class="rd" id="about-check"></div></div></div>
+            <div class="row"><div class="rl"><div class="rd">Cinzel and Barlow are used under the SIL Open Font License (fonts/OFL-*.txt). Loading-screen art from World of Warcraft, © Blizzard Entertainment.</div></div></div>
           </div>
         </div>
-        <div class="about" id="about"></div>
-        <div class="about-check" id="about-check"></div>
       </div>
     </section>
-  </main>
+  </section>
 
-  <footer class="foot">
-    <button class="link" id="foot-path">No game folder</button>
-    <span id="foot-ver"></span>
-  </footer>
-
+  <!-- confirm dialog -->
   <div class="modal hidden" id="modal">
-    <div class="dialog">
+    <div class="dialog" role="dialog" aria-labelledby="m-title">
       <div class="dtitle" id="m-title"></div>
       <div class="dbody" id="m-body"></div>
-      <div class="dactions"><button class="btn" id="m-cancel">Cancel</button><button class="btn primary" id="m-ok">OK</button></div>
+      <div class="dactions"><button class="btn lg ghost" id="m-cancel">Cancel</button><button class="btn lg gold" id="m-ok">OK</button></div>
     </div>
   </div>
   <!-- the one-time games picker (the first release with game packs) -->
   <div class="modal hidden" id="picker">
     <div class="dialog wide" role="dialog" aria-labelledby="p-title">
-      <div class="dtitle" id="p-title">Pick your games</div>
-      <div class="dbody">From <span id="p-ver">this version</span> each game is its own download. Keep the ones you play. Games you've played are ticked, and you can change this any time on the Games tab.</div>
-      <div class="prows" id="p-rows"></div>
-      <div class="dactions"><span class="sum" id="p-sum"></span><button class="btn" id="p-all">Keep all</button><button class="btn primary" id="p-save">Save</button></div>
+      <div class="dh">
+        <img src="seal.png" alt="" draggable="false">
+        <div>
+          <span class="chip gold small"><span class="pip"></span>New in <span id="p-ver">this version</span></span>
+          <div class="dtitle big" id="p-title">Pick your games</div>
+          <div class="dbody">Each game is its own download now. Keep the ones you play: the games you've played are ticked, and the Library changes this any time.</div>
+        </div>
+      </div>
+      <div class="tiles" id="p-rows"></div>
+      <div class="dactions"><span class="sum" id="p-sum"></span><button class="btn lg ghost" id="p-all">Keep all</button><button class="btn lg gold" id="p-save">Save</button></div>
     </div>
   </div>
   <div class="toast hidden" id="toast"></div>
 </div>
-<script src="app.js"></script>
+<script src="js/util.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/core.js"></script>
+<script src="js/home.js"></script>
+<script src="js/games.js"></script>
+<script src="js/notes.js"></script>
+<script src="js/backups.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>
