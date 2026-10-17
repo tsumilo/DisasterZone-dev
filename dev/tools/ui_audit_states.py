@@ -2026,6 +2026,9 @@ STATES = [
     ("Games - Azeromon inn evening", azero_at("post", 4, 5, "ns.Azero.clockHour = 21")),
     ("Games - Azeromon Route 1", azero_at("route1", 6, 9)),
     ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),
+    # cast shadows and contact lines (2026-10-17): the Rebel Camp's tents and mine, Westfall's windmill field
+    ("Games - Azeromon Rebel Camp", azero_at("rebelcamp", 16, 6, "ns.AzeroUI.tipsOff = true")),
+    ("Games - Azeromon Westfall windmill", azero_at("westfall", 13, 11, "ns.AzeroUI.tipsOff = true")),
     # Blackrock (0.25): Lakeshire by day, the Steppes' ash and lava, the mountain's cavern, Thorium Point
     ("Games - Azeromon Lakeshire", azero_at("lakeshire", 12, 10, "ns.Azero.clockHour = 12")),
     ("Games - Azeromon Burning Steppes", azero_at("steppes", 20, 13, "ns.Azero.clockHour = 12")),

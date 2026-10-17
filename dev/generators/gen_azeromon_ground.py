@@ -228,6 +228,129 @@ def blit(dst, src, x, y):
 
 # ------------------------------------------------------------------------------------------- the bake
 
+# Shadows outdoors (2026-10-17): a silhouette copied 3 px right and 2 px down made everything look like a sticker on
+# the map. Now each standing thing (a tree, a stamp put together from its tiles, a prop) throws its shape along the
+# ground away from the light (top left): every pixel moves right and down by its height above the thing's foot, the
+# heights easing off so roofs and sails fold up instead of running across the map, the shadow fading toward its tip
+# and softened at the edge; and where the thing meets the ground a dark contact line holds it down.
+SHADOW_DX, SHADOW_DY = 0.62, 0.4       # ground shift per pixel of height
+SHADOW_HEM = 2                         # columns ending this close above the foot stand on the ground
+SHADOW_H = 28                          # heights ease off toward this (px)
+SHADOW_K = 0.38                        # darkness at the foot (fades to 60% of it at the tip)
+CONTACT_K = (0.42, 0.2)                # the contact line: the row under the foot, the row under that
+STAMP_CELL = re.compile(r"^(.+)_(\d+)_(\d+)$")
+
+
+def objects(over, atlas):
+    """the over layer as things: {(name, x, y): {(dx, dy): tile}}, stamps grouped by their top left cell"""
+    out = {}
+    for y, row in enumerate(over):
+        for x, o in enumerate(row):
+            if not o:
+                continue
+            mm = STAMP_CELL.match(o)
+            if mm and atlas.tile("%s_0_0" % mm.group(1)) is not None:
+                dx, dy = int(mm.group(2)), int(mm.group(3))
+                out.setdefault((mm.group(1), x - dx, y - dy), {})[(dx, dy)] = o
+            else:
+                out.setdefault((o, x, y), {})[(0, 0)] = o
+    return out
+
+
+def cast_shadows(over, atlas, W, H, feet_names=()):
+    """(H, W) darkness 0..1: every thing's cast shadow plus its contact line (props in FEET have a pool instead)"""
+    shade = np.zeros((H, W))
+    for (name, ox, oy), cells in objects(over, atlas).items():
+        cw = max(dx for dx, _ in cells) + 1
+        ch = max(dy for _, dy in cells) + 1
+        a = np.zeros((ch * 16, cw * 16), dtype=bool)
+        for (dx, dy), t in cells.items():
+            tile = atlas.tile(t)
+            if tile is not None:
+                a[dy * 16:dy * 16 + 16, dx * 16:dx * 16 + 16] = tile[..., 3] >= 128   # its own see-through shadow out
+        ys, xs = np.nonzero(a)
+        if not len(ys):
+            continue
+        # the foot: the lowest row that is really part of the thing (a tent's stakes and ropes reach lower than its
+        # canvas; anchoring there left a gap and the tent floated). Each column near the foot stands on the ground
+        # at its own lowest pixel (a curved hem, a round base); overhangs (crowns, sails) hang from the foot.
+        count = a.sum(1)
+        foot = int(np.nonzero(count >= max(3, 0.25 * count.max()))[0].max())
+        colbot = np.where(a.any(0), a.shape[0] - 1 - np.argmax(a[::-1], 0), -99)
+        standing = (colbot >= foot - SHADOW_HEM) & (colbot >= 0)
+        base = np.where(standing, np.minimum(colbot, foot), foot)
+        b = base[xs]
+        hgt = SHADOW_H * (1 - np.exp(-np.maximum(0, b - ys) / SHADOW_H))
+        tx = np.round(ox * 16 + xs + hgt * SHADOW_DX).astype(int)
+        ty = np.round(oy * 16 + np.where(ys > b, ys, b + hgt * SHADOW_DY)).astype(int)
+        k = SHADOW_K * (1 - 0.4 * hgt / SHADOW_H)
+        ok = (tx >= 0) & (tx < W) & (ty >= 0) & (ty < H)
+        np.maximum.at(shade, (ty[ok], tx[ok]), k[ok])
+        if any(t in feet_names for t in cells.values()):
+            continue
+        grounded = np.nonzero(standing)[0]               # the contact line, under each standing column's own foot
+        for x_ in grounded:
+            for dy, kk in enumerate(CONTACT_K):
+                gx, gy = ox * 16 + x_, oy * 16 + colbot[x_] + 1 + dy
+                if 0 <= gx < W and 0 <= gy < H:
+                    shade[gy, gx] = max(shade[gy, gx], kk)
+        for x_ in (grounded[0] - 1, grounded[-1] + 1):  # the line's ends, a little lighter
+            gx, gy = ox * 16 + x_, oy * 16 + colbot[min(max(x_, grounded[0]), grounded[-1])] + 1
+            if 0 <= gx < W and 0 <= gy < H:
+                shade[gy, gx] = max(shade[gy, gx], CONTACT_K[1])
+    pad = np.pad(shade, 1, mode="edge")                 # a soft edge: the 3 x 3 average, never lighter than 80%
+    soft = sum(pad[1 + dy:1 + dy + H, 1 + dx:1 + dx + W] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9
+    return np.maximum(shade * 0.8, soft)
+
+
+# a mine's hill (the mineentrance stamp, 48 x 32, its door the middle of the bottom row) sits in the ground through
+# its apron: worn earth along its foot and out of the door, and scree tumbled down both sides (x, y, radius: from the
+# stamp's top left corner; the hill hides the stones behind it, the ones on the ground stay)
+CAVE_SCREE = [(-3, 26, 2.2), (2, 31, 2.6), (-6, 31, 1.6), (7, 33.5, 1.8), (-1, 35, 1.3), (50, 25, 2.0),
+              (45, 31, 2.8), (53, 30, 1.5), (40, 33.5, 1.7), (48, 35, 1.2), (12.5, 34, 1.0), (35, 34.5, 1.1)]
+
+
+def _stone(out, cls, cx, cy, r, rock):
+    """a small stone on the ground: lit top left, a dark rim, a sliver of shadow to the lower right"""
+    H, W = out.shape[:2]
+    ramp = [np.array(c, dtype=np.float64) for c in rock]
+    for y in range(int(cy - r) - 2, int(cy + r) + 3):
+        for x in range(int(cx - r) - 2, int(cx + r) + 3):
+            if not (0 <= x < W and 0 <= y < H) or cls[y, x] in (2, 3, 4):
+                continue
+            dx, dy = (x + 0.5 - cx) / r, (y + 0.5 - cy) / (r * 0.78)
+            d = dx * dx + dy * dy
+            if d <= 1:
+                out[y, x] = ramp[max(0, min(4, int((azeromon_props._lit(dx, dy) + 0.8) / 1.8 * 5)))]
+            elif d <= 1.5 and dx + dy > 0.4:
+                out[y, x] = out[y, x] * 0.58 + np.array([8, 18, 24]) * 0.42 * 0.5
+            elif d <= 1.35:
+                out[y, x] = ramp[0]
+
+
+def cave_aprons(out, m, cls, atlas, th):
+    H, W = out.shape[:2]
+    dirt = atlas.avg(th["path"] + "c")
+    for st in m["stamps"]:
+        if st["kind"] != "mineentrance":
+            continue
+        sx, sy = st["x"] * 16, st["y"] * 16
+        for y in range(max(0, sy + 18), min(H, sy + 46)):
+            for x in range(max(0, sx - 12), min(W, sx + 60)):
+                if cls[y, x] not in (0, 1, 5):
+                    continue
+                fx, fy = (x + 0.5 - (sx + 24)) / 31, (y + 0.5 - (sy + 30)) / 8
+                d = fx * fx + fy * fy
+                a = 0.42 * (1 - d) if d < 1 else 0.0                                       # along the foot
+                if y >= sy + 31 and abs(x + 0.5 - (sx + 24)) < 7 - (y - sy - 31) * 0.35:    # out of the door
+                    a = max(a, 0.62 - 0.035 * (y - sy - 31))
+                a *= 0.65 + 0.7 * float(hash_(x // 2, y // 2, 91))
+                if a > 0.08:
+                    out[y, x] = out[y, x] * (1 - min(a, 0.8)) + dirt * min(a, 0.8)
+        for rx, ry, r in CAVE_SCREE:
+            _stone(out, cls, sx + rx, sy + ry, r, azeromon_props.BASALT if th.get("cave") else azeromon_props.ROCK)
+
+
 def bake(m, atlas, walls):
     """m: the compiled map (w, h, rows, base, over, stamps, chests, theme) -> (H, W, 3) uint8"""
     th = THEMES.get(m["theme"], THEMES["elwynn"])
@@ -466,13 +589,16 @@ def bake(m, atlas, walls):
             o = over[y][x]
             if o and o in FEET:
                 feet.append((x, y, atlas.tile(o)))
-            elif o and not NO_SILHOUETTE.match(o):
+            elif o and th.get("cave") and not NO_SILHOUETTE.match(o):
                 stamp_sil(atlas.tile(o), x * 16 + 3, y * 16 + 2)
             if rows[y][x] in wallk:
                 stamp_sil(walls[wallk[rows[y][x]]][wall_mask(T, x, y, wallk)], x * 16 + 3, y * 16 + 2)
     for c in m["chests"]:
         feet.append((c["x"], c["y"], atlas.tile("chest")))
     out[sil] = out[sil] * 0.7 + np.array([8, 18, 24]) * 0.3
+    if not th.get("cave"):                     # under the open sky: shadows cast from the foot, a contact line
+        shade = cast_shadows(over, atlas, W, H, feet_names=FEET)
+        out = out * (1 - shade[..., None]) + np.array([8, 18, 24]) * shade[..., None]
 
     # small props: a soft oval of shadow under the foot (spilling past the tile), grass blades beside it
     gdark = atlas.avg(th["g1"]) * [0.62, 0.68, 0.62]
@@ -557,6 +683,7 @@ def bake(m, atlas, walls):
                     c = dA if c == "a" else bA if c == "b" else c
                     out[y + yy, x + xx] = [int(v) for v in c]
                     used[y + yy, x + xx] = True
+    cave_aprons(out, m, cls, atlas, th)
 
     # the forest wall: a darker tree tucked between neighbouring trees, behind them
     tree = atlas.tile(th["tree"]).copy() if th.get("tree") else None

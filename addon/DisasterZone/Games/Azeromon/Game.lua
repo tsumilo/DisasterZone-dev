@@ -116,7 +116,8 @@ local THEMES = {
     redridge = { grass1 = "rgrass1", grass2 = "rgrass2", tall = "rtall_", path = "rpath_", tree = "rtree", rock = "ruinwall" },
     steppes = { grass1 = "sgrass1", grass2 = "sgrass2", tall = "stall_", path = "spath_", tree = "stree", rock = "bwall" },
     gorge = { grass1 = "ggrass1", grass2 = "ggrass2", tall = "gtall_", path = "gpath_", wall = "gwall" },
-    blackrock = { grass1 = "bfloor1", grass2 = "bfloor2", tall = "stall_", path = "bpath_", wall = "bwall", rock = "bwall" },
+    blackrock = { grass1 = "bfloor1", grass2 = "bfloor2", tall = "stall_", path = "bpath_", wall = "bwall", rock = "bwall",
+                  stamps = { mineentrance = "bmineentrance" } },      -- (a theme can draw a stamp with its own art)
 }
 G.THEMES = THEMES
 
@@ -212,10 +213,11 @@ function G.Compile(id)
     end
     for _, st in ipairs(def.stamps or {}) do
         local size = STAMP_SIZE[st.kind]
+        local art = th.stamps and th.stamps[st.kind] or st.kind
         for dy = 0, size[2] - 1 do
             for dx = 0, size[1] - 1 do
                 local k = key(st.x + dx, st.y + dy)
-                m.over[k] = string.format("%s_%d_%d", st.kind, dx, dy)
+                m.over[k] = string.format("%s_%d_%d", art, dx, dy)
                 if IsDoor(st.kind, dx, dy) then m.solid[k] = nil else m.solid[k] = true end
             end
         end

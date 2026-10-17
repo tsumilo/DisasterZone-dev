@@ -817,4 +817,10 @@ ns.AzeroAtlas = {
     standard_red_0_1 = 811,
     pennant = 812,
     pet_murkling = 813,
+    bmineentrance_0_0 = 814,
+    bmineentrance_1_0 = 815,
+    bmineentrance_2_0 = 816,
+    bmineentrance_0_1 = 817,
+    bmineentrance_1_1 = 818,
+    bmineentrance_2_1 = 819,
 }

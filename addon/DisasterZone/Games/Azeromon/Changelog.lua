@@ -6,6 +6,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.36", date = "17 October 2026", title = "A grounded world",
+      lines = {
+          "Sharper trees in Duskwood, Westfall, Redridge and beyond.",
+          "Every ore vein and herb redrawn, each with its own look.",
+          "Kegs, masts, windmills, tents and mines redrawn too.",
+          "Trees, houses and props cast real shadows on the ground.",
+          "Stranglethorn's jungle is a deeper, darker green.",
+      } },
     { version = "0.35", date = "17 October 2026", title = "Pixel beasts",
       lines = {
           "Every beast is now pixel art, made from its own model.",
@@ -15,9 +23,6 @@ ns.AzeroChangelog = {
           "Some beasts have two different attacks.",
           "Shinies show their own colours in pixel art too.",
           "Prefer the 3D models? /dz azeromon look 3d",
-          "Sharper trees in Duskwood, Westfall, Redridge and beyond.",
-          "Every ore vein and herb redrawn, each with its own look.",
-          "Powder kegs, ship masts and windmills redrawn too.",
       } },
     { version = "0.34.1", date = "16 October 2026", title = "Room at the inn",
       lines = {

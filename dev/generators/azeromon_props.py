@@ -447,25 +447,63 @@ def palm():
 # ---------------------------------------------------------------------------- stamps
 
 def tent():
+    """a conical camp tent: poles crossing above the smoke hole, canvas panels sewn from the top (lit on the left,
+    one patched with hide), a laced band, the door flap tied back on a dark inside with a bedroll, guy ropes"""
     s = Spr(32, 32)
-    # the side roof (seen in 3/4: the right slope runs back)
-    s.poly([(15, 3), (30, 26), (30, 29.5), (20, 29.5)], lambda x, y: CANVAS[1] if (x + y) % 7 else CANVAS[0])
-    def front(x, y):
-        c = CANVAS[3] if x < 12 else CANVAS[2]
-        if (x - 3) % 5 == 0 and x < 15: c = CANVAS[2] if x < 12 else CANVAS[1]                  # seams
-        return c
-    s.poly([(15, 3), (24, 29.5), (2, 29.5)], front)
-    s.line(15, 3, 3, 29, CANVAS[4])                                                                  # lit edge
-    # the opening, with the flap folded back
-    s.poly([(14, 12), (19, 29.5), (11, 29.5)], lambda x, y: (34, 24, 22) if y > 16 else (52, 38, 32))
-    s.poly([(14, 12), (11, 29.5), (8, 29.5), (12, 18)], lambda x, y: CANVAS[4] if x < 11 else CANVAS[3])
-    s.line(14, 12, 9, 29, CANVAS[2])
-    s.put(15, 26, (90, 70, 50)); s.put(16, 27, (70, 54, 40)); s.put(14, 28, (90, 70, 50))          # bedroll inside
-    # pole, flag, ropes and pegs
-    s.rect(15, 0, 15, 3, WOOD[1]); s.put(16, 0, RED[2]); s.put(17, 0, RED[2]); s.put(16, 1, RED[1])
-    s.line(3, 28, 0, 31, WOOD[2]); s.line(26, 26, 31, 30, WOOD[2])
-    s.put(0, 31, WOOD[1]); s.put(31, 31, WOOD[1])
+    ax, ay = 15.5, 4.5                                                                      # the apex
+
+    def hem(x):
+        lx = (x + 0.5 - 15.5) / 13.5
+        return 27.0 + 2.0 * (1 - lx * lx)
+
+    def half(y):
+        return 13.8 * min(1.0, max(0.0, (y + 0.5 - ay) / (27.0 - ay))) ** 0.85
+
+    for x, y0, x1, y1 in ((12, 0, 15, 5), (19, 0, 16, 5), (16, 0, 15.5, 4)):                 # poles
+        s.line(x, y0, x1, y1, WOOD[2])
+        s.put(x, y0, WOOD[3])
+    panel = lambda x, y: int(math.floor((x + 0.5 - ax) / max(half(y), 1) * 2.5 + 10))
+    for y in range(int(ay), 32):
+        for x in range(32):
+            if y + 0.5 > hem(x) or abs(x + 0.5 - ax) > half(y) + 0.2:
+                continue
+            t = (y + 0.5 - ay) / (hem(x) - ay)
+            lx = (x + 0.5 - ax) / max(half(y), 1)
+            v = 0.6 - 0.5 * lx - 0.06 * t
+            if half(y) > 3 and panel(x, y) != panel(x + 1, y):                              # panel seams
+                v -= 0.18
+            if 0.6 < t < 0.68:                                                              # the laced band
+                v -= 0.24 if (x % 3) else 0.04
+            if y + 1.3 > hem(x):                                                            # the hem
+                v -= 0.18
+            c = _pick(CANVAS, v)
+            if -0.62 < lx < -0.3 and 0.28 < t < 0.46:                                       # a patch of hide
+                c = _pick(THATCH, v - 0.1)
+            s.put(x, y, c)
+    for y in range(12, 30):                                                                 # the door: a dark inside
+        d0, d1 = 14.5 - (y - 12) * 0.26, 15.5 + (y - 12) * 0.3
+        for x in range(32):
+            if d0 <= x + 0.5 <= d1 + 1 and y + 1 < hem(x):
+                s.put(x, y, (22, 15, 13) if y < 22 else (34, 24, 20))
+    for x, y, c in ((15, 26, (120, 74, 48)), (16, 26, (120, 74, 48)), (17, 26, (96, 58, 40)),   # the bedroll
+                    (15, 27, (84, 52, 36)), (16, 27, (96, 58, 40))):
+        s.put(x, y, c)
+    for y in range(13, 29):                                                                 # the flap, tied back
+        x1 = 14.5 - (y - 12) * 0.26
+        w_ = 1 + int((y - 13) * 0.22)
+        for k in range(w_):
+            s.put(x1 - 1 - k, y, CANVAS[4] if k == 0 else CANVAS[3])
+    s.put(11, 21, (150, 54, 42)); s.put(10, 21, (110, 40, 32))                              # its tie
+    s.put(15, 4, WOOD[1]); s.put(16, 4, WOOD[1])                                            # the smoke hole
     s.outline(0.42)
+    for (x0, y0), (x1, y1) in (((4, 17), (0, 30)), ((27, 16), (31, 29))):                   # guy ropes and stakes
+        n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+        for i in range(n):
+            x, y = x0 + (x1 - x0) * i / (n - 1), y0 + (y1 - y0) * i / (n - 1)
+            if s.get(int(round(x)), int(round(y))) is None:
+                s.put(x, y, (150, 128, 92) if i % 2 else (126, 106, 76))
+    for x in (0, 31):
+        s.put(x, 30, WOOD[3]); s.put(x, 31, WOOD[1])
     return s
 
 
@@ -1119,27 +1157,74 @@ def windmill():
     return s
 
 
-def mineentrance():
-    """a timber-framed opening in the rock (the walkable door tile is the middle of the bottom row)"""
+def mineentrance(rock=ROCK, moss=True):
+    """a mine cut into a rocky hill: the hill rises from the ground at both sides to a crown over the door (no square
+    edges), its boulders each lit on their own inside the hill's own light and parted by dark cracks, moss on the
+    ledges, a timber frame under an overhang, rails running into the dark, a lantern (the walkable door tile is the
+    middle of the bottom row; the ground baker lays scree and worn earth round its foot). Blackrock's is basalt."""
     s = Spr(48, 32)
-    def rock(x, y):
-        n = H(x // 3, y // 3, 6)
-        c = ROCK[3] if n > 0.6 else ROCK[2] if n > 0.2 else ROCK[1]
-        if y < 4 and n > 0.4: c = ROCK[4]
-        return c
-    s.poly([(0, 31.5), (2, 10), (8, 3), (20, 0), (30, 1), (42, 5), (47.9, 12), (47.9, 31.5)], rock)
-    s.rect(14, 10, 33, 31, (14, 10, 10))                                                               # the dark
-    for y in range(10, 32):
-        for x in range(14, 34):
-            if y < 16 and H(x, y, 2) < 0.15: s.put(x, y, (30, 24, 20))
-    s.rect(12, 8, 35, 10, WOOD[3]); s.rect(12, 8, 35, 8, WOOD[4]); s.rect(12, 11, 35, 11, WOOD[1])     # lintel
-    for x in (12, 33):
-        s.rect(x, 11, x + 2, 31, WOOD[2]); s.rect(x, 11, x, 31, WOOD[3])
-    s.rect(18, 29, 29, 29, IRON[2]); s.rect(18, 31, 29, 31, IRON[2])                                    # rails out
-    for x in range(19, 29, 3):
-        s.rect(x, 28, x + 1, 31, WOOD[1])
-    s.rect(38, 22, 39, 25, (246, 240, 220)); s.put(38, 21, FIRE[3])                                     # a candle (kobolds)
-    s.outline(0.42)
+    seeds = [(4, 27), (9, 19), (13, 9), (21, 3), (30, 3), (37, 9), (41, 18), (44, 27), (10, 28), (38, 28),
+             (25, 8), (16, 3), (34, 14)]
+
+    def top(x):
+        cx = abs(x + 0.5 - 24) / 24
+        return 0.6 + 21.0 * cx ** 1.7 - 1.3 * math.sin(x * 0.61) * (0.4 + cx)
+
+    def bottom(x):
+        cx = abs(x + 0.5 - 24)
+        return 31.5 - max(0.0, cx - 19) * 0.9
+
+    lit = {}
+    for y in range(32):
+        for x in range(48):
+            if not (top(x) <= y + 0.5 <= bottom(x)):
+                continue
+            d = sorted((math.hypot(x + 0.5 - sx, (y + 0.5 - sy) * 1.25), i) for i, (sx, sy) in enumerate(seeds))
+            (d0, i0), (d1, _) = d[0], d[1]
+            sx, sy = seeds[i0]
+            r = max(4.0, d1)
+            v = (_lit((x + 0.5 - sx) / (r * 1.1), (y + 0.5 - sy) / (r * 1.1)) + 0.8) / 1.8
+            hill = (_lit((x + 0.5 - 24) / 26, (y + 0.5 - 22) / 24) + 0.8) / 1.8           # the hill's own light
+            v = 0.55 * v + 0.45 * hill - 0.04
+            if d1 - d0 < 1.1: v = 0.02                                                      # the cracks
+            elif d1 - d0 < 2.0: v -= 0.16
+            if H(x // 2, y // 2, i0) < 0.1: v -= 0.08
+            if y + 0.5 > bottom(x) - 2: v -= 0.12                                           # the foot, in shade
+            lit[(x, y)] = v
+            s.put(x, y, _pick(rock, v))
+    for x in range(48):                                                                     # moss on the ledges
+        for y in range(32):
+            if (x, y) in lit:
+                if moss and H(x, 7) < 0.55:
+                    s.put(x, y, MOSS[2] if H(x, 8) < 0.5 else MOSS[1])
+                    if H(x, 9) < 0.35: s.put(x, y + 1, MOSS[1])
+                break
+    for y in range(13, 32):                                                                 # the dark inside
+        for x in range(18, 30):
+            depth = min(x - 18, 29 - x, y - 13)
+            s.put(x, y, (10, 8, 8) if depth > 2 else (20, 15, 13) if depth > 0 else (32, 24, 20))
+    for y in range(21, 32):                                                                 # rails into the dark
+        t = (y - 21) / 10
+        l, r_ = int(round(21.5 - 2.5 * t)), int(round(26.5 + 2.5 * t))
+        c = IRON[1] if y < 25 else IRON[2]
+        s.put(l, y, c); s.put(r_, y, c)
+        if y % 3 == 1:
+            for x in range(l + 1, r_):
+                s.put(x, y, WOOD[1] if y > 25 else DWOOD[1])
+    for x0 in (15, 30):                                                                     # posts
+        s.rect(x0, 12, x0 + 2, 31, WOOD[2]); s.rect(x0, 12, x0, 31, WOOD[3]); s.rect(x0 + 2, 12, x0 + 2, 31, WOOD[1])
+        for y in (16, 22, 27):
+            s.put(x0 + 1, y, WOOD[1])
+    s.rect(13, 9, 34, 12, WOOD[3]); s.rect(13, 9, 34, 9, WOOD[4]); s.rect(13, 12, 34, 12, WOOD[1])  # the lintel
+    for x in (13, 34):
+        s.rect(x, 10, x, 11, THATCH[3])                                                     # end grain
+    for x in range(14, 34):                                                                 # the overhang's shadow
+        if s.get(x, 8) is not None: s.put(x, 8, rock[0])
+    for k in range(4):                                                                      # braces
+        s.put(18 + k, 13 + k, WOOD[2]); s.put(29 - k, 13 + k, WOOD[2])
+    s.put(27, 13, IRON[2]); s.rect(26, 14, 28, 16, IRON[1]); s.put(27, 15, FIRE[3])         # the lantern
+    s.put(27, 14, FIRE[2]); s.put(26, 15, FIRE[1])
+    s.outline(0.42, skip_bottom=True)
     return s
 
 
@@ -1226,7 +1311,7 @@ PROPS = {"sign": sign, "wantedboard": wantedboard, "forge": forge, "anvil": anvi
          "node_sungrass": herb_sungrass,
          "gravestone": gravestone, "ironfence": ironfence, "fence": fence, "crate": crate, "barrel": barrel,
          "hay": hay, "pumpkin": pumpkin, "cannon": cannon, "scarecrow": scarecrow, "windmill": windmill,
-         "mineentrance": mineentrance, "mast": mast, "plinth": plinth, "plinthempty": plinthempty,
+         "mineentrance": mineentrance, "bmineentrance": lambda: mineentrance(BASALT, moss=False), "mast": mast, "plinth": plinth, "plinthempty": plinthempty,
          "trophyboard": trophyboard}
 
 

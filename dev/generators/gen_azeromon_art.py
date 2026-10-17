@@ -112,9 +112,7 @@ def build_atlas():
         add(name, Image.fromarray(arr, "RGBA"), 0, 0)
     # ... and the ones of them that have their own hand-shaded sprite (Redridge's and the Steppes' trees, Blackrock's
     # ore and herb nodes) are painted over their recolour
-    missing = redraw_props(atlas, index, only=later)
-    if missing:
-        raise SystemExit("props without an atlas slot: %s" % ", ".join(sorted(missing)))
+    later = redraw_props(atlas, index, only=later)
     # the bigger Goldshire (0.27): the Lion's Pride, smithy, cottage, stable and well, cut from the finished house
     # stamps above (appended, so earlier slots never move)
     for name, img in azeromon_buildings.tiles(lambda n: np.array(atlas.crop(_cell_box(index[n])))):
@@ -125,6 +123,13 @@ def build_atlas():
     # the aftermath (0.32): Westfall's field stages, the militia's standard, the harvest bonfire and its flames
     for name, img in azeromon_afterart.tiles():
         add(name, img, 0, 0)
+    # Blackrock's mine mouths in basalt (0.36, the theme's stamp for mineentrance), appended so earlier slots never move
+    for y in range(2):
+        for x in range(3):
+            add("bmineentrance_%d_%d" % (x, y), Image.new("RGBA", (48, 32)), x, y)
+    missing = redraw_props(atlas, index, only=later)
+    if missing:
+        raise SystemExit("props without an atlas slot: %s" % ", ".join(sorted(missing)))
     tga(atlas, "atlas")
     return index
 
@@ -932,8 +937,8 @@ def duskwood_art():
 # canopy tree, troll huts and ruin stones for the Bloodscalp and Skullsplitter camps, Booty Bay's wooden
 # houses on stilts, and a troll totem.
 # ---------------------------------------------------------------------------------------------------------------
-JUNGLE = (0.30, 1.15, 0.92)        # deep jungle green
-JUNGLE_TALL = (0.28, 1.25, 0.98)   # tall grass, lusher still
+JUNGLE = (0.33, 0.95, 0.68)        # deep jungle green (was 0.30, 1.15, 0.92: neon)
+JUNGLE_TALL = (0.31, 1.05, 0.62)   # tall grass, lusher and darker still
 JUNGLE_LEAF = (0.33, 1.10, 0.62)   # canopy leaves
 ROOF_BB = (0.07, 0.90, 0.72)       # Booty Bay: weathered brown planks
 
