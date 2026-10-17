@@ -65,7 +65,7 @@ _PACKS_UNDER = os.path.join(_PARENT, os.path.normcase("DisasterZone_"))
 
 def path_of(key):
     kind, rel = key.split(":", 1)
-    if kind != "dev" and rel.startswith("DisasterZone_") and "/" in rel:
+    if kind != "dev" and rel.lower().startswith("disasterzone_") and "/" in rel:   # (Windows keys are lower case)
         return os.path.join(_PARENT, rel.replace("/", os.sep))
     return os.path.join(DEV if kind == "dev" else ADDON, rel.replace("/", os.sep))
 
