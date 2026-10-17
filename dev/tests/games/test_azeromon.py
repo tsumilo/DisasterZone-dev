@@ -552,6 +552,7 @@ def _fit_all(no_template=False):
     # in the mock, scene +y is screen-LEFT, so creatures only face each other with the facing flipped - the
     # in-game fix (/dz azeromon flip) a player would apply
     c.eval("ns.Azero:Data().flipFacing = true")
+    c.eval("ns.AzeroUI._UseSprites(false)")          # the 3D models (the fallback for creatures without pixel art)
     c.slash("/dz play azeromon")
     w.tick(0.3)
     ids = c.eval_py("return ns.AzeroData.dexOrder")
@@ -616,6 +617,7 @@ def a_model_that_loads_late_is_still_fitted():
     its load event arrives, instead of staying wrong."""
     w, c = game()
     c.eval("ns.Azero:Data().flipFacing = true")
+    c.eval("ns.AzeroUI._UseSprites(false)")
     c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("__MOCK_SLOW_DISPLAY = ns.AzeroData.species.kobling.display")
@@ -632,8 +634,9 @@ def a_model_that_loads_late_is_still_fitted():
 @case
 def the_next_creature_never_inherits_a_death_pose():
     """A foe faints (death animation), the next battle reuses the same frame: the new creature must be idle
-    (and is measured idle), not lying dead."""
+    (and is measured idle), not lying dead. (The 3D model; the pixel beasts' faint: test_azeromon_sprites.)"""
     w, c = game(seed=4)
+    c.eval("ns.AzeroUI._UseSprites(false)")
     c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")

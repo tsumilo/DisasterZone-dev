@@ -151,9 +151,9 @@ def a_species_without_a_skin_glows_instead():
       local plain = UI._Shiny()
       return { plain = plain.glow, hasSkin = ns.AzeroData.shinyDisplay.shredder ~= nil }""")
     assert r == {"plain": False, "hasSkin": False}, r
-    r = c.eval_py("""local sc = ns.AzeroUI._Scene('foe')
-      ns.AzeroUI._ShowFoeShiny('shredder')
-      return { glow = sc.glow, display = sc.display }""")
+    r = c.eval_py("""ns.AzeroUI._ShowFoeShiny('shredder')
+      local s = ns.AzeroUI._Shiny()
+      return { glow = s.glow, display = s.display }""")
     assert r["glow"] is True and r["display"] == 1269, r
     no_errors(w)
 

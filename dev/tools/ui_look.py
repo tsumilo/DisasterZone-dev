@@ -211,18 +211,22 @@ def load(tex):
 
 
 def _palette_blp(path):
-    """A palettised BLP2 with an 8-bit alpha plane after the indices (Azeromon's scenery pages): Pillow takes the
-    alpha from the palette instead, so it is read here. None for any other file."""
+    """A palettised BLP2 with a 1- or 8-bit alpha plane after the indices (Azeromon's beasts / scenery pages): Pillow
+    takes the alpha from the palette instead, so it is read here. None for any other file."""
     import struct
     with open(path, "rb") as f:
         d = f.read()
-    if d[:4] != b"BLP2" or d[8] != 1 or d[9] != 8:
+    if d[:4] != b"BLP2" or d[8] != 1 or d[9] not in (1, 8):
         return None
     w, h = struct.unpack_from("<II", d, 12)
     off = struct.unpack_from("<I", d, 20)[0]
     pal = [struct.unpack_from("<4B", d, 148 + i * 4) for i in range(256)]
     idx = d[off:off + w * h]
-    alpha = d[off + w * h:off + 2 * w * h]
+    if d[9] == 1:       # 1 bit a pixel, low bit first (Azeromon's pixel beasts, gen_azeromon_beasts.py)
+        bits = d[off + w * h:off + w * h + (w * h + 7) // 8]
+        alpha = bytes(255 if (bits[i >> 3] >> (i & 7)) & 1 else 0 for i in range(w * h))
+    else:
+        alpha = d[off + w * h:off + 2 * w * h]
     lut = bytes(v for b, g, r, a in pal for v in (r, g, b))
     rgb = Image.frombytes("P", (w, h), idx)
     rgb.putpalette(lut)
