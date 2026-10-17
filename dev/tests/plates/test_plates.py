@@ -187,6 +187,41 @@ def a_plate_reads_the_unit():
 
 
 @case
+def levels_in_difficulty_colours_and_tagged_mobs_grey():
+    # feedback #50: the level in the game's colours against mine (70: grey at 61 and under, green, yellow within 2,
+    # orange 3-4 above, red 5+); #35: a mob another group tagged gets a grey bar. Both switches on by default.
+    t = Plates("flat")
+    colour = {75: "red", 73: "orange", 72: "yellow", 68: "yellow", 67: "green", 62: "green", 61: "grey", 30: "grey"}
+    for lvl, want in colour.items():
+        assert t.c.eval("local P = ns.Plates; return P.LevelColor(..., 70) == P.DIFF[select(2, ...)]", lvl, want), (lvl, want)
+    # (at 10 the grey line is 4: the game's 5 below and a tenth more)
+    assert t.c.eval("local P = ns.Plates; return P.LevelColor(12, 10) == P.DIFF.yellow and P.LevelColor(5, 10) == P.DIFF.green "
+                    "and P.LevelColor(4, 10) == P.DIFF.grey")
+    t.c.eval("__MOCK.npcs[...].level = 75; ns.Plates.recs[select(2, ...)].dirty = true", t.mob, t.token)
+    t.step(2)
+    assert t.c.eval("local r = ns.Plates.recs[...]; return r.p.lvlCol == ns.Plates.DIFF.red", t.token)
+    assert t.p("tapped") is False
+    # (the mock calls every unit player controlled; a mob is not)
+    t.c.eval("UnitIsTapDenied = function() return true end; UnitPlayerControlled = function() return false end; "
+             "ns.Plates.recs[...].dirty = true", t.token)
+    t.step(2)
+    assert t.p("tapped") is True
+    assert t.c.eval("local r = ns.Plates.recs[...]; return r.p.col == ns.Plates.TAPPED", t.token)
+    t.c.eval("ns.DB:SetSetting('ui.plates.tapped', false); ns.DB:SetSetting('ui.plates.levelColor', false)")
+    t.w.tick(0.1)
+    t.step(2)
+    assert t.p("tapped") is False and t.p("lvlCol") is None
+    # every look draws a tagged mob and a coloured level, the levelling demo too
+    t.c.eval("ns.DB:SetSetting('ui.plates.tapped', true); ns.DB:SetSetting('ui.plates.levelColor', true)")
+    for look in LOOKS:
+        t.c.eval("ns.DB:SetSetting('ui.plates.look', ...)", look)
+        t.w.tick(0.1)
+        t.step(2)
+        t.c.eval("ns.Plates:TryIt(..., nil, 'field'); ns.Plates:DrawDemo(1.3); ns.Plates:StopDemo()", look)
+    t.w.assert_no_errors()
+
+
+@case
 def the_health_bar_slides_and_the_hit_lingers():
     t = Plates("flat")
     t.w.tick(0.2)

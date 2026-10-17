@@ -662,17 +662,24 @@ def the_threat_table_reads_the_game():
     assert s["hot"] is True
     threat(r, {"Victhar": (True, 3, 100, 100, 200000), "Gina": (False, 2, 90, 99, 198000)})
     assert r.cl.eval("return #__MOCK.sounds") == sounds + 1          # one sound per crossing
-    # while I tank: the others by their own pull point
+    # while I tank: me on top (feedback #44: I was left out of my own tank view), the others by their own pull point
     s = threat(r, {"Gina": (True, 3, 100, 100, 200000), "Victhar": (False, 1, 70, 77, 154000),
                    "Hunt": (False, 1, 80, 104, 208000)})
-    assert s["tv"] is True and s["names"] == ["Hunt", "Victhar"], s
+    assert s["tv"] is True and s["names"] == ["Gina", "Hunt", "Victhar"], s
     assert r.cl.eval("return _G.DisasterZoneMeters:IsShown() and ns.MeterPanels._Panel('threat') ~= nil") is True
+    r.cl.eval("ns.MeterPanels:Draw()")
+    assert r.cl.eval("return ns.MeterPanels._Panel('threat').totV:GetText()") == "tanking"
     # someone else holding aggro while I'm in tank view: on top, the 100% the rest are measured against, not red
-    # (in-game report 2026-10-11: it was last, found only by scrolling)
+    # (in-game report 2026-10-11: it was last, found only by scrolling); I'm still in the list
     r.cl.eval("ns.DB:SetSetting('meters.tankView', 'always')")
     s = threat(r, {"Victhar": (True, 3, 100, 100, 200000), "Gina": (False, 2, 60, 66, 132000),
                    "Hunt": (False, 1, 80, 104, 208000)})
-    assert s["tv"] is True and s["names"] == ["Victhar", "Hunt"], s
+    assert s["tv"] is True and s["names"] == ["Victhar", "Hunt", "Gina"], s
+    # (not a tank: no "not tanking"; a tank who lost it: it says so)
+    r.cl.eval("ns.MeterPanels:Draw()")
+    assert "not tanking" not in (r.cl.eval("return ns.MeterPanels._Panel('threat').totV:GetText()") or "")
+    r.cl.eval("ns.Threat.AmITank = function() return true end; ns.MeterPanels:Draw()")
+    assert "not tanking" in r.cl.eval("return ns.MeterPanels._Panel('threat').totV:GetText()")
     r.cl.eval("ns.MeterPanels:Draw()")
     top = r.cl.eval_py("""
         local pf = ns.MeterPanels._Panel('threat')

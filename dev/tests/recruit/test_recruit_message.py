@@ -99,6 +99,52 @@ def the_message_is_ours():
     w.assert_no_errors()
 
 
+def msgs(cl):
+    return [(m["name"], m["cur"], m["n"]) for m in lst(cl.eval_py("return ns.RecruitMessage:GetMessages()"))]
+
+
+@case
+def saved_messages_swap_and_keep_their_parts():
+    # feedback #51: several messages kept, one in use: new (empty or a copy), swap, rename, delete; the one there was
+    # before is the first; the places are the guild's, not a message's
+    w, c = guild()
+    gina = c["Gina"]
+    say(gina, "raiders wanted")
+    assert msgs(gina) == [("Message 1", True, 1)]
+    ok, b = gina.eval("return ns.RecruitMessage:NewMessage('Levellers')")
+    assert ok is True
+    assert msgs(gina) == [("Message 1", False, 1), ("Levellers", True, 0)]
+    assert compose(gina)[0] is None                                          # a new message starts empty
+    say(gina, "levellers welcome")
+    places_before = places(gina)
+    gina.eval("ns.RecruitMessage:Use(1)")
+    assert compose(gina)[0] == "raiders wanted"
+    assert places(gina) == places_before
+    gina.eval("ns.RecruitMessage:SetSep(' - '); ns.RecruitMessage:NewMessage('Raiders 2', true)")
+    assert compose(gina)[0] == "raiders wanted"                              # a copy: same parts, same joiner
+    say(gina, "SSC")
+    assert compose(gina)[0] == "raiders wanted - SSC"
+    gina.eval("ns.RecruitMessage:Use(1)")
+    assert compose(gina)[0] == "raiders wanted"                              # (the copy's parts are its own)
+    assert gina.eval("return ns.RecruitMessage:RenameMessage(1, '  Raiders  ')") is True
+    assert gina.eval("return (ns.RecruitMessage:RenameMessage(1, '   '))") is False
+    # deleting the one in use puts the next in use; the last one can't go
+    assert gina.eval("return ns.RecruitMessage:DeleteMessage(1)") is True
+    assert msgs(gina) == [("Levellers", True, 1), ("Raiders 2", False, 2)]
+    assert compose(gina)[0] == "levellers welcome"
+    gina.eval("ns.RecruitMessage:DeleteMessage(3)")
+    assert gina.eval("return (ns.RecruitMessage:DeleteMessage(2))") is False
+    for i in range(7):
+        gina.eval("ns.RecruitMessage:NewMessage(...)", "m%d" % i)
+    assert len(msgs(gina)) == 8
+    assert gina.eval("return (ns.RecruitMessage:NewMessage('one more'))") is False
+    # the Message view: the picker names the one in use
+    gina.eval("ns.RecruitUI:Open(); ns.RecruitUI:SetView('message')")
+    w.tick(0.2)
+    assert gina.eval("return ns.RecruitUI:OpenMessageMenu() == nil") is True
+    w.assert_no_errors()
+
+
 @case
 def the_helpers_fill_in_the_teams():
     w, c = guild()

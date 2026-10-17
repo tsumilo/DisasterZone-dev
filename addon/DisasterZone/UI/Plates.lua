@@ -63,8 +63,37 @@ local function C(r, g, b) return { r / 255, g / 255, b / 255 } end
 local TH = { mine = C(72, 189, 84), slip = C(255, 150, 36), lost = C(232, 40, 36), tank = C(66, 156, 242) }
 local GLOW = { near = C(255, 150, 30), aggro = C(255, 34, 24) }
 P.TH, P.GLOW = TH, GLOW
-local GAME = { hostile = { 1, 0, 0 }, neutral = { 1, 1, 0 }, friend = { 0, 1, 0 } }
+local GAME = { hostile = { 1, 0, 0 }, neutral = { 1, 1, 0 }, friend = { 0, 1, 0 }, tapped = { 0.5, 0.5, 0.5 } }
 local NAMES = { hostile = C(255, 104, 86), neutral = C(255, 220, 90), friend = C(110, 220, 120) }
+local TAPPED = C(122, 122, 128)
+P.TAPPED = TAPPED
+
+-- A mob's level against mine in the game's colours: grey (no experience), green, yellow, orange, red (5 or more
+-- above). The game's own GetCreatureDifficultyColor when the client has it; the grey line from GetQuestGreenRange.
+local DIFF = { red = C(255, 26, 26), orange = C(255, 128, 64), yellow = C(255, 209, 0), green = C(64, 191, 64),
+               grey = C(128, 128, 128) }
+P.DIFF = DIFF
+local function GreyLevel(me)
+    if GetQuestGreenRange then
+        local ok, range = pcall(GetQuestGreenRange)
+        if ok and type(range) == "number" then return me - range - 1 end
+    end
+    -- (the game's table: 5 below at low levels, more as you grow)
+    if me <= 5 then return 0 end
+    if me <= 39 then return me - 5 - floor(me / 10) end
+    if me <= 59 then return me - 1 - floor(me / 5) end
+    return me - 9
+end
+function P.LevelColor(lvl, me)
+    me = me or (UnitLevel and UnitLevel("player")) or 0
+    if type(lvl) ~= "number" or me <= 0 then return nil end
+    local d = lvl - me
+    if d >= 5 then return DIFF.red end
+    if d >= 3 then return DIFF.orange end
+    if d >= -2 then return DIFF.yellow end
+    if lvl > GreyLevel(me) then return DIFF.green end
+    return DIFF.grey
+end
 
 -- Finishers that open at a health line: the tick, and the icon beside the plate once a mob is past it.
 local EXEC = { PALADIN = { 0.2, "Interface\\Icons\\Ability_ThunderClap", { 24275, 24274, 24239, 27180 } },
@@ -169,6 +198,11 @@ function P:Read(u, p, lookKey)
     else col = ns.Look and ns.Look[kind == "friend" and "FRIEND" or kind == "hostile" and "HOSTILE" or "NEUTRAL"] or GAME[kind] end
     p.nameCol = class and col or NAMES[kind]
     p.nameOnly = friend and (not isPlayer or (Opt("friendly", "name") == "name" and p.hp >= 0.999)) or false
+    -- the level in the game's difficulty colours (feedback #50)
+    p.lvlCol = (type(p.lvl) == "number" and not friend and Opt("levelColor", true)) and P.LevelColor(p.lvl) or nil
+    -- someone outside my group hit it first: no loot or experience for me, a grey bar like the game's (feedback #35)
+    p.tapped = not friend and not isPlayer and Opt("tapped", true) and UnitIsTapDenied
+        and not (UnitPlayerControlled and UnitPlayerControlled(u)) and UnitIsTapDenied(u) or false
     -- threat
     p.glow, p.threat = nil, nil
     local mode = Opt("threat", "role")
@@ -182,6 +216,7 @@ function P:Read(u, p, lookKey)
             else p.glow = GLOW[th] end
         end
     end
+    if p.tapped then col = classic and GAME.tapped or TAPPED end
     p.col = col
     -- the cast
     local cast = p.castInfo
@@ -533,8 +568,22 @@ local DEMO_MOMENTS = {
 }
 P.DEMO_SECONDS = 15
 
+-- The levelling scene (Settings > Nameplates, Try it): a level 30 in Darkshore, the level colours and a mob
+-- somebody else tagged.
+local DEMO_LEVEL = 30
+local DEMO_FIELD = {
+    { key = "grey", name = "Moonkin", lvl = 22, x = -300, y = -60, hp = 1 },
+    { key = "green", name = "Blackwood Ursa", lvl = 26, x = -120, y = -150, hp = 0.74 },
+    { key = "yellow", name = "Thistlefur Shaman", lvl = 30, x = 70, y = 0, hp = 0.48, target = true },
+    { key = "orange", name = "Shadowfang Moonwalker", lvl = 33, x = 250, y = -140, hp = 1 },
+    { key = "red", name = "Lady Moongazer", lvl = 36, x = 360, y = -20, hp = 1 },
+    { key = "tapped", name = "Foulweald Totemic", lvl = 29, x = -150, y = 30, hp = 0.55, tapped = true },
+}
+P.DEMO_FIELD, P.DEMO_LEVEL = DEMO_FIELD, DEMO_LEVEL
+
 -- A made-up plate: mob m in moment `mom` (1-3) at clock t (s), for my role.
 function P:DemoPlate(m, mom, t, role, lookKey)
+    if m.lvl then return self:DemoFieldPlate(m, t, lookKey) end
     local d = DEMO_MOMENTS[mom][m.key]
     local p = { name = m.name, lvl = "??", boss = true, mark = m.mark, hp = d[1], combat = true, auras = {},
                 target = m.key == "blindeye", friend = false }
@@ -556,6 +605,20 @@ function P:DemoPlate(m, mom, t, role, lookKey)
         p.auras[#p.auras + 1] = { icon = a[1], dur = a[2], exp = Now() + left, stacks = a[4], mine = a[5] or false }
     end
     p.exec, p.execIcon = 0.2, EXEC.PALADIN[2]
+    return p
+end
+
+-- A plate of the levelling scene: its level against a level 30, grey when tagged by someone else.
+function P:DemoFieldPlate(m, t, lookKey)
+    local p = { name = m.name, lvl = m.lvl, boss = false, hp = m.hp, combat = m.hp < 1, auras = {},
+                target = m.target or false, friend = false }
+    p.dim = not p.target
+    if p.target then p.hp = max(0.05, p.hp - 0.04 * floor((t % 5) / 1.25)) end
+    p.col = lookKey == "classic" and GAME.hostile or (ns.Look and ns.Look.HOSTILE) or GAME.hostile
+    p.nameCol = NAMES.hostile
+    p.lvlCol = Opt("levelColor", true) and P.LevelColor(m.lvl, DEMO_LEVEL) or nil
+    p.tapped = m.tapped and Opt("tapped", true) or false
+    if p.tapped then p.col = lookKey == "classic" and GAME.tapped or TAPPED end
     return p
 end
 
@@ -588,7 +651,7 @@ function P:DrawDemo(t)
     local mom = min(3, floor((t % self.DEMO_SECONDS) / 5) + 1)
     local now = Now()
     local plates = {}
-    for i, m in ipairs(DEMO_MOBS) do
+    for i, m in ipairs(demo.scene == "field" and DEMO_FIELD or DEMO_MOBS) do
         local p = self:DemoPlate(m, mom, t, role, key)
         demo.anim = demo.anim or {}
         demo.anim[i] = demo.anim[i] or {}
@@ -625,11 +688,16 @@ function P:DrawDemo(t)
 end
 
 -- Try it (Settings; also while the plates are on Blizzard: the look you point at, else Halo).
-function P:TryIt(lookKey, loop)
+-- scene: nil = the Maulgar council, "field" = levelling (level colours, a tagged mob).
+function P:TryIt(lookKey, loop, scene)
     local f = DemoFrame()
     local s = (UIParent:GetHeight() or 768) / 768
     f:SetScale(max(0.5, s) * max(0.5, min(2, tonumber(Opt("size", 1)) or 1)))
-    demo.t, demo.look, demo.loop = 0, lookKey, loop
+    if demo.scene ~= scene then
+        for i, h in pairs(demo.hosts) do Pen:Free(h); demo.hosts[i] = nil end
+        demo.anim = nil
+    end
+    demo.t, demo.look, demo.loop, demo.scene = 0, lookKey, loop, scene
     f:Show()
     f:SetScript("OnUpdate", DemoUpdate)
     self:DrawDemo(0)

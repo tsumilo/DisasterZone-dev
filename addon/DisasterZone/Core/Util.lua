@@ -98,6 +98,39 @@ function Util.TypedPlayerKey(text, known)
     return Util.CapitalizeName(name) .. "-" .. realm
 end
 
+-- Spell icons for our own pages (combat text, meters, My Log): the game's, never its placeholder. Interface\Icons\Temp
+-- (the laughing face) is what this client gives some enchant procs (Fiery Weapon, Lifestealing; feedback #39): those
+-- get one of their own, others none. Returns the icon or nil, and true when the game's was the placeholder.
+local TEMP_ICON = 136235
+Util.TEMP_ICON = TEMP_ICON
+local I = "Interface\\Icons\\"
+Util.PROC_ICONS = { [13897] = I .. "Spell_Fire_FlameShock",       -- Fiery Weapon
+                    [20004] = I .. "Spell_Shadow_LifeDrain02",     -- Life Steal (Lifestealing)
+                    [20005] = I .. "Spell_Frost_FrostArmor" }      -- Chilled (Icy Chill)
+function Util.IsPlaceholderIcon(tex)
+    return tex == TEMP_ICON or (type(tex) == "string" and tex:lower():match("icons[\\/]temp$") ~= nil) or false
+end
+function Util.SpellIcon(id, name)
+    id = tonumber(id)
+    if id and Util.PROC_ICONS[id] then return Util.PROC_ICONS[id] end
+    local tex
+    if id and id ~= 0 and GetSpellTexture then tex = GetSpellTexture(id) end
+    if not tex and type(name) == "string" and GetSpellTexture then tex = GetSpellTexture(name) end
+    if Util.IsPlaceholderIcon(tex) then return nil, true end
+    return tex
+end
+-- Environmental damage, one icon per kind (the combat log's type; it was one flame for every kind).
+Util.ENV_ICONS = { FALLING = I .. "Spell_Magic_FeatherFall", DROWNING = I .. "Spell_Shadow_DemonBreath",
+                   FATIGUE = I .. "Spell_Nature_Sleep", FIRE = I .. "Spell_Fire_Fire", LAVA = I .. "Spell_Fire_Volcano",
+                   SLIME = I .. "Spell_Nature_Acid_01" }
+function Util.EnvIcon(kind)
+    return Util.ENV_ICONS[type(kind) == "string" and kind:upper() or ""] or Util.ENV_ICONS.FIRE
+end
+-- My main hand's icon (a proc without a picture of its own; melee), else a sword.
+function Util.WeaponIcon()
+    return (GetInventoryItemTexture and GetInventoryItemTexture("player", 16)) or (I .. "INV_Sword_04")
+end
+
 -- Strips "-<own realm>"; foreign realms are kept. anyRealm (the games' behaviour): strips every realm.
 function Util.ShortName(key, anyRealm)
     if type(key) ~= "string" then return "" end

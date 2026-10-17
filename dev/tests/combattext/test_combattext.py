@@ -168,6 +168,36 @@ def my_hit_waits_for_the_merge_then_shows_with_its_crit_school_and_icon():
 
 
 @case
+def the_games_placeholder_icon_never_shows():
+    # feedback #39: Fiery Weapon's own icon in this client is the game's placeholder (Interface\Icons\Temp): it gets one
+    # of its own; another proc with the placeholder gets my weapon's; falling damage its own, not a sword
+    p = Pull("flat")
+    p.c.eval("local gst = GetSpellTexture; GetSpellTexture = function(x) if x == 13897 or x == 99001 then return 136235 end "
+             "return gst(x) end; GetInventoryItemTexture = function(_, slot) if slot == 16 then return 'weapon.blp' end end")
+    p.spell(13897, "Fiery Weapon", 40, school=4)
+    p.spell(99001, "Odd Proc", 30, school=4)
+    p.tick(0.3)
+    icons = {e["spell"]: e["icon"] for e in p.log() if e["k"] == "out"}
+    assert icons["Fiery Weapon"] == "Interface\\Icons\\Spell_Fire_FlameShock", icons
+    assert icons["Odd Proc"] == "weapon.blp", icons
+    p.ev("ENVIRONMENTAL_DAMAGE", "", "", 0, p.me, "Alice", ME_FLAGS, "FALLING", 812, -1, 1, None, None, None,
+         False, False, False, False)
+    p.tick(0.2)
+    fall = [e for e in p.log() if e["k"] == "taken"]
+    assert fall and fall[-1]["icon"] == "Interface\\Icons\\Spell_Magic_FeatherFall", fall
+    # the meters and My Log: the same rule
+    assert p.c.eval("return ns.MeterWindow.K.SpellIcon(13897)") == "Interface\\Icons\\Spell_Fire_FlameShock"
+    assert p.c.eval("return ns.MeterWindow.K.SpellIcon('eLava')") == "Interface\\Icons\\Spell_Fire_Volcano"
+    assert p.c.eval("return ns.MeterWindow.K.SpellIcon(99001, { wi = 'mh.blp' })") == "mh.blp"
+    for look in LOOKS:                               # (every look draws a merged melee hit with my weapon)
+        p.c.eval("ns.DB:SetSetting('ui.sct.look', ...)", look)
+        p.swing(900)
+        p.swing(400)
+        p.tick(0.4)
+    p.w.assert_no_errors()
+
+
+@case
 def windfurys_extra_swing_joins_the_hit_before_it_and_counts_up():
     p = Pull("flat")
     p.swing(1190)

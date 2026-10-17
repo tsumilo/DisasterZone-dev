@@ -116,7 +116,7 @@ local function Level(c, p, x, y, align, size, col, skull)
     end
     if not p.lvl then return 0 end
     local t = tostring(p.lvl)
-    c:Text(t, x, y, "ArialN", size, col, 1, align)
+    c:Text(t, x, y, "ArialN", size, p.lvlCol or col, 1, align)   -- (the game's difficulty colour, feedback #50)
     return c:W("ArialN", size, t, 1)
 end
 
@@ -272,7 +272,8 @@ function HALO.Draw(c, p)
     local ny = y0 - (p.target and 12 or 9)
     local nsize = Fit(c, "Friz", 10.5, p.name, w - 14)
     c:Text(p.name, 0, ny, "Friz", nsize, RINGC, 1)
-    if p.lvl == "??" then c:Img(SKULL, c:W("Friz", nsize, p.name, 1) / 2 + 9.5, ny, 11, 11) end
+    if p.lvl == "??" then c:Img(SKULL, c:W("Friz", nsize, p.name, 1) / 2 + 9.5, ny, 11, 11)
+    elseif p.lvlCol then c:Text(tostring(p.lvl), c:W("Friz", nsize, p.name, 1) / 2 + 5, ny + 0.5, "ArialN", 9.5, p.lvlCol, 1, "LEFT") end
     if p.mark then
         local cx = x0 - 3
         c:Disc(cx, 0, 11, C(8, 8, 11), 0.96)
@@ -415,6 +416,7 @@ local function SlateParts(p)
     local function add(q) n = n + 1; parts[n] = q end
     if p.mark then add({ mark = p.mark, w = 13 }) end
     if p.target then add({ t = "»", size = size, col = WHITE }) end
+    if p.lvlCol then add({ t = tostring(p.lvl), font = "ArialN", size = 10, col = p.lvlCol }) end
     add({ t = p.name, size = size, col = p.nameCol, name = true })
     if bar then add({ t = Pct(p), font = "ArialN", size = 10, col = p.execReady and GOLD or SUBT, a = p.execReady and 1 or 0.62 }) end
     if p.execReady then add({ icon = p.execIcon, w = 11 }) end

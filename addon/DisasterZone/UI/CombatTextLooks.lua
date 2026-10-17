@@ -321,7 +321,7 @@ HALO.multi = function(st, ev)
         local y = HIT.y - 6 - 44 * easeOut(s.age / 1.4)
         local sc = 1 + 0.18 * g.pulse * g.pulse
         c.a = galpha(s)
-        c:R(); c:RI(g.icon or ev.icon or "Interface\\Icons\\Spell_Nature_Windfury", 18, "round")
+        c:R(); c:RI(g.icon or ev.icon or ns.Util.WeaponIcon(), 18, "round")
         c:RT(fmt(g.shown), "Friz", floor(20 * sc + 0.5), W, 1, nil, W, 0.45)
         local w = c:RD(x, y, 6)
         if g.n > 1 then
@@ -619,7 +619,7 @@ SIGIL.multi = function(st, ev)
         c.a = S.a * galpha(s)
         c:Translate(x + S.dx, HIT.y - up + S.dy)
         c:Scale(S.sc)
-        c:R(); c:RI(g.icon or ev.icon or "Interface\\Icons\\Spell_Nature_Windfury", 16, "framed")
+        c:R(); c:RI(g.icon or ev.icon or ns.Util.WeaponIcon(), 16, "framed")
         c:RT(fmt(g.shown), "Friz", 22, W, 2)
         local w = c:RD(0, 0, 6)
         if g.n > 1 then
@@ -965,7 +965,7 @@ GILD.tick = function(st, ev)
         local nw = c:W("Friz", 20, str, 2)
         local w = 18 + 6 + nw + (g.n > 1 and 30 or 0)
         local x = lx - w / 2
-        c:Icon(g.icon or ev.icon or "Interface\\Icons\\Spell_Nature_Windfury", x + 9, y, 18, "bezel")
+        c:Icon(g.icon or ev.icon or ns.Util.WeaponIcon(), x + 9, y, 18, "bezel")   -- (melee: my weapon, feedback #39)
         x = x + 24
         c:GText(str, x + nw / 2, y + 1, 20, pal, "Friz", "CENTER", nil, 2)
         x = x + nw

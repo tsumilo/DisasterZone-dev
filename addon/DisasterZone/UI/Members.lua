@@ -633,7 +633,26 @@ local function rosterRows()
     table.sort(without, byOnlineThenName)
     if #without > 0 then
         rows[#rows + 1] = { kind = "sep", text = "Without DisasterZone" }
-        for _, d in ipairs(without) do rows[#rows + 1] = d end
+        -- (alts an officer linked sit under their main, as above: feedback #49)
+        local here, under = {}, {}
+        for _, d in ipairs(without) do here[d.key] = true end
+        for _, d in ipairs(without) do
+            local m = not flat and prof:GetMain(d.key)
+            if m and m ~= d.key and here[m] then
+                under[m] = under[m] or {}
+                under[m][#under[m] + 1] = d
+                d.altOf = m
+            end
+        end
+        for _, d in ipairs(without) do
+            if not d.altOf then
+                rows[#rows + 1] = d
+                for _, a in ipairs(under[d.key] or {}) do
+                    a.alt = true
+                    rows[#rows + 1] = a
+                end
+            end
+        end
     end
     return rows
 end
@@ -797,6 +816,47 @@ local function mainMenu(owner)
     end)
 end
 
+-- Feedback #49: an officer sets the main of a member without DisasterZone (who can't pick their own): this one is
+-- the main, an alt of someone, or another member without the addon becomes their alt.
+local function askName(title, text, onName)
+    ns.Popup:Prompt({ title = title, text = text, maxLetters = 48, trim = true, ok = "Save",
+        validate = function(v)
+            if v == "" then return false end
+            if not (G() and G():IsInGuild(ns.Util.NormalizeName(v), true)) then return "not in the guild" end
+            return true
+        end,
+        onAccept = function(v) onName(ns.Util.NormalizeName(v)) end })
+end
+
+local function staffTry(ok, err)
+    if not ok and err then ns:Print("%s", tostring(err)) end
+end
+
+local function staffMainMenu(owner, key)
+    local short = ns.Util.ShortName(key)
+    local main = P():GetMain(key)
+    ns.UI:ContextMenu(owner, function(root)
+        root:CreateTitle(short .. "'s main character")
+        root:CreateRadio(short .. " is the main", function() return P():GetMain(key) == key end,
+            function() staffTry(P():SetMainFor(key, nil)) end)
+        root:CreateRadio(main ~= key and ("Alt of " .. ns.Util.ShortName(main)) or "Alt of...",
+            function() return P():GetMain(key) ~= key end, function()
+                askName(short .. " is an alt of", "Their main character's name (in the guild).",
+                    function(k) staffTry(P():SetMainFor(key, k)) end)
+            end)
+        if main == key then
+            root:CreateDivider()
+            root:CreateButton("+ Add an alt...", function()
+                askName("An alt of " .. short, "The alt's name: a member who doesn't run DisasterZone either.",
+                    function(k) staffTry(P():SetMainFor(k, key)) end)
+            end)
+        end
+        root:CreateDivider()
+        local note = root:CreateButton(S:Wrap("SUB", "Members with DisasterZone pick their own"), function() end)
+        note:SetEnabled(false)
+    end)
+end
+
 -- In my raid or party (a "Name-Realm" key; same-realm names also by the short name).
 local function inMyGroup(key)
     if not (UnitInRaid and UnitInParty) then return false end
@@ -884,7 +944,10 @@ local function detailWidgets(row)
     end)
     w.whisper:SetPoint("RIGHT", 0, 0)
     ns.UI:AttachTooltip(w.whisper, "Whisper", "Opens a message with the recipe linked.", { anchor = "ANCHOR_TOP" })
-    w.mainBtn = ns.UI:CreateSleekButton(row, "Change", ROW_BTN_W, ROW_BTN_H, function(self) mainMenu(self) end)
+    w.mainBtn = ns.UI:CreateSleekButton(row, "Change", ROW_BTN_W, ROW_BTN_H, function(self)
+        local d = self:GetParent().__cdlData
+        if d and d.staffFor then staffMainMenu(self, d.staffFor) else mainMenu(self) end
+    end)
     w.mainBtn:SetPoint("RIGHT", 0, 0)
     -- staff, while the raid runs: a lock icon that lets this player change their main (the tooltip says so)
     w.unlockBtn = ns.UI:CreateTipIconButton(row, ROW_BTN_H, ns.UI.ICON.lock, "Let them change their main", nil,
@@ -1094,7 +1157,7 @@ local function initDetailRow(row, d)
         placeText(w, "body", 0, 0)
         w.text:SetTextColor(S:Color("SUB"))
         w.text:SetText("Main character")
-        w.value:SetText(d.main and ns.UI:ColoredName(d.main) or S:Wrap("DIM", "not picked"))
+        w.value:SetText(d.mainText or (d.main and ns.UI:ColoredName(d.main)) or S:Wrap("DIM", "not picked"))
     else
         w.notice:SetNotice("info", d.text)
         -- (wrapped to the row's width now: a row from the pool may not have been laid out at this width yet)
@@ -1133,6 +1196,14 @@ local function characterRows(key)
         elseif ns.Util.IsMe(key) then
             rows[#rows + 1] = { kind = "note", text = "Alts: log in once on each of your other characters in the guild. "
                 .. "They become one player: your highest level character is the main (pick another here), the rest alts." }
+        end
+    elseif P():CanSetMainFor(key) then
+        -- (feedback #49: a member without DisasterZone can't pick their main; an officer sets it)
+        rows[#rows + 1] = { kind = "main", canChange = true, staffFor = key, main = main,
+                            mainText = main == key and (ns.UI:ColoredName(key) .. S:Wrap("SUB", "  this one")) or nil }
+        if #others == 0 then
+            rows[#rows + 1] = { kind = "note", text = ns.Util.ShortName(key) .. " doesn't run DisasterZone, so they "
+                .. "can't pick their main. Officers can: Change sets their main or adds their alts." }
         end
     elseif #others == 0 then
         rows[#rows + 1] = { kind = "note", text = ns.Util.ShortName(key) .. " has no other characters linked to this one." }

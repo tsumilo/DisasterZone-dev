@@ -213,6 +213,46 @@ def my_own_record_wins_over_a_forged_one():
 
 
 @case
+def officers_set_mains_for_members_without_the_addon():
+    # feedback #49: Dora and Eli never run DisasterZone, so the GM links Eli as Dora's alt; the whole guild (a late
+    # login too) sees it; a member can't, nor for someone who runs the addon; once Eli installs it, Eli's own choice
+    w, g, a, b = trio()
+    dora, _ = Client(w, "Dora", class_file="PRIEST", guild_rank=3), Client(w, "Eli", class_file="PRIEST", guild_rank=3)
+    for cl in (g, a, b):
+        cl.fire("GUILD_ROSTER_UPDATE")
+    w.tick(5)
+    main = lambda cl, n: cl.eval("return ns.Professions:GetMain(...)", K(n))
+    assert g.eval("return (ns.Professions:CanSetMainFor(...))", K("Eli")) is True
+    assert a.eval("return (ns.Professions:CanSetMainFor(...))", K("Eli")) is False                # (a member)
+    w.tick(SYNC)
+    ok, why = g.eval("return ns.Professions:CanSetMainFor(...)", K("Alfa"))
+    assert ok is False and "runs DisasterZone" in why, why
+    assert g.eval("return ns.Professions:SetMainFor(...)", K("Eli"), K("Dora")) is True
+    w.tick(10)
+    for cl in (g, a, b):
+        assert main(cl, "Eli") == K("Dora"), cl.name
+        assert member(cl, "Eli") is None                     # (a link only: no professions to show)
+        assert cl.eval("return ns.Professions:HasData(...)", K("Eli")) is False
+    assert sorted(g.eval_py("return ns.Professions:GetOtherCharacters(...)", K("Dora")) or []) == [K("Eli")]
+    cleo = join(w, "Cleo")
+    w.tick(SYNC + 120)
+    assert main(cleo, "Eli") == K("Dora")
+    # Dora becomes an alt of Eli: no alt of an alt
+    assert g.eval("return ns.Professions:SetMainFor(...)", K("Eli"), None) is True
+    assert g.eval("return ns.Professions:SetMainFor(...)", K("Dora"), K("Eli")) is True
+    w.tick(10)
+    assert main(a, "Dora") == K("Eli") and main(a, "Eli") == K("Eli")
+    # Dora installs DisasterZone: her own client wins, and an officer can't change it any more
+    dora.load_addon()
+    teach_names(dora)
+    set_skills(dora, [])
+    w.tick(SYNC + 120)
+    assert main(a, "Dora") == K("Dora")
+    assert g.eval("return (ns.Professions:CanSetMainFor(...))", K("Dora")) is False
+    w.assert_no_errors()
+
+
+@case
 def malformed_messages_are_ignored():
     w, g, a, b = trio()
     set_skills(a, [("Alchemy", 375, 375)])

@@ -433,7 +433,7 @@ end
 function H.CreateAbout(parent)
     local c = UI:CreateCard(parent, { tone = "inset", title = "ABOUT", titleStyle = "caps", width = SIDE_W, height = 76 })
     c.lines = {}
-    for i = 1, 3 do
+    for i = 1, 4 do
         local l = UI:Text(c.body, "small", "SUB")
         l:SetPoint("TOPLEFT", 0, -(i - 1) * 17)
         local r = UI:Text(c.body, "small", "TEXT", { justify = "RIGHT" })
@@ -452,10 +452,18 @@ function H.FillAbout(c, r)
         { "Level", tostring(live.lv or r.lv or "?") .. (r.jl and S:Wrap("DIM", "  " .. r.jl .. " when joined") or "") },
         { "Met", (H.SRC[r.src] or "") .. (r.at and (" · " .. date("%d %b", r.at)) or "") },
     }
-    for i, x in ipairs(rows) do
-        c.lines[i][1]:SetText(x[1])
-        c.lines[i][2]:SetText(x[2])
+    -- (the characters this record was on before: Move to another character)
+    if r.ak and #r.ak > 0 then
+        local names = {}
+        for _, k in ipairs(r.ak) do names[#names + 1] = Name(k) end
+        rows[#rows + 1] = { "Also", tconcat(names, S:Wrap("SUB", ", ")) }
     end
+    for i, line in ipairs(c.lines) do
+        local x = rows[i]
+        line[1]:SetText(x and x[1] or "")
+        line[2]:SetText(x and x[2] or "")
+    end
+    c:SetHeight(76 + (#rows - 3) * 17)
 end
 
 function H.CreateSettle(parent)
@@ -789,6 +797,7 @@ end
 ---------------------------------------------------------------------------
 
 local MSG_LW = 450
+local MSG_PICK_H = 36             -- (the saved messages' picker over the parts)
 local ROW_H = 30
 local CHIP_GAP = 6
 
@@ -1068,15 +1077,84 @@ function H.PostNow()
     elseif skipped and #skipped > 0 then ns:Print("Not posted: %s", table.concat(skipped, "; ")) end
 end
 
+-- Saved messages (feedback #51): the one in use on the picker, the others a click away; New / Copy / Rename / Delete.
+function H.NameMessage(title, default, onName)
+    ns.Popup:Prompt({ title = title, text = "A name to tell it apart (\"Raiders\", \"Levellers\", \"Weekend pugs\").",
+        default = default or "", maxLetters = M().MAX_NAME, trim = true, ok = "Save",
+        validate = function(v) return v ~= "" end, onAccept = function(v) onName(v) end })
+end
+
+function H.NewMessage(copy)
+    local _, name = M():Current()
+    H.NameMessage(copy and "Copy of this message" or "New message", copy and (name .. " 2"):sub(1, M().MAX_NAME) or "",
+        function(v) H.Try(M():NewMessage(v, copy)) end)
+end
+
+function H.MessagesMenu(root)
+    root:CreateTitle("Saved messages")
+    local list = M():GetMessages()
+    for _, m in ipairs(list) do
+        local b = root:CreateButton((m.cur and S:Wrap("GOLD", "* ") or "   ") .. m.name, function() H.Try(M():Use(m.id)) end)
+        if b and b.SetTitleAndTextTooltip and m.text ~= "" then b:SetTitleAndTextTooltip(m.name, M():Render(m.text)) end
+    end
+    if #list < M().MAX_MESSAGES then
+        root:CreateDivider()
+        root:CreateButton("+ New message", function() H.NewMessage(false) end)
+        root:CreateButton("+ Copy of this one", function() H.NewMessage(true) end)
+    end
+end
+
+function H.MessageMoreMenu(owner)
+    local id, name = M():Current()
+    local n = #M():GetMessages()
+    UI:ContextMenu(owner, function(root)
+        root:CreateTitle(name)
+        root:CreateButton("Rename...", function()
+            H.NameMessage("Rename message", name, function(v) H.Try(M():RenameMessage(id, v)) end)
+        end)
+        if n < M().MAX_MESSAGES then
+            root:CreateButton("New message...", function() H.NewMessage(false) end)
+            root:CreateButton("Copy of this one...", function() H.NewMessage(true) end)
+        end
+        if n > 1 then
+            root:CreateDivider()
+            root:CreateButton(UI:AtlasIconText(UI.ICON.trash, 14) .. "  Delete", function()
+                ns.Popup:Confirm({ title = "Delete " .. name .. "?", text = "Its parts go; your other messages stay.",
+                    ok = "Delete", danger = true, onAccept = function() H.Try(M():DeleteMessage(id)) end })
+            end)
+        end
+    end)
+end
+
+-- The picked person's ··· menu, open.
+function RU:OpenPersonMenu()
+    local b = view and view.banner
+    local more = b and b.tools and b.tools[1]
+    if more and more:IsVisible() then more:Click() end
+end
+
+-- The saved messages' list, open (the Message view showing).
+function RU:OpenMessageMenu()
+    local w = view and view.message and view.message.w
+    if w and w.msgPick:IsVisible() then w.msgPick:Click() end
+end
+
 function H.CreateWrite(m)
     local w = CreateFrame("Frame", nil, m)
     w:SetPoint("TOPLEFT", 0, 0)
     w:SetSize(MSG_LW, 400)
+    w.msgPick = UI:CreateSleekMenuButton(w, "", MSG_LW - 30, function(root) H.MessagesMenu(root) end, 24)
+    w.msgPick:SetPoint("TOPLEFT", 0, 0)
+    UI:AttachTooltip(w.msgPick, "Saved messages", { "Keep a few messages and swap between them: the one picked here "
+        .. "is the one that goes out." }, { anchor = "ANCHOR_TOP" })
+    w.msgMore = UI:CreateTipIconButton(w, 24, UI.ICON.more, "This message", "Rename it, start a new one or a copy, delete it.",
+        function(self) H.MessageMoreMenu(self) end)
+    w.msgMore:SetPoint("LEFT", w.msgPick, "RIGHT", 6, 0)
     w.head = UI:CreateSectionHeader(w, "Your message", { style = "caps", rule = true,
         action = { text = "+ Add a part", onClick = function(self) H.AddPartMenu(self) end,
                    tip = { "Add a part", "Your own words, or a helper that fills in the facts: the guild's name, the "
                        .. "classes a team still needs, a team's raid nights." } } })
-    w.head:SetPoint("TOPLEFT", 0, 0)
+    w.head:SetPoint("TOPLEFT", 0, -MSG_PICK_H)
     w.head:SetWidth(MSG_LW)
     w.chips, w.entries = {}, {}
     w.dropBar = w:CreateTexture(nil, "OVERLAY")
@@ -1217,9 +1295,12 @@ end
 -- The Message tab: chips, the picked part's editor, the separator.
 function H.FillWrite()
     local w = view.message.w
+    local _, msgName = M():Current()
+    local nMsgs = #M():GetMessages()
+    w.msgPick:SetText(msgName .. (nMsgs > 1 and S:Wrap("SUB", "   \194\183  " .. nMsgs .. " saved") or ""))
     local parts = M():GetParts()
     local pick = H.PickedPart(parts)
-    local y = 26
+    local y = MSG_PICK_H + 26
     local cx, cy = 0, y
     for _, c in ipairs(w.chips) do c:Hide() end
     for i, p in ipairs(parts) do
@@ -1594,6 +1675,10 @@ function RU:OpenMore(owner, key)
         root:CreateButton("Follow up...", function() state.sel = key; RU:FollowMenu(owner) end)
         root:CreateButton(UI:AtlasIconText(16, 14) .. "  Note", function() state.sel = key; RU:WriteNote() end)
         root:CreateDivider()
+        -- (feedback #48: they joined without the Invite button: another officer's invite, the game's roster)
+        if r.st == "talk" or r.st == "notnow" then RU:JoinedMenu(root:CreateButton("Joined the guild"), key) end
+        -- (D-4: their record onto another of their characters, an alt that joined first)
+        RU:MoveMenu(root:CreateButton("Move to another character"), key)
         if r.st == "talk" then root:CreateButton("Not now", function() H.Try(R():NotNow(key)) end) end
         if r.st == "notnow" then root:CreateButton("Talk again", function() H.Try(R():Reopen(key)) end) end
         root:CreateButton(UI:AtlasIconText(UI.ICON.trash, 14) .. "  Remove", function()
@@ -1601,6 +1686,62 @@ function RU:OpenMore(owner, key)
                 ok = "Remove", danger = true, onAccept = function() H.Try(R():Remove(key)) end })
         end)
     end)
+end
+
+-- Joined the guild: the team they go to (or none yet); settling in starts from today.
+function RU:JoinedMenu(sub, key)
+    local r = R():Get(key)
+    if not (sub and r) then return end
+    sub:CreateTitle("They joined: which team?")
+    local function mark(team)
+        local live = H.Live(key)
+        H.Try(R():MarkJoined(key, { team = team, lv = live.lv or r.lv }))
+    end
+    for _, t in ipairs(R():GetTeams()) do
+        sub:CreateButton(t.name, function() mark(t.id) end)
+    end
+    sub:CreateButton(S:Wrap("SUB", "No team yet"), function() mark(nil) end)
+end
+
+-- Move to another character: their characters the guild knows of first (Members > the account's main and alts), then
+-- any name.
+function RU:MoveMenu(sub, key)
+    if not sub then return end
+    sub:CreateTitle("Onto which character?")
+    local P = ns.Professions
+    local seen, any = { [key] = true }, false
+    local main = P and P.GetMain and P:GetMain(key)
+    local list = {}
+    if main and main ~= key then list[#list + 1] = main end
+    for _, c in ipairs(P and P.GetOtherCharacters and P:GetOtherCharacters(key) or {}) do list[#list + 1] = c end
+    for _, c in ipairs(list) do
+        if not seen[c] then
+            seen[c] = true
+            any = true
+            sub:CreateButton(Name(c) .. (c == main and S:Wrap("SUB", "  main") or ""), function() RU:ConfirmMove(key, c) end)
+        end
+    end
+    if any then sub:CreateDivider() end
+    sub:CreateButton("Type a name...", function()
+        ns.Popup:Prompt({ title = "Move " .. Short(key) .. " to", text = "Their other character's name. Their story, "
+            .. "notes and check-ins go with them; " .. Short(key) .. " stays listed as theirs.",
+            maxLetters = 48, trim = true, ok = "Next",
+            validate = function(v) return v ~= "" and ns.Util.NormalizeName(v) ~= key end,
+            onAccept = function(v) RU:ConfirmMove(key, v) end })
+    end)
+end
+
+function RU:ConfirmMove(from, to)
+    to = ns.Util.NormalizeName(to)
+    local there = R():Get(to)
+    ns.Popup:Confirm({ title = "Move " .. Short(from) .. " to " .. Short(to) .. "?",
+        text = (there and (Short(to) .. " is in Recruitment too: the two become one, notes together.\n") or "")
+            .. "Their story, notes, check-ins and milestones go to " .. Short(to) .. ". " .. Short(from)
+            .. " stays listed as one of their characters.",
+        ok = "Move", onAccept = function()
+            local ok, key = R():MoveTo(from, to)
+            if H.Try(ok, key) then RU:Select(key) end
+        end })
 end
 
 function RU:NotNow()

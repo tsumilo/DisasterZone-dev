@@ -353,6 +353,11 @@ def sort_run(refuse):
         return t""")
     c.eval("ns.LookBags:Open('bags')")
     assert c.eval("return ns.LookBags:Sort('bags')") is True
+    # (feedback #47: the first round sends at most MAX_MOVES moves, and none again until they land)
+    first = c.eval("return (__moves or 0) + (__refused or 0)")
+    assert 0 < first <= c.eval("return ns.LookBags.MAX_MOVES"), first
+    c.eval("ns.LookBags.sorter:GetScript('OnUpdate')(ns.LookBags.sorter, 0.2)")
+    assert c.eval("return (__moves or 0) + (__refused or 0)") == first, "a round before the last one landed"
     # (the sort tile shows it is working, and stops when done)
     assert c.eval("return DisasterZoneBags.sort.spin:IsShown()") is True
     # (drawn on the tile's face, the top frame: not under its ground)
