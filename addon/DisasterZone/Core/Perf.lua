@@ -500,7 +500,8 @@ function Perf:Addons()
         if name and loaded(name) then
             local kb = mem(i) or 0
             total = total + kb
-            local a = { name = name, title = title, kb = kb, me = name == addonName }
+            local a = { name = name, title = title, kb = kb,   -- (me: DisasterZone, or one of its packs)
+                        me = name == addonName or name:sub(1, #addonName + 1) == addonName .. "_" }
             if meta then
                 local ok, icon = pcall(meta, name, "IconTexture")
                 a.icon = ok and icon or nil

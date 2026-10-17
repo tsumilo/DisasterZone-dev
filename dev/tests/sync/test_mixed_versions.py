@@ -124,7 +124,9 @@ def world(old=("Bob",)):
     w = World()
     c = {}
     for name, rank, cls in NAMES:
-        c[name] = Client(w, name, guild_rank=rank, class_file=cls, addon_dir=old_addon() if name in old else None)
+        # (the old client: today's core with the 1.3.5 sync files, and the game packs, as 1.3.5 had its games)
+        c[name] = Client(w, name, guild_rank=rank, class_file=cls, addon_dir=old_addon() if name in old else None,
+                         packs=harness.packs_for(harness.ADDON_DIR) if name in old else None)
     for x in c.values():
         x.load_addon()
     w.tick(3)
