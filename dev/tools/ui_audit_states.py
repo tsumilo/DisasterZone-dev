@@ -519,9 +519,11 @@ def azero_taming(shakes, caught, at, shiny=False):
     return fn
 
 
-def azero_fx(lead, foe, at, attack=None, side="ally", flags="", ally="", foe_extra="", windup=False, guard=None):
+def azero_fx(lead, foe, at, attack=None, side="ally", flags="", ally="", foe_extra="", windup=False, guard=None,
+             post=None, post_at="0"):
     """0.41: a battle effect frozen `at` seconds in (Fx.lua): attack = a move id played by `side` with Lua `flags`
-    ("combo = true"); ally / foe_extra = snapshot fields for the marks, shells and wind-ups on screen ("marks = {...}")"""
+    ("combo = true"); ally / foe_extra = snapshot fields for the marks, shells and wind-ups on screen ("marks = {...}");
+    post: a second effect (Lua, F and snap in scope) played post_at seconds after that"""
     def fn(w, c):
         g = azero_battle("route1", 11, 20, foe, lead=lead)(w, c)
         g.eval("local K = ns.AzeroUI.Kit K.CloseAllMenus() K.SetText(' ')")
@@ -537,18 +539,23 @@ def azero_fx(lead, foe, at, attack=None, side="ally", flags="", ally="", foe_ext
           if %s then a = F.Attack({ t = 'attack', side = %r, move = D.moves[%r], id = %r, %s }) end
           if %s then a = F.Guard({ t = 'guard', side = %r, snap = snap }) end
           if %s then a = F.Windup({ t = 'cast', side = %r, snap = snap }) end
-          local t = 0
-          while t < %s do
-            F.Frame(1 / 60, snap)
-            if a then
-              if not (a.hold and a.hold()) then a.t = a.t + 1 / 60 end
-              if a.t >= a.dur and a.done then a.done() a = nil end
+          local function step(secs)
+            local t = 0
+            while t < secs do
+              F.Frame(1 / 60, snap)
+              if a then
+                if not (a.hold and a.hold()) then a.t = a.t + 1 / 60 end
+                if a.t >= a.dur and a.done then a.done() a = nil end
+              end
+              t = t + 1 / 60
             end
-            t = t + 1 / 60
           end
+          step(%s)
+          if %s then a = %s step(%s) end
           F.Frame = function() end                         -- (held still for the picture)
         """ % (ally, foe_extra, "true" if attack else "false", side, attack or "", attack or "", flags,
-               "true" if guard else "false", side, "true" if windup else "false", side, at))
+               "true" if guard else "false", side, "true" if windup else "false", side, at,
+               "true" if post else "false", post or "nil", post_at))
         g.eval("ns.AzeroUI._Focus(true)")
         return g
     return fn
@@ -2216,6 +2223,31 @@ STATES = [
                                                          foe_extra="guard = 2, guardType = 'NATURE'")),
     ("Games - Azeromon fx shells beast air", azero_fx("emberwhelp", "kobling", "0.8", ally="guard = 2, guardType = 'BEAST'",
                                                       foe_extra="guard = 2, guardType = 'AIR'")),
+    # 0.42: the other six types, the interrupt shatter, the chain of a cast that can't be interrupted
+    ("Games - Azeromon fx tidal wave", azero_fx("murkling", "tuskling", "0.35", "ktidalwave", flags="released = true")),
+    ("Games - Azeromon fx ice lance combo", azero_fx("murkling", "tuskling", "0.33", "kicelance", flags="combo = true",
+                                                    foe_extra="marks = { chill = 2 }")),
+    ("Games - Azeromon fx roots", azero_fx("lashling", "tuskling", "0.4", "kroots")),
+    ("Games - Azeromon fx overgrowth", azero_fx("lashling", "tuskling", "0.5", "kovergrowth", flags="released = true")),
+    ("Games - Azeromon fx regrowth", azero_fx("lashling", "tuskling", "0.45", "kregrowth")),
+    ("Games - Azeromon fx death coil", azero_fx("pantherkit", "tuskling", "0.65", "kdeathcoil")),
+    ("Games - Azeromon fx shadow bolt wind-up", azero_fx("pantherkit", "tuskling", "1.0", windup=True,
+                                                         ally="cast = { id = 'kshadowbolt', name = 'Shadow Bolt', power = 100 }")),
+    ("Games - Azeromon fx earthquake", azero_fx("kobling", "tuskling", "0.52", "kearthquake", flags="released = true")),
+    ("Games - Azeromon fx boulder", azero_fx("kobling", "tuskling", "0.4", "kboulder")),
+    ("Games - Azeromon fx tempest", azero_fx("owlet", "tuskling", "0.55", "ktempest", flags="released = true")),
+    ("Games - Azeromon fx hunters mark", azero_fx("owlet", "tuskling", "0.45", "khuntersmark")),
+    ("Games - Azeromon fx sawblade wind-up", azero_fx("rustgolem", "tuskling", "1.1", windup=True,
+                                                      ally="cast = { id = 'ksawstorm', name = 'Sawblade Storm', power = 100 }")),
+    ("Games - Azeromon fx rocket punch combo", azero_fx("rustgolem", "tuskling", "0.4", "krocketpunch", flags="combo = true",
+                                                        ally="marks = { charged = 2 }")),
+    ("Games - Azeromon fx electroshock", azero_fx("rustgolem", "tuskling", "0.25", "kshock")),
+    ("Games - Azeromon fx interrupt shatter", azero_fx("wolfpup", "murkling", "0.9",
+                                                       foe_extra="cast = { id = 'ktidalwave', name = 'Tidal Wave', power = 100, type = 'WATER' }",
+                                                       post="F.Break({ t = 'interrupt', side = 'foe', snap = snap })", post_at="0.1")),
+    ("Games - Azeromon fx cant interrupt", azero_fx("wolfpup", "tuskling", "0.7",
+                                                    foe_extra="cast = { id = 'bcast_hogger', name = 'Hogger Smash', power = 130, unstoppable = true }",
+                                                    post="F.Shrug({ t = 'unstoppable', side = 'foe', snap = snap })", post_at="0.08")),
     ("Games - Azeromon tamed card", azero_tamed_card("{ sp = 'kobling', lvl = 8, fresh = true, where = 'party' }",
                                                      "Kobling was added to your Bestiary!")),
     ("Games - Azeromon tamed card stable", azero_tamed_card(

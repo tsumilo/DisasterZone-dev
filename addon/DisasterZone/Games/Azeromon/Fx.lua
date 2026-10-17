@@ -5,8 +5,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Fx.lua", ...) then 
 -- pool on three frames of the battle layer (under the beasts, the shade, over them) and hidden when not used again.
 -- Each solid block over the beasts casts a 1-pixel shade down and right, so effects read on bright grass.
 -- What stays between events is read from the battle's snapshot: marks on a beast, a guard's shell, a cast winding up.
--- UI.lua calls F.Frame every frame of a battle and plays F.Attack / F.Guard / F.Mark / F.Windup as BT.anim for the
--- events; the moves' recipes are FxMoves.lua. Designed in the dev kit's mockup (dev/art/casc/fx_mockup, fx.js).
+-- UI.lua calls F.Frame every frame of a battle and plays F.Attack / F.Guard / F.Mark / F.Windup / F.Break (an
+-- interrupt) / F.Shrug (one that can't land) as BT.anim for the events; the moves' recipes are FxMoves.lua.
+-- Designed in the dev kit's mockup (dev/art/casc/fx_mockup, fx.js).
 local addonName, ns = ...
 
 local F = {}

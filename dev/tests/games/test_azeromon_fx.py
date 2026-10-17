@@ -1,13 +1,15 @@
-"""Azeromon 0.41: the battle effects, step 1 (Games/Azeromon/Fx.lua, FxMoves.lua; the battle's attack event flags).
+"""Azeromon 0.41 / 0.42: the battle effects (Games/Azeromon/Fx.lua, FxMoves.lua; the battle's attack event flags).
 
-Covers: every Beast and Fire kit move plays its own effect to its end, both ways (your beast on the foe, the foe on
-yours), stays inside the block budget and leaves nothing behind once its sparks and smoke are gone; Beast and Fire
-signature moves get a shape by their name (their casts wind up like the type's big cast); a move of a type not drawn
-yet keeps the lunge (no effect); a guard move only plays its clip and the "guard" event forms the shell of
-its type (all eight), which a guarded hit makes flare without knocking the beast back; each of the eight marks shows
-while the snapshot has it and stops when it goes; Savage Maul and Pyroblast wind up while they wait, other casts
-don't yet; a combo holds a hit stop; big hits shake the scene unless /dz azeromon shake off; the attack event says
-how the hit lands (miss, combo, guarded, released, the move's id); and a real battle plays the effects through the UI.
+Covers: every kit move of all eight types plays its own effect to its end, both ways (your beast on the foe, the foe
+on yours), stays inside the block budget and leaves nothing behind once its sparks and smoke are gone; Beast and Fire
+signature moves get a shape by their name (their casts wind up like the type's big cast), other types' signatures
+keep the lunge for now; a guard move only plays its clip and the "guard" event forms the shell of its type (all
+eight), which a guarded hit makes flare without knocking the beast back; each of the eight marks shows while the
+snapshot has it and stops when it goes; every kit cast winds up while it waits; an interrupt shatters the wind-up and
+cracks the cast bar, which is back in place for the next cast; a cast that can't be interrupted turns an iron chain
+round its caster, and an interrupt only makes it flare; a combo holds a hit stop; big hits shake the scene unless
+/dz azeromon shake off; the attack event says how the hit lands (miss, combo, guarded, released, the move's id); and
+a real battle plays the effects through the UI.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_fx.py [-k name]
 """
@@ -23,7 +25,12 @@ from _common import case, run_all, solo, no_errors  # noqa: E402
 from _azero_bot import BOT  # noqa: E402
 
 KIT = ["kclaw", "krend", "kferobite", "kmaul", "kskullbash", "kscorch", "kimmolate", "kincinerate", "kpyroblast",
-       "kcounterspell"]
+       "kcounterspell", "kwaterbolt", "kfrostshock", "kicelance", "ktidalwave", "kwindshear", "kthorns", "kroots",
+       "kthornvolley", "kovergrowth", "kregrowth", "kshadowbite", "kcorruption", "kdeathcoil", "kshadowbolt",
+       "kspelllock", "krockthrow", "kcrusharmor", "kboulder", "kearthquake", "kwarstomp", "kdive", "khuntersmark",
+       "ktalonrake", "ktempest", "kscreech", "kgears", "kchargeup", "krocketpunch", "ksawstorm", "kshock"]
+CASTS = {"kmaul": "maul", "kpyroblast": "pyro", "ktidalwave": "tidal", "kovergrowth": "overgrowth",
+         "kshadowbolt": "shadowbolt", "kearthquake": "quake", "ktempest": "tempest", "ksawstorm": "sawstorm"}
 MARKS = ["bleed", "immolate", "corrupt", "chill", "rooted", "exposed", "charged", "regrowth"]
 TYPES = ["BEAST", "FIRE", "WATER", "NATURE", "SHADOW", "EARTH", "AIR", "MECH"]
 
@@ -103,7 +110,7 @@ def wild(w, c, foe="kobling", lvl=20):
 
 
 @case
-def every_beast_and_fire_move_plays_and_clears_up():
+def every_kit_move_plays_and_clears_up():
     w, c = game()
     wild(w, c)
     r = c.eval_py(r"""
@@ -128,7 +135,7 @@ def every_beast_and_fire_move_plays_and_clears_up():
             assert 10 <= v["peak"] <= 700, (mid, side, v)          # (the pool's budget; the mockup measured up to ~600)
             assert v["left"] == 0 and v["parts"] == 0, (mid, side, v)
     # the moves that close in on the foe really move their beast
-    for mid in ("kclaw", "kferobite", "kmaul", "kskullbash"):
+    for mid in ("kclaw", "kferobite", "kmaul", "kskullbash", "kshadowbite", "kdive", "ktalonrake", "kgears"):
         assert r[mid]["ally"]["moved"] >= 6 and r[mid]["foe"]["moved"] >= 6, (mid, r[mid])
     no_errors(w)
 
@@ -165,13 +172,13 @@ def beast_and_fire_signatures_get_a_shape_others_wait():
 
 
 @case
-def other_types_keep_the_lunge_and_guards_only_play_a_clip():
+def other_signatures_keep_the_lunge_and_guards_only_play_a_clip():
     w, c = game()
     wild(w, c)
     r = c.eval_py(r"""
       local out = {}
-      for _, id in ipairs({ 'kwaterbolt', 'kthorns', 'kshadowbite', 'krockthrow', 'kdive', 'kgears', 'ktidalwave' }) do
-        out[id] = T_FX.attack(id, 'ally') ~= nil
+      for _, id in ipairs({ 'sfx_bite', 'sf_razorpetal' }) do
+        out[id] = ns.AzeroData.moves[id] ~= nil and T_FX.attack(id, 'ally') ~= nil
       end
       ns.AzeroFx.Reset()
       local g = T_FX.attack('khide', 'ally')
@@ -240,22 +247,99 @@ def each_mark_shows_while_the_snapshot_has_it():
 
 
 @case
-def maul_and_pyroblast_wind_up_while_they_wait():
+def every_kit_cast_winds_up_while_it_waits():
     w, c = game()
     wild(w, c)
     r = c.eval_py(r"""
       local out = {}
-      for _, id in ipairs({ 'kmaul', 'kpyroblast', 'ktidalwave' }) do
-        ns.AzeroFx.Reset()
-        local snap = T_FX.snap({ ally = { cast = { id = id, name = 'x', power = 100 } } })
-        local a = ns.AzeroFx.Windup({ t = 'cast', side = 'ally', snap = snap })
-        local res = T_FX.run(a, snap, 1.2)
-        out[id] = { anim = a ~= nil, windup = res.state.windup.ally or false, peak = res.peak }
+      for _, id in ipairs({ %s, 'bcast_hogger' }) do
+        for _, side in ipairs({ 'ally', 'foe' }) do
+          ns.AzeroFx.Reset()
+          local snap = T_FX.snap({ [side] = { cast = { id = id, name = 'x', power = 100 } } })
+          local a = ns.AzeroFx.Windup({ t = 'cast', side = side, snap = snap })
+          local res = T_FX.run(a, snap, 1.2)
+          out[id .. '_' .. side] = { anim = a ~= nil, windup = res.state.windup[side] or false, peak = res.peak }
+        end
       end
+      return out""" % ", ".join("'%s'" % k for k in CASTS))
+    for mid, key in CASTS.items():
+        for side in ("ally", "foe"):
+            v = r["%s_%s" % (mid, side)]
+            assert v["anim"] and v["windup"] == key and v["peak"] > 0, (mid, side, v)
+    assert not r["bcast_hogger_ally"]["anim"] and r["bcast_hogger_ally"]["windup"] is False, r   # (bosses: step 3)
+    no_errors(w)
+
+
+@case
+def an_interrupt_shatters_the_wind_up_and_a_chain_shrugs_it_off():
+    w, c = game()
+    wild(w, c)
+    r = c.eval_py(r"""
+      local F = ns.AzeroFx
+      local out = {}
+      -- the foe winds up Tidal Wave; an interrupt lands
+      F.Reset()
+      local snap = T_FX.snap({ foe = { cast = { id = 'ktidalwave', name = 'Tidal Wave', power = 100, type = 'WATER' } } })
+      out.before = T_FX.run(nil, snap, 0.8).state.windup.foe
+      local res = T_FX.run(F.Break({ t = 'interrupt', side = 'foe', snap = snap }), snap, 0.6)
+      out.broken = { ended = res.ended, windup = res.state.windup.foe or false, broken = res.state.broken.foe or false,
+                     peak = res.peak }
+      local bar = ns.AzeroUI.Kit.R.foeCast
+      out.bar = { alpha = bar:GetAlpha(), restore = bar.restore ~= nil }
+      if bar.restore then bar.restore() end
+      out.restored = { alpha = bar:GetAlpha(), restore = bar.restore ~= nil }
+      out.after = T_FX.run(nil, T_FX.snap(), 0.1).state.broken.foe or false
+      -- a boss's cast that can't be interrupted: the chain turns; an interrupt bounces off it
+      F.Reset()
+      local boss = T_FX.snap({ foe = { cast = { id = 'bcast_hogger', name = 'Hogger Smash', power = 130, unstoppable = true } } })
+      local idle = T_FX.run(nil, boss, 0.5)
+      out.chain = { chain = idle.state.chain.foe or false, peak = idle.peak }
+      local sh = T_FX.run(F.Shrug({ t = 'unstoppable', side = 'foe', snap = boss }), boss, 0.7)
+      out.shrug = { ended = sh.ended, chain = sh.state.chain.foe or false, moved = sh.moved.foe }
+      out.gone = T_FX.run(nil, T_FX.snap(), 0.1).state.chain.foe or false
       return out""")
-    assert r["kmaul"]["anim"] and r["kmaul"]["windup"] == "maul" and r["kmaul"]["peak"] > 0, r
-    assert r["kpyroblast"]["anim"] and r["kpyroblast"]["windup"] == "pyro" and r["kpyroblast"]["peak"] >= 10, r
-    assert not r["ktidalwave"]["anim"] and r["ktidalwave"]["windup"] is False, r
+    assert r["before"] == "tidal", r
+    assert r["broken"]["ended"] and r["broken"]["windup"] is False and r["broken"]["broken"] and r["broken"]["peak"] > 0, r
+    assert r["bar"]["alpha"] < 0.6 and r["bar"]["restore"], r
+    assert r["restored"]["alpha"] == 1 and not r["restored"]["restore"], r
+    assert r["after"] is False, r
+    assert r["chain"]["chain"] and r["chain"]["peak"] >= 10, r
+    assert r["shrug"]["ended"] and r["shrug"]["chain"] and r["shrug"]["moved"] == 0, r
+    assert r["gone"] is False, r
+    no_errors(w)
+
+
+@case
+def an_interrupt_in_a_real_battle_cracks_the_bar_and_puts_it_back():
+    w, c = game("wolfpup")
+    wild(w, c, foe="kobling", lvl=20)
+    c.eval("ns.Azero.battle.foe.mon.moves = { { id = 'kearthquake', pp = 10 } }")
+
+    def slot(mid):
+        return c.eval("for i, m in ipairs(ns.Azero.battle.ally.mon.moves) do if m.id == %r then return i end end" % mid)
+
+    def play_turn(mid):
+        seen = {"broken": False, "windup": None}
+        c.eval("ns.Azero.battle:Act({ kind = 'move', idx = %d })" % slot(mid))
+        for i in range(240):
+            w.tick(0.05)
+            st = c.eval_py("return ns.AzeroFx.State()")
+            seen["broken"] = seen["broken"] or bool((st.get("broken") or {}).get("foe"))
+            seen["windup"] = seen["windup"] or (st.get("windup") or {}).get("foe")
+            s = state(c)
+            if s["msg"] or (s.get("text") and not s["waitText"]):
+                c.eval("ns.AzeroUI._HandleKey('A')")
+            if i > 20 and c.eval("local b = ns.Azero.battle return b and #b.events == 0") and not st["playing"]:
+                break
+        return seen
+
+    first = play_turn("krend")                              # the foe begins Earthquake: it winds up
+    assert first["windup"] == "quake", first
+    second = play_turn("kskullbash")                        # Skull Bash goes first and breaks it
+    assert second["broken"], second
+    bar = c.eval_py("local f = ns.AzeroUI.Kit.R.foeCast return { shown = f:IsShown(), alpha = f:GetAlpha(), "
+                    "restore = f.restore ~= nil }")
+    assert not bar["shown"] and bar["alpha"] == 1 and not bar["restore"], bar
     no_errors(w)
 
 
