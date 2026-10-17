@@ -207,6 +207,12 @@ local function NewRun(cls, opts)
     opts.cls = cls
     if not opts.attract and not opts.lab and ns.HTLGame then opts.talents = ns.HTLGame:RunTalents() end
     if not opts.attract and not opts.lab and ns.HTLSocial then opts.perks = ns.HTLSocial:RunPerks() end
+    if not opts.attract and not opts.lab and ns.HTLGame and ns.HTLGame.RunNaxx then
+        local nx = ns.HTLGame:RunNaxx(cls)
+        opts.frostRes, opts.t3n, opts.ktSlain = nx.frostRes, nx.t3n, nx.ktSlain
+        if nx.t3Look and opts.perks then opts.perks.t3 = true end
+        if opts.stage and not ns.HTLGame:StageOpen(opts.stage) and not opts.challenge then opts.stage = nil end
+    end
     opts.seed = opts.seed or floor(((time and time() or 1) * 7 + math.random(1, 100000)) % 2000000000)
     run = Hook(E.New(opts))
     acc = 0
@@ -239,7 +245,7 @@ local function StageH()                -- the stage's height in its CSS px (Layo
     return h
 end
 local function ClearOv()
-    for _, f in ipairs({ ov.title, ov.picker, ov.coffer, ov.loot, ov.legend, ov["end"], ov.pause, ov.talents, ov.board, ov.ach, ov.dawn }) do if f then f:Hide() end end
+    for _, f in ipairs({ ov.title, ov.picker, ov.coffer, ov.loot, ov.legend, ov["end"], ov.pause, ov.talents, ov.board, ov.ach, ov.dawn, ov.naxx, ov.t3 }) do if f then f:Hide() end end
     ov.dim:Hide()
     for _, pv in ipairs(previews) do pv.on = false end
 end
@@ -336,6 +342,10 @@ local function OptInfo(o)
         return { name = s.name, icon = s.icon, desc = s.desc, r = 0, max = 0, sub = SPELLS[o.id].name .. " + " .. PASSIVES[s.need].name, q = "legendary" }
     elseif o.kind == "gold" then
         return { name = "Purse of Gold", icon = "inv_misc_coin_02", desc = "|cffffffff+25|r gold.", r = 0, max = 0, sub = "Loot", q = "common" }
+    elseif o.kind == "relic" then
+        local rl = D.RELICS[o.id]
+        local from = rl.legend and "Kel'Thuzad" or (rl.from and D.MOBS[rl.from[1]] and D.MOBS[rl.from[1]].name) or "Naxxramas"
+        return { name = rl.name, icon = rl.icon, desc = rl.desc, r = 0, max = 0, sub = (rl.legend and "Legendary relic" or "Relic") .. " \194\183 " .. from, q = rl.legend and "legendary" or "epic" }
     end
     return { name = "Major Healthstone", icon = "inv_stone_04", desc = "Restores all health.", r = 0, max = 0, sub = "Loot", q = "common" }
 end
@@ -862,7 +872,7 @@ local function BuildCoffer()
     l.head = KitTex(l, "level_small", "ARTWORK", 1)
     l.sub = Words(l, 12) l.sub:SetTextColor(234 / 255, 219 / 255, 189 / 255)
     l.rows = {}
-    for i = 1, 6 do
+    for i = 1, 8 do
         local row = CreateFrame("Frame", nil, l)
         row:SetSize(540, 68)
         row.bg = KitTex(row, "lt_rare", "BACKGROUND")
@@ -872,6 +882,9 @@ local function BuildCoffer()
         row.type = Words(row, 11) row.type:SetTextColor(GREY[1], GREY[2], GREY[3])
         row.dice = row:CreateTexture(nil, "ARTWORK") row.dice:SetTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Up") row.dice:SetSize(26, 26)
         row.roll = Words(row, 20)
+        row.desc = Words(row, 10.5) row.desc:SetTextColor(0.8, 0.76, 0.7) row.desc:SetJustifyH("LEFT") row.desc:SetWidth(330)
+        row:EnableMouse(true)
+        row:SetScript("OnMouseDown", function(self) if self.relic then l.chosen = self.relic UI.PickRelic() end end)
         l.rows[i] = row
     end
     l.goldIcon = l:CreateTexture(nil, "ARTWORK") l.goldIcon:SetTexture("Interface\\MoneyFrame\\UI-GoldIcon") l.goldIcon:SetSize(14, 14)
@@ -879,7 +892,14 @@ local function BuildCoffer()
     l.take = CreateFrame("Button", nil, l)
     l.take.bg = Slice3(l.take, "gb_big", "BACKGROUND", 0, 19)
     l.take.label = Words(l.take, 15, MORPHEUS) l.take.label:SetText("Take all") l.take.label:SetTextColor(1, 231 / 255, 168 / 255) l.take.label:SetPoint("CENTER")
-    l.take:SetScript("OnClick", function() CloseOv(true) end)
+    l.take:SetScript("OnClick", function()
+        if l.relics then
+            if not l.chosen then return end
+            E.Apply(run, { kind = "relic", id = l.chosen })
+            Sound("uber")
+        end
+        CloseOv(true)
+    end)
     l:Hide()
     -- the legendary: WoW's legendary glow blooms, the item pops in its ring, then its name, what made it, the
     -- weapon at work in a window, and the button
@@ -931,7 +951,7 @@ ShowChest = function()
     f:Show()
     f.legend = nil
     for _, it in ipairs(ch.items) do if it.kind == "legend" then f.legend = it end end
-    f.items, f.gold = ch.items, ch.gold
+    f.items, f.gold, f.relics = ch.items, ch.gold, ch.relics
     local H = StageH()
     local cx, cy = OV_W / 2, H / 2 - 20
     f.burst:ClearAllPoints() f.burst:SetPoint("CENTER", f, "TOPLEFT", cx, -cy)
@@ -943,21 +963,29 @@ ShowChest = function()
     Sound("coin")
 end
 
-local function ShowLoot(items, gold)
+local function ShowLoot(items, gold, relics)
     overlay = "chest"
     ClearOv()
     ov.dim:Show()
     local l = ov.loot
     l:Show()
+    l.relics, l.chosen = relics, nil
+    if relics then
+        local all = {}
+        for _, o in ipairs(items) do all[#all + 1] = o end
+        for _, o in ipairs(relics) do all[#all + 1] = o end
+        items = all
+    end
     local H = StageH()
     local n = #items
-    local blockH = 14 + 44 + 18 + n * 76 + 30 + 40
+    local step = n > 5 and 70 or 76               -- (a boss coffer's relics: a tighter list)
+    local blockH = 14 + 44 + 18 + n * step + 30 + 40
     local y = max(10, H / 2 - blockH / 2)
     local x0 = OV_W / 2 - 270
     l.rule:ClearAllPoints() l.rule:SetPoint("TOP", l, "TOPLEFT", OV_W / 2, -y) l.rule:SetSize(440, 14)
     local hw = K.level_small[6] - 2 * K.level_small[8]
     KitAt(l.head, l, OV_W / 2 - hw / 2, y + 14)
-    l.sub:SetText(n .. " reward" .. (n > 1 and "s" or "") .. " \194\183 Need rolls")
+    l.sub:SetText(relics and "Need one relic \194\183 it lasts this run" or (n .. " reward" .. (n > 1 and "s" or "") .. " \194\183 Need rolls"))
     l.sub:ClearAllPoints() l.sub:SetPoint("TOP", l, "TOPLEFT", OV_W / 2, -(y + 14 + 46))
     y = y + 14 + 46 + 24
     l.rolls = {}
@@ -985,13 +1013,22 @@ local function ShowLoot(items, gold)
             row.roll:ClearAllPoints() row.roll:SetPoint("LEFT", row.dice, "RIGHT", 6, 0)
             row.roll:SetText("\226\128\147")
             row.roll:SetTextColor(0.53, 0.53, 0.53)
+            row.relic = o.kind == "relic" and o.id or nil
+            row.dim = nil
+            row.desc:SetShown(row.relic ~= nil)
+            if row.relic then
+                row.name:ClearAllPoints() row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 76, -9)
+                row.type:SetText(f.sub)
+                row.desc:SetText(f.desc) row.desc:ClearAllPoints() row.desc:SetPoint("TOPLEFT", row.type, "BOTTOMLEFT", 0, -2)
+                row.dice:Hide() row.roll:SetText("Need") row.roll:SetTextColor(1, 0.82, 0.25)
+            else row.dice:Show() end
             row.delay = (i - 1) * 0.28
             row.final = 40 + floor(math.random() * 59)
             row.done = false
             row:SetAlpha(0)
             row:Show()
             l.rolls[#l.rolls + 1] = row
-            y = y + 76
+            y = y + step
         else
             row:Hide()
         end
@@ -1000,7 +1037,26 @@ local function ShowLoot(items, gold)
     l.gold:ClearAllPoints() l.gold:SetPoint("TOP", l, "TOPLEFT", OV_W / 2 + 10, -(y + 6))
     l.goldIcon:ClearAllPoints() l.goldIcon:SetPoint("RIGHT", l.gold, "LEFT", -6, 0)
     l.take:ClearAllPoints() l.take:SetPoint("TOP", l, "TOPLEFT", OV_W / 2, -(y + 34)) l.take:SetSize(124, 36) l.take.bg:Place(l.take, 0, 0, 124, 36)
+    l.take.label:SetText(relics and "Choose a relic" or "Take all")
+    l.take:SetAlpha(relics and 0.55 or 1)
     l.t = 0
+end
+UI._ShowLoot = ShowLoot
+function UI.PickRelic(id)
+    local l = ov.loot
+    if id then l.chosen = id end
+    for _, row in ipairs(l.rows) do
+        if row:IsShown() and row.relic then
+            local on = row.relic == l.chosen
+            local rl = D.RELICS[row.relic]
+            KitSet(row.bg, on and "lt_legendary" or (rl.legend and "lt_legendary" or "lt_epic"))
+            KitAt(row.bg, row, 0, 0, 540, 68)
+            row.dim = (not l.chosen or on) and 1 or 0.5
+            row:SetAlpha(row.dim)
+            row.roll:SetText(on and "Chosen" or "Need")
+        end
+    end
+    if l.chosen then l.take.label:SetText("Take relic") l.take:SetAlpha(1) Sound("hover", 0.02) end
 end
 
 local function ShowLegend(id, rest, gold)
@@ -1058,6 +1114,7 @@ function UI.TakeLegend()
     if overlay ~= "legend" then return end
     E.Apply(run, { kind = "legend", id = ov.legend.id })
     Sound("uber")
+    if UI.pendingRelics then local r = UI.pendingRelics UI.pendingRelics = nil ShowLoot({}, 0, r) return end
     CloseOv(true)
 end
 
@@ -1097,10 +1154,11 @@ local function TickChest(dt)
                 Sound("rep") Sound("naaru")
                 local rest = {}
                 for _, it in ipairs(f.items) do if it ~= f.legend then rest[#rest + 1] = it end end
+                UI.pendingRelics = f.relics
                 ShowLegend(f.legend.id, rest, f.gold)
             else
                 Sound("pick")
-                ShowLoot(f.items, f.gold)
+                ShowLoot(f.items, f.gold, f.relics)
             end
         end
     end
@@ -1108,9 +1166,10 @@ local function TickChest(dt)
     if l:IsShown() then
         l.t = l.t + dt
         for i, row in ipairs(l.rolls or {}) do
+            if row.relic then row.done = true end
             local k = min(1, max(0, (l.t - row.delay) / 0.5))
             local e = OvershootEase(k)
-            row:SetAlpha(min(1, k * 2))
+            row:SetAlpha(min(1, k * 2) * (row.dim or 1))
             if not row.done then
                 local n = floor((l.t - row.delay) / 0.045)
                 if n > 10 + (i - 1) * 6 then
@@ -1180,13 +1239,13 @@ local function BuildEnd()
     f.again = CreateFrame("Button", nil, f)
     f.again.bg = Slice3(f.again, "gb_big", "BACKGROUND", 0, 19)
     f.again.label = Words(f.again, 16, MORPHEUS) f.again.label:SetTextColor(1, 231 / 255, 168 / 255) f.again.label:SetPoint("CENTER")
-    f.again:SetScript("OnClick", function() UI.Start(run.cls) end)
+    f.again:SetScript("OnClick", function() UI.Start(run.cls, { stage = run.stage ~= "epl" and run.stage or nil }) end)
     f.again:SetScript("OnEnter", function(self) Sound("hover", 0.03) self.bg:SetKit("gb_bighov") self.bg:Place(self, 0, 0, self:GetWidth(), 38) end)
     f.again:SetScript("OnLeave", function(self) self.bg:SetKit("gb_big") self.bg:Place(self, 0, 0, self:GetWidth(), 38) end)
     f.menu = CreateFrame("Button", nil, f)
     f.menu.bg = Slice3(f.menu, "gb", "BACKGROUND", 0, 15)
     f.menu.label = Words(f.menu, 12) f.menu.label:SetTextColor(234 / 255, 223 / 255, 198 / 255) f.menu.label:SetPoint("CENTER") f.menu.label:SetText("Choose class")
-    f.menu:SetScript("OnClick", function() ShowTitle() end)
+    f.menu:SetScript("OnClick", function() if run.stage and run.stage ~= "epl" then UI.ShowNaxx() else ShowTitle() end end)
     f.menu:SetScript("OnEnter", function(self) Sound("hover", 0.03) self.bg:SetKit("gb_hov") self.bg:Place(self, 0, 0, self:GetWidth(), 30) end)
     f.menu:SetScript("OnLeave", function(self) self.bg:SetKit("gb") self.bg:Place(self, 0, 0, self:GetWidth(), 30) end)
     f:Hide()
@@ -1201,7 +1260,9 @@ ShowEnd = function(kind)
     f:Show()
     local win = kind == "victory"
     f.win = win
-    local rep = floor(run.t * 0.9 + run.kills * 0.4 + run.bossKills * 150 + (run.stones or 0) * D.STONE_REP + 0.5)
+    local naxx = run.stage and run.stage ~= "epl"
+    local ST = run.ST or {}
+    local rep = floor((run.t * 0.9 + run.kills * 0.4 + run.bossKills * 150 + (run.stones or 0) * D.STONE_REP) * (naxx and 1.5 or 1) + 0.5)
     local d = ns.HTLGame and ns.HTLGame.Data() or { best = 0, rep = 0 }
     local prevBest, prevRep = d.best or 0, d.rep or 0
     if ns.HTLGame then ns.HTLGame:Finished(run, win, rep) end
@@ -1219,22 +1280,31 @@ ShowEnd = function(kind)
     f.head:SetVertexColor(1, win and 1 or 0.45, win and 1 or 0.35, 1)
     f.glow:SetShown(win)
     if win then f.glow:Place(cx, y + 52, 420) end
-    f.eyebrow:SetText(win and "T H E   L I N E   H E L D" or "E A S T E R N   P L A G U E L A N D S")
+    f.eyebrow:SetText(naxx and ((ST.name or "Naxxramas"):upper():gsub("(.)", "%1 "):gsub(" $", ""):gsub("   ", "   ")) or win and "T H E   L I N E   H E L D" or "E A S T E R N   P L A G U E L A N D S")
     f.eyebrow:SetTextColor(win and 1 or 0.9, win and 0.82 or 0.55, win and 0.4 or 0.5)
     f.eyebrow:ClearAllPoints() f.eyebrow:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 22))
     f.title:SetText(win and "Victory" or "You have died")
     if win then f.title:SetTextColor(1, 0.84, 0.42) else f.title:SetTextColor(0.92, 0.26, 0.2) end
     f.title:ClearAllPoints() f.title:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 35))
     y = y + 112
-    f.lede:SetText(win and "The Pale Rider claimed you at the fifteenth minute. The Argent Dawn counts it a victory."
+    local finale = naxx and ST.finale and D.MOBS[ST.finale]
+    f.lede:SetText(naxx and win and (run.stage == "frost" and "Kel'Thuzad falls. The necropolis lurches and lifts away north."
+            or ((finale and finale.horseman and "The Four Horsemen fall" or ((finale and finale.name or "The master") .. " falls")) .. " at " .. Rd.Clock(run.t) .. ". " .. (ST.name or "The quarter") .. " is cleared."))
+        or win and "The Pale Rider claimed you at the fifteenth minute. The Argent Dawn counts it a victory."
         or ("Slain by |cffffffff" .. (run.killer or "the Scourge") .. "|r at " .. Rd.Clock(run.t) .. "."))
     f.lede:ClearAllPoints() f.lede:SetPoint("TOP", f, "TOPLEFT", cx, -y)
     local newBest = floor(run.t) > prevBest and prevBest > 0
-    f.best:SetText(newBest and ("N E W   B E S T  \194\183  was " .. Rd.Clock(prevBest)) or "")
+    f.best:SetText(newBest and not naxx and ("N E W   B E S T  \194\183  was " .. Rd.Clock(prevBest)) or "")
+    if naxx then
+        local bits = {}
+        if (run.frozen or 0) > 0 then bits[#bits + 1] = "+" .. run.frozen .. " Frozen Runes" end
+        for _, slot in ipairs(run.awarded or {}) do bits[#bits + 1] = "|T" .. Icon(D.T3Icon(run.cls, slot)) .. ":16:16|t Desecrated " .. D.T3_SLOT[slot].name end
+        f.best:SetText(table.concat(bits, "   "))
+    end
     f.best:ClearAllPoints() f.best:SetPoint("TOP", f, "TOPLEFT", cx, -(y + 20))
     y = y + 22 + 30
     -- the numbers: five plates on hairlines
-    local vals = { { "SURVIVED", Rd.Clock(run.t) }, { "LEVEL", tostring(run.level) }, { "SLAIN", tostring(run.kills) }, { "BOSSES", tostring(run.bossKills) }, { "GOLD BANKED", tostring(run.gold) } }
+    local vals = { { naxx and "TIME" or "SURVIVED", Rd.Clock(run.t) }, { "LEVEL", tostring(run.level) }, { "SLAIN", tostring(run.kills) }, { "BOSSES", tostring(run.bossKills) }, { "GOLD BANKED", tostring(run.gold) } }
     local pw = 118
     local x0 = cx - pw * 5 / 2
     for i, s in ipairs(f.stats) do
@@ -1249,6 +1319,7 @@ ShowEnd = function(kind)
     local list = {}
     for _, id in ipairs(run.order) do list[#list + 1] = { run.legend[id] and LEGEND[id].icon or SPELLS[id].icon, run.legend[id] and "legendary" or "rare", 38 } end
     for _, id in ipairs(run.porder) do list[#list + 1] = { PASSIVES[id].icon, "uncommon", 30 } end
+    for _, id in ipairs(run.rorder or {}) do local rl = D.RELICS[id] list[#list + 1] = { rl.icon, rl.legend and "legendary" or "epic", 34 } end
     local tot = 0
     for _, m in ipairs(list) do tot = tot + m[3] + 10 end
     local mx = cx - (tot - 10) / 2
@@ -1282,7 +1353,8 @@ ShowEnd = function(kind)
     f.barNew:ClearAllPoints() f.barNew:SetPoint("TOPLEFT", f, "TOPLEFT", cx - bw / 2 + bw * k0, -y) f.barNew:SetSize(max(0.1, bw * (k1 - k0)), 8)
     y = y + 8 + 30
     -- the buttons
-    f.again.label:SetText(win and "Hold it again" or "Release Spirit")
+    f.again.label:SetText(naxx and (win and "Again" or "Release Spirit") or win and "Hold it again" or "Release Spirit")
+    f.menu.label:SetText(naxx and "Necropolis" or "Choose class")
     local aw = floor((f.again.label:GetStringWidth() or 100) + 52)
     f.again:ClearAllPoints() f.again:SetPoint("TOPRIGHT", f, "TOPLEFT", cx - 6, -y) f.again:SetSize(aw, 38)
     f.again.bg:SetKit("gb_big") f.again.bg:Place(f.again, 0, 0, aw, 38)
@@ -1845,7 +1917,8 @@ local function BuildTitle()
         f.heroes[i] = b
     end
     f.menu = {}
-    for _, def in ipairs({ { "talents", "Talents", "spell_holy_sealofmight", function() UI.ShowTalents() end },
+    for _, def in ipairs({ { "naxx", "Necropolis", "spell_shadow_raisedead", function() UI.ShowNaxx() end },
+                           { "talents", "Talents", "spell_holy_sealofmight", function() UI.ShowTalents() end },
                            { "board", "Leaderboard", "spell_holy_holybolt", function() UI.ShowBoard() end },
                            { "ach", "Achievements", "spell_holy_avenginewrath", function() UI.ShowAch() end },
                            { "dawn", "Argent Dawn", "inv_misc_token_argentdawn3", function() UI.ShowDawn() end },
@@ -1901,13 +1974,16 @@ local function LayoutTitle()
     local S, d = ns.HTLSocial, ns.HTLGame and ns.HTLGame.Data() or {}
     local ws, tot = {}, 0
     local got = S and select(1, S:Count()) or 0
+    local G = ns.HTLGame
     for i, p in ipairs(f.menu) do
+        local show = p.key ~= "naxx" or (G and G:NaxxReady())
+        p:SetShown(show)
         local badge = p.key == "talents" and (BreakUpLargeNumbers and BreakUpLargeNumbers(d.bank or 0) or tostring(d.bank or 0)) or p.key == "ach" and tostring(got) or nil
-        ws[i] = p:Set(p.text, false, 30, p.iconTex, badge)
-        tot = tot + ws[i] + (i > 1 and 10 or 0)
+        ws[i] = show and p:Set(p.text, false, 30, p.iconTex, badge) or 0
+        tot = tot + ws[i] + ((i > 1 and show) and 10 or 0)
     end
     local x = OV_W / 2 - tot / 2
-    for i, p in ipairs(f.menu) do p:ClearAllPoints() p:SetPoint("TOPLEFT", f, "TOPLEFT", x, -(oy + 544)) x = x + ws[i] + 10 end
+    for i, p in ipairs(f.menu) do if p:IsShown() then p:ClearAllPoints() p:SetPoint("TOPLEFT", f, "TOPLEFT", x, -(oy + 544)) x = x + ws[i] + 10 end end
     -- the corners
     local y = StageH() - 22 - 40                -- (the corners: 22 from the bottom, as from the sides)
     if S then
@@ -2175,6 +2251,7 @@ local BOARDS = {
     { "time", "Longest held", "spell_holy_holybolt" }, { "kills", "Most slain", "inv_misc_bone_humanskull_01" },
     { "level", "Highest level", "spell_holy_championsbond" }, { "gold", "Gold home", "inv_misc_coin_02" },
     { "points", "Points", "spell_holy_avenginewrath" }, { "rep", "Argent Dawn", "inv_misc_token_argentdawn3" },
+    { "kt", "Kel'Thuzad", "spell_shadow_raisedead" }, { "desecrated", "Desecrated", "inv_misc_desecrated_platechest" },
 }
 local lbState = { kind = "time", period = "week", cls = nil }
 local PL, PR = 244, 290                       -- the middle column's edges
@@ -2182,11 +2259,15 @@ local function Metal(name, hex, pool) local r, g, b = Hex(hex) return { name, r,
 local METAL = { Metal("silver", "e6ecf6", { 0.78, 0.84, 1, 0.35 }), Metal("gold", "ffe39a", { 1, 0.78, 0.35, 0.55 }), Metal("bronze", "f0b070", { 0.9, 0.55, 0.24, 0.4 }) }
 local function BoardValue(kind, row)
     if kind == "time" or kind == "challenge" then return Rd.Clock(floor(row.v / 1000000)):gsub("^0", "") end
+    if kind == "kt" then return Rd.Clock(100000 - row.v):gsub("^0", "") end
+    if kind == "desecrated" then return row.v .. " / 27" end
     return Num(row.v)
 end
 local function BoardSub(kind, row)
     local b = row.b
     if kind == "gold" or kind == "rep" or kind == "points" then return row.e.ti or "" end
+    if kind == "kt" then return "Kel'Thuzad slain" end
+    if kind == "desecrated" then return "Tier 3 pieces" end
     if not b then return "" end
     if (b.w or 0) > 0 and floor(row.v / 1000000) >= 900 then return "Victory \194\183 Level " .. (b.l or 0) end
     return string.format("Level %d \194\183 %s slain", b.l or 0, Num(b.k or 0))
@@ -2422,7 +2503,7 @@ local function BuildAch()
         c.note = Txt(c, 10, nil, 110 / 255, 100 / 255, 118 / 255) c.note:SetJustifyH("LEFT")
         c.pbg = Slice3(c, "barbg", "ARTWORK", 0, 4) c.pbar = Slice3(c, "fill_g", "ARTWORK", 1, 4)
         c.sh = KitTex(c, "sh_gold_10", "ARTWORK", 2)
-        c.first = KitTex(c, "c2_new", "ARTWORK", 3)
+        c.first = Slice3(c, "gb_n", "ARTWORK", 3, 9)
         c.firstL = Txt(c, 8) c.firstL:SetText(Spaced("Guild first")) c.firstL:SetTextColor(42 / 255, 22 / 255, 0) c.firstL:SetShadowColor(0, 0, 0, 0)
         c.firstL:SetDrawLayer("OVERLAY", 7)
         f.cards[i] = c
@@ -2463,7 +2544,9 @@ function UI.ShowAch()
     -- the points: the big shield and its number, the total beside it
     KitAtK(f.big, f, OV_W - 26 - 60, 20, 60 / 64)
     SetPoints(f, have, OV_W - 26 - 30, 20 + 17)
-    f.ptsL:SetText(Num(have)) f.ptsL:ClearAllPoints() f.ptsL:SetPoint("TOPRIGHT", f, "TOPLEFT", OV_W - 26 - 60 - 12, -(oy + 26))
+    f.ptsL:SetText(Num(have)) f.ptsL:ClearAllPoints()
+    local ph = (f.ptsL:GetStringHeight() or 30) + 2 + (f.ptsS:GetStringHeight() or 9)
+    f.ptsL:SetPoint("TOPRIGHT", f, "TOPLEFT", OV_W - 26 - 60 - 12, -(20 + 30 - ph / 2))
     f.ptsS:SetText(Spaced("of " .. Num(all) .. " points")) f.ptsS:ClearAllPoints() f.ptsS:SetPoint("TOPRIGHT", f.ptsL, "BOTTOMRIGHT", 0, -2)
     -- progress
     f.sumL:ClearAllPoints() f.sumL:SetPoint("LEFT", f, "TOPLEFT", PL, -(oy + 125))
@@ -2511,7 +2594,12 @@ function UI.ShowAch()
             KitSet(c.sh, a.feat and "sh_feat" or ((row.earned and "sh_gold_" or "sh_grey_") .. a.pts))
             KitAtK(c.sh, c, cw - 18 - 48, 22, 48 / 46)
             c.first:SetShown(mine and true or false) c.firstL:SetShown(mine and true or false)
-            if mine then KitAt(c.first, c, cw - 72 - 80, 12, 80, 16) c.firstL:ClearAllPoints() c.firstL:SetPoint("LEFT", c, "TOPLEFT", cw - 72 - 74, -20.5) end
+            if mine then
+                local tw = floor((c.firstL:GetStringWidth() or 70) + 16 + 0.5)
+                local tx = cw - 18 - 48 - 10 - tw
+                c.first:Place(c, tx, 37, tw, 18)
+                c.firstL:ClearAllPoints() c.firstL:SetPoint("CENTER", c, "TOPLEFT", tx + tw / 2, -46)
+            end
         end
     end
 end
@@ -2641,12 +2729,439 @@ function UI.ShowDawn()
     end
 end
 
+
+---------------------------------------------------------------------------
+-- the Necropolis: Naxxramas's five runs (four quarters round the Frostwyrm Lair), a side panel for the chosen one,
+-- your Tier 3 and Frost Resistance in the corners; then the Desecrated screen (the sets, Craftsman Wilhelm)
+---------------------------------------------------------------------------
+do                                              -- (a block: UI.lua's main chunk is at Lua's 200 locals)
+local MOBS = D.MOBS
+local nxState = { sel = "arachnid", cls = nil }
+local Q_POS = { arachnid = { 22, 130 }, plague = { 436, 130 }, military = { 22, 362 }, construct = { 436, 362 } }
+local function SpriteTC(key, dir, col, square)      -- a unit's frame: its page and texcoords (square: the top of it)
+    local pg, fx, fy, fw, fh = Rd.Frame(key, dir or 2, col or 0)
+    if not pg then return nil end
+    local u0, u1, v0, v1 = fx / pg[2], (fx + fw) / pg[2], fy / pg[3], (fy + fh) / pg[3]
+    if square then
+        local side = min(fw, fh)
+        local cx = fx + fw / 2
+        u0, u1 = (cx - side / 2) / pg[2], (cx + side / 2) / pg[2]
+        v0, v1 = (fy + (fh > fw and fh * 0.04 or 0)) / pg[3], (fy + (fh > fw and fh * 0.04 or 0) + side) / pg[3]
+    end
+    return pg[1], u0, u1, v0, v1, fw, fh
+end
+local function FloorTex(t, ST, w, h, k)               -- the stage's own floor, tiled into a window
+    t:SetTexture(ST.ground[1], "REPEAT", "REPEAT")
+    t:SetTexCoord(0, w / (k or 110), 0, h / (k or 110))
+end
+local function Window(parent)                          -- a glass window that clips what it holds
+    local wnd = CreateFrame("Frame", nil, parent)
+    pcall(wnd.SetClipsChildren, wnd, true)
+    wnd.floor = wnd:CreateTexture(nil, "BACKGROUND", nil, 0)
+    wnd.floor:SetAllPoints()
+    wnd.shade = Rect(wnd, "BACKGROUND", 1, 1, 1, 1, 1) wnd.shade:SetAllPoints()
+    wnd.boss = wnd:CreateTexture(nil, "ARTWORK", nil, 0)
+    wnd.glass = Slice9(wnd, "glass9", "OVERLAY", 7, 12)
+    return wnd
+end
+local function SetBoss(tex, key, h, x, bottom, rel, dir)
+    local file, u0, u1, v0, v1, fw, fh = SpriteTC(key, dir or 3, 0)
+    if not file then tex:Hide() return end
+    local sc = h / fh
+    tex:SetTexture(file) tex:SetTexCoord(u0, u1, v0, v1)
+    tex:ClearAllPoints() tex:SetPoint("BOTTOMLEFT", rel, "BOTTOMLEFT", x - fw * sc / 2, bottom) tex:SetSize(fw * sc, fh * sc)
+    tex:Show()
+end
+
+function UI._BuildNaxx()
+    local f = MenuScreen("ttl_naxx")
+    f.runes = { strip = Slice3(f, "strip", "ARTWORK", 0, 20), m = Medal(f, "ARTWORK", 2), t = Txt(f, 11, nil, MUTE[1], MUTE[2], MUTE[3]) }
+    f.q = {}
+    for _, key in ipairs(D.WINGS) do
+        local q = CreateFrame("Button", nil, f)
+        q:SetSize(384, 214)
+        q.key = key
+        q.plate = Slice9(q, "pl_grey", "BACKGROUND", 0, 18)
+        q.wnd = Window(q)
+        q.wnd:SetPoint("TOPLEFT", 10, -10) q.wnd:SetSize(364, 194)
+        q.top = CreateFrame("Frame", nil, q) q.top:SetAllPoints() q.top:SetFrameLevel(q.wnd:GetFrameLevel() + 3)
+        q.state = Txt(q.top, 9) q.name = Txt(q.top, 23, MORPHEUS, 0.95, 0.92, 0.85) q.name:SetShadowOffset(0, -2)
+        q.sub = Txt(q.top, 11, nil, MUTE[1], MUTE[2], MUTE[3])
+        q.pips, q.toks = {}, {}
+        for i = 1, 4 do q.pips[i] = Medal(q.top, "ARTWORK", 2) end
+        for i = 1, 2 do local t = q.top:CreateTexture(nil, "ARTWORK", nil, 3) t:SetSize(20, 20) q.toks[i] = t end
+        q:SetScript("OnClick", function() nxState.sel = key Sound("hover", 0.03) UI.ShowNaxx() end)
+        q:SetScript("OnEnter", function(self) self.hov = true UI.NaxxLook(self) end)
+        q:SetScript("OnLeave", function(self) self.hov = false UI.NaxxLook(self) end)
+        f.q[key] = q
+    end
+    -- the lair: a round window on the ice in the middle
+    local lr = CreateFrame("Button", nil, f)
+    lr:SetSize(196, 196)
+    lr:SetFrameLevel(f:GetFrameLevel() + 20)
+    local function disc(layer, sub, inset)
+        local t = lr:CreateTexture(nil, layer, nil, sub)
+        t:SetPoint("TOPLEFT", inset, -inset) t:SetPoint("BOTTOMRIGHT", -inset, inset)
+        local m = lr:CreateMaskTexture() m:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") m:SetAllPoints(t) t:AddMaskTexture(m)
+        t.m = m
+        return t
+    end
+    lr.rimO = disc("BACKGROUND", -3, 0) lr.rimO:SetColorTexture(0.05, 0.03, 0.02, 1)
+    lr.rim = disc("BACKGROUND", -2, 2) lr.rim:SetColorTexture(1, 1, 1, 1)
+    lr.rimI = disc("BACKGROUND", -1, 8) lr.rimI:SetColorTexture(0.05, 0.03, 0.02, 1)
+    lr.floor = lr:CreateTexture(nil, "BACKGROUND", nil, 0) lr.floor:SetPoint("TOPLEFT", 10, -10) lr.floor:SetPoint("BOTTOMRIGHT", -10, 10)
+    lr.mask = lr:CreateMaskTexture() lr.mask:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") lr.mask:SetAllPoints(lr.floor) lr.floor:AddMaskTexture(lr.mask)
+    lr.shade = lr:CreateTexture(nil, "BACKGROUND", nil, 1) lr.shade:SetAllPoints(lr.floor) lr.shade:SetTexture(D.MEDIA .. "UI\\dark_hole") lr.shade:SetVertexColor(0.02, 0.04, 0.1, 0.8) lr.shade:AddMaskTexture(lr.mask)
+    lr.glow = lr:CreateTexture(nil, "BACKGROUND", nil, 2) lr.glow:SetTexture(D.MEDIA .. "UI\\glow") lr.glow:SetBlendMode("ADD") lr.glow:SetPoint("CENTER") lr.glow:SetSize(260, 260)
+    lr.boss = lr:CreateTexture(nil, "ARTWORK", nil, 0)
+    lr.bossMask = lr:CreateMaskTexture() lr.bossMask:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") lr.bossMask:SetAllPoints(lr.floor) lr.boss:AddMaskTexture(lr.bossMask)
+    lr.name = Txt(lr, 17, MORPHEUS, 0.88, 0.95, 1) lr.name:SetShadowOffset(0, -2) lr.name:SetText("Frostwyrm Lair") lr.name:SetPoint("BOTTOM", lr, "BOTTOM", 0, 42)
+    -- (the state: a gold tag across the foot of the rim, where the circle is too narrow for words)
+    lr.tagF = CreateFrame("Frame", nil, lr) lr.tagF:SetAllPoints() lr.tagF:SetFrameLevel(lr:GetFrameLevel() + 2)
+    lr.tag = Slice3(lr.tagF, "gb_n", "ARTWORK", 0, 9)
+    lr.sub = Txt(lr.tagF, 8.5) lr.sub:SetTextColor(42 / 255, 22 / 255, 0) lr.sub:SetShadowColor(0, 0, 0, 0) lr.sub:SetDrawLayer("OVERLAY", 7)
+    lr:SetScript("OnClick", function() nxState.sel = "frost" Sound("hover", 0.03) UI.ShowNaxx() end)
+    f.lair = lr
+    -- the side panel: the chosen run
+    local sd = CreateFrame("Frame", nil, f)
+    sd:SetSize(280, 446)
+    sd.plate = Slice9(sd, "pl_green", "BACKGROUND", 0, 18)
+    sd.wnd = Window(sd) sd.wnd:SetPoint("TOPLEFT", 10, -10) sd.wnd:SetSize(260, 112)
+    sd.top = CreateFrame("Frame", nil, sd) sd.top:SetAllPoints() sd.top:SetFrameLevel(sd.wnd:GetFrameLevel() + 3)
+    sd.name = Txt(sd.top, 22, MORPHEUS) sd.name:SetShadowOffset(0, -2) sd.name:SetPoint("TOP", sd, "TOPLEFT", 140, -130)
+    sd.blurb = Txt(sd.top, 10.5, nil, MUTE[1], MUTE[2], MUTE[3]) sd.blurb:SetWidth(240) sd.blurb:SetJustifyH("CENTER") sd.blurb:SetPoint("TOP", sd, "TOPLEFT", 140, -160)
+    sd.rows = {}
+    for i = 1, 4 do
+        local r = { bg = Slice3(sd.top, "lrow", "ARTWORK", 0, 17), m = Medal(sd.top, "ARTWORK", 2), l = Txt(sd.top, 11.5, nil, 0.92, 0.88, 0.8), v = Txt(sd.top, 9.5, nil, 110 / 255, 100 / 255, 118 / 255) }
+        sd.rows[i] = r
+    end
+    sd.cls = {}
+    for i, cls in ipairs({ "PALADIN", "MAGE", "WARRIOR" }) do
+        local b = Pill(sd.top, function() nxState.cls = cls UI.ShowNaxx() end, { icon = true, size = 10 })
+        b.cls = cls
+        sd.cls[i] = b
+    end
+    sd.go = Pill(sd.top, function() UI.EnterNaxx() end, { big = true, size = 15 })
+    sd.lock = Txt(sd.top, 11, nil, 0.85, 0.7, 0.55) sd.lock:SetWidth(240) sd.lock:SetJustifyH("CENTER")
+    f.side = sd
+    -- the corners
+    f.t3 = { strip = Slice3(f, "strip", "ARTWORK", 0, 20), m = Medal(f, "ARTWORK", 2), t = Txt(f, 11, nil, MUTE[1], MUTE[2], MUTE[3]), b = CreateFrame("Button", nil, f) }
+    f.t3.b:SetScript("OnClick", function() UI.ShowT3() end)
+    f.fr = { strip = Slice3(f, "strip", "ARTWORK", 0, 20), m = Medal(f, "ARTWORK", 2), t = Txt(f, 11, nil, MUTE[1], MUTE[2], MUTE[3]), b = CreateFrame("Button", nil, f) }
+    f.fr.b:SetScript("OnClick", function() UI.ShowT3() end)
+    return f
+end
+
+function UI.NaxxLook(q)
+    local G = ns.HTLGame
+    local done = G and G:Cleared(q.key)
+    local sel = nxState.sel == q.key
+    q.plate:Kit(sel and "pl_green" or done and "pl_done" or "pl_grey")
+    q.plate:Place(q, 0, 0, 384, 214)
+    q:SetAlpha((G and G:NaxxOpen() or q.hov or sel) and 1 or 0.6)
+end
+
+function UI.ShowNaxx()
+    overlay = "naxx"
+    ClearOv()
+    local f, G = ov.naxx, ns.HTLGame
+    f:Show()
+    local d = G and G.Data() or { naxx = { cleared = {}, best = {} }, frozen = 0, bank = 0, frostRes = 0 }
+    local cls = nxState.cls or Class()
+    nxState.cls = cls
+    local n = 0
+    for _, k in ipairs(D.STAGE_ORDER) do if d.naxx.cleared[k] then n = n + 1 end end
+    local oy = LayoutMenu(f, "The Necropolis \194\183 " .. n .. " of 5 runs cleared")
+    -- Frozen Runes, top right
+    local rn = f.runes
+    rn.t:SetText("|cfff4cf6a" .. (d.frozen or 0) .. "|r Frozen Runes")
+    rn.m:Set(Icon("inv_misc_rune_09"), "ring")
+    local rw = 6 + 24 + 10 + (rn.t:GetStringWidth() or 90) + 14
+    rn.strip:Place(f, OV_W - 22 - rw, 22, rw, 34)
+    rn.m:Place(f, OV_W - 22 - rw + 6, 27, 24)
+    rn.t:ClearAllPoints() rn.t:SetPoint("LEFT", f, "TOPLEFT", OV_W - 22 - rw + 40, -39)
+    -- the quarters
+    for _, key in ipairs(D.WINGS) do
+        local ST, q = D.STAGES[key], f.q[key]
+        local pos = Q_POS[key]
+        local right = pos[1] > 300
+        q:ClearAllPoints() q:SetPoint("TOPLEFT", f, "TOPLEFT", pos[1], -(oy + pos[2]))
+        UI.NaxxLook(q)
+        FloorTex(q.wnd.floor, ST, 364, 194, 100)
+        q.wnd.floor:SetVertexColor(0.55, 0.55, 0.55)
+        ns.UI:GradientRGBA(q.wnd.shade, "HORIZONTAL", 0.03, 0.02, 0.05, right and 0.1 or 0.92, 0.03, 0.02, 0.05, right and 0.92 or 0.1)
+        q.wnd.glass:Place(q.wnd, 0, 0, 364, 194)
+        SetBoss(q.wnd.boss, MOBS[ST.finale].sprite or ST.finale, key == "arachnid" and 130 or 160, right and 92 or 272, 6, q.wnd, right and 1 or 3)
+        local done = G and G:Cleared(key)
+        local slain = 0
+        for _, b in ipairs(ST.bosses) do if G and G:Slain(b) then slain = slain + 1 end end
+        q.state:SetText(Spaced(done and "Cleared" or slain > 0 and (slain .. " of " .. #ST.bosses .. " slain") or (G and G:NaxxOpen()) and "Not cleared" or "Locked"))
+        q.state:SetTextColor(done and 0.96 or ST.color[1], done and 0.81 or ST.color[2], done and 0.42 or ST.color[3])
+        q.name:SetText(ST.name:gsub("^The ", ""))
+        local best = d.naxx.best[key]
+        q.sub:SetText(best and ("Best " .. Rd.Clock(best)) or (#ST.bosses .. " bosses"))
+        local tx = right and (384 - 24) or 24
+        local pt = right and "TOPRIGHT" or "TOPLEFT"
+        for _, fs in ipairs({ q.state, q.name, q.sub }) do fs:ClearAllPoints() end
+        q.state:SetPoint(pt, q, "TOPLEFT", tx, -24)
+        q.name:SetPoint(pt, q, "TOPLEFT", tx, -38)
+        q.sub:SetPoint(pt, q, "TOPLEFT", tx, -66)
+        for i, m in ipairs(q.pips) do
+            local b = ST.bosses[i]
+            m:SetShown(b ~= nil)
+            if b then
+                local file, u0, u1, v0, v1 = SpriteTC(MOBS[b].sprite or b, 2, 0, true)
+                local got = G and G:Slain(b)
+                m:Set(file, got and "ring_gold" or "ring_dim", { u0, u1, v0, v1 })
+                m.icon:SetDesaturated(false) m.icon:SetVertexColor(got and 1 or 0.55, got and 1 or 0.55, got and 1 or 0.55)
+                m:Place(q, right and (384 - 24 - 34 - (i - 1) * 43) or (24 + (i - 1) * 43), 90, 34)
+            end
+        end
+        for i, t in ipairs(q.toks) do
+            local slot = ST.tokens[i]
+            t:SetShown(slot ~= nil)
+            if slot then
+                local have = G and G:T3(cls)[slot]
+                t:SetTexture(Icon(D.T3Icon(cls, slot))) t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                t:SetDesaturated(not have) t:SetVertexColor(have and 1 or 0.5, have and 1 or 0.5, have and 1 or 0.5)
+                t:ClearAllPoints() t:SetPoint("TOPLEFT", q, "TOPLEFT", right and (384 - 24 - 20 - (i - 1) * 26) or (24 + (i - 1) * 26), -170)
+            end
+        end
+    end
+    -- the lair
+    local lr, LST = f.lair, D.STAGES.frost
+    local open = G and G:LairOpen()
+    lr:ClearAllPoints() lr:SetPoint("TOPLEFT", f, "TOPLEFT", 328, -(oy + 262))
+    FloorTex(lr.floor, LST, 196, 196, 90)
+    lr.glow:SetVertexColor(0.45, 0.7, 1, open and 0.5 or 0.2)
+    local file, u0, u1, v0, v1, fw, fh = SpriteTC("n_sapphiron", 2, 0)
+    if file then
+        local sc = 120 / fh
+        lr.boss:SetTexture(file) lr.boss:SetTexCoord(u0, u1, v0, v1)
+        lr.boss:ClearAllPoints() lr.boss:SetPoint("BOTTOM", lr, "BOTTOM", 0, 44) lr.boss:SetSize(fw * sc, fh * sc)
+        lr.boss:SetDesaturated(not open) lr.boss:SetAlpha(open and 1 or 0.55)
+    end
+    if nxState.sel == "frost" then ns.UI:GradientRGBA(lr.rim, "VERTICAL", 0.3, 0.55, 0.2, 1, 0.68, 0.9, 0.45, 1)
+    else ns.UI:GradientRGBA(lr.rim, "VERTICAL", 0.55, 0.36, 0.1, 1, 0.98, 0.8, 0.4, 1) end
+    local left = 0
+    for _, w in ipairs(D.WINGS) do if not d.naxx.cleared[w] then left = left + 1 end end
+    lr.sub:SetText(Spaced((G and G:Cleared("frost")) and "Cleared" or open and "Open" or (left .. " quarter" .. (left == 1 and "" or "s") .. " to go")))
+    local tw = floor((lr.sub:GetStringWidth() or 100) + 22 + 0.5)
+    lr.tag:Place(lr, 98 - tw / 2, 196 - 11, tw, 20)
+    lr.sub:ClearAllPoints() lr.sub:SetPoint("CENTER", lr, "TOPLEFT", 98, -(196 - 1))
+    -- the side panel
+    local sel = nxState.sel
+    local ST = D.STAGES[sel]
+    local sd = f.side
+    sd:ClearAllPoints() sd:SetPoint("TOPLEFT", f, "TOPLEFT", 846, -(oy + 130))
+    sd.plate:Place(sd, 0, 0, 280, 446)
+    FloorTex(sd.wnd.floor, ST, 260, 112, 90)
+    sd.wnd.floor:SetVertexColor(0.6, 0.6, 0.6)
+    ns.UI:GradientRGBA(sd.wnd.shade, "VERTICAL", 0.03, 0.02, 0.05, 0.75, 0.03, 0.02, 0.05, 0.05)
+    sd.wnd.glass:Place(sd.wnd, 0, 0, 260, 112)
+    SetBoss(sd.wnd.boss, MOBS[ST.finale].sprite or ST.finale, 104, 130, 4, sd.wnd, 2)
+    sd.name:SetText(ST.name) sd.name:SetTextColor(ST.color[1], ST.color[2], ST.color[3])
+    FitLine(sd.name, MORPHEUS, 22, 14, 256)
+    sd.blurb:SetText(ST.blurb)
+    local times = {}
+    for _, ev in ipairs(ST.events) do if ev.kind == "boss" or ev.kind == "finale" then times[ev.mob] = ev.t end end
+    times.n_thaddius = times.n_thaddius or 900
+    for i, r in ipairs(sd.rows) do
+        local b = ST.bosses[i]
+        local on = b ~= nil
+        r.bg:SetShown(on) r.m:SetShown(on) r.l:SetShown(on) r.v:SetShown(on)
+        if on then
+            local y = 196 + (i - 1) * 40
+            r.bg:Place(sd, 14, y, 252, 34)
+            local file2, a0, a1, b0, b1 = SpriteTC(MOBS[b].sprite or b, 2, 0, true)
+            local got = G and G:Slain(b)
+            r.m:Set(file2, got and "ring_gold" or "ring", { a0, a1, b0, b1 })
+            r.m.icon:SetDesaturated(false)
+            r.m:Place(sd, 19, y + 4, 26)
+            local nm = MOBS[b].horseman and "The Four Horsemen" or MOBS[b].name
+            r.l:SetText(nm) r.l:ClearAllPoints() r.l:SetPoint("LEFT", sd, "TOPLEFT", 54, -(y + 17))
+            FitLine(r.l, nil, 11.5, 9, 150)
+            local tt = times[b] or (b == "n_thaddius" and 900)
+            r.v:SetText((tt and Rd.Clock(tt):gsub("^0", "") or "") .. (got and " \194\183 slain" or ""))
+            r.v:SetTextColor(got and 0.65 or 110 / 255, got and 0.85 or 100 / 255, got and 0.45 or 118 / 255)
+            r.v:ClearAllPoints() r.v:SetPoint("RIGHT", sd, "TOPLEFT", 258, -(y + 17))
+        end
+    end
+    local cy = 196 + #ST.bosses * 40 + 6
+    local ws, tot = {}, 0
+    for i, b in ipairs(sd.cls) do ws[i] = b:Set(CLASSES[b.cls].name, b.cls == cls, 26, CLS_ICON[b.cls], nil, 9, 10) tot = tot + ws[i] + (i > 1 and 4 or 0) end
+    local x = 140 - tot / 2
+    for i, b in ipairs(sd.cls) do b:ClearAllPoints() b:SetPoint("TOPLEFT", sd, "TOPLEFT", x, -cy) x = x + ws[i] + 4 end
+    local can = G and G:StageOpen(sel)
+    sd.go:SetShown(can and true or false)
+    sd.lock:SetShown(not can)
+    if can then
+        local gw = sd.go:Set("Enter " .. (ST.short or ST.name), false, 38)
+        sd.go:ClearAllPoints() sd.go:SetPoint("TOPLEFT", sd, "TOPLEFT", 140 - gw / 2, -(446 - 22 - 38))
+    else
+        sd.lock:SetText(not (G and G:NaxxOpen()) and "Hold the line once in Eastern Plaguelands to open Naxxramas." or "Slay the four masters of the quarters to open the lair.")
+        sd.lock:ClearAllPoints() sd.lock:SetPoint("TOP", sd, "TOPLEFT", 140, -(446 - 22 - 34))
+    end
+    -- the corners: Tier 3 and Frost Resistance
+    local y = StageH() - 22 - 40
+    local t3 = f.t3
+    local parts = {}
+    for _, c in ipairs({ "PALADIN", "MAGE", "WARRIOR" }) do parts[#parts + 1] = CLASSES[c].name .. " |cfff4cf6a" .. (G and G:T3Count(c) or 0) .. " / 9|r" end
+    t3.t:SetText("Tier 3 \194\183 " .. table.concat(parts, " \194\183 "))
+    t3.m:Set(Icon(D.T3Icon(cls, "chest")), "ring")
+    local tw = 6 + 28 + 10 + (t3.t:GetStringWidth() or 200) + 14
+    t3.strip:Place(f, 22, y, tw, 40) t3.m:Place(f, 28, y + 6, 28)
+    t3.t:ClearAllPoints() t3.t:SetPoint("LEFT", f, "TOPLEFT", 66, -(y + 20))
+    t3.b:ClearAllPoints() t3.b:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -y) t3.b:SetSize(tw, 40)
+    local fr = f.fr
+    fr.t:SetText("Frost Resistance |cfff4cf6arank " .. (d.frostRes or 0) .. "|r of " .. #D.FROST_RES)
+    fr.m:Set(Icon("spell_frost_frostarmor02"), "ring")
+    local fw2 = 6 + 28 + 10 + (fr.t:GetStringWidth() or 160) + 14
+    fr.strip:Place(f, OV_W - 22 - fw2, y, fw2, 40) fr.m:Place(f, OV_W - 22 - fw2 + 6, y + 6, 28)
+    fr.t:ClearAllPoints() fr.t:SetPoint("LEFT", f, "TOPLEFT", OV_W - 22 - fw2 + 44, -(y + 20))
+    fr.b:ClearAllPoints() fr.b:SetPoint("TOPLEFT", f, "TOPLEFT", OV_W - 22 - fw2, -y) fr.b:SetSize(fw2, 40)
+end
+
+function UI.EnterNaxx()
+    local G = ns.HTLGame
+    if not (G and G:StageOpen(nxState.sel)) then return end
+    UI.Start(nxState.cls or Class(), { stage = nxState.sel })
+end
+
+-- the Desecrated screen: a column per class (the set on the hero, nine tokens and where they drop, the bonuses),
+-- and Craftsman Wilhelm's shelf (Frost Resistance for Frozen Runes and gold)
+function UI._BuildT3()
+    local f = MenuScreen("ttl_t3")
+    f.back:SetScript("OnClick", function() UI.ShowNaxx() end)
+    f.cols = {}
+    for i, cls in ipairs({ "PALADIN", "MAGE", "WARRIOR" }) do
+        local c = CreateFrame("Frame", nil, f)
+        c:SetSize(356, 330)
+        c.cls = cls
+        c.plate = Slice9(c, "pl_" .. CLS_PLATE[cls], "BACKGROUND", 0, 18)
+        c.scene = Scene(c, c:GetFrameLevel() + 1)
+        c.scene:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -10)
+        c.top = CreateFrame("Frame", nil, c) c.top:SetAllPoints() c.top:SetFrameLevel(c:GetFrameLevel() + 6)
+        c.name = Txt(c.top, 19, MORPHEUS, CLASSES[cls].color[1], CLASSES[cls].color[2], CLASSES[cls].color[3]) c.name:SetShadowOffset(0, -2)
+        c.name:SetPoint("TOP", c, "TOPLEFT", 178, -128)
+        c.n = Txt(c.top, 9, nil, MUTE[1], MUTE[2], MUTE[3]) c.n:SetPoint("TOP", c, "TOPLEFT", 178, -151)
+        c.slots = {}
+        for k = 1, 9 do
+            local s = { icon = c.top:CreateTexture(nil, "ARTWORK", nil, 1), ring = c.top:CreateTexture(nil, "ARTWORK", nil, 0), l = Txt(c.top, 9, nil, 0.85, 0.8, 0.72), src = Txt(c.top, 8, nil, 110 / 255, 100 / 255, 118 / 255) }
+            s.ring:SetColorTexture(0, 0, 0, 0.85)
+            c.slots[k] = s
+        end
+        c.bonus = Txt(c.top, 10, nil, MUTE[1], MUTE[2], MUTE[3]) c.bonus:SetWidth(330) c.bonus:SetJustifyH("CENTER")
+        c.wear = Pill(c.top, function() ns.HTLGame:ToggleT3Look() UI.ShowT3() end, { size = 10 })
+        f.cols[i] = c
+    end
+    local w = CreateFrame("Frame", nil, f)
+    w:SetSize(1104, 120)
+    w.plate = Slice9(w, "pl_grey", "BACKGROUND", 0, 18)
+    w.m = Medal(w, "ARTWORK", 2)
+    w.name = Txt(w, 19, MORPHEUS, 0.62, 0.85, 1) w.name:SetText("Craftsman Wilhelm") w.name:SetShadowOffset(0, -2)
+    w.desc = Txt(w, 10.5, nil, MUTE[1], MUTE[2], MUTE[3]) w.desc:SetWidth(300) w.desc:SetJustifyH("LEFT")
+    w.desc:SetText("Light's Hope Chapel. Turns Frozen Runes and banked gold into Frost Resistance: the Chill in the Frostwyrm Lair fills more slowly.")
+    w.cells = {}
+    for k = 1, #D.FROST_RES do w.cells[k] = { bg = Slice3(w, "lrow", "ARTWORK", 0, 17), r = Txt(w, 18, MORPHEUS), e = Txt(w, 9, nil, 0.85, 0.8, 0.72), c = Txt(w, 8, nil, 110 / 255, 100 / 255, 118 / 255) } end
+    w.buy = Pill(w, function() if ns.HTLGame:BuyFrost() then Sound("coin") end UI.ShowT3() end, { big = true, size = 14 })
+    w.have = Txt(w, 10, nil, MUTE[1], MUTE[2], MUTE[3])
+    f.wil = w
+    return f
+end
+
+function UI.ShowT3()
+    overlay = "t3"
+    ClearOv()
+    local f, G = ov.t3, ns.HTLGame
+    f:Show()
+    local d = G and G.Data() or { frozen = 0, bank = 0, frostRes = 0 }
+    local oy = LayoutMenu(f, "Tier 3 \194\183 nine tokens make a set")
+    f.back:Set("\194\171 Necropolis", false, 30)
+    -- which master drops which piece
+    local from = {}
+    local function short(boss) return MOBS[boss].horseman and "Four Horsemen" or (MOBS[boss].name:gsub("^Grand Widow ", ""):gsub("^Instructor ", ""):gsub(" the .*$", "")) end
+    for _, b in ipairs({ "n_anub", "n_faerlina", "n_maexxna", "n_noth", "n_heigan", "n_loatheb", "n_razuvious", "n_gothik", "n_mograine", "n_patchwerk", "n_grobbulus", "n_gluth", "n_thaddius", "n_kelthuzad" }) do
+        local slot = D.T3_FROM[b]
+        if slot and slot ~= "any" then from[slot] = from[slot] and (from[slot] .. " \194\183 " .. short(b)) or short(b) end
+    end
+    for i, c in ipairs(f.cols) do
+        local cls, set = c.cls, D.T3_SETS[c.cls]
+        c:ClearAllPoints() c:SetPoint("TOPLEFT", f, "TOPLEFT", 22 + (i - 1) * 374, -(oy + 106))
+        c.plate:Place(c, 0, 0, 356, 330)
+        local mine = G and G:T3(cls) or {}
+        local n = G and G:T3Count(cls) or 0
+        c.scene:Set(336, 110, cls, CLASSES[cls].color, { 26 / 255, 20 / 255, 32 / 255, 11 / 255, 9 / 255, 16 / 255 }, { heroH = 96, heroBottom = 8, raysY = 84, poolY = 14 })
+        local file, u0, u1, v0, v1, fw, fh = SpriteTC(set.sprite, 2, 0)
+        if file then
+            local sc = 96 / fh
+            c.scene.hero:SetTexture(file) c.scene.hero:SetTexCoord(u0, u1, v0, v1)
+            c.scene.hero:ClearAllPoints() c.scene.hero:SetPoint("BOTTOMLEFT", c.scene, "BOTTOMLEFT", 168 - fw * sc / 2, 8) c.scene.hero:SetSize(fw * sc, fh * sc)
+            c.scene.hero:SetDesaturated(false) c.scene.hero:SetVertexColor(n < 9 and 0.72 or 1, n < 9 and 0.72 or 1, n < 9 and 0.72 or 1)
+        end
+        c.name:SetText(set.name) FitLine(c.name, MORPHEUS, 19, 13, 330)
+        c.n:SetText(Spaced(n .. " of 9"))
+        for k, s in ipairs(c.slots) do
+            local sl = D.T3_SLOTS[k]
+            local have = mine[sl.id]
+            local col, row = (k - 1) % 3, floor((k - 1) / 3)
+            local x, y = 14 + col * 112, 170 + row * 42
+            s.ring:ClearAllPoints() s.ring:SetPoint("TOPLEFT", c, "TOPLEFT", x - 1, -(y - 1)) s.ring:SetSize(32, 32)
+            s.ring:SetColorTexture(have and 0.64 or 0.23, have and 0.21 or 0.2, have and 0.93 or 0.25, 1)
+            s.icon:SetTexture(Icon(D.T3Icon(cls, sl.id))) s.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            s.icon:ClearAllPoints() s.icon:SetPoint("TOPLEFT", c, "TOPLEFT", x, -y) s.icon:SetSize(30, 30)
+            s.icon:SetDesaturated(not have) s.icon:SetVertexColor(have and 1 or 0.45, have and 1 or 0.45, have and 1 or 0.45)
+            s.l:SetText(sl.name) s.l:ClearAllPoints() s.l:SetPoint("TOPLEFT", c, "TOPLEFT", x + 36, -(y + 3))
+            s.src:SetText(sl.id == "ring" and "Kel'Thuzad" or from[sl.id] or "") s.src:ClearAllPoints() s.src:SetPoint("TOPLEFT", c, "TOPLEFT", x + 36, -(y + 17))
+            s.src:SetWidth(74) s.src:SetJustifyH("LEFT") s.src:SetWordWrap(true) s.src:SetMaxLines(2)
+        end
+        c.bonus:SetText((n >= 3 and "|cffa6d873" or "") .. "3: +5% damage|r   " .. (n >= 6 and "|cffa6d873" or "") .. "6: +15 health|r   " .. (n >= 9 and "|cffa6d873" or "") .. "9: the set's look|r")
+        c.bonus:ClearAllPoints() c.bonus:SetPoint("TOP", c, "TOPLEFT", 178, -(170 + 3 * 42 + 4))
+        c.wear:SetShown(n >= 9)
+        if n >= 9 then
+            local on = d.t3Look ~= false
+            local ww = c.wear:Set(on and "Wearing" or "Hidden", on, 22, nil, nil, 10, 10)
+            c.wear:ClearAllPoints() c.wear:SetPoint("TOPLEFT", c, "TOPLEFT", 356 - 14 - ww, -14)
+        end
+    end
+    -- Craftsman Wilhelm
+    local w = f.wil
+    w:ClearAllPoints() w:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -(oy + 452))
+    w.plate:Place(w, 0, 0, 1104, 120)
+    w.m:Set(Icon("inv_misc_rune_09"), "ring") w.m:Place(w, 20, 32, 56)
+    w.name:ClearAllPoints() w.name:SetPoint("TOPLEFT", w, "TOPLEFT", 92, -20)
+    w.desc:ClearAllPoints() w.desc:SetPoint("TOPLEFT", w, "TOPLEFT", 92, -46)
+    local rank = d.frostRes or 0
+    for k, cell in ipairs(w.cells) do
+        local cfg = D.FROST_RES[k]
+        local x = 400 + (k - 1) * 102
+        local got = k <= rank
+        cell.bg:SetKit(got and "lrow_me" or "lrow") cell.bg:Place(w, x, 16, 96, 58)
+        cell.r:SetText(tostring(k)) cell.r:SetTextColor(got and 1 or 0.62, got and 0.86 or 0.85, got and 0.45 or 1)
+        cell.r:ClearAllPoints() cell.r:SetPoint("TOP", w, "TOPLEFT", x + 48, -20)
+        cell.e:SetText(floor(D.FROST_RES_SLOW * 100 * k + 0.5) .. "% slower") cell.e:ClearAllPoints() cell.e:SetPoint("TOP", w, "TOPLEFT", x + 48, -42)
+        cell.c:SetText(cfg.runes .. " runes \194\183 " .. cfg.gold .. "g") cell.c:ClearAllPoints() cell.c:SetPoint("TOP", w, "TOPLEFT", x + 48, -56)
+    end
+    local nxt = G and G:FrostNext()
+    local ok = G and G:CanBuyFrost()
+    w.buy:SetShown(nxt ~= nil)
+    if nxt then
+        local bw = w.buy:Set("Learn rank " .. (rank + 1), false, 38)
+        w.buy:ClearAllPoints() w.buy:SetPoint("TOPLEFT", w, "TOPLEFT", 1104 - 22 - bw, -22)
+        w.buy:SetAlpha(ok and 1 or 0.55)
+    end
+    local need = nxt and ("Rank " .. (rank + 1) .. " costs " .. nxt.runes .. " runes and " .. Num(nxt.gold) .. " gold \194\183 ") or "Every rank learned \194\183 "
+    w.have:SetText(need .. "you have |cfff4cf6a" .. (d.frozen or 0) .. "|r runes, |cfff4cf6a" .. Num(d.bank or 0) .. "|r gold")
+    w.have:ClearAllPoints() w.have:SetPoint("BOTTOMRIGHT", w, "TOPLEFT", 1104 - 22, -96)
+end
+end
+
 -- a run of the week's challenge: its rules, its seed, its board
 function UI.StartChallenge()
     local S = ns.HTLSocial
     if not S then return end
     local ch, seed = S:Challenge()
-    UI.Start(ch.cls or Class(), { rules = ch, seed = seed, challenge = S:Week() })
+    UI.Start(ch.cls or Class(), { rules = ch, seed = seed, challenge = S:Week(), stage = ch.stage })
 end
 
 ---------------------------------------------------------------------------
@@ -2758,6 +3273,7 @@ function UI:CreatePanel(parent)
     ov.title = BuildTitle()
     ov.talents = BuildTalents()
     ov.board, ov.ach, ov.dawn = BuildBoard(), BuildAch(), BuildDawn()
+    ov.naxx, ov.t3 = UI._BuildNaxx(), UI._BuildT3()
     toast = BuildToast()
     ov.picker = BuildPicker()
     ov.coffer, ov.loot, ov.legend = BuildCoffer()
@@ -2864,3 +3380,5 @@ function UI._ShowEnd(kind) ShowEnd(kind) end
 function UI._ShowTitle() ShowTitle() end
 function UI._Previews() return previews end
 function UI._Picker() return ov.picker end
+function UI._Loot() return ov.loot end
+function UI._TakeLoot() ov.loot.take:GetScript("OnClick")(ov.loot.take) end

@@ -11,6 +11,10 @@ local _, ns = ...
 local D = ns.HTLData
 local E = {}
 ns.HTL = E
+-- hooks (NaxxBoss.lua): BOSSFN[type](e, dt, d) a boss's turn; ONSPAWN[type](ev) a clock event's own spawning;
+-- MOBTICK(e, dt, d) the necropolis's dead (their tricks); ONKILL(e, o) after a death; STAGEFN[stage].init(run) /
+-- .tick(dt) a stage's floor and hazards. E.I (end of file) hands them the run's tools.
+E.BOSSFN, E.ONSPAWN, E.STAGEFN = {}, {}, {}
 
 local floor, min, max, abs, sqrt, sin, cos, atan2, pi = math.floor, math.min, math.max, math.abs, math.sqrt, math.sin, math.cos, math.atan2 or math.atan, math.pi
 local TAU = pi * 2
@@ -66,6 +70,13 @@ local function stats()
     s.regen = 0.3 * (P.motw or 0) + 0.2 * (T.loh or 0)
     s.armor = 0.03 * (P.motw or 0) + 0.02 * (T.devotion or 0) + (Cl.armor or 0)
     s.crit = 0.08 + 0.03 * (T.crit or 0)
+    if (R.t3n or 0) >= 3 then s.might = s.might * 1.05 end          -- Tier 3: +5% damage at three pieces, +15 health at six
+    if (R.t3n or 0) >= 6 then s.maxHp = s.maxHp + 15 end
+    local Rl = R.relics or {}
+    if Rl.wraith then s.crit = s.crit + 0.12 end
+    if Rl.collar then s.magnet = s.magnet * 1.4 end
+    if Rl.bearer then s.armor = s.armor + 0.15 end
+    s.critMul = Rl.reflection and 2.4 or 2
     if R.rules.hpMul then s.maxHp = floor(s.maxHp * R.rules.hpMul) end
     if R.rules.dmgMul then s.might = s.might * R.rules.dmgMul end
     return s
@@ -76,6 +87,15 @@ local function addSpell(id)
     if not s then R.spells[id] = { r = 1, cd = 0.3, acc = 0, a = 0, cdMax = 1 } R.order[#R.order + 1] = id
     else s.r = min(SPELLS[id].max, s.r + 1) end
 end
+local function addRelic(id)
+    if not id or R.relics[id] or not D.RELICS[id] then return end
+    R.relics[id] = true
+    R.rorder[#R.rorder + 1] = id
+    local before = R.p.maxHp
+    R.st = stats()
+    R.p.maxHp = R.st.maxHp
+    R.p.hp = R.p.hp + max(0, R.p.maxHp - before)
+end
 local function addPassive(id)
     if not R.passives[id] then R.porder[#R.porder + 1] = id end
     R.passives[id] = min(5, (R.passives[id] or 0) + 1)
@@ -85,7 +105,7 @@ local function addPassive(id)
     R.p.hp = R.p.hp + max(0, R.p.maxHp - before)
 end
 
--- opts: { cls = "PALADIN"|"MAGE", seed, god, bot, attract, preview, lab, noStart }
+-- opts: { cls = "PALADIN"|"MAGE", seed, god, bot, attract, preview, lab, noStart, stage, frostRes, t3n, ktSlain }
 function E.New(opts)
     opts = opts or {}
     local cls = D.CLASSES[opts.cls or ""] and opts.cls or "PALADIN"
@@ -103,7 +123,12 @@ function E.New(opts)
         evI = 1, warn = nil, trauma = 0, kick = { x = 0, y = 0 }, hitstop = 0, hsCool = 0, flash = 0, flashC = { 0.63, 0, 0 }, pending = 0,
         boss = nil, chunks = {}, breakT = 4, dark = 0, over = nil, rerolls = 2, banish = 1, banished = {}, bossKills = 0, ts = 1, tsGoal = 1,
         xpPulse = 0, slotFlash = {}, lvlT = -1, VW = VW, VH = VH, free = {}, gemChain = 0, gemChainT = -1,
+        stage = "epl", nx = {}, relics = {}, rorder = {}, tokens = {}, frozen = 0, frostRes = opts.frostRes or 0, t3n = opts.t3n or 0,
+        ktSlain = opts.ktSlain and true or false, allies = {}, cold = 0, pSlow = 1, pSlowN = 1,
     }
+    local ST = D.STAGES and D.STAGES[opts.stage or "epl"] or nil
+    if ST then run.stage = ST.key end
+    run.ST = ST or { key = "epl", reaper = true, props = true, len = 900, waves = D.WAVES, events = D.EVENTS, target = D.Target }
     local keep = R
     R = run
     if not opts.noStart then addSpell(Cl.start) if run.tal.purpose then addSpell(Cl.start) end end
@@ -116,6 +141,8 @@ function E.New(opts)
     run.st = stats()
     run.p.maxHp = run.st.maxHp
     run.p.hp = run.p.maxHp
+    local SF = E.STAGEFN[run.stage]
+    if SF and SF.init and not run.preview then SF.init(run) end
     R = keep
     return run
 end
@@ -123,6 +150,7 @@ end
 function E.Use(run) R = run VW, VH = run.VW or D.VW, run.VH or D.VH end
 function E.AddSpell(run, id) E.Use(run) addSpell(id) end
 function E.AddPassive(run, id) E.Use(run) addPassive(id) end
+function E.AddRelic(run, id) E.Use(run) addRelic(id) end
 function E.SetView(run, w, h) run.VW, run.VH = w, h end
 
 ---------------------------------------------------------------------------
@@ -237,8 +265,16 @@ function E.Chunk(run, cx, cy)
     local k = cx * 100003 + cy
     local c = run.chunks[k]
     if c then return c end
-    c = { dec = {} }
-    local n = run.preview and 0 or 2 + floor(hash2(cx, cy, 1) * 3)
+    c = { dec = {}, zones = {} }
+    local ST = run.ST
+    local n = (run.preview or (ST and not ST.props)) and 0 or 2 + floor(hash2(cx, cy, 1) * 3)
+    local hz = ST and ST.hazard
+    if (hz == "webs" or hz == "slime") and not run.preview then        -- (webs / slime pools lie where the chunk says)
+        for i = 0, 1 do
+            local x, y = cx * CH + 60 + hash2(cx, cy, 110 + i) * (CH - 120), cy * CH + 60 + hash2(cx, cy, 120 + i) * (CH - 120)
+            if hyp(x, y) >= 220 and hash2(cx, cy, 130 + i) < 0.75 then c.zones[#c.zones + 1] = { kind = hz == "webs" and "web" or "slime", x = x, y = y, r = 60 + hash2(cx, cy, 140 + i) * 50 } end
+        end
+    end
     for i = 0, n - 1 do
         local x, y = cx * CH + 40 + hash2(cx, cy, 10 + i) * (CH - 80), cy * CH + 40 + hash2(cx, cy, 30 + i) * (CH - 80)
         if hyp(x, y) >= 180 then
@@ -275,8 +311,9 @@ local function edgePoint(pad)
     return R.p.x + cos(a) * rx * 1.05, R.p.y + sin(a) * ry * 1.25
 end
 local function waveAt(t)
-    for _, w in ipairs(D.WAVES) do if t >= w[1] and t < w[2] then return w.list end end
-    return D.WAVES[#D.WAVES].list
+    local WV = R.ST and R.ST.waves or D.WAVES
+    for _, w in ipairs(WV) do if t >= w[1] and t < w[2] then return w.list end end
+    return WV[#WV].list
 end
 local LAB = { { "ghoul", 6 }, { "skeleton", 3 }, { "ghoul2", 1 }, { "rat", 2 } }
 local PREVIEW_MOBS = { { "ghoul", 7 }, { "skeleton", 3 } }
@@ -298,8 +335,10 @@ local function spawner(dt)
         while #R.en < (R.labN or 70) do local x, y = edgePoint(30) spawn(pickW(LAB), x, y) end
         return
     end
-    if R.t >= 900 then return end
-    local want = D.Target(R.t) * (R.dark > 0 and 1.25 or 1)
+    local ST = R.ST
+    if ST.reaper and R.t >= ST.len then return end
+    if R.calm then return end                                    -- (Patchwerk wants the room to himself)
+    local want = ST.target(R.t) * (R.dark > 0 and 1.25 or 1) * (R.finaleOn and 0.6 or 1) * (R.spawnK or 1)
     local n, alive = 0, #R.en
     while alive + n < want and n < 6 do local x, y = edgePoint(60) spawn(pickW(waveAt(R.t)), x, y) n = n + 1 end
     R.breakT = R.breakT - dt
@@ -313,21 +352,34 @@ end
 local kill
 local function runEvents()
     if R.preview or R.lab then return end
-    while R.evI <= #D.EVENTS and R.t >= D.EVENTS[R.evI].t do
-        local ev = D.EVENTS[R.evI]
+    local EV, k = R.ST.events or D.EVENTS, R.rules.rush or 1
+    while R.evI <= #EV and R.t >= EV[R.evI].t * k do
+        local ev = EV[R.evI]
         R.evI = R.evI + 1
-        warn(ev.msg, (ev.kind == "boss" or ev.kind == "reaper") and RED or YELLOW)
+        warn(ev.msg, (ev.kind == "boss" or ev.kind == "reaper" or ev.kind == "finale") and RED or YELLOW)
         if ev.kind == "ring" then
             sound("raidwarn")
-            for i = 0, 63 do local a = i / 64 * TAU spawn(i % 3 ~= 0 and "ghoul" or "skeleton", R.p.x + cos(a) * 520, R.p.y + sin(a) * 380) end
-        elseif ev.kind == "boss" or ev.kind == "elite" then
-            sound(ev.kind == "boss" and "bosswarn" or "raidwarn")
+            for i = 0, 63 do local a = i / 64 * TAU spawn(ev.mob or (i % 3 ~= 0 and "ghoul" or "skeleton"), R.p.x + cos(a) * 520, R.p.y + sin(a) * 380) end
+        elseif ev.kind == "brood" then
+            sound("raidwarn")
+            for i = 0, 47 do local a = i / 48 * TAU spawn("n_spider", R.p.x + cos(a) * 480, R.p.y + sin(a) * 350) end
+        elseif ev.kind == "boss" or ev.kind == "elite" or ev.kind == "finale" then
+            sound(ev.kind == "elite" and "raidwarn" or "bosswarn")
             if ev.mob == "lich" then sound("lich") end
-            for _ = 1, ev.n or 1 do local x, y = edgePoint(40) spawn(ev.mob, x, y) end
+            if ev.kind == "finale" then R.finaleOn, R.finaleT = true, R.t end
+            local made
+            if E.ONSPAWN[ev.mob] then made = E.ONSPAWN[ev.mob](ev)
+            else made = {} for _ = 1, ev.n or 1 do local x, y = edgePoint(40) made[#made + 1] = spawn(ev.mob, x, y) end end
+            for _, e in ipairs(made or {}) do
+                e.arriveT = R.t
+                if e.M.finale and R.ST.berserk then e.berserkAt = R.t + R.ST.berserk end
+            end
+        elseif ev.kind == "storm" then
+            R.storm = true sound("raidwarn")
         elseif ev.kind == "swarm" then
             sound("raidwarn")
             local dir = rnd() < 0.5 and 1 or -1
-            for _ = 1, 46 do spawn("bat", R.p.x - dir * (VW / 2 + 60 + rnd() * 200), R.p.y + rr(-VH / 2, VH / 2), { fixed = { dir * 170, rr(-12, 12) }, life = 9 }) end
+            for _ = 1, 46 do spawn(ev.mob or "bat", R.p.x - dir * (VW / 2 + 60 + rnd() * 200), R.p.y + rr(-VH / 2, VH / 2), { fixed = { dir * 170, rr(-12, 12) }, life = 9 }) end
         elseif ev.kind == "dark" then
             R.dark = 1 sound("fear")
         elseif ev.kind == "reaper" then
@@ -346,11 +398,26 @@ local deathFx, legendFx
 local function hurt(e, dmg, o)
     if e.dead or e.M.reaper then return end
     o = o or O
-    local crit = rnd() < R.st.crit
-    dmg = dmg * R.st.might * (crit and 2 or 1)
-    if R.tal.slayer and (e.M.elite or e.M.boss) then dmg = dmg * (1 + 0.06 * R.tal.slayer) end
+    if e.immune then return end
+    local Rl = R.relics
+    local big = e.M.elite or e.M.boss
+    local crit = rnd() < R.st.crit + ((R.creepT or 0) > 0 and 0.5 or 0)
+    dmg = dmg * R.st.might * (crit and R.st.critMul or 1)
+    if R.tal.slayer and big then dmg = dmg * (1 + 0.06 * R.tal.slayer) end
     if R.wrathOn then dmg = dmg * 1.4 end
+    if Rl.remorse and big then dmg = dmg * 1.25 end
+    if R.essenceOn then dmg = dmg * 1.3 end
+    if Rl.righteye and o.school == "frost" then dmg = dmg * 1.2 end
+    if Rl.hungering and e.frz > 0 then dmg = dmg * 2 end
+    dmg = dmg * (e.dmgTakenMul or 1) * (R.dmgMul or 1)
+    if Rl.menethil and not e.M.boss and e.hp - dmg < e.maxHp * 0.45 then if e.M.elite then dmg = dmg * 2 else dmg = max(dmg, e.hp) end end
     e.hp = e.hp - dmg
+    if not o.dot then
+        if Rl.fang then e.poison, e.poisonT = min(3, (e.poison or 0) + 1), 4 end
+        if Rl.spire then R.spireN = (R.spireN or 0) + 1 if R.spireN >= 5 then R.spireN = 0 R.pendingChain = e end end
+        if Rl.hungering and not e.M.boss and rnd() < 0.15 then e.frz = max(e.frz, 2) e.frzMax = e.frz end
+    end
+    if e.onHurt then e.onHurt(e, dmg) end
     e.flash, e.sq = 0.11, 0.22
     local tx = R.texts
     if #tx < (R.preview and 6 or 80) and (not R.preview or crit or rnd() < 0.35) then
@@ -362,8 +429,8 @@ local function hurt(e, dmg, o)
     local fx0, fy0 = o.fx or R.p.x, o.fy or R.p.y
     if o.kb and not e.M.boss then local d = hyp(e.x - fx0, e.y - fy0) if d == 0 then d = 1 end e.kb, e.kx, e.ky = o.kb, (e.x - fx0) / d, (e.y - fy0) / d end
     if o.stun then e.stun = max(e.stun, o.stun) end
-    if o.slow then e.slow = max(e.slow, o.slow) end
-    if o.frz then e.frz = max(e.frz, o.frz) e.frzMax = e.frz end
+    if o.slow then e.slow = max(e.slow, o.slow * (Rl.righteye and 1.3 or 1)) end
+    if o.frz and not (e.M.boss and e.M.naxx) then e.frz = max(e.frz, o.frz * (Rl.righteye and 1.3 or 1)) e.frzMax = e.frz end
     if e.hp <= 0 then kill(e, false, o) end
 end
 
@@ -381,15 +448,36 @@ kill = function(e, silent, o)
         if M.xp > 0 then R.gems[#R.gems + 1] = { x = e.x, y = e.y, v = M.xp, t = rnd() * 6, m = false, pop = 0.35, vx = rr(-40, 40), vy = rr(-30, 30) } end
         if rnd() < 0.01 * (1 + 0.25 * (R.tal.lucky or 0)) then R.pick[#R.pick + 1] = { kind = "gold", x = e.x + 8, y = e.y, v = 5 + floor(rnd() * 10), t = 0 } end
         if e.type == "rat" then sound("rat", 0.25) end
+        local Rl = R.relics
+        if Rl.ashbringer and not M.boss and not M.elite and #R.allies < 8 and rnd() < 0.1 then
+            R.allies[#R.allies + 1] = { type = e.type, x = e.x, y = e.y, dir = e.dir, t = 0, life = 6, anim = 0, hitT = 0 }
+        end
+        if Rl.kingsfall then
+            if R.t - (R.kfT0 or -99) > 10 then R.kfT0, R.kfN = R.t, 0 end
+            R.kfN = (R.kfN or 0) + 1
+            if R.kfN >= 50 then R.kfN, R.kfOn = 0, 8 warn("Kingsfall!", C.GOLD) end
+        end
     end
     if (M.elite or M.boss) and not silent then
         R.slain[e.type] = true
         R.stones = R.stones + (M.boss and 3 or 1)          -- (Scourgestones: handed to the Argent Dawn when the run ends)
-        R.pick[#R.pick + 1] = { kind = "chest", x = e.x, y = e.y, t = 0, boss = M.boss }
+        if R.ST.key ~= "epl" then                          -- (the necropolis: Frozen Runes, and a master's Desecrated token)
+            local n = e.type == "n_sapphiron" and D.RUNES_SAPPHIRON or M.boss and D.RUNES_BOSS or D.RUNES_ELITE
+            R.frozen = R.frozen + n * (R.perks.runes2 and 2 or 1)
+            local slot = D.T3_FROM and D.T3_FROM[e.type]
+            if slot then R.tokens[#R.tokens + 1] = { boss = e.type, slot = slot } end
+        end
+        if not M.finale then R.pick[#R.pick + 1] = { kind = "chest", x = e.x, y = e.y, t = 0, boss = M.boss, src = e.type } end
+        if R.relics.brimstone and M.elite then R.areas[#R.areas + 1] = { kind = "burn", x = e.x, y = e.y, r = 70, t = 0, dur = 6, acc = 0, dmg = 8, emitAcc = 0 } end
         shake(0.5) stop(0.08)
         ring("ring_soft", e.x, e.y, 20, 220, 0.7, C.GOLD, 0.9, { light = 300 })
-        if M.boss then R.boss = nil R.bossKills = R.bossKills + 1 warn(M.name .. " has been slain!", YELLOW) sound("uber") end
+        if M.boss then
+            R.boss = nil
+            for _, o2 in ipairs(R.en) do if o2 ~= e and not o2.dead and o2.M.boss then R.boss = o2 break end end
+            R.bossKills = R.bossKills + 1 warn(M.name .. " has been slain!", YELLOW) sound("uber")
+        end
     end
+    if E.ONKILL and not silent then E.ONKILL(e, o) end
 end
 
 deathFx = function(e, M, o)
@@ -426,7 +514,14 @@ local function hurtPlayer(dmg, src)
     local p = R.p
     local reaper = src and src.M and src.M.reaper
     if p.inv > 0 or p.dead or (R.god and not reaper) then if R.god and not reaper then p.hurtT = 0.1 end return end
-    dmg = dmg * (1 - R.st.armor)
+    if R.relics.bearer and (R.blockCd or 0) <= 0 and not reaper then             -- The Plague Bearer: a hit blocked
+        R.blockCd = 10
+        R.texts[#R.texts + 1] = { x = p.x, y = p.y - 50, vx = 0, vy = -60, v = "Blocked", t = 0, life = 0.9, col = { 0.8, 0.9, 1 } }
+        p.inv = 0.3
+        return
+    end
+    if src and src.tag then R.nx[src.tag] = true end
+    dmg = dmg * (1 - R.st.armor) * (R.dmgTakenMul or 1)
     if R.tal.ardent and p.hp < p.maxHp * 0.3 then dmg = dmg * (1 - 0.15 * R.tal.ardent) end
     p.hp = p.hp - dmg
     if not R.firstHit then R.firstHit = R.t end
@@ -752,10 +847,12 @@ end
 
 local function castSpells(dt)
     local p, st = R.p, R.st
+    if (p.silenceT or 0) > 0 then return end                    -- (silenced: a Naxxramas Follower's charge)
+    if R.disrupt then dt = dt * 0.7 end                          -- (Heigan's Spell Disruption)
     for _, id in ipairs(R.order) do
         local s = R.spells[id]
         local r, L = s.r, R.legend[id]
-        s.cd = s.cd - dt
+        s.cd = s.cd - dt * (((R.kfOn or 0) > 0) and 2 or 1)
         s.a = s.a + dt
         if id == "consecration" then
             local rad = (L and 128 + 10 * r or 64 + 8 * r) * st.area
@@ -936,8 +1033,8 @@ local function updateProj(dt)
         local b = R.eproj[i]
         b.life = b.life - dt
         b.x, b.y = b.x + b.vx * dt, b.y + b.vy * dt
-        if random() < 0.5 then emit({ img = "mist", tint = { 140 / 255, 90 / 255, 200 / 255 }, x = b.x, y = b.y, life = 0.4, s0 = 10, s1 = 20, a0 = 0.4, a1 = 0, rot = "rnd" }) end
-        if hyp(b.x - p.x, b.y - (p.y - 18)) < 14 then hurtPlayer(b.dmg, { M = MOBS.lich }) b.life = 0 flash("shadow_glyph", b.x, b.y, 40, nil, 0.3) end
+        if random() < 0.5 then emit({ img = "mist", tint = b.tint or { 140 / 255, 90 / 255, 200 / 255 }, x = b.x, y = b.y, life = 0.4, s0 = 10, s1 = 20, a0 = 0.4, a1 = 0, rot = "rnd" }) end
+        if hyp(b.x - p.x, b.y - (p.y - 18)) < (b.size and b.size * 0.5 or 14) then hurtPlayer(b.dmg, b.src or { M = MOBS.lich }) b.life = 0 flash(b.img or "shadow_glyph", b.x, b.y, 40, b.tint, 0.3) end
         if b.life <= 0 then remove(R.eproj, i) else i = i + 1 end
     end
 
@@ -949,9 +1046,11 @@ local function updateProj(dt)
             local a, d = random() * TAU, sqrt(random()) * t.r * 0.9
             emit({ img = "sparkle", tint = C.EMBER, x = t.x + cos(a) * d, y = t.y + sin(a) * d / 1.3, vz = vr(40, 140), life = 0.5, s0 = 8, s1 = 2 })
         end
+        if t.onTick and t.t > 0 then t.onTick(t, dt) end
         if t.t <= 0 then
             remove(R.tele, i)
-            if t.kind == "pillar" then exorcismHit(t)
+            if t.onEnd then t.onEnd(t)
+            elseif t.kind == "pillar" then exorcismHit(t)
             elseif t.kind == "flamestrike" then flamestrikeHit(t)
             elseif t.kind == "slam" then
                 ring("ring_smoke", t.x, t.y, 20, t.r * 1.2, 0.6, { 150 / 255, 200 / 255, 90 / 255 }, 1)
@@ -989,8 +1088,13 @@ local function updateProj(dt)
     while i <= #R.haz do
         local h = R.haz[i]
         h.t, h.acc = h.t + dt, (h.acc or 0) + dt
-        if random() < 0.4 then emit({ img = "smoke_sheet", cell = floor(random() * 40), tint = { 90 / 255, 150 / 255, 50 / 255 }, add = false, x = h.x + vr(-h.r, h.r) * 0.8, y = h.y + vr(-h.r, h.r) * 0.5, z = 4, vz = vr(6, 20), life = 1.6, s0 = 24, s1 = 54, a0 = 0.4, a1 = 0, fi = 0.3, rot = "rnd", vr = 0.4 }) end
-        if h.acc > 0.5 then h.acc = h.acc - 0.5 if hyp(p.x - h.x, (p.y - h.y) * 1.3) < h.r then hurtPlayer(6, { M = MOBS.abom }) end end
+        if h.vx then h.x, h.y = h.x + h.vx * dt, h.y + (h.vy or 0) * dt end
+        if h.onTick then h.onTick(h, dt)
+        elseif random() < 0.4 then emit({ img = "smoke_sheet", cell = floor(random() * 40), tint = h.tint or { 90 / 255, 150 / 255, 50 / 255 }, add = false, x = h.x + vr(-h.r, h.r) * 0.8, y = h.y + vr(-h.r, h.r) * 0.5, z = 4, vz = vr(6, 20), life = 1.6, s0 = 24, s1 = 54, a0 = 0.4, a1 = 0, fi = 0.3, rot = "rnd", vr = 0.4 }) end
+        local inside = h.t >= (h.arm or 0) and hyp(p.x - h.x, (p.y - h.y) * 1.3) < h.r
+        if inside and h.slow then R.pSlowN = min(R.pSlowN, h.slow) end
+        local ev = h.every or 0.5
+        if h.acc > ev then h.acc = h.acc - ev if inside and (h.dmg or 6) > 0 then hurtPlayer(h.dmg or 6, h.src or { M = MOBS.abom }) end end
         if h.t >= h.dur then remove(R.haz, i) else i = i + 1 end
     end
     for _, f in ipairs(R.fx) do
@@ -1013,6 +1117,8 @@ end
 local GRID = 56
 local grid, gridUsed = {}, {}
 local function boss(e, dt, d)
+    local fn = E.BOSSFN[e.type]
+    if fn then fn(e, dt, d) return end
     local p = R.p
     e.cd1, e.cd2, e.cd3 = e.cd1 - dt, e.cd2 - dt, e.cd3 - dt
     if e.cast then e.cast = e.cast - dt if e.cast <= 0 then e.cast = nil end return end
@@ -1077,16 +1183,27 @@ local function updateEnemies(dt)
                 end
             end
             if e.life then e.life = e.life - dt if e.life <= 0 then e.dead = true end end
+            if e.poison and e.poison > 0 and not e.dead then                  -- (Maexxna's Fang)
+                e.poisonT = e.poisonT - dt
+                e.pAcc = (e.pAcc or 0) + dt
+                if e.pAcc >= 1 then e.pAcc = e.pAcc - 1 hurt(e, 6 * e.poison, { dot = true, school = "nature" }) end
+                if e.poisonT <= 0 then e.poison = 0 end
+            end
+            if e.berserkAt and not e.berserk and R.t >= e.berserkAt and not e.dead then
+                e.berserk = true
+                warn(M.name .. " goes berserk!", RED) sound("bosswarn") shake(0.5)
+            end
             if not e.dead then
-                local sp = M.spd * (e.slow > 0 and 0.55 or 1)
+                local sp = M.spd * (e.slow > 0 and 0.55 or 1) * (e.berserk and 2 or 1) * (e.spdMul or 1)
                 if M.reaper then sp = M.spd + max(0, R.t - 900) * 6 end
                 if e.frz > 0 or e.stun > 0 then sp = 0 end
                 local dx, dy = p.x - e.x, p.y - e.y
                 local d = hyp(dx, dy)
                 if d == 0 then d = 1 end
-                if M.boss then boss(e, dt, d) end
+                if M.boss then boss(e, dt, d) elseif M.naxx and E.MOBTICK then E.MOBTICK(e, dt, d) end
                 if R.preview then sp = 0 end
-                if e.cast then sp = 0 end
+                if M.boss and M.naxx and d > 560 then sp = sp * 2.5 end     -- (a master far away closes in)
+                if e.cast or e.root or e.dead then sp = 0 end
                 local vx, vy
                 if e.fixed then vx, vy = e.fixed[1], e.fixed[2] + sin(R.t * 4 + e.wob) * 30
                 else
@@ -1122,11 +1239,12 @@ local function updateEnemies(dt)
                 if e.cast or e.atkT > 0 then e.dir = dirOf(dx, dy)
                 elseif mv > 5 and sp > 0 then e.dir = dirOf(vx, vy) end
                 if (sp > 0 or e.fixed) and not (e.frz > 0) then
-                    e.anim = e.anim + dt * (e.fixed and 14 or 8 / (ns.HTLArt.UNITS[e.type].moveDur / 1000) * clamp(mv / max(1, M.spd), 0.5, 1.6))
+                    local U = ns.HTLArt.UNITS[M.sprite or e.type] or ns.HTLArt.UNITS.ghoul
+                    e.anim = e.anim + dt * (e.fixed and 14 or 8 / (U.moveDur / 1000) * clamp(mv / max(1, M.spd), 0.5, 1.6))
                 end
                 if e.atkT > 0 then e.atkT = e.atkT - dt end
-                if d < M.r + 13 and e.frz <= 0 and e.stun <= 0 then
-                    if M.reaper then R.over = "victory" else hurtPlayer(M.dmg, e) end
+                if d < M.r + 13 and e.frz <= 0 and e.stun <= 0 and not e.noTouch and not e.dead then
+                    if M.reaper then R.over = "victory" else hurtPlayer(M.dmg * (e.berserk and 10 or 1) * (e.dmgMul or 1), e) end
                 end
                 if not M.boss and not M.elite and not M.reaper and (abs(dx) > VW * 0.95 or abs(dy) > VH * 1.1) then e.x, e.y = edgePoint(40) end
             end
@@ -1166,6 +1284,7 @@ local function updatePickups(dt)
             if d < 16 then
                 got = true
                 gainXp(g.v)
+                if R.relics.collar and p.noHeal <= 0 then p.hp = min(p.maxHp, p.hp + 1) end
                 R.xpPulse = 1
                 if R.t - R.gemChainT < 0.25 then R.gemChain = R.gemChain + 1 else R.gemChain = 0 end
                 R.gemChainT = R.t
@@ -1205,13 +1324,15 @@ local function updatePickups(dt)
                 local roll = rnd()
                 R.pick[#R.pick + 1] = { kind = roll < 0.4 and "gold" or roll < 0.7 and "healthstone" or roll < 0.86 and "lootarang" or "sapper", x = k.x, y = k.y, v = 10 + floor(rnd() * 15), t = 0 }
             end
-        elseif d < (k.kind == "chest" and 26 or 22) then
+        elseif not k.static and d < (k.kind == "chest" and 26 or 22) then
             got = true
             if k.kind == "gold" then
                 local v = floor(k.v * (1 + 0.1 * (R.tal.greed or 0)) + 0.5)
                 R.gold = R.gold + v R.texts[#R.texts + 1] = { x = p.x, y = p.y - 50, vx = 0, vy = -60, v = "+" .. v .. "g", t = 0, life = 1, col = { 1, 0.82, 0.25 } } sound("coin")
             elseif k.kind == "healthstone" then
-                local h = floor(40 * (1 + 0.5 * (R.tal.favor or 0)))
+                local h = floor(40 * (1 + 0.5 * (R.tal.favor or 0)) * (R.relics.hammer and 2 or 1))
+                if (R.p.noHeal or 0) > 0 or R.healLock then h = 0 end
+                if R.relics.hammer and h > 0 then R.hotT = 4 end
                 R.p.hp = min(R.p.maxHp, R.p.hp + h) R.texts[#R.texts + 1] = { x = p.x, y = p.y - 50, vx = 0, vy = -60, v = "+" .. h, t = 0, life = 1, col = { 0.38, 1, 0.38 } } flash("white_orb", p.x, p.y - 20, 80, C.GREEN, 0.4) sound("pick")
             elseif k.kind == "lootarang" then for _, g in ipairs(R.gems) do g.m = true end warn("Loot-A-Rang! Every rune flies to you.", ICEW) sound("pick")
             elseif k.kind == "sapper" then
@@ -1219,7 +1340,7 @@ local function updatePickups(dt)
                 flash("fire_core", p.x, p.y, 1200, nil, 0.7, { light = 2000 })
                 for _, e in ipairs(R.en) do if onScreen(e) and not e.M.boss and not e.M.reaper then kill(e, false, { noSoul = random() < 0.7 }) end end
                 sound("meteor") sound("fireimpact")
-            elseif k.kind == "chest" then openChest(k.boss) end
+            elseif k.kind == "chest" then openChest(k.boss, k.src) end
         end
         if got then remove(R.pick, i) else i = i + 1 end
     end
@@ -1269,6 +1390,7 @@ local function apply(o)
     elseif o.kind == "passive" then addPassive(o.id) if R.blessOnly then R.blessOnly = max(0, R.blessOnly - 1) end
     elseif o.kind == "gold" then R.gold = R.gold + 25
     elseif o.kind == "heal" then R.p.hp = R.p.maxHp
+    elseif o.kind == "relic" then addRelic(o.id) R.relicSeen = R.relicSeen or {} R.relicSeen[o.id] = true
     elseif o.kind == "legend" then
         R.legend[o.id] = true
         if o.id == "consecration" then R.ashbringer = true end
@@ -1287,7 +1409,7 @@ local function evolvable()
 end
 E.Evolvable = function(run) E.Use(run) return evolvable() end
 
-openChest = function(isBoss)
+openChest = function(isBoss, src)
     local items = {}
     local ev = evolvable()
     if ev then items[1] = { kind = "legend", id = ev } end
@@ -1304,9 +1426,28 @@ openChest = function(isBoss)
     local gold = isBoss and 60 or 20 + floor(rnd() * 20)
     R.gold = R.gold + gold
     for _, it in ipairs(items) do if it.kind ~= "legend" then apply(it) end end
-    R.chest = { items = items, gold = gold }   -- (the UI shows the coffer; a legend in it is taken there)
+    -- relics: a necropolis boss offers three (its own first); once Kel'Thuzad has fallen, any boss may add one of his
+    local pool, own, seen = {}, R.relics, {}
+    if isBoss and src and D.RELIC_FROM and D.RELIC_FROM[src] then
+        for _, id in ipairs(D.RELIC_FROM[src]) do if not own[id] and not seen[id] then pool[#pool + 1] = id seen[id] = true end end
+        local others = {}
+        for _, id in ipairs(D.RELIC_ORDER) do if not D.RELICS[id].legend and not own[id] and not seen[id] then others[#others + 1] = id end end
+        while #pool < 3 and #others > 0 do local id = table.remove(others, floor(rnd() * #others) + 1) pool[#pool + 1] = id seen[id] = true end
+    end
+    if isBoss and R.ktSlain and D.RELIC_LEGEND and rnd() < D.RELIC_LEGEND_CHANCE then
+        local leg = {}
+        for _, id in ipairs(D.RELIC_LEGEND) do if not own[id] then leg[#leg + 1] = id end end
+        if #leg > 0 then local id = leg[floor(rnd() * #leg) + 1] if #pool >= 3 then pool[3] = id else pool[#pool + 1] = id end end
+    end
+    local relics
+    if #pool > 0 then
+        relics = {}
+        for i = 1, min(3, #pool) do relics[i] = { kind = "relic", id = pool[i] } end
+        if R.bot or R.ff then apply(relics[1]) relics = nil end         -- (the bot Needs the first)
+    end
+    R.chest = { items = items, gold = gold, relics = relics }   -- (the UI shows the coffer; a legend in it is taken there)
 end
-E.OpenChest = function(run, isBoss) E.Use(run) openChest(isBoss) end
+E.OpenChest = function(run, isBoss, src) E.Use(run) openChest(isBoss, src) end
 
 ---------------------------------------------------------------------------
 -- the player
@@ -1315,11 +1456,17 @@ local function botInput()
     local p = R.p
     local ax, ay = 0, 0
     local melee = D.CLASSES[R.cls].melee
+    local naxx = R.ST and R.ST.key ~= "epl"
     for _, e in ipairs(R.en) do
         local dx, dy = p.x - e.x, p.y - e.y
         local d2 = dx * dx + dy * dy
         local big = e.M.boss or e.M.elite
-        if melee and not big then
+        if naxx and e.M.boss then                                  -- (the necropolis: keep its master in reach, not away)
+            local d = sqrt(d2)
+            local want = melee and 70 or 190
+            if d > want + 60 and not e.immune then ax, ay = ax - dx / d * 0.03, ay - dy / d * 0.03
+            elseif d < want then local w = 2 / max(400, d2) ax, ay = ax + dx * w, ay + dy * w end
+        elseif melee and not big then
             if d2 <= 46 * 46 then local w = 1 / max(400, d2) ax, ay = ax + dx * w, ay + dy * w end
         elseif d2 <= 260 * 260 then local w = (big and 4 or 1) / max(400, d2) ax, ay = ax + dx * w, ay + dy * w end
     end
@@ -1330,8 +1477,25 @@ local function botInput()
             if d > 70 then ax, ay = ax + (t.x - p.x) / d * 0.01, ay + (t.y - p.y) / d * 0.01 end
         end
     end
-    for _, t in ipairs(R.tele) do if t.enemy then local dx, dy = p.x - t.x, p.y - t.y local d = max(1, hyp(dx, dy)) if d < t.r + 30 then ax, ay = ax + dx / d * 0.08, ay + dy / d * 0.08 end end end
-    for _, h in ipairs(R.haz) do local dx, dy = p.x - h.x, p.y - h.y local d = max(1, hyp(dx, dy)) if d < h.r + 30 then ax, ay = ax + dx / d * 0.05, ay + dy / d * 0.05 end end
+    for _, t in ipairs(R.tele) do
+        if t.enemy then
+            if t.shape == "line" then
+                local lx, ly = t.x2 - t.x, t.y2 - t.y
+                local L2 = max(1, lx * lx + ly * ly)
+                local k = clamp(((p.x - t.x) * lx + (p.y - t.y) * ly) / L2, 0, 1)
+                local cx2, cy2 = t.x + lx * k, t.y + ly * k
+                local dx, dy = p.x - cx2, p.y - cy2
+                local d = max(1, hyp(dx, dy))
+                if d < (t.w or 40) / 2 + 26 then ax, ay = ax + dx / d * 0.1, ay + dy / d * 0.1 end
+            elseif t.shape == "band" then
+                if p.x > t.x and p.x < t.x + t.w then local mid = t.x + t.w / 2 ax = ax + (p.x < mid and -0.12 or 0.12) end
+            elseif t.r then
+                local dx, dy = p.x - t.x, p.y - t.y local d = max(1, hyp(dx, dy)) if d < t.r + 30 then ax, ay = ax + dx / d * 0.08, ay + dy / d * 0.08 end
+            end
+        end
+    end
+    if R.botGoal then local g = R.botGoal local dx, dy = g.x - p.x, g.y - p.y local d = max(1, hyp(dx, dy)) if d > 12 then ax, ay = ax + dx / d * (g.w or 0.1), ay + dy / d * (g.w or 0.1) end end
+    for _, h in ipairs(R.haz) do if (h.dmg or 6) > 0 and not h.safe then local dx, dy = p.x - h.x, p.y - h.y local d = max(1, hyp(dx, dy)) if d < h.r + 30 then ax, ay = ax + dx / d * 0.05, ay + dy / d * 0.05 end end end
     local g, gd = nil, 1e9
     for _, x in ipairs(R.gems) do local d = hyp(x.x - p.x, x.y - p.y) if d < gd then gd, g = d, x end end
     for _, k in ipairs(R.pick) do if k.kind ~= "cauldron" then local d = hyp(k.x - p.x, k.y - p.y) * 0.5 if d < gd then gd, g = d, k end end end
@@ -1361,8 +1525,20 @@ local function updatePlayer(dt, ix, iy)
         p.inv, p.hurtT, p.chill = max(0, p.inv - dt), max(0, p.hurtT - dt), max(0, p.chill - dt)
         return
     end
+    if p.pull then                                                -- (thrown: Web Wrap, a knockback)
+        local q = p.pull
+        q.t = q.t + dt
+        local k = min(1, q.t / q.dur)
+        p.x, p.y = q.x0 + (q.x1 - q.x0) * easeOut(k), q.y0 + (q.y1 - q.y0) * easeOut(k)
+        if k >= 1 then p.pull = nil end
+        p.inv, p.hurtT, p.chill = max(0, p.inv - dt), max(0, p.hurtT - dt), max(0, p.chill - dt)
+        return
+    end
+    if (p.stunT or 0) > 0 then p.stunT = p.stunT - dt ix, iy = 0, 0 end
+    if (p.rev or 0) > 0 then p.rev = p.rev - dt ix, iy = -(ix or 0), -(iy or 0) end
+    p.noHeal = max(0, (p.noHeal or 0) - dt)
     local l = hyp(ix or 0, iy or 0)
-    local sp = R.st.speed * (p.chill > 0 and 0.6 or 1)
+    local sp = R.st.speed * (p.chill > 0 and 0.6 or 1) * (R.pSlow or 1) * ((R.cold or 0) >= 50 and 0.75 or 1)
     if l > 0.001 then
         p.vx, p.vy = ix / l, iy / l
         p.x, p.y = p.x + p.vx * sp * dt, p.y + p.vy * sp * dt
@@ -1375,7 +1551,10 @@ local function updatePlayer(dt, ix, iy)
         if R.preview and R.pvFace then p.dir = R.pvFace end
     end
     p.inv, p.hurtT, p.chill = max(0, p.inv - dt), max(0, p.hurtT - dt), max(0, p.chill - dt)
-    p.hp = min(p.maxHp, p.hp + R.st.regen * dt)
+    if p.noHeal <= 0 and not R.healLock then
+        p.hp = min(p.maxHp, p.hp + R.st.regen * dt)
+        if (R.hotT or 0) > 0 then p.hp = min(p.maxHp, p.hp + p.maxHp * 0.05 * dt) end
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -1439,6 +1618,7 @@ function E.Step(run, dt, ix, iy)
         if on and not run.wrathOn then warn("Avenging Wrath", C.GOLD) sound("crusader") legendFx() end
         run.wrathOn = on
     end
+    run.pSlow, run.pSlowN = run.pSlowN or 1, 1
     updatePlayer(wdt, ix, iy)
     runEvents()
     spawner(wdt)
@@ -1446,6 +1626,12 @@ function E.Step(run, dt, ix, iy)
     updateEnemies(wdt)
     updateProj(wdt)
     updatePickups(wdt)
+    E._relicTick(wdt)
+    if run.pendingChain then local e = run.pendingChain run.pendingChain = nil if not e.dead then chain(e, 4, 20) end end
+    E._allies(wdt)
+    local SF = E.STAGEFN[run.stage]
+    if SF and SF.tick then SF.tick(wdt) end
+    if run.victoryT then run.victoryT = run.victoryT - wdt if run.victoryT <= 0 and not run.over then run.over = "victory" end end
     updFx(wdt)
     updParts(dt * max(run.ts, 0.4))
     updFeel(dt)
@@ -1506,5 +1692,64 @@ function E.FastForward(run, secs, bot)
     run.pending = 0
 end
 
+-- relics that tick (in E.Step, the run in R)
+function E._relicTick(dt)
+    local Rl, p = R.relics, R.p
+    R.blockCd = (R.blockCd or 0) - dt
+    R.hotT = max(0, (R.hotT or 0) - dt)
+    R.creepT = max(0, (R.creepT or 0) - dt)
+    R.kfOn = max(0, (R.kfOn or 0) - dt)
+    if Rl.frigid then
+        R.frigidT = (R.frigidT or 8) - dt
+        if R.frigidT <= 0 then
+            R.frigidT = 8
+            ring("nova_ring", p.x, p.y, 20, 90, 0.4, C.FROST, 1)
+            ring("ring_shards2", p.x, p.y, 20, 95, 0.5, C.ICE, 0.9)
+            for _, e in ipairs(R.en) do if not e.dead and hyp(e.x - p.x, (e.y - p.y) * 1.3) < 90 then hurt(e, 10, { frz = 1.5, school = "frost", dot = true }) end end
+            sound("frostnova", 0.5, 0.6)
+        end
+    end
+    if Rl.eye then
+        R.eyeT = (R.eyeT or 12) - dt
+        if R.eyeT <= 0 then
+            R.eyeT = 12
+            flash("arcane_burst", p.x, p.y - 30, 80, { 0.7, 0.6, 1 }, 0.4)
+            for _, e in ipairs(R.en) do if not e.dead and not e.M.boss and hyp(e.x - p.x, e.y - p.y) < 130 then e.stun = max(e.stun, 1) end end
+        end
+    end
+    if Rl.essence then
+        R.essT = ((R.essT or 0) + dt) % 30
+        local on = R.essT < 20
+        if on and not R.essenceOn then flash("frost_burst", p.x, p.y - 30, 90, C.ICE, 0.4, { light = 140 }) end
+        R.essenceOn = on
+    end
+end
+function E._allies(dt)
+    local i = 1
+    while i <= #R.allies do
+        local a = R.allies[i]
+        a.t, a.hitT = a.t + dt, a.hitT - dt
+        local tgt = nearest(a.x, a.y, 320)
+        if tgt then
+            local dx, dy = tgt.x - a.x, tgt.y - a.y
+            local d = max(1, hyp(dx, dy))
+            if d > tgt.M.r + 10 then a.x, a.y = a.x + dx / d * 120 * dt, a.y + dy / d * 120 * dt a.anim = a.anim + dt * 12
+            elseif a.hitT <= 0 then a.hitT = 0.5 hurt(tgt, 15, { school = "shadow", dot = true }) end
+            a.dir = dirOf(dx, dy)
+        end
+        if a.t >= a.life then
+            emit({ img = "ghost_blue", tint = { 0.6, 1, 0.6 }, x = a.x, y = a.y - 18, vy = -40, life = 0.9, s0 = 22, s1 = 36, sx = 2, sy = 1, a0 = 0.6, a1 = 0, rot = -pi / 2 })
+            remove(R.allies, i)
+        else i = i + 1 end
+    end
+end
+
 E.Kill = function(run, e, silent) E.Use(run) kill(e, silent) end
 E.Hurt = function(run, e, dmg, o) E.Use(run) hurt(e, dmg, o) end
+
+-- the tools the bosses' scripts use (NaxxBoss.lua): all act on the run being stepped
+E.I = { emit = emit, flash = flash, ring = ring, sparks = sparks, puff = puff, shake = shake, stop = stop, kick = kick, spawn = spawn,
+    hurt = hurt, kill = function(e, silent, o) kill(e, silent, o) end, hurtPlayer = hurtPlayer, warn = warn, sound = sound, rnd = rnd, rr = rr, vr = vr,
+    addDecal = addDecal, edgePoint = edgePoint, nearest = nearest, onScreen = onScreen, visible = visible, chain = chain, explode = explode,
+    areaPush = function(a) R.areas[#R.areas + 1] = a end, addRelic = addRelic, legendFx = function() legendFx() end,
+    R = function() return R end, View = function() return VW, VH end, RED = RED, YELLOW = YELLOW, ORANGE = ORANGE, ICEW = ICEW }

@@ -6,8 +6,24 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.5.5", date = "19 October 2026", title = "Small fixes from the raid",
+    { version = "1.5.5", date = "19 October 2026", title = "Hold the Line, Naxxramas and fixes from the raid",
       sections = {
+          { heading = "Hold the Line", area = "games", kind = "new", hi = true, open = "games",
+            lead = "A survivors game: hold the Eastern Plaguelands against the Scourge for 15 minutes.", lines = {
+              "Paladin, Mage or Warrior, each with its own spells; blessings and gadgets on level-ups.",
+              "Bosses on the clock, coffers with legendary weapons, and the Pale Rider at 15:00.",
+              "Talents bought with the gold you bank, achievements and the Argent Dawn's thanks.",
+              "A guild board, and a weekly challenge with one seed for everyone. /dz htl opens it.",
+          } },
+          { heading = "Naxxramas", area = "games", kind = "new", open = "games",
+            lead = "Win once and the necropolis opens: four quarters and the Frostwyrm Lair.", lines = {
+              "Every boss with its own abilities: Heigan's dance, Thaddius's polarity, Frost Breath.",
+              "Each quarter has its own floor: webs, plague clouds, rider lanes or slime pools.",
+              "Kill the quarter's master to clear it; all four cleared opens the Frostwyrm Lair.",
+              "Boss coffers offer a relic for the run; Kel'Thuzad's legendaries after his first fall.",
+              "Desecrated tokens make the Tier 3 sets: small bonuses, and the look at nine pieces.",
+              "Frozen Runes buy Frost Resistance from Craftsman Wilhelm, against the lair's Chill.",
+          } },
           { heading = "Errors report themselves", area = "other", kind = "new", open = "feedback",
             lead = "When DisasterZone hits a Lua error, a bug report goes to the developer by itself.", lines = {
               "DisasterZone's errors no longer show in the game's error window or in BugSack.",

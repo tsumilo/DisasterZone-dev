@@ -236,7 +236,7 @@ local function Frame(key, dir, col)
     return pg, f[i + 2], f[i + 3], f[i + 4], f[i + 5], f[i + 6], f[i + 7]
 end
 Rd.Frame = Frame
-local function Sprite(bp, sub, key, dir, col, x, y, alpha, flashA, scale, sx, sy)
+local function Sprite(bp, sub, key, dir, col, x, y, alpha, flashA, scale, sx, sy, tint)
     local pg, fx, fy, fw, fh, dx, dy = Frame(key, dir, col)
     if not pg then return end
     local kx, ky = (scale or 1) * (sx or 1), (scale or 1) * (sy or 1)
@@ -245,7 +245,7 @@ local function Sprite(bp, sub, key, dir, col, x, y, alpha, flashA, scale, sx, sy
     t:SetDrawLayer("ARTWORK", sub)
     File(t, pg[1])
     t:SetTexCoord(u0, u1, v0, v1)
-    t:SetVertexColor(1, 1, 1, alpha or 1)
+    if tint then t:SetVertexColor(tint[1], tint[2], tint[3], alpha or 1) else t:SetVertexColor(1, 1, 1, alpha or 1) end
     AtTL(t, x + dx * kx, y + dy * ky, fw * kx, fh * ky)
     if flashA and flashA > 0 then
         local f2 = Take(bp.add)
@@ -289,7 +289,7 @@ local function DrawParts(run, layer, blend)
                     local file = FxFile(p.img)
                     local cu, cv = FxCrop(p.img)
                     local u0, v0, u1, v1 = 0, 0, cu, cv
-                    if p.cell then local cw, ch = cu / 8, cv / 8 local i = p.cell u0, v0 = (i % 8) * cw, floor(i / 8) * ch u1, v1 = u0 + cw, v0 + ch end
+                    if p.cell then local g = p.cells or 8 local cw, ch = cu / g, cv / g local i = p.cell u0, v0 = (i % g) * cw, floor(i / g) * ch u1, v1 = u0 + cw, v0 + ch end
                     local poolKey = PL[lay][p.add and 1 or 2]
                     if p.flat then h = h / 1.3 end
                     if p.stretch then
@@ -355,19 +355,59 @@ local function DrawDecals(run)
 end
 
 local RED50 = { 1, 50 / 255, 30 / 255 }
+local function FillLine(pool, x0, y0, x1, y1, w, c, a)
+    local l = Take(V.pools[pool])
+    File(l, nil) l.file = nil
+    l:SetColorTexture(c[1], c[2], c[3], a)
+    l:SetVertexColor(1, 1, 1, 1)
+    l:SetStartPoint("TOPLEFT", V.origin, x0, -y0)
+    l:SetEndPoint("TOPLEFT", V.origin, x1, -y1)
+    l:SetThickness(max(0.1, w))
+end
+local function FillRect(pool, x, y, w, h, c, a)
+    local t = Take(V.pools[pool])
+    File(t, nil) t.file = nil
+    t:SetColorTexture(c[1], c[2], c[3], a)
+    t:SetVertexColor(1, 1, 1, 1)
+    AtTL(t, x, y, w, h)
+    return t
+end
 local function DrawGroundFx(run)
     for _, t in ipairs(run.tele) do
-        if t.t0 and t.enemy then
+        local c = t.col or RED50
+        if t.t0 and t.enemy and t.shape == "line" then
+            local f = 1 - t.t / t.t0
+            local pulse = 0.5 + 0.5 * sin(run.t * 14)
+            FillLine("glowL", t.x, t.y, t.x2, t.y2, t.w or 40, c, 0.16 + 0.1 * pulse)
+            local ex, ey = t.x + (t.x2 - t.x) * f, t.y + (t.y2 - t.y) * f
+            FillLine("glowL", t.x, t.y, ex, ey, (t.w or 40) * 0.5, c, 0.35)
+            FillLine("glowL", t.x, t.y, t.x2, t.y2, 2, { 1, 0.85, 0.7 }, 0.7)
+        elseif t.t0 and t.enemy and t.shape == "band" then
+            local f = 1 - t.t / t.t0
+            local pulse = 0.5 + 0.5 * sin(run.t * 12)
+            FillRect("tele", t.x, t.y, t.w, t.h, c, 0.06 + 0.22 * f + 0.06 * pulse)
+            FillRect("tele", t.x, t.y, 2, t.h, c, 0.6)
+            FillRect("tele", t.x + t.w - 2, t.y, 2, t.h, c, 0.6)
+        elseif t.t0 and t.enemy and t.shape == "cone" then
+            local f = 1 - t.t / t.t0
+            local l = Take(V.pools.glowL)
+            File(l, FxFile("cone")) l:SetTexCoord(1, 0, 0, 1)
+            Col(l, c, 0.35 + 0.35 * f)
+            LineAt(l, t.x + cos(t.ang) * t.r / 2, t.y + sin(t.ang) * t.r / 2 / 1.3, t.r, t.r * t.spread * 2.2, t.ang)
+        elseif t.t0 and t.enemy and t.shape == "ringwarn" then
+            local f = 1 - t.t / t.t0
+            Tex("tele", "ring_thin", t.x, t.y, t.r * 2 * (0.3 + 0.7 * f), t.r * 2 * (0.3 + 0.7 * f) / 1.3, 0.9, run.t, c)
+        elseif t.t0 and t.enemy then
             local f = 1 - t.t / t.t0
             local a = Take(V.pools.tele)
             File(a, CIRCLE) a:SetTexCoord(0, 1, 0, 1)
-            a:SetVertexColor(RED50[1], RED50[2], RED50[3], 0.12 + f * 0.18)
+            a:SetVertexColor(c[1], c[2], c[3], 0.12 + f * 0.18)
             At(a, t.x, t.y, t.r * 2, t.r * 2 / 1.3)
             local b = Take(V.pools.tele)
             File(b, CIRCLE) b:SetTexCoord(0, 1, 0, 1)
-            b:SetVertexColor(RED50[1], RED50[2], RED50[3], 0.25 + f * 0.25)
+            b:SetVertexColor(c[1], c[2], c[3], 0.25 + f * 0.25)
             At(b, t.x, t.y, t.r * 2 * f, t.r * 2 * f / 1.3)
-            Tex("tele", "ring_thin", t.x, t.y, t.r * 2.08, t.r * 2.08 / 1.3, 0.9, 0, RED50)
+            Tex("tele", "ring_thin", t.x, t.y, t.r * 2.08, t.r * 2.08 / 1.3, 0.9, 0, c)
         end
     end
 end
@@ -425,7 +465,49 @@ local function DrawGroundGlow(run)
     end
     for _, h in ipairs(run.haz) do
         local f = min(1, h.t / 0.4) * min(1, (h.dur - h.t) / 1)
-        FlatTex("glow", "white_orb", h.x, h.y, h.r, 0.3 * f, 0, { 90 / 255, 200 / 255, 60 / 255 })
+        local look = h.look
+        if look == "void" then
+            FlatTex("flatN", "void_orb", h.x, h.y, h.r * 1.05, 0.95 * f, run.t * 0.4)
+            FlatTex("glow", "shadow_ring2", h.x, h.y, h.r * 1.08, 0.7 * f, -run.t * 0.8, { 0.7, 0.4, 1 })
+            FlatTex("glow", "dnd", h.x, h.y, h.r, 0.35 * f, run.t * 0.6, { 0.45, 0.2, 0.7 })
+        elseif look == "slime" then
+            FlatTex("flatN", "slime", h.x, h.y, h.r, 0.75 * f, h.x)
+            FlatTex("glow", "white_orb", h.x, h.y, h.r * 0.9, 0.18 * f, 0, { 0.4, 0.9, 0.3 })
+        elseif look == "web" then
+            FlatTex("flatN", "web", h.x, h.y, h.r * 1.1, 0.7 * f, h.y)
+        elseif look == "fissure" then
+            FlatTex("glow", "red_star", h.x, h.y, h.r * 1.3, (0.5 + 0.2 * sin(run.t * 20)) * f, run.t * 2, { 1, 0.2, 0.35 })
+            FlatTex("glow", "ring_thin", h.x, h.y, h.r * 1.05, 0.9 * f, 0, { 1, 0.25, 0.4 })
+            FlatTex("flatN", "smoke_dark", h.x, h.y, h.r, 0.7 * f, run.t)
+        elseif look == "fire" then
+            FlatTex("glow", "lava_disc", h.x, h.y, h.r * 1.05, 0.5 * f, h.t * 0.3)
+            Glow("glow", h.x, h.y, h.r, GLOWC.fire, 0.3 * f)
+        elseif look == "frost" then
+            FlatTex("glow", "frost_disc", h.x, h.y, h.r * 1.1, 0.35 * f, h.t * 0.4, C.ICE)
+            FlatTex("glow", "ring_blue", h.x, h.y, h.r * 1.05, 0.6 * f, -h.t * 0.5, C.FROST)
+        elseif look == "shout" then
+            FlatTex("glow", "ring_soft", h.x, h.y, h.r, 0.45 * f, 0, { 0.6, 0.8, 1 })
+        elseif look ~= "none" then
+            FlatTex("glow", "white_orb", h.x, h.y, h.r, 0.3 * f, 0, h.glow or { 90 / 255, 200 / 255, 60 / 255 })
+        end
+    end
+    for cx = floor(CAMX / E.CH), floor((CAMX + V.VW) / E.CH) do
+        for cy = floor(CAMY / E.CH), floor((CAMY + V.VH) / E.CH) do
+            local ch = run.chunks[cx * 100003 + cy]
+            if ch and ch.zones then
+                for _, z in ipairs(ch.zones) do
+                    if not z.gone and inView(z.x, z.y, z.r) then
+                        if z.kind == "web" then
+                            FlatTex("flatN", "web", z.x, z.y, z.r * 1.15, 0.62, z.x * 0.01)
+                            FlatTex("flatN", "web", z.x + z.r * 0.3, z.y - z.r * 0.2, z.r * 0.7, 0.4, z.y * 0.01)
+                        else
+                            FlatTex("flatN", "slime", z.x, z.y, z.r, 0.82, z.x * 0.01)
+                            FlatTex("glow", "white_orb", z.x, z.y, z.r * 0.95, 0.16 + 0.04 * sin(run.t * 2 + z.x), 0, { 0.35, 0.85, 0.3 })
+                        end
+                    end
+                end
+            end
+        end
     end
     for _, t in ipairs(run.tele) do
         if t.kind == "flamestrike" then
@@ -446,6 +528,19 @@ local function Shadow(x, y, w, h, a)
 end
 
 local GEM = { UIM .. "gem_green", UIM .. "gem_blue", UIM .. "gem_violet" }
+-- Sapphiron's ice blocks throw a shadow away from her (where the breath cannot reach)
+local function DrawBlockShadows(run)
+    if not run.blocks or #run.blocks == 0 then return end
+    local s
+    for _, e in ipairs(run.en) do if e.type == "n_sapphiron" and not e.dead then s = e end end
+    if not s then return end
+    for _, b in ipairs(run.blocks) do
+        local a = atan2(b.y - s.y, b.x - s.x)
+        local x1, y1 = b.x + cos(a) * 170, b.y + sin(a) * 170
+        FillLine("underL", b.x, b.y, x1, y1, 100, { 0.02, 0.05, 0.12 }, 0.45)
+    end
+end
+
 local function DrawGems(run)
     local sz = A.UI_SIZE.gem_green
     for _, g in ipairs(run.gems) do
@@ -465,8 +560,12 @@ local function DrawGems(run)
     end
 end
 
+local BERSERK, IMMUNE, POS, NEG = { 1, 0.15, 0.05 }, { 1, 0.95, 0.75 }, { 1, 0.3, 0.2 }, { 0.35, 0.6, 1 }
 local function DrawEnemy(run, e)
-    local M, U = e.M, A.UNITS[e.type]
+    local M = e.M
+    local key = M.sprite or e.type
+    local U = A.UNITS[key]
+    if not U then return end
     local col = floor(e.anim) % U.walk
     if e.atkT > 0 and U.atk > 0 then col = U.walk + U.death + min(U.atk - 1, floor((1 - e.atkT / 1.2) * U.atk)) end
     local a = (M.ghost and 0.82 or 1) * min(1, e.spawnT * 3)
@@ -476,24 +575,39 @@ local function DrawEnemy(run, e)
     local sx, sy = 1 + sq, 1 - sq * 0.7
     local fl = e.flash > 0 and 0.85 or 0
     local bp, sub = Band(e.y)
+    local sc = (M.scale or 1) * (e.sc or 1)
+    local tint = e.tint or M.tint
+    if e.charge then                                         -- (Thaddius's polarity: a ring of the charge under it)
+        local g = Take(bp.glow)
+        File(g, FxFile("ring_soft")) g:SetTexCoord(0, 1, 0, 1)
+        Col(g, e.charge > 0 and POS or NEG, 0.9)
+        At(g, e.x, e.y, M.r * 3, M.r * 3 / 1.3)
+    end
     if M.elite or M.boss then
         local g = Take(bp.glow)
         File(g, UIM .. "glow") g:SetTexCoord(0, 1, 0, 1)
-        Col(g, M.boss and GLOWC.red or GLOWC.gold, 0.35 + sin(run.t * 4) * 0.08)
+        if e.berserk then Col(g, BERSERK, 0.6 + sin(run.t * 9) * 0.2)
+        elseif e.immune then Col(g, IMMUNE, 0.45 + sin(run.t * 5) * 0.1)
+        else Col(g, M.boss and GLOWC.red or GLOWC.gold, 0.35 + sin(run.t * 4) * 0.08) end
         At(g, e.x, e.y - M.r, M.r * 4.8, M.r * 4.8)
-        Sprite(bp, sub, e.type, e.dir, col, e.x, e.y + yo, a, fl, 1, sx, sy)
+        Sprite(bp, sub, key, e.dir, col, e.x, e.y + yo - (e.z or 0), a * (e.alpha or 1), fl, sc, sx, sy, tint)
     elseif M.reaper then
         local g = Take(bp.glow)
         File(g, UIM .. "glow") g:SetTexCoord(0, 1, 0, 1)
         Col(g, GLOWC.blue, 0.5)
         At(g, e.x, e.y - 40, 140, 140)
-        Sprite(bp, sub, e.type, e.dir, col, e.x, e.y, 0.95, 0, 1.4)
+        Sprite(bp, sub, key, e.dir, col, e.x, e.y, 0.95, 0, 1.4)
     else
-        Sprite(bp, sub, e.type, e.dir, col, e.x, e.y + yo, a, fl, 1, sx, sy)
+        Sprite(bp, sub, key, e.dir, col, e.x, e.y + yo, a * (e.alpha or 1), fl, sc, sx, sy, tint)
+    end
+    if e.barrier then        -- (a Deathknight Understudy's Bone Barrier: a bubble to stand in)
+        local t = Take(bp.add) t:SetDrawLayer("ARTWORK", min(7, sub + 2))
+        File(t, FxFile("ring_soft")) t:SetTexCoord(0, 1, 0, 1) Col(t, { 0.6, 0.8, 1 }, 0.55 + 0.1 * sin(run.t * 3 + e.x))
+        At(t, e.x, e.y - 28, 96, 90)
     end
     if e.frz > 0 then        -- encased in ice
         local k, r = min(1, (e.frzMax - e.frz) * 8), M.r
-        local pg, fx, fy, fw, fh, dx, dy = Frame(e.type, e.dir, col)
+        local pg, fx, fy, fw, fh, dx, dy = Frame(key, e.dir, col)
         if pg then
             local t = Take(bp.add)
             t:SetDrawLayer("ARTWORK", min(7, sub + 1))
@@ -543,6 +657,9 @@ local function DrawPlayer(run)
     local Cl = D.CLASSES[run.cls]
     local key = run.ashbringer and "paladin_ash" or (Cl.legendSprite and run.legend[Cl.start] and Cl.legendSprite) or Cl.sprite
     if run.perks and run.perks.tabard and A.UNITS[key .. "_ad"] then key = key .. "_ad" end      -- (Honored: the Dawn's tabard)
+    local set = D.T3_SETS and D.T3_SETS[run.cls]
+    local plain = key == Cl.sprite or key == Cl.sprite .. "_ad"
+    if run.perks and run.perks.t3 and set and plain and A.UNITS[set.sprite] then key = set.sprite end    -- (nine pieces: the set's look)
     local U = A.UNITS[key]
     local col = p.moving and floor(p.anim) % U.walk or 0
     local dir = p.dir
@@ -553,7 +670,24 @@ local function DrawPlayer(run)
     if p.dead then col, dir = U.walk + min(U.death - 1, floor(p.deadT / 0.1)), p.dir end
     local blink = p.inv > 0 and not p.dead and floor(p.inv * 20) % 2 == 0
     local bp, sub = Band(p.y)
+    if p.charge then
+        local g = Take(bp.glow)
+        File(g, FxFile("ring_soft")) g:SetTexCoord(0, 1, 0, 1)
+        Col(g, p.charge > 0 and POS or NEG, 1)
+        At(g, p.x, p.y, 54, 54 / 1.3)
+    end
     Sprite(bp, sub, key, dir, col, p.x, p.y, blink and 0.55 or 1, p.hurtT > 0.15 and 0.5 or 0)
+    if (p.wrapT or 0) > 0 then                               -- (Web Wrap: a cocoon over the hero)
+        local w = Take(bp.spr) w:SetDrawLayer("ARTWORK", min(7, sub + 1)) File(w, FxFile("webspin")) Rot(w, sin(run.t * 30) * 0.12)
+        w:SetVertexColor(1, 1, 1, 0.95) At(w, p.x, p.y - 28, 44, 58)
+        local w2 = Take(bp.spr) w2:SetDrawLayer("ARTWORK", min(7, sub + 2)) File(w2, FxFile("web")) Rot(w2, run.t * 0.3)
+        w2:SetVertexColor(1, 1, 1, 0.8) At(w2, p.x, p.y - 26, 62, 62)
+    end
+    if (p.tombT or 0) > 0 then                               -- (Frost Blast: an ice tomb)
+        local t2 = Take(bp.add) t2:SetDrawLayer("ARTWORK", min(7, sub + 2))
+        File(t2, FxFile("frost_burst")) t2:SetTexCoord(0, 1, 0, 1) Col(t2, C.ICE, 0.7)
+        At(t2, p.x, p.y - 26, 70, 80)
+    end
     if not p.dead and not run.preview then
         local w = 38
         local t = Take(bp.spr) t:SetDrawLayer("ARTWORK", 7) t.file = nil
@@ -569,6 +703,21 @@ local PICKICON = { gold = "inv_misc_coin_01", healthstone = "inv_stone_04", loot
 local function DrawPick(run, k)
     local bob = sin(k.t * 3) * 2
     local bp, sub = Band(k.y)
+    if k.kind == "eggsac" or k.kind == "spore" or k.kind == "brazier" then
+        local t = Take(bp.spr) t:SetDrawLayer("ARTWORK", sub)
+        local g = Take(bp.glow) File(g, UIM .. "glow") g:SetTexCoord(0, 1, 0, 1)
+        if k.kind == "eggsac" then
+            File(t, FxFile("webspin")) Rot(t, sin(k.t * 2) * 0.05) t:SetVertexColor(0.9, 0.95, 0.85, 1) At(t, k.x, k.y - 16, 30 + sin(k.t * 4) * 2, 34)
+            Col(g, GLOWC.green, 0.25 + 0.15 * sin(k.t * 3)) At(g, k.x, k.y - 14, 60, 60)
+        elseif k.kind == "spore" then
+            File(t, FxFile("green_glow")) t:SetTexCoord(0, 1, 0, 1) t:SetVertexColor(0.85, 1, 0.5, 1) At(t, k.x, k.y - 22 + bob, 34, 34)
+            Col(g, { 0.8, 1, 0.4 }, 0.45 + 0.15 * sin(k.t * 5)) At(g, k.x, k.y - 20, 80, 80)
+        else
+            File(t, FxFile("flame")) t:SetTexCoord(0, 1, 0, 1) t:SetVertexColor(1, 0.85, 0.6, 1) At(t, k.x, k.y - 30, 36 + sin(k.t * 9) * 3, 46)
+            Col(g, GLOWC.fire, 0.6 + 0.1 * sin(k.t * 7)) At(g, k.x, k.y - 20, 150, 150)
+        end
+        return
+    end
     if k.kind == "cauldron" then
         Shadow(k.x - 34, k.y - 8, 68, 18, 1)
         local pr = A.PROPS.outpost_0
@@ -647,13 +796,15 @@ local function DrawProp(o)
 end
 
 local function DrawCorpse(run, c)
-    local U = A.UNITS[c.type]
-    if U.death == 0 then return end
+    local M = MOBS[c.type]
+    local key = M and M.sprite or c.type
+    local U = A.UNITS[key]
+    if not U or U.death == 0 then return end
     local col = U.walk + min(U.death - 1, floor(c.t / 0.09))
     local a = c.t < 1.2 and 1 or max(0, 1 - (c.t - 1.2))
     if c.purge then a = max(0, 1 - c.t * 2.2) end
     local bp, sub = Band(c.y - 6)
-    Sprite(bp, sub, c.type, c.dir, col, c.x, c.y + max(0, c.t - 1.2) * 6, a * (MOBS[c.type].ghost and 0.8 or 1), c.purge and (1 - c.t) or 0)
+    Sprite(bp, sub, key, c.dir, col, c.x, c.y + max(0, c.t - 1.2) * 6, a * (M and M.ghost and 0.8 or 1), c.purge and (1 - c.t) or 0, M and M.scale or 1, nil, nil, M and M.tint)
 end
 
 ---------------------------------------------------------------------------
@@ -672,6 +823,21 @@ local function ColLine(pool, x0, y0, x1, y1, w, c, a)
 end
 local function DrawAirFx(run)
     local p = run.p
+    for _, b in ipairs(run.beams or {}) do
+        local k = b.t / b.dur
+        local a = (k < 0.15 and k / 0.15 or 1 - (k - 0.15) / 0.85) * (b.a or 1)
+        if a > 0 then
+            local l = Take(V.pools.addL) File(l, FxFile("beam")) l:SetTexCoord(0, 1, 0, 1)
+            Col(l, b.col, a)
+            LineAt(l, b.x, b.y - b.h / 2, b.h, b.w, -pi / 2)
+            Glow("add", b.x, b.y, b.w * 1.4, b.col, a * 0.6)
+        end
+    end
+    if run.chainT and run.chainT > 0 and run.boss and not run.boss.dead then       -- (Chains of Kel'Thuzad)
+        local b = run.boss
+        ColLine("trail", b.x, b.y - 60, p.x, p.y - 30, 6, { 0.75, 0.45, 1 }, 0.6)
+        ColLine("addL", b.x, b.y - 60, p.x, p.y - 30, 2, { 1, 0.85, 1 }, 0.9)
+    end
     for _, a in ipairs(run.arcs) do
         local k = 1 - a.t / a.life
         if a.storm then           -- Thunderfury: a jagged bolt, re-kinked every frame
@@ -722,7 +888,12 @@ local function DrawAirFx(run)
     end
     local dr = run.spells.dragonling
     if dr and dr.orbs then for _, o in ipairs(dr.orbs) do Tex("add", "fire_core", o.x, o.y, 40, 40, 0.9, run.t * 3) Glow("add", o.x, o.y, 30, GLOWC.fire, 0.7) end end
-    for _, b in ipairs(run.eproj) do Tex("add", "shadow_glyph", b.x, b.y, 24, 24, 0.9, run.t * 4) Glow("add", b.x, b.y, 20, GLOWC.violet, 0.6) end
+    for _, b in ipairs(run.eproj) do local s = b.size or 24 Tex("add", b.img or "shadow_glyph", b.x, b.y, s, s, 0.9, run.t * 4, b.tint) Glow("add", b.x, b.y, s * 0.85, b.glow or GLOWC.violet, 0.6) end
+    if run.gateX and not run.gateOpen then                  -- (Gothik's gate: a wall of violet light)
+        local a = 0.55 + 0.2 * sin(run.t * 5)
+        ColLine("trail", run.gateX, CAMY - 20, run.gateX, CAMY + V.VH + 20, 18, { 0.6, 0.35, 1 }, a * 0.6)
+        ColLine("addL", run.gateX, CAMY - 20, run.gateX, CAMY + V.VH + 20, 3, { 0.95, 0.85, 1 }, a)
+    end
     for _, f in ipairs(run.fx) do
         local k = f.t / f.dur
         local inv = 1 - k
@@ -791,8 +962,9 @@ end
 -- picture of the dark with its hole, and the rest of the view is the plain dark)
 ---------------------------------------------------------------------------
 local function DrawDark(run)
-    local dark = D.STAGE.dark
-    local A_ = (D.STAGE.darkA + run.dark * 0.2) * (run.preview and 0.35 or 1)
+    local ST = run.ST or D.STAGE
+    local dark = ST.dark or D.STAGE.dark
+    local A_ = ((ST.darkA or D.STAGE.darkA) + run.dark * 0.2) * (run.preview and 0.35 or 1)
     local p = run.p
     local hx, hy, rw, rh = p.x - CAMX, p.y - 16 - CAMY, 420, 420 * 0.8
     local h = V.hole
@@ -871,9 +1043,21 @@ function Rd.Draw(v, run)
     v.origin:SetPoint("TOPLEFT", v.scaler, "TOPLEFT", -CAMX, CAMY)
     local p = run.p
     V.px, V.py = p.x, p.y
-    -- ground
-    v.groundTex:SetTexCoord(CAMX / 1024, (CAMX + v.VW) / 1024, CAMY / 1024, (CAMY + v.VH) / 1024)
+    -- ground (the stage's: the Plaguelands' own texture, or the necropolis's floor straight from the client)
+    local ST = run.ST
+    local gnd = ST and ST.ground or { D.MEDIA .. "ground", 1024 }
+    if v.gFile ~= gnd[1] then
+        v.gFile = gnd[1]
+        v.groundTex:SetTexture(gnd[1], "REPEAT", "REPEAT")
+        local tn = ST and ST.tint or D.STAGE.tint
+        v.tint:SetColorTexture(tn[1], tn[2], tn[3], 1)
+        local fc = ST and ST.fogC
+        if fc then v.fog:SetVertexColor(fc[1], fc[2], fc[3], 1) end
+    end
+    local gt = gnd[2]
+    v.groundTex:SetTexCoord(CAMX / gt, (CAMX + v.VW) / gt, CAMY / (gt * 1.3), (CAMY + v.VH) / (gt * 1.3))
     DrawDecals(run)
+    DrawBlockShadows(run)
     DrawParts(run, "under")
     DrawGroundFx(run)
     DrawGroundGlow(run)
@@ -901,6 +1085,7 @@ function Rd.Draw(v, run)
     for _, e in ipairs(run.en) do if inView(e.x, e.y, 120) then Push(e.y, 2, e) end end
     for _, k in ipairs(run.pick) do if inView(k.x, k.y, 60) then Push(k.y, 3, k) end end
     for _, f in ipairs(run.fx) do if f.kind == "icicle" then Push(f.y, 5, f) end end
+    for _, a in ipairs(run.allies or {}) do if inView(a.x, a.y, 80) then Push(a.y, 6, a) end end
     Push(p.y, 4, p)
     for i = 1, LISTN do
         local it = LIST[i]
@@ -909,6 +1094,16 @@ function Rd.Draw(v, run)
         elseif it.k == 2 then DrawEnemy(run, it.o)
         elseif it.k == 3 then DrawPick(run, it.o)
         elseif it.k == 5 then DrawIcicle(run, it.o)
+        elseif it.k == 6 then
+            local a = it.o
+            local M = MOBS[a.type]
+            local key = M and M.sprite or a.type
+            local U = A.UNITS[key]
+            if U then
+                local bp, sub = Band(a.y)
+                local g = Take(bp.glow) File(g, UIM .. "glow") g:SetTexCoord(0, 1, 0, 1) Col(g, GLOWC.green, 0.4) At(g, a.x, a.y - 16, 60, 60)
+                Sprite(bp, sub, key, a.dir, floor(a.anim) % U.walk, a.x, a.y, min(1, (a.life - a.t) * 2) * 0.85, 0.15, M and M.scale or 1, nil, nil, { 0.55, 1, 0.55 })
+            end
         else DrawPlayer(run) end
     end
     DrawParts(run, "air", "norm")
@@ -921,7 +1116,8 @@ function Rd.Draw(v, run)
     -- fog, vignette, slow motion, flash
     local fx0, fy0 = (CAMX * 0.9 + run.t * 14) / 512, (CAMY * 0.9 + run.t * 5) / 512
     v.fog:SetTexCoord(fx0, fx0 + v.VW / 512, fy0, fy0 + v.VH / 512)
-    v.fog:SetVertexColor(1, 1, 1, D.STAGE.fog + run.dark * 0.1)
+    local fc = ST and ST.fogC or C.WHITE
+    v.fog:SetVertexColor(fc[1], fc[2], fc[3], (ST and ST.fog or D.STAGE.fog) + run.dark * 0.1)
     v.vig:ClearAllPoints()
     v.vig:SetPoint("TOPLEFT", v.scaler, "TOPLEFT", -40, 30)
     v.vig:SetSize(v.VW + 80, v.VH + 60)

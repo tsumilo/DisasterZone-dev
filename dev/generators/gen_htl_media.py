@@ -37,6 +37,30 @@ LUA = ADDON / "Games" / "HoldTheLine" / "Art.lua"
 GAME = "Interface\\\\AddOns\\\\DisasterZone\\\\Media\\\\HoldTheLine\\\\"
 S = 0.6            # render px -> world units (the mockup's S)
 PAGE = 2048
+NAXX = MOCK / "naxx" / "site"      # the Naxxramas mockup's art (pack_naxx.py): its cleaned spell textures
+# Naxxramas's models come in at their own render sizes: each is scaled so its body (the south-facing first walk
+# frame) is this many world units tall (a hero is ~47, a ghoul ~60, the Lich ~113)
+BODY = {
+    "n_spider": 26, "n_creeper": 40, "n_spinner": 44, "n_venom": 50, "n_cryptguard": 72, "n_worshipper": 47, "n_follower": 47,
+    "n_infghoul": 50, "n_grub": 40, "n_frenzbat": 38, "n_plaguebeast": 78, "n_gargoyle": 46,
+    "n_understudy": 48, "n_trainee": 46, "n_rider": 56, "n_bony": 74, "n_smith": 48, "n_necroknight": 50, "n_shade": 64,
+    "n_golem": 82, "n_belcher": 62, "n_monstrosity": 62, "n_scientist": 50, "n_slime": 34, "n_chow": 48,
+    "n_soldier": 46, "n_guardian": 96,
+    "n_anub": 100, "n_faerlina": 56, "n_maexxna": 92, "n_noth": 58, "n_heigan": 60, "n_loatheb": 112, "n_razuvious": 60,
+    "n_gothik": 60, "n_korthazz": 92, "n_blaumeux": 92, "n_mograine": 92, "n_zeliek": 92, "n_patchwerk": 124, "n_grobbulus": 112,
+    "n_gluth": 112, "n_stalagg": 100, "n_thaddius": 140, "n_sapphiron": 150, "n_kelthuzad": 112,
+}
+NAXX_FX = ["web", "webspin", "bone", "dust", "cloud", "smoke_dark", "swarm_cloud", "insect_a", "insect_b", "green_glow", "green_drops",
+           "slime", "poison_sheet", "poison_ring", "shadow_glyph2", "shadow_ring", "shadow_ring2", "purple_star", "red_star", "curse_skull",
+           "tele_star", "tele_ring", "ice_burst", "ice_blue", "frost_cloud2", "snow2", "lightning_h", "lightning_b", "lightning_hit",
+           "meteor_fire", "meteor_rock", "bomb", "flames", "beam", "portal_ring", "void_orb", "dnd", "spikes", "rf_ring", "cone",
+           "green_ring", "blizz", "ice_tex", "frost_ring", "seep", "starx"]
+
+
+def body_px(sheet, W, H):
+    a = np.asarray(sheet.crop((0, 2 * H, W, 3 * H)))[:, :, 3]
+    ys = np.nonzero(a.max(axis=1) > 40)[0]
+    return (ys.max() - ys.min() + 1) if len(ys) else H
 
 
 def pow2(n):
@@ -142,6 +166,7 @@ def units():
         sheet = Image.open(ART / "units" / (key + ".png")).convert("RGBA")
         W, H = m["w"], m["h"]
         cols = sheet.width // W
+        k = BODY[key] / body_px(sheet, W, H) if key in BODY else S
         big = m["atk"] > 0
         pieces, frames = [], []
         for d in range(8):
@@ -150,13 +175,12 @@ def units():
                     frames.append(("alias", 2 * cols + c))
                     continue
                 cell = sheet.crop((c * W, d * H, (c + 1) * W, (d + 1) * H))
-                cw, chh = max(1, round(W * S)), max(1, round(H * S))
+                cw, chh = max(1, round(W * k)), max(1, round(H * k))
                 cell = cell.resize((cw, chh), Image.LANCZOS)
                 bb = cell.split()[3].point(lambda v: 255 if v > 6 else 0).getbbox() or (0, 0, 1, 1)
                 piece = cell.crop(bb)
-                k = d * cols + c
-                pieces.append((k, piece))
-                frames.append(("own", k, piece.width, piece.height, bb[0] - m["ox"] * S, bb[1] - m["oy"] * S))
+                pieces.append((d * cols + c, piece))
+                frames.append(("own", d * cols + c, piece.width, piece.height, bb[0] - m["ox"] * k, bb[1] - m["oy"] * k))
         pk = Packer()
         at = pk.pack(pieces)
         names = []
@@ -169,8 +193,8 @@ def units():
             if fr[0] == "alias":
                 flat.append(None)
                 continue
-            _, k, w, h, dx, dy = fr
-            p, x, y = at[k]
+            _, ki, w, h, dx, dy = fr
+            p, x, y = at[ki]
             flat.append((p + 1, x, y, w, h, dx, dy))
         for i, fr in enumerate(frames):
             if fr[0] == "alias":
@@ -246,6 +270,17 @@ def fx():
     for f in sorted(os.listdir(SITE / "fx")):
         k = f[:-4]
         im = Image.open(SITE / "fx" / f).convert("RGBA")       # (already crushed by build_htl.py)
+        if im.width != pow2(im.width) or im.height != pow2(im.height):
+            pad = Image.new("RGBA", (pow2(im.width), pow2(im.height)), (0, 0, 0, 0))
+            pad.paste(im, (0, 0))
+            rows.append('A.FX_CROP.%s = { %s, %s }' % (k, lua_num(im.width / pad.width), lua_num(im.height / pad.height)))
+            im = pad
+        write_tga(im, d / (k + ".tga"))
+    have = set(os.listdir(d))
+    for k in NAXX_FX:               # the necropolis's (only those the Plaguelands set lacks)
+        if k + ".tga" in have and k not in ("lava",):
+            continue
+        im = Image.open(NAXX / "fx" / (k + ".png")).convert("RGBA")
         if im.width != pow2(im.width) or im.height != pow2(im.height):
             pad = Image.new("RGBA", (pow2(im.width), pow2(im.height)), (0, 0, 0, 0))
             pad.paste(im, (0, 0))

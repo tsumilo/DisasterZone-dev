@@ -6,7 +6,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/HoldTheLine/Social.lua", ...
 -- Saved (Games:GetData("holdtheline"), account wide), beside Game.lua's: ach[id] = time earned; firsts[id] =
 -- { who, t } (the guild's first); weeks[week][key] = entry; all[key] = entry (all time); clsBest[cls] = longest run;
 -- stones, chWins, goldTotal (lifetime); chPaid[week] (a challenge week settled); look = { tabard, aura } (worn).
--- entry = { b = { [cls] = { t, k, l, lg, w } }, g = gold home, r = rep, p = points, ti = title, ch = { t, k, c } }
+-- entry = { b = { [cls] = { t, k, l, lg, w } }, g = gold home, r = rep, p = points, ti = title, ch = { t, k, c },
+--   kt = the fastest Kel'Thuzad (the run's clock at his fall), d = Desecrated pieces owned (all classes) }
 --   (b: per class the longest run t and its legendary lg, the most slain k, the highest level l, wins w).
 -- Wire (the games' class): HLR { w = week, e, a } my entry for the week and all time (a run ended); HLQ { w, n }
 -- "I know n entries of week w" (the boards opened, at most once a minute); HLA { w, l, a } an answer (after a random
@@ -115,6 +116,9 @@ function S:TreesFull()
     return n
 end
 function S:Has(id) return Data().ach[id] ~= nil end
+-- Tier 3: sets complete (nine pieces) and pieces owned, over the three classes
+function S:T3Sets() local n = 0 for c in pairs(CLS) do if ns.HTLGame:T3Count(c) >= #(D.T3_SLOTS or {}) then n = n + 1 end end return n end
+function S:T3Pieces() local n = 0 for c in pairs(CLS) do n = n + ns.HTLGame:T3Count(c) end return n end
 function S:Points()
     local d, have, all = Data(), 0, 0
     for _, a in ipairs(D.ACHIEVEMENTS) do
@@ -165,12 +169,20 @@ S._Award = Award
 -- a real run (not the lab, not god mode): its achievements so far; final = it just ended (won or not)
 function S:CheckRun(run, final)
     if not run or run.lab or run.god or run.attract or run.preview then return end
+    local naxx = run.stage and run.stage ~= "epl"
     for _, a in ipairs(D.ACHIEVEMENTS) do
-        if a.run and not Data().ach[a.id] and a.run(run, final) then Award(a.id) end
+        -- (the Plaguelands' survival and class wins belong to the Plaguelands; the necropolis's to the necropolis)
+        local fits = naxx and (a.cat == "naxx" or a.cat == "slaughter" or a.cat == "legend") or (not naxx and a.cat ~= "naxx")
+        if fits and a.run and not Data().ach[a.id] and a.run(run, final) then Award(a.id) end
     end
-    if final and run.over == "victory" then
+    if final and run.over == "victory" and not naxx then
         local f = Data().firsts.palefirst
         if not f or Util().IsMe(f.who) then Award("palefirst") end
+    end
+    if final and run.slain and run.slain.n_kelthuzad then            -- (the guild's first Kel'Thuzad; a Warrior's)
+        local f = Data().firsts.nx_bane
+        if not f or Util().IsMe(f.who) then Award("nx_bane") end
+        if run.cls == "WARRIOR" then local h = Data().firsts.nx_hardest if not h or Util().IsMe(h.who) then Award("nx_hardest") end end
     end
 end
 function S:CheckProfile()
@@ -195,7 +207,9 @@ local function Clean(e)
     local out = { b = {}, g = num(e.g, 99999999), r = num(e.r, 99999999), p = num(e.p, 99999) }
     if type(e.b) == "table" then for c, b in pairs(e.b) do if CLS[c] then out.b[c] = CleanBest(b) end end end
     if type(e.ti) == "string" then out.ti = e.ti:sub(1, 40) end
-    if type(e.ch) == "table" and CLS[e.ch.c] then out.ch = { t = num(e.ch.t, 1200), k = num(e.ch.k, 999999), c = e.ch.c } end
+    if type(e.ch) == "table" and CLS[e.ch.c] then out.ch = { t = num(e.ch.t, 1800), k = num(e.ch.k, 999999), c = e.ch.c } end
+    if tonumber(e.kt) then out.kt = num(e.kt, 3600) end
+    if tonumber(e.d) then out.d = num(e.d, 27) end
     return out
 end
 S.Clean = Clean
@@ -215,6 +229,7 @@ local function Better(old, new)
         if not o or b.t ~= o.t or b.k ~= o.k or b.l ~= o.l or b.w ~= o.w then return true end
     end
     if new.ch and (not old.ch or new.ch.t ~= old.ch.t or new.ch.k ~= old.ch.k) then return true end
+    if (new.kt or 0) ~= (old.kt or 0) or (new.d or 0) ~= (old.d or 0) then return true end
     return false
 end
 local function Store(week, key, e, all)
@@ -237,6 +252,11 @@ S._Store = Store
 local function Fold(e, run, home)
     e = e or { b = {} }
     e.b = e.b or {}
+    if run.stage and run.stage ~= "epl" then                   -- (a necropolis run: its own boards, not the Plaguelands')
+        if run.stage == "frost" and run.over == "victory" then local t = floor(run.t) if not e.kt or t < e.kt then e.kt = t end end
+        e.g = (e.g or 0) + (home or 0)
+        return e
+    end
     local b = e.b[run.cls] or { t = 0, k = 0, l = 0, w = 0 }
     local t = floor(run.t)
     if t > (b.t or 0) or (t == b.t and run.kills > (b.k or 0)) then
@@ -253,13 +273,14 @@ end
 local function Stamp(e)
     local d = Data()
     e.r, e.p, e.ti = d.rep or 0, (S:Points()), S:Title()
+    e.d = S:T3Pieces()
     return e
 end
 
 function S:RunEnded(run, won, home)
     if not run or run.lab or run.god or run.attract or run.preview then return end
     local d, me, week = Data(), Me(), self:Week()
-    d.clsBest[run.cls] = max(d.clsBest[run.cls] or 0, floor(run.t))
+    if (run.stage or "epl") == "epl" then d.clsBest[run.cls] = max(d.clsBest[run.cls] or 0, floor(run.t)) end
     d.goldTotal = d.goldTotal + (home or 0)
     d.stones = d.stones + (run.stones or 0)
     self:CheckRun(run, true)
@@ -289,6 +310,8 @@ function S:Board(kind, period, cls, week)
         elseif kind == "rep" then bv = e.r or 0
         elseif kind == "points" then bv = e.p or 0
         elseif kind == "challenge" then if e.ch then bv, bc = e.ch.t * 1000000 + min(999999, e.ch.k), e.ch.c end
+        elseif kind == "kt" then if e.kt then bv = 100000 - e.kt end
+        elseif kind == "desecrated" then bv = e.d or 0
         else
             for c, b in pairs(e.b or {}) do
                 if not cls or c == cls then
@@ -297,10 +320,10 @@ function S:Board(kind, period, cls, week)
                 end
             end
         end
-        if not bc and kind ~= "challenge" then
+        if not bc and kind ~= "challenge" and kind ~= "kt" and kind ~= "desecrated" then
             for c, b in pairs(e.b or {}) do if not best or (b.t or 0) > (best.t or 0) then best, bc = b, c end end
         end
-        if bv > 0 and (kind ~= "challenge" or bc) and (not cls or bc == cls or kind == "gold" or kind == "rep" or kind == "points") then
+        if bv > 0 and (kind ~= "challenge" or bc) and (not cls or bc == cls or kind == "gold" or kind == "rep" or kind == "points" or kind == "kt" or kind == "desecrated") then
             list[#list + 1] = { key = key, name = Util().ShortName(key) or key, cls = bc, v = bv, e = e, b = best, me = Util().IsMe(key) }
         end
     end

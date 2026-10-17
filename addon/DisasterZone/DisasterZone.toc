@@ -355,9 +355,11 @@ Games\Illidan\Board.lua
 Games\Illidan\Attract.lua
 Games\Illidan\UI.lua
 Games\HoldTheLine\Data.lua
+Games\HoldTheLine\Naxx.lua
 Games\HoldTheLine\Art.lua
 Games\HoldTheLine\Kit.lua
 Games\HoldTheLine\Engine.lua
+Games\HoldTheLine\NaxxBoss.lua
 Games\HoldTheLine\Render.lua
 Games\HoldTheLine\HUD.lua
 Games\HoldTheLine\Game.lua

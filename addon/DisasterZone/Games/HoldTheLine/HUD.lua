@@ -126,7 +126,8 @@ function Rd.DrawHud(v, run)
     Rect("hudTop", bx, by, 1, bh, 160 / 255, 138 / 255, 90 / 255)
     Rect("hudTop", bx + bw - 1, by, 1, bh, 160 / 255, 138 / 255, 90 / 255)
     Text("Level " .. run.level, bx + bw - 6, by + 10, 10, WHITE, nil, "right")
-    Text(run.lab and "Spell lab" or Clock(run.t), VW / 2, 50, 30, run.t >= 840 and TIMER_LATE or TIMER, Rd.MORPHEUS, "center", "THICKOUTLINE")
+    local late = run.ST and not run.ST.reaper and run.finaleOn or (not run.ST or run.ST.reaper) and run.t >= 840
+    Text(run.lab and "Spell lab" or Clock(run.t), VW / 2, 50, 30, late and TIMER_LATE or TIMER, Rd.MORPHEUS, "center", "THICKOUTLINE")
     -- slots
     for i, id in ipairs(run.order) do
         local x, y, sz = Rd.SlotPos("spell", i - 1)
@@ -144,6 +145,10 @@ function Rd.DrawHud(v, run)
     Text(tostring(run.kills), VW - 128, 39, 14, WHITE)
     Pic("hud", GOLDICON, VW - 74, 27, 13, 13, 1)
     Text(tostring(run.gold), VW - 58, 39, 14, GOLD)
+    if run.ST and run.ST.key ~= "epl" then                  -- (Frozen Runes, the necropolis's)
+        Pic("hud", D.ICON("inv_misc_rune_09"), VW - 74, 46, 14, 14, 1, 0.08, 0.92, 0.08, 0.92)
+        Text(tostring(run.frozen or 0), VW - 58, 59, 13, { 0.7, 0.88, 1 })
+    end
     -- the boss
     local b = run.boss
     if b and not b.dead then
@@ -151,14 +156,45 @@ function Rd.DrawHud(v, run)
         local x0, y0 = VW / 2 - w / 2, 66
         Rect("hudBack", x0, y0, w, 20, 8 / 255, 4 / 255, 10 / 255, 0.85)
         local hp = max(0, b.hp / b.maxHp)
+        local name = MOBS[b.type].name
+        if run.groupName then                                   -- (a group: the Four Horsemen, the twins)
+            local sum, n = 0, 0
+            for _, e in ipairs(run.en) do if e.M.boss and not e.dead and e.M.finale then sum, n = sum + e.hp / e.maxHp, n + 1 end end
+            local tot = max(n, run.groupN or n)
+            hp = tot > 0 and sum / tot or 0
+            name = run.groupName .. "  \194\183  " .. n .. " left"
+        end
         if hp > 0 then
             local f = Rect("hud", x0 + 2, y0 + 2, (w - 4) * hp, 16, 1, 1, 1, 1)
             ns.UI:GradientRGBA(f, "VERTICAL", 122 / 255, 20 / 255, 8 / 255, 1, 224 / 255, 58 / 255, 34 / 255, 1, true)
         end
         for _, q in ipairs({ { x0, y0, w, 1.5 }, { x0, y0 + 18.5, w, 1.5 }, { x0, y0, 1.5, 20 }, { x0 + w - 1.5, y0, 1.5, 20 } }) do Rect("hudTop", q[1], q[2], q[3], q[4], 212 / 255, 176 / 255, 106 / 255) end
         Pic("hudFrame", SKULL, x0 - 26, y0 - 3, 26, 26, 1)
-        Text(MOBS[b.type].name, VW / 2, y0 + 15, 12, WHITE, nil, "center")
-        Text(floor(100 * hp + 0.5) .. "%", x0 + w - 6, y0 + 15, 11, { 1, 208 / 255, 192 / 255 }, nil, "right")
+        Text(name, VW / 2, y0 + 15, 12, WHITE, nil, "center")
+        Text(b.immune and "Immune" or (floor(100 * hp + 0.5) .. "%"), x0 + w - 6, y0 + 15, 11, b.immune and { 1, 0.9, 0.6 } or { 1, 208 / 255, 192 / 255 }, nil, "right")
+        if b.berserk then Text("BERSERK", x0 + w, y0 + 36, 12, TIMER_LATE, nil, "right", "THICKOUTLINE")
+        elseif b.berserkAt then Text("Berserk in " .. Clock(b.berserkAt - run.t), x0 + w, y0 + 36, 11, { 1, 0.6, 0.5 }, nil, "right") end
+        if b.cast and b.castName and b.castDur then              -- the boss's cast bar
+            local cw, cx2, cy2 = 240, VW / 2 - 120, y0 + 26
+            local k = min(1, (b.castT or 0) / b.castDur)
+            Rect("hudBack", cx2 - 2, cy2 - 2, cw + 4, 16, 0, 0, 0, 0.8)
+            local f = Rect("hud", cx2, cy2, max(0.1, cw * k), 12, 1, 1, 1, 1)
+            ns.UI:GradientRGBA(f, "VERTICAL", 0.55, 0.38, 0.06, 1, 1, 0.78, 0.25, 1, true)
+            Rect("hudTop", cx2 + cw * k - 1, cy2 - 1, 2, 14, 1, 1, 1, 0.9)
+            Text(b.castName, VW / 2, cy2 + 11, 10, WHITE, nil, "center")
+        end
+    end
+    -- the necropolis's notes (a curse's count, marks, charges) and the Chill
+    local notes = run.hudNotes
+    if notes then for i, nt in ipairs(notes) do Text(nt[1], VW / 2, v.VH - 34 - (i - 1) * 18, 13, nt[2], nil, "center", "OUTLINE") end end
+    if run.ST and run.ST.hazard == "chill" then
+        local cw, cx2, cy2 = 200, VW / 2 - 100, v.VH - 22
+        local k = min(1, (run.cold or 0) / 100)
+        Rect("hudBack", cx2 - 2, cy2 - 2, cw + 4, 12, 0, 0, 0, 0.8)
+        local f = Rect("hud", cx2, cy2, max(0.1, cw * k), 8, 1, 1, 1, 1)
+        if k >= 1 then ns.UI:GradientRGBA(f, "VERTICAL", 0.6, 0.1, 0.1, 1, 1, 0.4, 0.3, 1, true)
+        else ns.UI:GradientRGBA(f, "VERTICAL", 0.2, 0.45, 0.75, 1, 0.75, 0.92, 1, 1, true) end
+        Text("Chill", cx2 - 6, cy2 + 8, 10, { 0.7, 0.88, 1 }, nil, "right")
     end
     -- the raid warning
     local wn = run.warn
