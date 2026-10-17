@@ -52,10 +52,11 @@ local function Take(pool)
     return t
 end
 local function Begin(v) for _, p in pairs(v.pools) do p.n = 0 end end
-local function Finish(v)
+local function Finish(v)                -- (past last frame's count everything is hidden already)
     for _, p in pairs(v.pools) do
-        local items = p.items
-        for i = p.n + 1, #items do local t = items[i] if t.on then t:Hide() t.on = false end end
+        local items, n = p.items, p.n
+        for i = n + 1, p.last or #items do local t = items[i] if t.on then t:Hide() t.on = false end end
+        p.last = n
     end
 end
 local COLOR = "#colour"                           -- (t.file of a colour fill)
@@ -107,7 +108,8 @@ local function LineAt(l, x, y, w, h, ang)
 end
 local FXF = setmetatable({}, { __index = function(t, k) local f = FX .. k t[k] = f return f end })
 local function FxFile(k) return FXF[k] end
-local function FxCrop(k) local c = A.FX_CROP[k] if c then return c[1], c[2] end return 1, 1 end
+local CROP = setmetatable({}, { __index = function(t, k) local c = A.FX_CROP[k] local e = c and { c[1], c[2] } or { 1, 1 } t[k] = e return e end })
+local function FxCrop(k) local c = CROP[k] return c[1], c[2] end
 local GLOWF = UIM .. "glow"
 
 ---------------------------------------------------------------------------
@@ -233,22 +235,39 @@ local function inView(x, y, m) return x > CAMX - m and x < CAMX + V.VW + m and y
 Rd.inView = function(v, x, y, m) V = v return inView(x, y, m) end
 
 -- a picture from the FX set, centred, w x h, turned, in a pool
-local function Tex(pool, k, x, y, w, h, a, rot, tint)
-    local t = Take(V.pools[pool])
-    File(t, FxFile(k))
-    local cu, cv = FxCrop(k)
-    Rot(t, rot, 0, 0, cu, cv)
-    Col(t, tint, a)
-    At(t, x, y, w, h)
+-- (the most drawn pictures - FX, glows, shadows, gems - set their texture in one function: Take, File, Rot, Col and
+-- AtTL as one, the same values and the same caches)
+local function Quad(pool, file, x, y, w, h, r, g, b, a, rot, u1, v1)
+    local pn = pool.n + 1
+    local t = pool.items[pn]
+    if t then
+        pool.n = pn
+        if not t.on then t:Show() t.on = true end
+    else
+        t = Take(pool)
+    end
+    if t.file ~= file then t:SetTexture(file) t.file = file t.tr, t.cr, t.gk = nil, nil, nil end
+    if t.tr ~= rot or t.tu0 ~= 0 or t.tv0 ~= 0 or t.tu1 ~= u1 or t.tv1 ~= v1 then
+        t.tr, t.tu0, t.tv0, t.tu1, t.tv1 = rot, 0, 0, u1, v1
+        RotCoords(t, rot, 0, 0, u1, v1)
+    end
+    if t.cr ~= r or t.cg ~= g or t.cb ~= b or t.ca ~= a then t:SetVertexColor(r, g, b, a) t.cr, t.cg, t.cb, t.ca, t.gk = r, g, b, a, nil end
+    w, h = w > 0.05 and w or 0.05, h > 0.05 and h or 0.05                  -- (max(0.05, w))
+    if t.px ~= x or t.py ~= y then t:SetPoint("TOPLEFT", V.origin, "TOPLEFT", x, -y) t.px, t.py = x, y end
+    if t.w ~= w or t.h ~= h then t:SetSize(w, h) t.w, t.h = w, h end
     return t
 end
+local function Tex(pool, k, x, y, w, h, a, rot, tint)
+    local cr = CROP[k]
+    w, h, a = w > 0.05 and w or 0.05, h > 0.05 and h or 0.05, a or 1
+    if tint then return Quad(V.pools[pool], FXF[k], x - w / 2, y - h / 2, w, h, tint[1], tint[2], tint[3], a, rot or 0, cr[1], cr[2]) end
+    return Quad(V.pools[pool], FXF[k], x - w / 2, y - h / 2, w, h, 1, 1, 1, a, rot or 0, cr[1], cr[2])
+end
 local function Glow(pool, x, y, r, c, a)
-    local t = Take(V.pools[pool])
-    File(t, GLOWF)
-    TC(t, 0, 1, 0, 1)
-    Col(t, c, a)
-    At(t, x, y, r * 2, r * 2)
-    return t
+    local w = r * 2
+    w, a = w > 0.05 and w or 0.05, a or 1
+    if c then return Quad(V.pools[pool], GLOWF, x - w / 2, y - w / 2, w, w, c[1], c[2], c[3], a, 0, 1, 1) end
+    return Quad(V.pools[pool], GLOWF, x - w / 2, y - w / 2, w, w, 1, 1, 1, a, 0, 1, 1)
 end
 local function FlatTex(pool, k, x, y, r, a, rot, tint)   -- on the ground: the circle seen at the view's slant
     return Tex(pool, k, x, y, r * 2, r * 2 / 1.3, a, rot, tint)
@@ -304,51 +323,99 @@ end
 ---------------------------------------------------------------------------
 local function lerp(a, b, k) return a + (b - a) * k end
 local function easeOut(k) return 1 - (1 - k) * (1 - k) end
-local PL = { flat = { "flat", "flatN" }, under = { "under", "under" }, air = { "add", "airN" } }
-local function DrawParts(run, layer, blend)
-    local pools = V.pools
-    for _, p in ipairs(run.parts) do
-        local lay = p.flat and "flat" or p.under and "under" or "air"
-        if lay == layer and not (blend == "add" and not p.add) and not (blend == "norm" and p.add) then
-            if inView(p.x, p.y - p.z, p.s1 + p.s0 + 20) then
-                local k = p.t / p.life
-                local a = lerp(p.a0, p.a1, p.ease == "late" and k * k or k)
-                if p.fi > 0 and k < p.fi then a = a * k / p.fi end
-                if a > 0.003 then
-                    local s = lerp(p.s0, p.s1, p.sizeEase == "in" and k * k or easeOut(k))
-                    local w, h = s * p.sx, s * p.sy
-                    local x, y = p.x, p.y - p.z
-                    local file = FxFile(p.img)
-                    local cu, cv = FxCrop(p.img)
-                    local u0, v0, u1, v1 = 0, 0, cu, cv
-                    if p.cell then local g = p.cells or 8 local cw, ch = cu / g, cv / g local i = p.cell u0, v0 = (i % g) * cw, floor(i / g) * ch u1, v1 = u0 + cw, v0 + ch end
-                    local poolKey = PL[lay][p.add and 1 or 2]
-                    if p.flat then h = h / 1.3 end
-                    if p.stretch then
-                        local ang = atan2(p.vy - p.vz, p.vx) + (p.rot or 0)
-                        local l = w * (1 + p.stretch * sqrt(p.vx * p.vx + (p.vy - p.vz) ^ 2) / 300)
-                        local ln = Take(pools[lay == "air" and (p.add and "addL" or "airNL") or (lay == "under" and "underL" or "glowL")])
-                        File(ln, file)
-                        TC(ln, u0, u1, v0, v1)
-                        Col(ln, p.tint, min(1, a))
-                        LineAt(ln, x, y, l, h, ang)
-                    elseif p.rot ~= 0 and abs(w - h) > 0.5 and not p.flat then
-                        local ln = Take(pools[lay == "air" and (p.add and "addL" or "airNL") or (lay == "under" and "underL" or "glowL")])
-                        File(ln, file)
-                        TC(ln, u0, u1, v0, v1)
-                        Col(ln, p.tint, min(1, a))
-                        LineAt(ln, x, y, w, h, p.rot)
+-- The particles are sorted once a draw into the four passes (under, flat, air, air additive), keeping run.parts'
+-- order inside each, so every pool takes its textures in the same order as a walk per pass did. Particles made while
+-- the draw runs (an icicle's shards, while the bodies draw) are sorted in before the next pass, as a walk would see
+-- them. The common case, a plain picture, sets its texture inline (Take, File, Rot, Col, At as one).
+local PB_U, PB_F, PB_N, PB_A = {}, {}, {}, {}
+local nU, nF, nN, nA, pSorted = 0, 0, 0, 0, 0
+local function SortParts(run)
+    local ps = run.parts
+    local n = #ps
+    for i = pSorted + 1, n do
+        local p = ps[i]
+        if p.flat then nF = nF + 1 PB_F[nF] = p
+        elseif p.under then nU = nU + 1 PB_U[nU] = p
+        elseif p.add then nA = nA + 1 PB_A[nA] = p
+        else nN = nN + 1 PB_N[nN] = p end
+    end
+    pSorted = n
+end
+local function PartLine(pool, file, u0, u1, v0, v1, tint, al, x, y, w, h, ang)
+    local ln = Take(pool)
+    File(ln, file)
+    TC(ln, u0, u1, v0, v1)
+    if tint then VC(ln, tint[1], tint[2], tint[3], al) else VC(ln, 1, 1, 1, al) end
+    LineAt(ln, x, y, w, h, ang)
+end
+local function DrawBucket(list, n, texA, texN, lines)
+    local VW, VH, origin = V.VW, V.VH, V.origin
+    for i = 1, n do
+        local p = list[i]
+        local x, y = p.x, p.y - p.z
+        local m = p.s1 + p.s0 + 20
+        if x > CAMX - m and x < CAMX + VW + m and y > CAMY - m and y < CAMY + VH + m * 1.6 then
+            local k = p.t / p.life
+            local a0 = p.a0
+            local a = a0 + (p.a1 - a0) * (p.ease == "late" and k * k or k)
+            local fi = p.fi
+            if fi > 0 and k < fi then a = a * k / fi end
+            if a > 0.003 then
+                local s0 = p.s0
+                local sz = s0 + (p.s1 - s0) * (p.sizeEase == "in" and k * k or 1 - (1 - k) * (1 - k))
+                local w, h = sz * p.sx, sz * p.sy
+                local img = p.img
+                local file, cr = FXF[img], CROP[img]
+                local u0, v0, u1, v1 = 0, 0, cr[1], cr[2]
+                local cell = p.cell
+                if cell then local g = p.cells or 8 local cw, ch = cr[1] / g, cr[2] / g u0, v0 = (cell % g) * cw, floor(cell / g) * ch u1, v1 = u0 + cw, v0 + ch end
+                local flat = p.flat
+                if flat then h = h / 1.3 end
+                local tint = p.tint
+                local al = a < 1 and a or 1                           -- (min(1, a))
+                local stretch = p.stretch
+                if stretch then
+                    local vx, vy, vz = p.vx, p.vy, p.vz
+                    local ang = atan2(vy - vz, vx) + (p.rot or 0)
+                    local l = w * (1 + stretch * sqrt(vx * vx + (vy - vz) ^ 2) / 300)
+                    PartLine(lines, file, u0, u1, v0, v1, tint, al, x, y, l, h, ang)
+                elseif p.rot ~= 0 and abs(w - h) > 0.5 and not flat then
+                    PartLine(lines, file, u0, u1, v0, v1, tint, al, x, y, w, h, p.rot)
+                else
+                    local pool = p.add and texA or texN
+                    local pn = pool.n + 1
+                    local t = pool.items[pn]
+                    if t then
+                        pool.n = pn
+                        if not t.on then t:Show() t.on = true end
                     else
-                        local t = Take(pools[poolKey])
-                        File(t, file)
-                        Rot(t, p.rot, u0, v0, u1, v1)
-                        Col(t, p.tint, min(1, a))
-                        At(t, x, y, w, h)
+                        t = Take(pool)
                     end
+                    if t.file ~= file then t:SetTexture(file) t.file = file t.tr, t.cr, t.gk = nil, nil, nil end
+                    local rot = p.rot
+                    if t.tr ~= rot or t.tu0 ~= u0 or t.tv0 ~= v0 or t.tu1 ~= u1 or t.tv1 ~= v1 then
+                        t.tr, t.tu0, t.tv0, t.tu1, t.tv1 = rot, u0, v0, u1, v1
+                        RotCoords(t, rot, u0, v0, u1, v1)
+                    end
+                    local r, g, b = 1, 1, 1
+                    if tint then r, g, b = tint[1], tint[2], tint[3] end
+                    if t.cr ~= r or t.cg ~= g or t.cb ~= b or t.ca ~= al then t:SetVertexColor(r, g, b, al) t.cr, t.cg, t.cb, t.ca, t.gk = r, g, b, al, nil end
+                    local ww, hh = w > 0.05 and w or 0.05, h > 0.05 and h or 0.05      -- (max(0.05, w))
+                    local px, py = x - ww / 2, y - hh / 2
+                    if t.px ~= px or t.py ~= py then t:SetPoint("TOPLEFT", origin, "TOPLEFT", px, -py) t.px, t.py = px, py end
+                    if t.w ~= ww or t.h ~= hh then t:SetSize(ww, hh) t.w, t.h = ww, hh end
                 end
             end
         end
     end
+end
+local function DrawParts(run, layer, blend)
+    SortParts(run)
+    local P = V.pools
+    if layer == "under" then DrawBucket(PB_U, nU, P.under, P.under, P.underL)
+    elseif layer == "flat" then DrawBucket(PB_F, nF, P.flat, P.flatN, P.glowL)
+    elseif blend == "norm" then DrawBucket(PB_N, nN, P.airN, P.airN, P.airNL)
+    else DrawBucket(PB_A, nA, P.add, P.add, P.addL) end
 end
 
 ---------------------------------------------------------------------------
@@ -548,11 +615,7 @@ end
 
 local SHADOW = UIM .. "shadow"
 local function Shadow(x, y, w, h, a)
-    local t = Take(V.pools.shadow)
-    File(t, SHADOW)
-    TC(t, 0, 1, 0, 1)
-    VC(t, 1, 1, 1, a or 1)
-    AtTL(t, x, y, w, h)
+    Quad(V.pools.shadow, SHADOW, x, y, w, h, 1, 1, 1, a or 1, 0, 1, 1)
 end
 
 local GEM = { UIM .. "gem_green", UIM .. "gem_blue", UIM .. "gem_violet" }
@@ -569,21 +632,25 @@ local function DrawBlockShadows(run)
     end
 end
 
+local GV, GVN = {}, 0                -- (the gems in view this draw: DrawGems finds them, DrawAirFx glows them)
 local function DrawGems(run)
     local sz = A.UI_SIZE.gem_green
-    for _, g in ipairs(run.gems) do
-        if inView(g.x, g.y, 30) then
+    local gems, gemPool = run.gems, V.pools.gem
+    local x0, x1, y0, y1 = CAMX - 30, CAMX + V.VW + 30, CAMY - 30, CAMY + V.VH + 30 * 1.6
+    GVN = 0
+    for i = 1, #gems do
+        local g = gems[i]
+        local gx, gy = g.x, g.y
+        if gx > x0 and gx < x1 and gy > y0 and gy < y1 then
+            GVN = GVN + 1
+            GV[GVN] = g
             local big, mid = g.v >= 25, g.v >= 3
             local h = big and 22 or mid and 17 or 13
             local w = h * 0.7
             local bob = sin(g.t * 4) * 2
             local pz = g.pop > 0 and sin((0.35 - g.pop) / 0.35 * pi) * 16 or 0
             Shadow(g.x - w * 0.6, g.y - 2, w * 1.2, 5, 0.6)
-            local t = Take(V.pools.gem)
-            File(t, GEM[big and 3 or mid and 2 or 1])
-            TC(t, 0, sz[3], 0, sz[4])
-            VC(t, 1, 1, 1, 1)
-            AtTL(t, g.x - w / 2, g.y - h - 3 + bob - pz, w, h)
+            Quad(gemPool, GEM[big and 3 or mid and 2 or 1], g.x - w / 2, g.y - h - 3 + bob - pz, w, h, 1, 1, 1, 1, 0, sz[3], sz[4])
         end
     end
 end
@@ -965,8 +1032,9 @@ local function DrawAirFx(run)
             Glow("add", k.x, k.y - 16, 60, GLOWC.gold, 0.6)
         end
     end
-    for _, g in ipairs(run.gems) do
-        if inView(g.x, g.y, 30) then
+    for i = 1, GVN do
+        local g = GV[i]
+        do
             local big, mid = g.v >= 25, g.v >= 3
             local h = big and 22 or mid and 17 or 13
             local y = g.y - h * 0.55 - 3 + sin(g.t * 4) * 2
@@ -1057,6 +1125,7 @@ end
 -- draw
 ---------------------------------------------------------------------------
 local LIST, LISTN = {}, 0
+local PROPS = {}                      -- (the props near the view, gathered a draw)
 local function Push(y, k, o)
     LISTN = LISTN + 1
     local it = LIST[LISTN]
@@ -1079,6 +1148,7 @@ end
 function Rd.Draw(v, run)
     V = v
     v.dirty = nil
+    nU, nF, nN, nA, pSorted = 0, 0, 0, 0, 0
     Begin(v)
     E.SetView(run, v.VW, v.VH)
     CAMX, CAMY = Rd.Camera(v, run)
@@ -1108,17 +1178,25 @@ function Rd.Draw(v, run)
     DrawGroundGlow(run)
     DrawParts(run, "flat")
     -- shadows
-    local props = {}
+    local props = PROPS
+    for i = #props, 1, -1 do props[i] = nil end
     for cx = floor((CAMX - 260) / E.CH), floor((CAMX + v.VW + 260) / E.CH) do
         for cy = floor((CAMY - 120) / E.CH), floor((CAMY + v.VH + 520) / E.CH) do
             for _, o in ipairs(E.Chunk(run, cx, cy)) do props[#props + 1] = o end
         end
     end
     for _, o in ipairs(props) do local pr = A.PROPS[o.name] if pr then local w = pr[4] Shadow(o.x - w * 0.33, o.y - w * 0.1, w * 0.66, w * 0.2, 0.8) end end
-    for _, e in ipairs(run.en) do
-        if inView(e.x, e.y, 60) then
-            local r = e.M.r * (e.M.reaper and 1.6 or 1)
-            Shadow(e.x - r * 1.5, e.y - r * 0.5, r * 3, r, e.M.fly and 0.5 or 1)
+    local en, VW, VH = run.en, v.VW, v.VH
+    do
+        local x0, x1, y0, y1 = CAMX - 60, CAMX + VW + 60, CAMY - 60, CAMY + VH + 60 * 1.6
+        for i = 1, #en do
+            local e = en[i]
+            local ex, ey = e.x, e.y
+            if ex > x0 and ex < x1 and ey > y0 and ey < y1 then
+                local M = e.M
+                local r = M.r * (M.reaper and 1.6 or 1)
+                Shadow(ex - r * 1.5, ey - r * 0.5, r * 3, r, M.fly and 0.5 or 1)
+            end
         end
     end
     Shadow(p.x - 20, p.y - 6, 40, 13, 1)
@@ -1127,7 +1205,22 @@ function Rd.Draw(v, run)
     LISTN = 0
     for _, o in ipairs(props) do Push(o.y, 0, o) end
     for _, c in ipairs(run.corpses) do if inView(c.x, c.y, 80) then Push(c.y - 6, 1, c) end end
-    for _, e in ipairs(run.en) do if inView(e.x, e.y, 120) then Push(e.y, 2, e) end end
+    do
+        local x0, x1, y0, y1 = CAMX - 120, CAMX + VW + 120, CAMY - 120, CAMY + VH + 120 * 1.6
+        for i = 1, #en do
+            local e = en[i]
+            local ey = e.y
+            if ey > y0 and ey < y1 then
+                local ex = e.x
+                if ex > x0 and ex < x1 then
+                    LISTN = LISTN + 1
+                    local it = LIST[LISTN]
+                    if not it then it = {} LIST[LISTN] = it end
+                    it.y, it.k, it.o = ey, 2, e
+                end
+            end
+        end
+    end
     for _, k in ipairs(run.pick) do if inView(k.x, k.y, 60) then Push(k.y, 3, k) end end
     for _, f in ipairs(run.fx) do if f.kind == "icicle" then Push(f.y, 5, f) end end
     for _, a in ipairs(run.allies or {}) do if inView(a.x, a.y, 80) then Push(a.y, 6, a) end end
