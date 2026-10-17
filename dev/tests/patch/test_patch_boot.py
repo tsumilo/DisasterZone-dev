@@ -299,7 +299,7 @@ def new_and_deleted_files():
         # after every other patchable file: only the end marker can run it
         write(root, "Core/TestNewZ.lua", guard("Core/TestNewZ.lua") + "-- test\nlocal name, ns = ...\n"
               + order + "'Z:' .. tostring(ns.AzeroUI ~= nil)\n")
-        toc_add(root, "Core/TestNewZ.lua", "Games/Azeromon/Poster.lua")   # (the TOC's last file)
+        toc_add(root, "Core/TestNewZ.lua", "DisasterZone_Azeromon/Poster.lua")   # (the TOC's last file)
     base_dir, record, new_dir = simple_pair(base_mods=base_mods, new_mods=new_mods)
     bundle = make(record, new_dir)
     kinds = {i["path"]: (i["kind"], i.get("before")) for i in bundle["items"]}

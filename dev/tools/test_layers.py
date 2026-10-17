@@ -405,7 +405,7 @@ def test_real_config_today_and_after_the_move():
         "Data/BossJournal.lua": (1, "Strategy"), "Data/Tours/Welcome.lua": (5, "Tours"), "Sim/Core.lua": (3, "Gear"),
         "Render3D/View.lua": (5, "Render3D"), "Render3D/Probe.lua": (5, "Dev"), "UI/Widgets.lua": (5, "Kit"),
         "UI/Comp/Controls.lua": (5, "Kit"), "UI/MainFrame.lua": (5, "Shell"), "UI/RaidPlanUI.lua": (5, "Raids"),
-        "UI/EventBuilder.lua": (5, "Events"), "Games/Chess/AI.lua": (6, "Games"),
+        "UI/EventBuilder.lua": (5, "Events"), "DisasterZone_Chess/AI.lua": (6, "Games"),
         # the target folders (P4 only edits layers.json)
         "Core/Time.lua": (0, "Platform"), "Logic/Context/Roster.lua": (2, "Context"),
         "Logic/Items/ItemDB.lua": (2, "Items"), "Logic/Gear/BiS.lua": (3, "Gear"),
@@ -413,7 +413,7 @@ def test_real_config_today_and_after_the_move():
         "Sync/BiSListNet.lua": (4, "Sync"), "UI/Kit/Widgets/Buttons.lua": (5, "Kit"),
         "UI/Shell/MainFrame.lua": (5, "Shell"), "UI/Tours/Welcome.lua": (5, "Tours"),
         "UI/Events/Builder/Kit.lua": (5, "Events"), "UI/Dev/Probe.lua": (5, "Dev"),
-        "UI/Raids/Teams/Board.lua": (5, "Raids"), "Games/Bingo/UI.lua": (6, "Games"),
+        "UI/Raids/Teams/Board.lua": (5, "Raids"), "DisasterZone_Bingo/UI.lua": (6, "Games"),
     }
     got = {p: (cfg.layer(p), cfg.feature(p)) for p in want}
     bad = {p: (got[p], w) for p, w in want.items() if got[p] != w}

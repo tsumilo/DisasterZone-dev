@@ -1,0 +1,3660 @@
+{
+ "moves": [
+  {
+   "from": "Games/Bingo/Bingo.lua",
+   "to": "DisasterZone_Bingo/Bingo.lua"
+  },
+  {
+   "from": "Games/Bingo/Card.lua",
+   "to": "DisasterZone_Bingo/Card.lua"
+  },
+  {
+   "from": "Games/Bingo/Detect.lua",
+   "to": "DisasterZone_Bingo/Detect.lua"
+  },
+  {
+   "from": "Games/Bingo/Squares.lua",
+   "to": "DisasterZone_Bingo/Squares.lua"
+  },
+  {
+   "from": "Games/Bingo/UI.lua",
+   "to": "DisasterZone_Bingo/UI.lua"
+  },
+  {
+   "from": "Games/Trainer/Engine.lua",
+   "to": "DisasterZone_Trainer/Engine.lua"
+  },
+  {
+   "from": "Games/Trainer/UI.lua",
+   "to": "DisasterZone_Trainer/UI.lua"
+  },
+  {
+   "from": "Games/Trainer/Encounters/LadyVashj.lua",
+   "to": "DisasterZone_Trainer/Encounters/LadyVashj.lua"
+  },
+  {
+   "from": "Games/Trainer/Encounters/TeronGorefiend.lua",
+   "to": "DisasterZone_Trainer/Encounters/TeronGorefiend.lua"
+  },
+  {
+   "from": "Games/Azeromon/Achievements.lua",
+   "to": "DisasterZone_Azeromon/Achievements.lua"
+  },
+  {
+   "from": "Games/Azeromon/Aftermath.lua",
+   "to": "DisasterZone_Azeromon/Aftermath.lua"
+  },
+  {
+   "from": "Games/Azeromon/Arena.lua",
+   "to": "DisasterZone_Azeromon/Arena.lua"
+  },
+  {
+   "from": "Games/Azeromon/Atlas.lua",
+   "to": "DisasterZone_Azeromon/Atlas.lua"
+  },
+  {
+   "from": "Games/Azeromon/Battle.lua",
+   "to": "DisasterZone_Azeromon/Battle.lua"
+  },
+  {
+   "from": "Games/Azeromon/BeastArt.lua",
+   "to": "DisasterZone_Azeromon/BeastArt.lua"
+  },
+  {
+   "from": "Games/Azeromon/Bounties.lua",
+   "to": "DisasterZone_Azeromon/Bounties.lua"
+  },
+  {
+   "from": "Games/Azeromon/Changelog.lua",
+   "to": "DisasterZone_Azeromon/Changelog.lua"
+  },
+  {
+   "from": "Games/Azeromon/Chat.lua",
+   "to": "DisasterZone_Azeromon/Chat.lua"
+  },
+  {
+   "from": "Games/Azeromon/Crafting.lua",
+   "to": "DisasterZone_Azeromon/Crafting.lua"
+  },
+  {
+   "from": "Games/Azeromon/Data.lua",
+   "to": "DisasterZone_Azeromon/Data.lua"
+  },
+  {
+   "from": "Games/Azeromon/Fishing.lua",
+   "to": "DisasterZone_Azeromon/Fishing.lua"
+  },
+  {
+   "from": "Games/Azeromon/Fx.lua",
+   "to": "DisasterZone_Azeromon/Fx.lua"
+  },
+  {
+   "from": "Games/Azeromon/FxMoves.lua",
+   "to": "DisasterZone_Azeromon/FxMoves.lua"
+  },
+  {
+   "from": "Games/Azeromon/Game.lua",
+   "to": "DisasterZone_Azeromon/Game.lua"
+  },
+  {
+   "from": "Games/Azeromon/Ground.lua",
+   "to": "DisasterZone_Azeromon/Ground.lua"
+  },
+  {
+   "from": "Games/Azeromon/GuildBoard.lua",
+   "to": "DisasterZone_Azeromon/GuildBoard.lua"
+  },
+  {
+   "from": "Games/Azeromon/HallArt.lua",
+   "to": "DisasterZone_Azeromon/HallArt.lua"
+  },
+  {
+   "from": "Games/Azeromon/Hideout.lua",
+   "to": "DisasterZone_Azeromon/Hideout.lua"
+  },
+  {
+   "from": "Games/Azeromon/Maps.lua",
+   "to": "DisasterZone_Azeromon/Maps.lua"
+  },
+  {
+   "from": "Games/Azeromon/MapsBlackrock.lua",
+   "to": "DisasterZone_Azeromon/MapsBlackrock.lua"
+  },
+  {
+   "from": "Games/Azeromon/MapsStranglethorn.lua",
+   "to": "DisasterZone_Azeromon/MapsStranglethorn.lua"
+  },
+  {
+   "from": "Games/Azeromon/Marks.lua",
+   "to": "DisasterZone_Azeromon/Marks.lua"
+  },
+  {
+   "from": "Games/Azeromon/Mon.lua",
+   "to": "DisasterZone_Azeromon/Mon.lua"
+  },
+  {
+   "from": "Games/Azeromon/Net.lua",
+   "to": "DisasterZone_Azeromon/Net.lua"
+  },
+  {
+   "from": "Games/Azeromon/People.lua",
+   "to": "DisasterZone_Azeromon/People.lua"
+  },
+  {
+   "from": "Games/Azeromon/Poster.lua",
+   "to": "DisasterZone_Azeromon/Poster.lua"
+  },
+  {
+   "from": "Games/Azeromon/PvP.lua",
+   "to": "DisasterZone_Azeromon/PvP.lua"
+  },
+  {
+   "from": "Games/Azeromon/Routine.lua",
+   "to": "DisasterZone_Azeromon/Routine.lua"
+  },
+  {
+   "from": "Games/Azeromon/Sound.lua",
+   "to": "DisasterZone_Azeromon/Sound.lua"
+  },
+  {
+   "from": "Games/Azeromon/Sprites.lua",
+   "to": "DisasterZone_Azeromon/Sprites.lua"
+  },
+  {
+   "from": "Games/Azeromon/Taming.lua",
+   "to": "DisasterZone_Azeromon/Taming.lua"
+  },
+  {
+   "from": "Games/Azeromon/Trade.lua",
+   "to": "DisasterZone_Azeromon/Trade.lua"
+  },
+  {
+   "from": "Games/Azeromon/UI.lua",
+   "to": "DisasterZone_Azeromon/UI.lua"
+  },
+  {
+   "from": "Games/Azeromon/Watch.lua",
+   "to": "DisasterZone_Azeromon/Watch.lua"
+  },
+  {
+   "from": "Games/Azeromon/WorldArt.lua",
+   "to": "DisasterZone_Azeromon/WorldArt.lua"
+  },
+  {
+   "from": "Games/Azeromon/WorldMap.lua",
+   "to": "DisasterZone_Azeromon/WorldMap.lua"
+  },
+  {
+   "from": "Media/Azeromon/atlas.tga",
+   "to": "DisasterZone_Azeromon/Media/atlas.tga"
+  },
+  {
+   "from": "Media/Azeromon/chars.tga",
+   "to": "DisasterZone_Azeromon/Media/chars.tga"
+  },
+  {
+   "from": "Media/Azeromon/platform.tga",
+   "to": "DisasterZone_Azeromon/Media/platform.tga"
+  },
+  {
+   "from": "Media/Azeromon/platform_d.tga",
+   "to": "DisasterZone_Azeromon/Media/platform_d.tga"
+  },
+  {
+   "from": "Media/Azeromon/platform_j.tga",
+   "to": "DisasterZone_Azeromon/Media/platform_j.tga"
+  },
+  {
+   "from": "Media/Azeromon/platform_m.tga",
+   "to": "DisasterZone_Azeromon/Media/platform_m.tga"
+  },
+  {
+   "from": "Media/Azeromon/platform_w.tga",
+   "to": "DisasterZone_Azeromon/Media/platform_w.tga"
+  },
+  {
+   "from": "Media/Azeromon/title_logo.tga",
+   "to": "DisasterZone_Azeromon/Media/title_logo.tga"
+  },
+  {
+   "from": "Media/Azeromon/title_shade.tga",
+   "to": "DisasterZone_Azeromon/Media/title_shade.tga"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p01.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p01.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p02.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p02.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p03.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p03.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p04.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p04.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p05.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p05.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p06.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p06.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p07.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p07.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p08.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p08.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p09.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p09.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p10.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p10.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p11.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p11.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p12.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p12.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p13.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p13.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p14.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p14.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p15.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p15.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p16.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p16.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p17.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p17.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p18.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p18.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p19.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p19.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p20.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p20.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p21.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p21.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p22.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p22.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p23.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p23.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p24.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p24.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p25.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p25.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p26.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p26.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p27.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p27.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p28.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p28.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p29.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p29.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p30.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p30.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p31.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p31.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p32.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p32.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p33.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p33.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p34.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p34.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p35.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p35.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p36.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p36.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p37.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p37.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p38.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p38.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p39.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p39.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p40.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p40.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p41.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p41.blp"
+  },
+  {
+   "from": "Media/Azeromon/Beasts/p42.blp",
+   "to": "DisasterZone_Azeromon/Media/Beasts/p42.blp"
+  },
+  {
+   "from": "Media/Azeromon/fonts/PixelifySans-Medium.ttf",
+   "to": "DisasterZone_Azeromon/Media/fonts/PixelifySans-Medium.ttf"
+  },
+  {
+   "from": "Media/Azeromon/fonts/PixelifySans-OFL.txt",
+   "to": "DisasterZone_Azeromon/Media/fonts/PixelifySans-OFL.txt"
+  },
+  {
+   "from": "Media/Azeromon/fonts/PixelifySans-SemiBold.ttf",
+   "to": "DisasterZone_Azeromon/Media/fonts/PixelifySans-SemiBold.ttf"
+  },
+  {
+   "from": "Media/Azeromon/Ground/arena_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/arena_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/arena_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/arena_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/arena_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/arena_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/arena_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/arena_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/arena_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/arena_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/arena_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/arena_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_arena.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_arena.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_clouds.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_clouds.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_depths.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_depths.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_duskwood.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_duskwood.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_elwynn.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_elwynn.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_gorge.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_gorge.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_jungle.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_jungle.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_mine.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_mine.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_molten.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_molten.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_redridge.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_redridge.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_room.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_room.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_steppes.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_steppes.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/battle_westfall.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/battle_westfall.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bbhall_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bbhall_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bbhall_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bbhall_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bbhall_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bbhall_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bbhall_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bbhall_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybay_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybay_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybay_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybay_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybay_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybay_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybay_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybay_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybay_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybay_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybay_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybay_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybay_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybay_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybay_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybay_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybayinn_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybayinn_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybayinn_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybayinn_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybayinn_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybayinn_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/bootybayinn_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/bootybayinn_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brd_w2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brd_w2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_3_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_3_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_3_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_3_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_3_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_3_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_w2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_w2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/brm_w3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/brm_w3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/clouds.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/clouds.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/cottage_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/cottage_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/cottage_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/cottage_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/cottage_f.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/cottage_f.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/cottage_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/cottage_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/cottage_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/cottage_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/crystalvein_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/crystalvein_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/crystalvein_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/crystalvein_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/crystalvein_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/crystalvein_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/crystalvein_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/crystalvein_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/crystalvein_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/crystalvein_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/crystalvein_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/crystalvein_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/crystalvein_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/crystalvein_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshire_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshire_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshire_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshire_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshire_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshire_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshire_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshire_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshire_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshire_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshire_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshire_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshire_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshire_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshire_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshire_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshireinn_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshireinn_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshireinn_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshireinn_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshireinn_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshireinn_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/darkshireinn_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/darkshireinn_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm1_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm1_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm1_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm1_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm1_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm1_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm1_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm1_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm1_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm1_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm1_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm1_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm1_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm1_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm2_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm2_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm2_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm2_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm2_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm2_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm2_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm2_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm2_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm2_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm2_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm2_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm2_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm2_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm3_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm3_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm3_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm3_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm3_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm3_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm3_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm3_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm3_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm3_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm3_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm3_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/dm3_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/dm3_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/duskwood_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/duskwood_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_3_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_3_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_3_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_3_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_3_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_3_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m10.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m10.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m11.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m11.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m12.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m12.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m6.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m6.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m7.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m7.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m8.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m8.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_m9.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_m9.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/everstill_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/everstill_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/forestedge_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/forestedge_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_3_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_3_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_3_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_3_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_3_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_3_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/gorge_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/gorge_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim6.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim6.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim7.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim7.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim8.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim8.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_dim9.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_dim9.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_e_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_e_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_f_fel.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_f_fel.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_f_gold.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_f_gold.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_f_hearth.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_f_hearth.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_f_torch.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_f_torch.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_n_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_n_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_n_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_n_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_n_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_n_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_props.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_props.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal1e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal1e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal2e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal2e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal3e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal3e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal4e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal4e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal5e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal5e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal6.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal6.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal6e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal6e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal7.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal7.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal7e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal7e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal8.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal8.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal8e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal8e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal9.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal9.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_seal9e.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_seal9e.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/hideout_w2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/hideout_w2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/home_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/home_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/home_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/home_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/home_f.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/home_f.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/home_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/home_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/home_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/home_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/jaguero_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/jaguero_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/kurzen_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/kurzen_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/kurzen_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/kurzen_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/kurzen_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/kurzen_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/kurzen_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/kurzen_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/kurzen_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/kurzen_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/kurzen_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/kurzen_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/kurzen_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/kurzen_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lab_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lab_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lab_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lab_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lab_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lab_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lab_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lab_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_3_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_3_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_3_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_3_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_3_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_3_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshire_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshire_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshireinn_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshireinn_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshireinn_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshireinn_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshireinn_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshireinn_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lakeshireinn_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lakeshireinn_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lampcover_d.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lampcover_d.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/lampcover_n.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/lampcover_n.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/mist.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/mist.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/mistmantle_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/mistmantle_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/mistmantle_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/mistmantle_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/mistmantle_f.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/mistmantle_f.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/mistmantle_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/mistmantle_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/mistmantle_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/mistmantle_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_w2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_w2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moltencore_w3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moltencore_w3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moonbrook_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moonbrook_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moshogg_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moshogg_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moshogg_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moshogg_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moshogg_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moshogg_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moshogg_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moshogg_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moshogg_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moshogg_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moshogg_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moshogg_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/moshogg_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/moshogg_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/post_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/post_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/post_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/post_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/post_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/post_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/post_e_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/post_e_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/post_f.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/post_f.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/post_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/post_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/post_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/post_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_m5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_m5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/ravenhill_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/ravenhill_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/rebelcamp_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/rebelcamp_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_m5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_m5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_m6.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_m6.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_m7.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_m7.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/route1_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/route1_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/saldean_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/saldean_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/saldean_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/saldean_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/saldean_f.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/saldean_f.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/saldean_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/saldean_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/saldean_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/saldean_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinel_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinel_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinel_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinel_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinel_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinel_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinel_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinel_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinel_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinel_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinel_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinel_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinel_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinel_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinel_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinel_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinelinn_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinelinn_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinelinn_e_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinelinn_e_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinelinn_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinelinn_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/sentinelinn_s.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/sentinelinn_s.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/shafts.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/shafts.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_3_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_3_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_3_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_3_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_3_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_3_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_m5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_m5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/steppes_w2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/steppes_w2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stonewatch_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stonewatch_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_m5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_m5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_m6.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_m6.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvnorth_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvnorth_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_m5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_m5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_m6.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_m6.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_m7.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_m7.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_m8.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_m8.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/stvsouth_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/stvsouth_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_3_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_3_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_3_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_3_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_3_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_3_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/threecorners_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/threecorners_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_3_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_3_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_3_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_3_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_3_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_3_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/town_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/town_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/vignette.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/vignette.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/westfall_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/westfall_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_m5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_m5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_m6.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_m6.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_m7.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_m7.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_w1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_w1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/wildshore_w2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/wildshore_w2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_0_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_0_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_0_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_0_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_1_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_1_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_1_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_1_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_1_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_1_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_2_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_2_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_2_1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_2_1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_2_2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_2_2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_d_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_d_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_m1.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_m1.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_m2.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_m2.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_m3.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_m3.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_m4.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_m4.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_m5.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_m5.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_m6.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_m6.tga"
+  },
+  {
+   "from": "Media/Azeromon/Ground/zulmamwe_n_0_0.tga",
+   "to": "DisasterZone_Azeromon/Media/Ground/zulmamwe_n_0_0.tga"
+  },
+  {
+   "from": "Media/Azeromon/WorldMap/worldmap.tga",
+   "to": "DisasterZone_Azeromon/Media/WorldMap/worldmap.tga"
+  },
+  {
+   "from": "Media/Azeromon/WorldMap/worldmap_dusk.tga",
+   "to": "DisasterZone_Azeromon/Media/WorldMap/worldmap_dusk.tga"
+  },
+  {
+   "from": "Media/Azeromon/WorldMap/worldmap_fog1.tga",
+   "to": "DisasterZone_Azeromon/Media/WorldMap/worldmap_fog1.tga"
+  },
+  {
+   "from": "Media/Azeromon/WorldMap/worldmap_fog2.tga",
+   "to": "DisasterZone_Azeromon/Media/WorldMap/worldmap_fog2.tga"
+  },
+  {
+   "from": "Media/Azeromon/WorldMap/worldmap_lap.tga",
+   "to": "DisasterZone_Azeromon/Media/WorldMap/worldmap_lap.tga"
+  },
+  {
+   "from": "Media/Azeromon/WorldMap/worldmap_sprites.tga",
+   "to": "DisasterZone_Azeromon/Media/WorldMap/worldmap_sprites.tga"
+  },
+  {
+   "from": "Games/Chess/AI.lua",
+   "to": "DisasterZone_Chess/AI.lua"
+  },
+  {
+   "from": "Games/Chess/Board3D.lua",
+   "to": "DisasterZone_Chess/Board3D.lua"
+  },
+  {
+   "from": "Games/Chess/Cheats.lua",
+   "to": "DisasterZone_Chess/Cheats.lua"
+  },
+  {
+   "from": "Games/Chess/Chess.lua",
+   "to": "DisasterZone_Chess/Chess.lua"
+  },
+  {
+   "from": "Games/Chess/Rules.lua",
+   "to": "DisasterZone_Chess/Rules.lua"
+  },
+  {
+   "from": "Games/Chess/UI.lua",
+   "to": "DisasterZone_Chess/UI.lua"
+  },
+  {
+   "from": "Games/Illidan/Attract.lua",
+   "to": "DisasterZone_Illidan/Attract.lua"
+  },
+  {
+   "from": "Games/Illidan/Board.lua",
+   "to": "DisasterZone_Illidan/Board.lua"
+  },
+  {
+   "from": "Games/Illidan/Bosses.lua",
+   "to": "DisasterZone_Illidan/Bosses.lua"
+  },
+  {
+   "from": "Games/Illidan/Data.lua",
+   "to": "DisasterZone_Illidan/Data.lua"
+  },
+  {
+   "from": "Games/Illidan/Engine.lua",
+   "to": "DisasterZone_Illidan/Engine.lua"
+  },
+  {
+   "from": "Games/Illidan/Game.lua",
+   "to": "DisasterZone_Illidan/Game.lua"
+  },
+  {
+   "from": "Games/Illidan/UI.lua",
+   "to": "DisasterZone_Illidan/UI.lua"
+  },
+  {
+   "from": "Media/Illidan/bars.tga",
+   "to": "DisasterZone_Illidan/Media/bars.tga"
+  },
+  {
+   "from": "Media/Illidan/door.tga",
+   "to": "DisasterZone_Illidan/Media/door.tga"
+  },
+  {
+   "from": "Media/Illidan/passage.tga",
+   "to": "DisasterZone_Illidan/Media/passage.tga"
+  },
+  {
+   "from": "Media/Illidan/splat.tga",
+   "to": "DisasterZone_Illidan/Media/splat.tga"
+  },
+  {
+   "from": "Media/Illidan/vignette.tga",
+   "to": "DisasterZone_Illidan/Media/vignette.tga"
+  },
+  {
+   "from": "Games/HoldTheLine/Art.lua",
+   "to": "DisasterZone_HoldTheLine/Art.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/Data.lua",
+   "to": "DisasterZone_HoldTheLine/Data.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/Engine.lua",
+   "to": "DisasterZone_HoldTheLine/Engine.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/Game.lua",
+   "to": "DisasterZone_HoldTheLine/Game.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/HUD.lua",
+   "to": "DisasterZone_HoldTheLine/HUD.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/Kit.lua",
+   "to": "DisasterZone_HoldTheLine/Kit.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/Naxx.lua",
+   "to": "DisasterZone_HoldTheLine/Naxx.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/NaxxBoss.lua",
+   "to": "DisasterZone_HoldTheLine/NaxxBoss.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/Render.lua",
+   "to": "DisasterZone_HoldTheLine/Render.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/Social.lua",
+   "to": "DisasterZone_HoldTheLine/Social.lua"
+  },
+  {
+   "from": "Games/HoldTheLine/UI.lua",
+   "to": "DisasterZone_HoldTheLine/UI.lua"
+  },
+  {
+   "from": "Media/HoldTheLine/Kit_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Kit_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Kit_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Kit_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Props_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Props_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/fog.blp",
+   "to": "DisasterZone_HoldTheLine/Media/fog.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/ground.blp",
+   "to": "DisasterZone_HoldTheLine/Media/ground.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/logo.blp",
+   "to": "DisasterZone_HoldTheLine/Media/logo.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/arcane_burst.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/arcane_burst.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/arcane_circle.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/arcane_circle.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/arcane_orbit.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/arcane_orbit.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/arcane_star.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/arcane_star.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/arcane_trail.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/arcane_trail.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/beam.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/beam.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/blizz.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/blizz.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/blood.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/blood.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/blood_green.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/blood_green.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/blue_star.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/blue_star.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/bomb.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/bomb.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/bone.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/bone.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/cloud.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/cloud.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/cone.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/cone.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/conse_glow.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/conse_glow.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/conse_rune.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/conse_rune.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/crown.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/crown.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/curse_skull.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/curse_skull.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/dnd.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/dnd.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/dust.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/dust.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/fire_core.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/fire_core.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/fire_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/fire_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/flame.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/flame.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/flame_trail.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/flame_trail.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/flames.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/flames.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/frost_burst.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/frost_burst.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/frost_cloud.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/frost_cloud.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/frost_cloud2.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/frost_cloud2.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/frost_disc.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/frost_disc.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/frost_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/frost_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/frost_streak.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/frost_streak.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/frost_tex.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/frost_tex.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/frost_trail.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/frost_trail.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ghost_blue.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ghost_blue.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ghost_purple.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ghost_purple.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/glow_dot.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/glow_dot.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/green_drops.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/green_drops.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/green_glow.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/green_glow.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/green_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/green_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/holy_flare.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/holy_flare.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/holy_runes.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/holy_runes.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/holy_star.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/holy_star.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/holy_star2.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/holy_star2.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_blue.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_blue.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_blur.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_blur.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_burst.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_burst.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_chunks.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_chunks.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_chunks2.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_chunks2.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_disc.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_disc.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_missile.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_missile.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_sparks.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_sparks.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ice_tex.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ice_tex.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/icicles.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/icicles.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/insect_a.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/insect_a.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/insect_b.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/insect_b.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/lava.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/lava.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/lava_disc.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/lava_disc.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/lens.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/lens.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/levelup_rays.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/levelup_rays.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/lightning.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/lightning.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/lightning_b.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/lightning_b.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/lightning_h.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/lightning_h.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/lightning_hit.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/lightning_hit.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/meteor_fire.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/meteor_fire.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/meteor_rock.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/meteor_rock.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/mist.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/mist.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/nova_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/nova_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/orb.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/orb.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/poison_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/poison_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/poison_sheet.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/poison_sheet.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/portal_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/portal_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/purple_star.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/purple_star.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/rays.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/rays.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/red_burst.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/red_burst.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/red_star.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/red_star.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/rf_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/rf_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ribbon.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ribbon.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ring_blue.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ring_blue.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ring_shards.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ring_shards.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ring_shards2.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ring_shards2.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ring_smoke.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ring_smoke.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ring_soft.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ring_soft.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ring_thin.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ring_thin.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/ring_wide.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/ring_wide.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/rune_circle.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/rune_circle.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/scourge_circle.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/scourge_circle.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/scourge_runes.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/scourge_runes.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/seep.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/seep.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/shadow_burst.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/shadow_burst.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/shadow_glyph.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/shadow_glyph.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/shadow_glyph2.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/shadow_glyph2.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/shadow_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/shadow_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/shadow_ring2.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/shadow_ring2.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/shield_emblem.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/shield_emblem.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/shine.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/shine.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/skull.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/skull.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/slash_arc.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/slash_arc.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/slime.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/slime.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/smoke.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/smoke.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/smoke_dark.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/smoke_dark.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/smoke_sheet.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/smoke_sheet.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/snow2.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/snow2.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/snowflake.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/snowflake.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/sparkle.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/sparkle.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/spikes.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/spikes.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/star.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/star.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/star4.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/star4.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/starburst.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/starburst.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/starx.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/starx.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/sun_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/sun_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/swarm_cloud.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/swarm_cloud.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/tele_ring.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/tele_ring.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/tele_star.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/tele_star.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/void_orb.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/void_orb.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/web.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/web.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/webspin.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/webspin.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/FX/white_orb.tga",
+   "to": "DisasterZone_HoldTheLine/Media/FX/white_orb.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/dark_hole.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/dark_hole.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/gem_blue.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/gem_blue.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/gem_green.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/gem_green.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/gem_violet.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/gem_violet.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/glow.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/glow.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/ice_spike_0.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/ice_spike_0.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/ice_spike_1.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/ice_spike_1.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/ice_spike_2.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/ice_spike_2.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/UI/shadow.tga",
+   "to": "DisasterZone_HoldTheLine/Media/UI/shadow.tga"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/abom_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/abom_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/abom_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/abom_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/banshee_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/banshee_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/bat_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/bat_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/fiend_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/fiend_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/fiend_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/fiend_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/ghoul2_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/ghoul2_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/ghoul_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/ghoul_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/ghoul_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/ghoul_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/horror_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/horror_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/hound_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/hound_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/hound_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/hound_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/lich_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/lich_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/lich_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/lich_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/mage_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/mage_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/mage_ad_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/mage_ad_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_anub_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_anub_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_anub_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_anub_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_anub_3.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_anub_3.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_anub_4.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_anub_4.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_belcher_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_belcher_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_belcher_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_belcher_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_blaumeux_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_blaumeux_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_blaumeux_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_blaumeux_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_bony_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_bony_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_chow_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_chow_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_creeper_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_creeper_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_cryptguard_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_cryptguard_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_cryptguard_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_cryptguard_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_faerlina_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_faerlina_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_follower_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_follower_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_frenzbat_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_frenzbat_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_gargoyle_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_gargoyle_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_gargoyle_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_gargoyle_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_gluth_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_gluth_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_gluth_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_gluth_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_gluth_3.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_gluth_3.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_gluth_4.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_gluth_4.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_golem_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_golem_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_golem_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_golem_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_gothik_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_gothik_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_grobbulus_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_grobbulus_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_grobbulus_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_grobbulus_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_grub_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_grub_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_guardian_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_guardian_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_guardian_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_guardian_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_heigan_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_heigan_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_infghoul_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_infghoul_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_kelthuzad_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_kelthuzad_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_kelthuzad_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_kelthuzad_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_kelthuzad_3.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_kelthuzad_3.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_korthazz_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_korthazz_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_korthazz_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_korthazz_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_loatheb_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_loatheb_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_loatheb_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_loatheb_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_maexxna_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_maexxna_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_maexxna_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_maexxna_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_maexxna_3.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_maexxna_3.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_mograine_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_mograine_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_mograine_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_mograine_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_monstrosity_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_monstrosity_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_monstrosity_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_monstrosity_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_necroknight_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_necroknight_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_noth_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_noth_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_patchwerk_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_patchwerk_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_patchwerk_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_patchwerk_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_patchwerk_3.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_patchwerk_3.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_plaguebeast_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_plaguebeast_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_plaguebeast_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_plaguebeast_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_razuvious_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_razuvious_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_rider_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_rider_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_sapphiron_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_sapphiron_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_sapphiron_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_sapphiron_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_sapphiron_3.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_sapphiron_3.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_sapphiron_4.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_sapphiron_4.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_scientist_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_scientist_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_shade_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_shade_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_shade_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_shade_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_slime_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_slime_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_smith_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_smith_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_soldier_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_soldier_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_spider_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_spider_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_spinner_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_spinner_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_stalagg_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_stalagg_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_stalagg_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_stalagg_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_thaddius_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_thaddius_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_thaddius_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_thaddius_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_trainee_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_trainee_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_understudy_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_understudy_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_venom_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_venom_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_worshipper_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_worshipper_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_zeliek_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_zeliek_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/n_zeliek_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/n_zeliek_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/paladin_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/paladin_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/paladin_ad_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/paladin_ad_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/paladin_ash_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/paladin_ash_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/paladin_ash_ad_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/paladin_ash_ad_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/rat_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/rat_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/reaper_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/reaper_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/reaper_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/reaper_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/skeleton_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/skeleton_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/t3_mage_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/t3_mage_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/t3_paladin_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/t3_paladin_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/t3_paladin_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/t3_paladin_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/t3_warrior_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/t3_warrior_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/warrior_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/warrior_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/warrior_ad_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/warrior_ad_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/warrior_tf_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/warrior_tf_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/warrior_tf_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/warrior_tf_2.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/warrior_tf_ad_1.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/warrior_tf_ad_1.blp"
+  },
+  {
+   "from": "Media/HoldTheLine/Units/warrior_tf_ad_2.blp",
+   "to": "DisasterZone_HoldTheLine/Media/Units/warrior_tf_ad_2.blp"
+  }
+ ]
+}

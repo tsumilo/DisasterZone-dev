@@ -320,7 +320,7 @@ def the_atlas_has_the_shade_and_shadow_tiles():
     for name in ("grass1_shade", "wgrass1_shade", "dgrass1_shade", "jgrass1_shade", "shadow",
                  "grass1_forest", "wgrass1_forest", "dgrass1_forest", "jgrass1_forest"):
         assert re.search(r"^\s+%s = \d+,$" % name, src, re.M), name
-    assert src.startswith('if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Atlas.lua", ...) then return end')
+    assert src.startswith('if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/Atlas.lua", ...) then return end')
 
 
 if __name__ == "__main__":

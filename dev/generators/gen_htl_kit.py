@@ -82,7 +82,7 @@ def main():
         rows.append('K.%s = { "%s%s", %s, %s, %s, %s, %d, %d, %d }' % (
             name, M.GAME, n, M.lua_num(round(x / pw, 5)), M.lua_num(round((x + crop.width) / pw, 5)),
             M.lua_num(round(y / ph, 5)), M.lua_num(round((y + crop.height) / ph, 5)), crop.width, crop.height, pad))
-    body = ['if DisasterZoneBoot and DisasterZoneBoot.Run("Games/HoldTheLine/Kit.lua", ...) then return end -- DisasterZone Games/HoldTheLine/Kit.lua',
+    body = ['if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_HoldTheLine/Kit.lua", ...) then return end -- DisasterZone Games/HoldTheLine/Kit.lua',
             "-- ns.HTLKit: Hold the Line's UI pieces, cut from the mockup's CSS (dev/generators/gen_htl_kit.py) - do not edit.",
             "-- K[name] = { file, u0, u1, v0, v1, w, h, pad }: w, h in CSS px with pad px of room round the piece (its glow / shadow).",
             "local _, ns = ...", "local K = {}", "ns.HTLKit = K"] + rows

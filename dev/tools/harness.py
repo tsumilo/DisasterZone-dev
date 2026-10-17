@@ -74,6 +74,37 @@ def rooms_dir_for(addon_dir):
     return sib if _exists(sib) else ROOMS_DIR
 
 
+# Each minigame is an addon of its own, a game pack (dev/docs/GAME_PACKS.md): DisasterZone_<Game> next to the addon
+# folder, "## Dependencies: DisasterZone" and "## X-DZ-Pack: <id>" in its TOC. The client loads them after
+# DisasterZone (its ADDON_LOADED first), in name order, each with a namespace of its own (Client._run_pack).
+# PACK_ORDER "early" (default): the packs' files run right after DisasterZone's, before its ADDON_LOADED, so pre-loaded
+# clients hold them too (a boot stays as fast as before the split); their modules then start with DisasterZone's own
+# (Core/Init.lua RunInit). "real" (env DZ_PACK_ORDER=real, or Client(pack_order="real")): after ADDON_LOADED, as the
+# client does, and ns:PackLoaded starts them (tests/games/test_packs.py covers that order).
+PACK_ORDER = os.environ.get("DZ_PACK_ORDER") or "early"
+_PACKS = {}
+
+
+def packs_for(addon_dir):
+    """{name: folder} of the game packs installed next to an addon folder, in the order the client loads them."""
+    parent = os.path.dirname(os.path.normpath(addon_dir))
+    try:
+        names = sorted(_listdir(parent))
+    except OSError:
+        return {}
+    key = (parent, tuple(names))
+    if key not in _PACKS:
+        out = {}
+        for name in names:
+            if not name.startswith(ADDON_NAME + "_") or name == ROOMS_NAME:
+                continue
+            folder = os.path.join(parent, name)
+            if _exists(os.path.join(folder, name + ".toc")) and "x-dz-pack" in parse_toc(folder, name)[0]:
+                out[name] = folder
+        _PACKS[key] = out
+    return dict(_PACKS[key])
+
+
 MOCK_DIR = os.path.join(HERE, "wowmock")
 MODULES = ("core.lua", "objects.lua", "ui.lua", "game.lua")
 DEFAULT_RANKS = ["Guild Master", "Officer", "Raider", "Member", "Initiate"]
@@ -1747,7 +1778,8 @@ class Client:
     def __init__(self, world, name, realm=None, class_file="PALADIN", guild="Casual Disaster", guild_rank=3,
                  online=True, level=70, race="Human", faction="Alliance", sex=2, talents=(41, 20, 0),
                  legacy_globals=False, permissive_fields=False, items_uncached=False, preload_lua=None,
-                 addon_dir=None, other_addons=(), bank_requires_open=True, sv_before_files=None, lod_addons=None):
+                 addon_dir=None, other_addons=(), bank_requires_open=True, sv_before_files=None, lod_addons=None,
+                 packs=None, packs_off=(), pack_order=None):
         """One simulated player = one Lua runtime. Created online (runtime ready, addon not yet loaded) unless
         online=False (call .login() later). legacy_globals=True defines deprecation-gated globals (GetItemInfo,
         GetContainer*, GetAddOnMetadata, GuildRoster, GetLootMethod). permissive_fields=True makes unknown frame
@@ -1757,7 +1789,10 @@ class Client:
         run with "## LoadSavedVariablesFirst: 1", else after them, right before ADDON_LOADED (WoW's classic order).
         True / False force one order (False = a client that ignores the directive).
         lod_addons: {name: folder} of the load-on-demand addons installed next to it (default: DisasterZone_Rooms,
-        rooms_dir_for(addon_dir)); {} = not installed."""
+        rooms_dir_for(addon_dir)); {} = not installed.
+        packs: {name: folder} of the game packs installed (default: every pack next to the addon folder, packs_for);
+        {} = none. packs_off: names of installed packs switched off in the AddOn list (they don't load).
+        pack_order: "early" | "real" (default PACK_ORDER)."""
         self.world = world
         self.name = name
         self.realm = realm or world.realm
@@ -1784,6 +1819,9 @@ class Client:
         self.bank_requires_open = bank_requires_open
         self.sv_before_files = sv_before_files
         self.lod_addons = dict(lod_addons) if lod_addons is not None else {ROOMS_NAME: rooms_dir_for(self.addon_dir)}
+        self.packs = dict(packs) if packs is not None else packs_for(self.addon_dir)
+        self.packs_off = frozenset(packs_off or ())
+        self.pack_order = pack_order or PACK_ORDER
         self._load_rooms = None                      # (load_addon: LOAD_ROOMS at login; None: as it is now)
         self.index = next(Client._index)
         self.time_offset = 1000.0 + 137.25 * self.index
@@ -2019,11 +2057,35 @@ class Client:
         if not self.world.prebuild_pages:        # (World(prebuild_pages=True): as in the game)
             self.eval("local MF = ns and rawget(ns, 'MainFrame') if type(MF) == 'table' then MF.prebuild = false end")
         self.M.addon_loaded(self.addon_name)
+        for name in self._active_packs():
+            if self.pack_order == "real":
+                missing = self._run_pack(name)
+                if missing:
+                    self.load_warnings.append("%s: skipped %d missing file(s): %s" % (name, len(missing),
+                                                                                     ", ".join(missing)))
+            self.M.addon_loaded(name)
         self.M.login_events(not reload, bool(reload), self.world.roster_delay or 0)
         self.loaded = True
         if self.world.fail_fast:
             self.world.assert_no_errors()
         return self
+
+    def _active_packs(self):
+        """The game packs that load (packs_for minus packs_off), in the client's order."""
+        if self.addon_name != ADDON_NAME:
+            return []
+        return [n for n in self.packs if n not in self.packs_off]
+
+    def _run_pack(self, name):
+        """Runs a game pack's files with a namespace of its own (its Load.lua makes it a window onto DisasterZone).
+        Returns the files that were not there."""
+        folder = self.packs[name]
+        _, files = parse_toc(folder, name)
+        ns = self.runtime.table()
+        missing = []
+        for rel in files:
+            self._load_one(rel, missing, addon=name, folder=folder, ns=ns)
+        return missing
 
     def _run_files(self, headers, files, sv_first, before_files=None):
         """The first half of a boot: TOC metadata, saved variables when they come first, every listed file.
@@ -2035,6 +2097,10 @@ class Client:
             for name, folder in self.lod_addons.items():        # (installed: GetAddOnInfo knows it, not loaded)
                 if _exists(os.path.join(folder, name + ".toc")):
                     self.M.set_toc_meta(name, to_lua(self.runtime, parse_toc(folder, name)[0]))
+            for name, folder in self.packs.items():             # (installed; they load after ADDON_LOADED)
+                self.M.set_toc_meta(name, to_lua(self.runtime, parse_toc(folder, name)[0]))
+            if self.packs_off:
+                self.M.disabled_addons = to_lua(self.runtime, {n: True for n in self.packs_off})
         if PATCH_SV_FILE and self.addon_name == ADDON_NAME and "DisasterZonePatchDB" not in self.world.saved.get(self.full_name, {}):
             with open(PATCH_SV_FILE, encoding="utf-8") as fh:
                 self.world.saved.setdefault(self.full_name, {})["DisasterZonePatchDB"] = fh.read()
@@ -2054,6 +2120,9 @@ class Client:
                     self._load_one(lua, missing)
             else:
                 self._load_one(rel, missing)
+        if self.pack_order == "early":           # (see PACK_ORDER: pre-loaded clients hold the packs too)
+            for name in self._active_packs():
+                missing.extend(name + "/" + rel for rel in self._run_pack(name))
         return missing
 
     # -- pre-loaded clients ----------------------------------------------------------------------------------------
@@ -2069,6 +2138,8 @@ class Client:
             return "another addon folder"
         if self.lod_addons != t.lod_addons:
             return "other load-on-demand addons"
+        if self.packs != t.packs or self.packs_off != t.packs_off or self.pack_order != t.pack_order:
+            return "other game packs"
         if (self.preload_lua or self.legacy_globals or self.permissive_fields or self.items_uncached
                 or not self.bank_requires_open or self.other_addons or self.other_saved or w.other_addons
                 or self.sv_before_files is not None):
@@ -2147,6 +2218,10 @@ class Client:
             else:
                 rels = [rel]
             out.extend(_stamp(os.path.join(self.addon_dir, r)) for r in rels)
+        if self.pack_order == "early":               # (the packs' files are pre-loaded too)
+            for name in self._active_packs():
+                folder = self.packs[name]
+                out.extend(_stamp(os.path.join(folder, r)) for r in parse_toc(folder, name)[1])
         return out
 
     def _take_template(self, reload, headers):
@@ -2264,7 +2339,19 @@ class Client:
                 self._set_time()
                 self.M.load_file(src, chunkname, addon_name)
             else:
-                self._load_one(f.replace("\\", "/"), missing)
+                rel = f.replace("\\", "/")
+                pack, _, inner = rel.partition("/")
+                if pack in self.packs and inner:
+                    # a game pack's file ("DisasterZone_Chess/Chess.lua"): from its folder, with its name (one
+                    # namespace per pack, shared by the files of one load_files call)
+                    nss = self.__dict__.setdefault("_pack_ns", {})
+                    if pack not in nss:     # (what the pack's Load.lua makes of it: a window onto DisasterZone)
+                        nss[pack] = self.runtime.eval(
+                            "setmetatable({}, { __index = function(_, k) return DisasterZone and DisasterZone[k] end,"
+                            " __newindex = function(_, k, v) DisasterZone[k] = v end })")
+                    self._load_one(inner, missing, addon=pack, folder=self.packs[pack], ns=nss[pack])
+                else:
+                    self._load_one(rel, missing)
         if missing:
             raise FileNotFoundError("load_files: missing %s" % ", ".join(missing))
         if fire_login:

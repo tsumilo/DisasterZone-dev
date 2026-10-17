@@ -171,7 +171,7 @@ def staged_fixture_equals_a_real_download():
     def new_mods(r):
         write(r, "Core/TestNew.lua", guard("Core/TestNew.lua") + "-- test\n")
         toc_add(r, "Core/TestNew.lua", "Core/Constants.lua")
-        toc_remove(r, "Games/Azeromon/Sound.lua")
+        toc_remove(r, "DisasterZone_Azeromon/Sound.lua")
     base_dir, record, new_dir = simple_pair(new_mods=new_mods)
     bundle = make(record, new_dir)
     w = World(addon_dir=base_dir)
@@ -343,8 +343,8 @@ def revoke_puts_the_publishers_copy_back_too():
         append(sb.addon, "Core/Util.lua", '\nUtil.PATCH_MARK = "x"\n')
         write(sb.addon, "Core/TestNew.lua", guard("Core/TestNew.lua") + "-- test\nDisasterZoneTestNew = true\n")
         toc_add(sb.addon, "Core/TestNew.lua", "Core/Constants.lua")
-        toc_remove(sb.addon, "Games/Azeromon/Sound.lua")
-        gone = read(sb.addon, "Games/Azeromon/Sound.lua")
+        toc_remove(sb.addon, "DisasterZone_Azeromon/Sound.lua")
+        gone = read(sb.addon, "DisasterZone_Azeromon/Sound.lua")
         os.remove(os.path.join(sb.addon, "Games", "Azeromon", "Sound.lua"))
         set_version(sb.addon, "1.0.1")
         write(sb.addon, "README.md", "# DisasterZone 1.0.1\n")
@@ -355,7 +355,7 @@ def revoke_puts_the_publishers_copy_back_too():
         write(sb.addon, "Art/map.blp", "BLP2 art")
         ok, lines = release.sync_report(base, [], sb.addon)
         assert ok is False and any(l.strip() == "Core/Util.lua" for l in lines) and \
-            any(l.strip() == "Games/Azeromon/Sound.lua" for l in lines), lines
+            any(l.strip() == "DisasterZone_Azeromon/Sound.lua" for l in lines), lines
         sb.run("patch")
         log = json.load(open(log_path, encoding="utf-8"))
         assert set(log[-1]["sha"]) == {"Core/Util.lua", "Core/TestNew.lua"}
@@ -387,7 +387,7 @@ def revoke_puts_the_publishers_copy_back_too():
         for rel, text in pristine.items():
             assert read(sb.addon, rel) == text, rel
         assert not os.path.exists(os.path.join(sb.addon, "Core", "TestNew.lua"))
-        assert read(sb.addon, "Games/Azeromon/Sound.lua") == gone
+        assert read(sb.addon, "DisasterZone_Azeromon/Sound.lua") == gone
         assert release.source_differences(base, sb.addon) == []
         assert release.sync_report(base, log, sb.addon)[0] is True
         # what was there is kept

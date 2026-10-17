@@ -1,0 +1,19 @@
+## Interface: 20506
+## Title: |cffff8000Disaster|rZone · Council Bingo
+## Notes: Squares fill in as the raid happens.
+## Author: Casual Disaster
+## Dependencies: DisasterZone
+## X-DZ-Pack: bingo
+## X-DZ-Kind: game
+## X-DZ-Build: dev
+## IconTexture: Interface\Icons\INV_Misc_Note_02
+## Category: Raid
+
+# A DisasterZone game pack (dev/docs/GAME_PACKS.md). Load.lua must stay first and Done.lua last.
+Load.lua
+Squares.lua
+Card.lua
+Bingo.lua
+Detect.lua
+UI.lua
+Done.lua

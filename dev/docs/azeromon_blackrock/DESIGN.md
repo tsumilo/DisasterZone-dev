@@ -17,7 +17,7 @@ of this". This file is the build spec. The mockup's source is the design's sourc
 
 ## Ids (shared by both halves of the build)
 
-Map ids (new file `Games/Azeromon/MapsBlackrock.lua`, TOC after MapsStranglethorn.lua):
+Map ids (new file `DisasterZone_Azeromon/MapsBlackrock.lua`, TOC after MapsStranglethorn.lua):
 `threecorners`, `lakeshire`, `everstill`, `stonewatch`, `steppes`, `brm`, `gorge`, `brd` (The Imperial Seat),
 plus `moltencore` (new, not in the mockup: a small lava cavern, Magmadar's lair, reached from Lothos Riftwaker in `brm`).
 Darkshire gets a north gap in its tree row leading to `threecorners` (edge north), gated on `badge_blackwater`.

@@ -148,8 +148,8 @@ def test_baseline_only_counts_going_up():
 
 
 def test_allowlisted_pairs_are_never_reported():
-    hits = u.scan("local function Now() return GetTime() end\n", "Games/Azeromon/Net.lua")
-    assert u.over_baseline("Games/Azeromon/Net.lua", hits, {}) == []
+    hits = u.scan("local function Now() return GetTime() end\n", "DisasterZone_Azeromon/Net.lua")
+    assert u.over_baseline("DisasterZone_Azeromon/Net.lua", hits, {}) == []
     hits = u.scan("local function Now() return GetTime() end\n", "UI/Other.lua")
     assert [k for k, _, _, _ in u.over_baseline("UI/Other.lua", hits, {})] == ["helper"]
     for (f, k), why in u.ALLOW.items():
