@@ -935,7 +935,9 @@ function Layout:Import(data, owner)
     if type(data.lk) == "table" then
         p.looks = {}
         for k, v in pairs(data.lk) do
-            if type(k) == "string" and (k:sub(1, 3) == "ui." or k:find("%.theme$")) and type(v) ~= "table" then p.looks[k] = v end
+            local P = ns.Profiles
+            local ok = type(k) == "string" and (k:sub(1, 3) == "ui." or k:find("%.theme$") or (P and P.IsLookPath(k)))
+            if ok and type(v) ~= "table" then p.looks[k] = v end
         end
     end
     if type(data.ky) == "table" then

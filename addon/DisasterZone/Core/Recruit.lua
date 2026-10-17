@@ -12,7 +12,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Recruit.lua", ...) then retur
 -- (wants: bits 1 raiding, 2 dungeons, 4 levelling, 8 social), ni (nights they can raid, days 1 = Mon .. 7), nt (a
 -- short time text), sd (their words), tg (tags), fu = { at, t } (the follow-up: a day and what), n = { { by, at, t } }
 -- (notes, newest first), lv / la (level last seen, when), ja / jl / jb / tm (joined at, level then, invited by, team),
--- ck (check-ins done), ms (milestones reached), nn (Not now since), rev, by (last writer), at (added).
+-- ck (check-ins done), ms (milestones reached), nn (Not now since), ak (their other characters the record was on
+-- before: Move to another character, 1.5.5), rev, by (last writer), at (added).
 --
 -- Messages (WHISPER between recruiters only, class "data"; the OfficerNotes model):
 --   RC  { k, r = person, v = rev }   one person, sent to the recruiters online on every change
@@ -39,6 +40,7 @@ local MAX_INDEX = 400             -- entries taken from one RCI
 local MAX_NOTES, MAX_NOTE, MAX_NOTES_TOTAL = 20, 300, 3000
 local MAX_INTRO, MAX_SAID, MAX_TIME, MAX_FOLLOW, MAX_TAG, MAX_TAGS = 160, 200, 24, 80, 16, 4
 local TOMB_DAYS = 60
+local MAX_AKA = 4                 -- other characters a record remembers (ak)
 local LOGIN_DELAY = 30
 local REPLY_LIMIT = 30
 
@@ -227,6 +229,15 @@ function Recruit:Clean(r)
     if type(r.iv) == "table" and IsInt(r.iv.at, 1, MAX_REV) and H.INVITE_RESULTS[r.iv.r] then
         o.iv = { at = r.iv.at, r = r.iv.r, by = H.WireKey(r.iv.by) }
     end
+    -- (their other characters this record was on before: Move to another character)
+    if type(r.ak) == "table" then
+        local ak = {}
+        for _, x in ipairs(r.ak) do
+            local k = H.WireKey(x)
+            if k and #ak < MAX_AKA then ak[#ak + 1] = k end
+        end
+        if #ak > 0 then o.ak = ak end
+    end
     if o.it == "" then o.it = nil end
     if o.sd == "" then o.sd = nil end
     if o.nt == "" then o.nt = nil end
@@ -241,6 +252,7 @@ function H.Digest(r)
     end
     for _, d in ipairs(r.ni or {}) do parts[#parts + 1] = d end
     for _, t in ipairs(r.tg or {}) do parts[#parts + 1] = t end
+    for _, k in ipairs(r.ak or {}) do parts[#parts + 1] = k end
     for _, e in ipairs(r.n or {}) do parts[#parts + 1] = e.by .. e.at .. e.t end
     if r.fu then parts[#parts + 1] = r.fu.at .. r.fu.t end
     if r.iv then parts[#parts + 1] = r.iv.at .. r.iv.r end
@@ -479,7 +491,8 @@ function Recruit:Reopen(key)
     return H.Save(k, r)
 end
 
--- Joined the guild (the invite flow calls this): level then, who invited, the team they went to.
+-- Joined the guild (the invite flow calls this; Joined the guild on the person's menu; on their own, below): level
+-- then, who invited (by = false: not known), the team they went to.
 function Recruit:MarkJoined(key, info)
     local k, r = H.Editable(key)
     if not k then return false, r end
@@ -487,9 +500,77 @@ function Recruit:MarkJoined(key, info)
     r.st, r.fu, r.nn = "joined", nil, nil
     r.ja = Now()
     r.jl = IsInt(info.lv, 1, 80) and info.lv or r.lv
-    r.jb = H.WireKey(info.by) or Me()
+    if info.by == false then r.jb = nil else r.jb = H.WireKey(info.by) or Me() end
     r.tm = type(info.team) == "string" and info.team or r.tm
     return H.Save(k, r)
+end
+
+-- Feedback #48: someone we talk to joined without our Invite button (another officer's /ginvite, the roster): the
+-- recruiter talking to them marks it, else the Guild Master, so it's written once. From the guild's join line and
+-- the settling-in check (a join while the right recruiter was offline).
+function H.JoinedKeeper(r)
+    local G = Guild()
+    if r.w and G and G:IsInGuild(r.w, true) and Recruit:IsRecruiter(r.w) then return r.w end
+    return G and G.GetGM and G:GetGM() or nil
+end
+
+function H.JoinedOnTheirOwn(key)
+    local r = H.People()[key]
+    if not (r and (r.st == "talk" or r.st == "notnow")) or H.pending[key] then return false end
+    if H.JoinedKeeper(r) ~= Me() then return false end
+    local _, lv = H.RosterSeen(key)
+    return Recruit:MarkJoined(key, { lv = lv or r.lv, by = false })
+end
+
+-- Moves a person onto another character (D-4: an alt joined first through a group, the main came later). Their story,
+-- notes, check-ins and milestones go along; the old character stays listed as theirs (ak) and leaves the list. When
+-- the other character is in Recruitment already the two become one: notes together, the step further along kept.
+-- Returns ok, err | key.
+local STEP = { joined = 4, talk = 3, notnow = 2, gone = 1 }
+function Recruit:MoveTo(fromKey, toName)
+    local k, r = H.Editable(fromKey)
+    if not k then return false, r end
+    local to = H.WireKey(toName)
+    if not to then return false, "not a character name" end
+    if to == k then return false, "that's the same character" end
+    local there = H.People()[to] and Util.CopyTable(H.People()[to]) or nil
+    local out = r
+    if there then
+        -- (the record further along leads; the other fills in what it lacks)
+        local lead, other = r, there
+        if (STEP[there.st] or 0) > (STEP[r.st] or 0) then lead, other = there, r end
+        out = Util.CopyTable(lead)
+        for f, v in pairs(other) do if out[f] == nil and f ~= "rev" and f ~= "by" then out[f] = v end end
+        local notes, seen = {}, {}
+        for _, list in ipairs({ r.n or {}, there.n or {} }) do
+            for _, e in ipairs(list) do
+                local id = tostring(e.by) .. tostring(e.at) .. tostring(e.t)
+                if not seen[id] then seen[id] = true; notes[#notes + 1] = e end
+            end
+        end
+        table.sort(notes, function(a, b) return (a.at or 0) > (b.at or 0) end)
+        for i = #notes, MAX_NOTES + 1, -1 do notes[i] = nil end
+        out.n = #notes > 0 and notes or nil
+    end
+    local ak, seen = {}, { [to] = true }
+    for _, list in ipairs({ { k }, r.ak or {}, there and there.ak or {} }) do
+        for _, x in ipairs(list) do
+            if not seen[x] then seen[x] = true; ak[#ak + 1] = x end
+        end
+    end
+    for i = #ak, MAX_AKA + 1, -1 do ak[i] = nil end
+    out.ak = ak
+    -- (the character's own class and level when the roster knows them)
+    local G = Guild()
+    local cls = G and G.GetClass and G:GetClass(to)
+    if cls and cls ~= out.c then out.c, out.sp = H.Spec(cls, nil) end
+    local m = G and G.GetMember and G:GetMember(to, true)
+    if m and IsInt(m.level, 1, 80) then out.lv, out.la = m.level, Now() end
+    local ok, err = H.Save(to, out)
+    if not ok then return false, err end
+    self:Remove(k)
+    ns:Fire("RECRUIT_MOVED", k, to)
+    return true, to
 end
 
 -- Fields the settling-in checks keep (ck, ms, lv, la, st = "gone"): no claim needed.
@@ -1065,7 +1146,8 @@ function H.OnSystem(text)
     local name = match(_G.ERR_GUILD_JOIN_S)
     if name then
         local key = H.KeyOf(name)
-        if key and H.pending[key] then H.OnJoined(key) end
+        if key and H.pending[key] then H.OnJoined(key)
+        elseif key and Recruit:CanUse() and not Util.DemoOn() then H.JoinedOnTheirOwn(key) end
         if key then ns:Fire("RECRUIT_GUILD_JOIN", key) end
         return
     end
@@ -1122,6 +1204,8 @@ function H.CheckSettling()
     local rules = Recruit:GetRules()
     local ms = rules.ms or {}
     for key, rec in pairs(H.People()) do
+        -- (in the guild now without our Invite button, and its keeper was offline at the join: feedback #48)
+        if (rec.st == "talk" or rec.st == "notnow") and G:IsInGuild(key, true) then H.JoinedOnTheirOwn(key) end
         if rec.st == "joined" and H.KeeperOf(rec) == me then
             local r = Recruit:Clean(rec)
             local fields, any = {}, false

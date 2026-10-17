@@ -1188,11 +1188,14 @@ local function DrawThreat(pf)
     local me = st.me
     local note
     if not st.mob then note = "no target"
-    elseif #view == 0 then note = st.tankView and "only you" or "not in combat"
+    elseif #view == 0 then note = "not in combat"
     else note = st.name or "" end
     pf.noteText = note
     if #view > 0 and st.tankView then
-        pf.totV:SetText("tanking")
+        -- ("tanking" only while I hold it: it said so for a tank who had lost the mob too)
+        if me and me.tank then pf.totV:SetText("tanking")
+        elseif me and Threat:AmITank() then pf.totV:SetText(S:Hex("BAD") .. "not tanking|r")
+        else pf.totV:SetText("") end
         pf.tot:SetText("")
     elseif #view > 0 and me then
         -- "You 68%  · pull at 110%": how much room I have (was "68% pull 110%")

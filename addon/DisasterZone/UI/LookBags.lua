@@ -1154,7 +1154,13 @@ Bags.Before = Before          -- (the sort's order, for tests)
 --   order  the target arrangement (items sorted by Key, then the free slots); slots already holding what belongs
 --          there stay put; the rest follow their cycles, each move putting one item in its final slot (a swap moves
 --          the displaced item to where the source was; the fewest moves a sort by swaps can make)
--- Returns the moves made this round and whether anything is left to do.
+-- Feedback #47 (an arrow stack left greyed out, unclickable until a relog): a round made every move it could in one
+-- frame, dozens, and the server drops moves sent that fast; a dropped move leaves its stack locked in the client. Now
+-- at most MAX_MOVES a round, and the next waits until the last round's moves have landed (Step).
+-- Returns the moves the game took this round (a refused drop isn't one), whether anything is left to do, and the slots
+-- moved (indexes into slots).
+local MAX_MOVES = 10
+Bags.MAX_MOVES = MAX_MOVES
 local function Round(slots)
     local C = C_Container
     local cells, locked, partial = {}, {}, {}
@@ -1163,18 +1169,23 @@ local function Round(slots)
         cells[i] = info and info.itemID and info or false
         if info and info.isLocked then locked[i] = true end
     end
-    local used = {}
-    local function Free(i) return not locked[i] and not used[i] end
+    local used, moved = {}, {}
+    local made, tries = 0, 0
+    local function Free(i) return tries < MAX_MOVES and not locked[i] and not used[i] end
     local function Do(from, to)
+        tries = tries + 1
         C.PickupContainerItem(slots[from][1], slots[from][2])
         C.PickupContainerItem(slots[to][1], slots[to][2])
+        used[from], used[to] = true, true
         if CursorHasItem and CursorHasItem() then
             -- (the drop was refused: the item goes back where it came from; a later round tries again)
             if ClearCursor then ClearCursor() else C.PickupContainerItem(slots[from][1], slots[from][2]) end
+            return
         end
-        used[from], used[to] = true, true
+        made = made + 1
+        moved[#moved + 1], moved[#moved + 2] = from, to
     end
-    local made, pending = 0, false
+    local pending = false
     -- merge: per item, its partial stacks paired up
     for i, info in ipairs(cells) do
         if info then
@@ -1191,11 +1202,11 @@ local function Round(slots)
             pending = true
             for k = 1, #list - 1, 2 do
                 local a, b = list[k + 1], list[k]          -- (the later stack onto the earlier one)
-                if Free(a) and Free(b) then Do(a, b); made = made + 1 end
+                if Free(a) and Free(b) then Do(a, b) end
             end
         end
     end
-    if pending then return made, true end
+    if pending then return made, true, moved end
     -- order: the arrangement the bags should have
     local items = {}
     for i, info in ipairs(cells) do if info then items[#items + 1] = { info = info, at = i } end end
@@ -1250,17 +1261,30 @@ local function Round(slots)
         end
     end
     for i, j in pairs(want) do
-        if Free(i) and Free(j) then Do(j, i); made = made + 1 end
+        if Free(i) and Free(j) then Do(j, i) end
     end
-    return made, pending
+    return made, pending, moved
+end
+
+-- Are slots[i] for i in `list` all unlocked (the server answered those moves)?
+local function Landed(slots, list)
+    for _, i in ipairs(list or {}) do
+        local p = slots[i]
+        local info = p and Info(p[1], p[2])
+        if info and info.isLocked then return false end
+    end
+    return true
 end
 
 function Bags:Sort(kind)
     kind = kind or "bags"
     if InCombatLockdown and InCombatLockdown() then return false end
-    if GameSort(kind) then return true end
     if self.sorting then return false end
+    -- (nothing on the cursor, and the game's own sort not again while its last one may still be moving things)
     if CursorHasItem and CursorHasItem() then return false end
+    local now0 = GetTime and GetTime() or 0
+    if self.gameSortAt and now0 - self.gameSortAt < 3 then return false end
+    if GameSort(kind) then self.gameSortAt = now0 return true end
     self.sorting = { kind = kind, slots = SortBags(kind), rounds = 0, waves = 0, idle = 0, wait = 0,
                      started = GetTime and GetTime() or 0 }
     -- (a round as soon as the server unlocks what the last one moved; the timer is only the fallback)
@@ -1282,11 +1306,15 @@ function Bags:Sort(kind)
             if Now() - st.progress > 4 then Bags:StopSort() end
             return
         end
+        -- the last round's moves land first (their slots unlock), else this round would plan from stale bags; a move
+        -- the server never answers is left behind after a few seconds (its slot stays locked: the sort skips it)
+        if st.inflight and not Landed(st.slots, st.inflight) and Now() - st.sentAt < 3 then return end
         st.busy = true
-        local ok, made, pending = pcall(Round, st.slots)
+        local ok, made, pending, moved = pcall(Round, st.slots)
         st.busy = false
         if not ok then Bags:StopSort() return end
         st.rounds = st.rounds + 1
+        st.inflight, st.sentAt = moved, Now()
         if not pending then Bags:StopSort() return end
         if made > 0 then st.progress = Now(); st.waves = st.waves + 1 end
         -- (nothing has moved for a while: something the sort can't finish; stop rather than spin)

@@ -289,6 +289,45 @@ def each_character_puts_its_own_profile_on_at_login():
 
 
 @case
+def the_meters_look_and_places_go_with_the_profile():
+    # feedback #45: the meters' options (look, when they show, which are on, the threat warning) save into the profile in
+    # use and come back with it; a profile saved before 1.5.5 (no meter options) leaves them alone; the meters' places
+    # are the character's own at login (one account-wide setting: the last character's were left on)
+    w, c = boot()
+    healer = new(c, "Raid healer", "halo")
+    c.eval("ns.Profiles:Use(...)", healer)
+    c.eval("ns.DB:SetSetting('meters.barColor', 'role'); ns.DB:SetSetting('meters.size', 'large'); "
+           "ns.DB:SetSetting('meters.thr', true); ns.DB:SetSetting('meters.tankView', 'always')")
+    w.tick(1)
+    snap = c.eval_py("return ns.Layout:Profile(...).looks", healer)
+    assert snap["meters.barColor"] == "role" and snap["meters.size"] == "large" and snap["meters.thr"] is True, snap
+    assert snap["meters.tankView"] == "always" and snap["meters.inProfile"] is True, snap
+    assert "meters.keep" not in snap                                  # (the meter's data: not a profile's)
+    tank = new(c, "Tanking", "flat")
+    c.eval("ns.Profiles:Use(...)", tank)
+    c.eval("ns.DB:SetSetting('meters.barColor', 'one'); ns.DB:SetSetting('meters.tankView', 'never')")
+    w.tick(1)
+    c.eval("ns.Profiles:Use(...)", healer)
+    w.tick(0.5)
+    assert c.eval("return ns.DB:GetSetting('meters.barColor')") == "role"
+    assert c.eval("return ns.DB:GetSetting('meters.tankView')") == "always"
+    # an older snapshot: its looks go on, the meter options stay as they are
+    c.eval("local p = ns.Layout:Profile(...); for k in pairs(p.looks) do if k:find('^meters%.') and k ~= 'meters.theme' then "
+           "p.looks[k] = nil end end", tank)
+    c.eval("ns.Profiles:Use(...)", tank)
+    w.tick(0.5)
+    assert look(c) == "flat"
+    assert c.eval("return ns.DB:GetSetting('meters.barColor')") == "role"
+    # the meters' places at login: the character's layout, not what the last character left
+    c.eval("ns.MeterPanels:ResetLayout(); local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 111, 222; "
+           "ns.Layout:Capture()")
+    c.eval("local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 999, 888")
+    c.eval("ns.Profiles.demo = nil; local P = ns.Profiles; P.PutOnAtLogin(P)")
+    assert c.eval_py("local s = ns.DB:GetSetting('meters.layout').stacks[1]; return { s.x, s.y }") == [111, 222]
+    w.assert_no_errors()
+
+
+@case
 def the_card_lists_my_characters():
     w, c = boot()
     me = c.eval("return ns.Util.PlayerKey()")

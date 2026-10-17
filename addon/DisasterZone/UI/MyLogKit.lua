@@ -111,9 +111,11 @@ function Kit.Icon(parent, size)
         if key == "0" or key == "p0" or (type(key) == "string" and key:sub(1, 1) == "m") then
             tex = 132147                                   -- an auto attack icon
         elseif type(key) == "string" and key:sub(1, 1) == "e" then
-            tex = 135805                                   -- environment
-        elseif id and GetSpellTexture then
-            tex = GetSpellTexture(id)
+            tex = ns.Util.EnvIcon(key:sub(2))              -- environment: falling, drowning, lava...
+        elseif id then
+            local temp
+            tex, temp = ns.Util.SpellIcon(id)
+            if temp then tex = ns.Util.WeaponIcon() end    -- (the game's placeholder face: feedback #39)
         end
         self.tex:SetTexture(tex or 134400)                 -- the question mark
     end

@@ -10,8 +10,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Threat.lua", ...) then return
 -- range), so it needs no range check; without numbers yet it falls back to CheckInteractDistance (10 yd = melee).
 -- Warning: when I am not tanking and my scaled share reaches meters.warn (85): the window pulses, the screen edges
 -- flash (meters.flash) and a sound plays once per crossing (meters.sound).
--- Tank view (meters.tankView "auto" = while I tank the enemy or my group role is tank, "always", "never"): the rows
--- are the others by their scaled share, the closest to pulling first.
+-- Tank view (meters.tankView "auto" = while I tank the enemy or my group role is tank, "always", "never"): the one
+-- holding aggro on top (me, while I do), then everyone by their scaled share, the closest to pulling first.
 local addonName, ns = ...
 
 local Threat = ns:NewModule("Threat")
@@ -82,7 +82,12 @@ function Threat:TankView(me)
     if mode == "always" then return true end
     if mode == "never" then return false end
     -- (a main tank: the raid's flag, Core/Tanks.lua)
-    return (me and me.tank) or MyRole() == "TANK" or (ns.Tanks and ns.Tanks:IsMe()) or false
+    return (me and me.tank) or self:AmITank()
+end
+
+-- Am I a tank here: my group role, or a main tank of the raid (Core/Tanks.lua).
+function Threat:AmITank()
+    return MyRole() == "TANK" or (ns.Tanks and ns.Tanks:IsMe()) or false
 end
 
 -- Scans the group's threat on mob: state = { mob, name, combat, rows = { { unit, guid, name, cls, tank, raw, scaled,
@@ -135,8 +140,10 @@ function Threat:Derive(st)
     end
     st.tankView = self:TankView(me)
     if st.tankView then
+        -- (me too: on top while I hold it, else where my share puts me; feedback #44, a tank missing from their own
+        -- meter couldn't see they were tanking)
         local view = {}
-        for _, r in ipairs(st.rows) do if not r.me then view[#view + 1] = r end end
+        for _, r in ipairs(st.rows) do view[#view + 1] = r end
         tsort(view, function(a, b)
             -- the one holding aggro (when it isn't me) on top: the 100% the others are measured against (it was
             -- last, found only by scrolling down; in-game report 2026-10-11)

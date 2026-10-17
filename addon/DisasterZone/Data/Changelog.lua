@@ -16,6 +16,30 @@ ns.CHANGELOG = {
               "Add details on the pop-up opens your report, to say what you were doing.",
               "Settings > Alerts > More options: Report errors by themselves turns it off.",
           } },
+          { heading = "Nameplates while levelling", area = "look", kind = "changed", lines = {
+              { "A mob someone outside your group tagged first gets a grey bar: no loot for you.", fb = { 35 }, by = { "Vicnado" }, k = "change" },
+              { "The level shows in the game's colours: grey, green, yellow, orange or red.", fb = { 50 }, by = { "Vicnado" }, k = "change" },
+              "Halo and Slate show the level now too. Settings > Nameplates turns both off.",
+          } },
+          { heading = "Recruitment", area = "guild", kind = "new", open = "recruit", ["for"] = "gm officers", lines = {
+              { "Keep several recruitment messages and swap between them on Message.", fb = { 51 }, by = { "Vicnado" }, k = "idea" },
+              { "Someone who joins through another officer's invite is marked Joined by itself.", fb = { 48 }, by = { "Vicnado" }, k = "idea" },
+              "Joined the guild on a person's ··· menu marks it by hand, with their team.",
+              "Move to another character: an alt who came first hands their story to the main.",
+          } },
+          { heading = "Mains for everyone", area = "guild", kind = "new", open = "members", lines = {
+              { "Officers set the main and alts of members who don't run DisasterZone.", fb = { 49 }, by = { "Vicnado" }, k = "idea" },
+              "Members who run it still pick their own, and their choice wins once they install it.",
+          } },
+          { heading = "Meters", area = "raids", kind = "changed", lines = {
+              { "Tanking, you're in your own threat meter: on top while you hold aggro.", fb = { 44 }, by = { "Vicnado" }, k = "change" },
+              { "Profiles keep the meters' look and setup too, and each character's meter places.", fb = { 45 }, by = { "Vicnado" }, k = "change" },
+          } },
+          { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
+              { "Fiery Weapon and other procs no longer show the game's placeholder face.", fb = { 39 }, by = { "Vicnado" }, k = "change" },
+              "Falling, drowning, lava and fatigue damage each get their own icon.",
+              { "The bag sort moves a few items at a time, so no stack stays stuck and greyed.", fb = { 47 }, by = { "Vicnado" }, k = "bug" },
+          } },
       } },
     { version = "1.5.4", date = "17 October 2026", title = "Keys on the timers and quiet fights",
       sections = {

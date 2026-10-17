@@ -128,9 +128,11 @@ function K.SpellIcon(key, a)
     if key == 0 or key == "0" then return (a and a.wi) or SWORD end
     if key == "p0" then return PAW end
     if type(key) == "string" and key:sub(1, 1) == "m" then return SWORD end
-    if type(key) == "string" and key:sub(1, 1) == "e" then return 135805 end
+    if type(key) == "string" and key:sub(1, 1) == "e" then return ns.Util.EnvIcon(key:sub(2)) end
     local id = tonumber((type(key) == "string" and (key:gsub("^p", ""))) or key)
-    local tex = id and GetSpellTexture and GetSpellTexture(id)
+    -- (the game's placeholder face: the actor's weapon, the proc's likely source; feedback #39)
+    local tex, temp = ns.Util.SpellIcon(id)
+    if temp then return (a and a.wi) or SWORD end
     return tex or 134400
 end
 function K.IconText(key, size, a)

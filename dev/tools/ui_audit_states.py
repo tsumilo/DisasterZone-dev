@@ -1741,6 +1741,10 @@ MET = ("ns.Demo:SetEnabled(true); ns.DB:SetSetting('meters.dmg', true); ns.DB:Se
        "ns.MeterPanels:ResetLayout(); ")
 # (the class tool bars off, so a meter render shows only the meters)
 METQ = ("ns.DB:SetSetting('meters.ooc', 'stay'); for _, k in ipairs({ 'bless', 'totems', 'swing' }) do pcall(function() ns.ClassKit:SetOn(k, false) end) end; ")
+# (I'm the tank: the demo's threat row %s is me (1 Victhar holds it, 2 Moonwhisper lost it), my role tank)
+TANKME = ("ns.Threat.AmITank = function() return true end; local MD = ns.MeterDemo; local th = MD.Threat; "
+          "MD.Threat = function(self) local st = th(self); st.me = nil; for i, r in ipairs(st.rows) do "
+          "r.me = (i == %s) or nil; if r.me then st.me = r end end; ns.Threat:Derive(st); return st end; ")
 # (an invisible named frame around the first stack: ui_look crops a render to named windows)
 METBOX = ("local s1 = ns.MeterPanels._Stacks()[1]; local bx = _G.AuditMeterBox or CreateFrame('Frame', 'AuditMeterBox', UIParent); "
           "bx:ClearAllPoints(); bx:SetPoint('TOPLEFT', s1, 'TOPLEFT', -24, 24); bx:SetPoint('BOTTOMRIGHT', s1, 'BOTTOMRIGHT', 24, -24); bx:Show()")
@@ -2050,6 +2054,13 @@ STATES = [
                                                 "ns.MembersUI:SelectMember('Frostweaver-Thunderstrike')")),
     ("Members - no addon", members_view("ns.MembersUI:ShowMember('Darkhollow-Thunderstrike'); "
                                          "ns.MembersUI:SetCard('profs')")),
+    # an officer sets the main of members without DisasterZone (feedback #49): the Change row, then Caelith linked as
+    # Darkhollow's alt (under Darkhollow in the roster and on the card)
+    ("Members - no addon, officer", members_view("ns.Guild.IsOfficer = function() return true end; "
+                                                  "ns.MembersUI:ShowMember('Darkhollow-Thunderstrike'); ns.MembersUI:SetCard('chars')")),
+    ("Members - no addon, linked alt", members_view("ns.Guild.IsOfficer = function() return true end; "
+                                                     "assert(ns.Professions:SetMainFor('Caelith-Thunderstrike', 'Darkhollow-Thunderstrike')); "
+                                                     "ns.MembersUI:ShowMember('Darkhollow-Thunderstrike'); ns.MembersUI:SetCard('chars')")),
     ("Members - recipe card", members_view("ns.MembersUI:ShowRecipe(27917)")),
     # a long rank and an older DisasterZone in the header, no linked characters but a raid team, a scrolling roster
     ("Members - long rank, older version", members_view("ns.MembersUI:ShowMember('Saltykim-Thunderstrike'); "
@@ -2361,6 +2372,16 @@ STATES = [
     ("Recruit - add a name", demo("ns.RecruitUI:Open(); ns.RecruitUI:SetSearch('Shadowfang')", "recruit")),
     ("Recruit - invite", demo("ns.RecruitUI:Open(); ns.RecruitUI:Select('Kaelthorn-Thunderstrike'); ns.RecruitUI:Invite()", "recruit")),
     ("Recruit - message", demo("ns.RecruitUI:Open(); ns.RecruitUI:SetView('message')", "recruit")),
+    # the person's ··· menu (Joined the guild, Move to another character), the move's question, and after it: the
+    # record on the other character with "Also" in About (feedback #48, D-4)
+    ("Recruit - person menu", demo("__MOCK.real_geometry = true; ns.RecruitUI:Open(); ns.RecruitUI:Select('Aurelith-Thunderstrike'); "
+                                   "ns.RecruitUI:OpenPersonMenu()", "recruit")),
+    ("Recruit - move question", demo("ns.RecruitUI:Open(); ns.RecruitUI:Select('Aurelith-Thunderstrike'); "
+                                     "ns.RecruitUI:ConfirmMove('Aurelith-Thunderstrike', 'Aurenna-Thunderstrike')", "recruit")),
+    ("Recruit - moved", demo("ns.RecruitUI:Open(); assert(ns.Recruit:MoveTo('Aurelith-Thunderstrike', 'Aurenna-Thunderstrike')); "
+                             "ns.RecruitUI:Select('Aurenna-Thunderstrike')", "recruit")),
+    ("Recruit - saved messages", demo("__MOCK.real_geometry = true; ns.RecruitUI:Open(); ns.RecruitUI:SetView('message'); "
+                                      "ns.RecruitUI:OpenMessageMenu()", "recruit")),
     ("Recruit - classes", demo("ns.RecruitUI:Open(); ns.RecruitUI:GetState().part = 6; ns.RecruitUI:SetView('message')", "recruit")),
     ("Recruit - posting", demo("ns.RecruitUI:Open(); ns.RecruitUI:SetView('post')", "recruit")),
     ("Recruit - settings", demo("ns.SettingsUI:Refresh(); ns.SettingsUI:SelectSection('recruit')", "settings")),
@@ -2563,6 +2584,13 @@ STATES = [
     ("Meters - unlocked, tank view", opened("home", "ns.MainFrame:Close(); " + MET +
         "ns.EditMode:Open(); ns.DB:SetSetting('meters.tankView', 'always'); "
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; ns.MeterPanels:Rebuild()")),
+    # tank view as the tank (feedback #44): my own row on top while I hold it; "not tanking" once another has it
+    ("Meters - tank view, holding it", opened("home", "ns.MainFrame:Close(); " + MET + METQ + TANKME % "1" +
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y, L.stacks[1].w = 560, 620, 280; "
+        "ns.MeterPanels:Rebuild(); " + METBOX)),
+    ("Meters - tank view, lost it", opened("home", "ns.MainFrame:Close(); " + MET + METQ + TANKME % "2" +
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y, L.stacks[1].w = 560, 620, 280; "
+        "ns.MeterPanels:Rebuild(); " + METBOX)),
     ("Meters - empty", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('meters.dmg', true); "
         "ns.DB:SetSetting('meters.thr', true); ns.DB:SetSetting('meters.show', 'always'); ns.MeterPanels:ResetLayout(); "
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; ns.MeterPanels:Rebuild()")),
@@ -4558,7 +4586,7 @@ STATES += [("Combat text - %s alert" % _l, sct_view(_l, 7.95)) for _l in ("flat"
 
 # Nameplates (UI/Plates.lua): the demo's Maulgar council stopped at a moment (t: 1.3 casts, 6.3 threat, 11.3 execute
 # range) over a named box with Gruul's Lair's loading screen behind (ui_look crops to named windows).
-def plates_view(look, t=1.3, role="dps", plain=False):
+def plates_view(look, t=1.3, role="dps", plain=False, scene=None):
     # plain: no marks, full health, nobody targeted (the plates a player sees most: dimmed, unmarked)
     pre = ("local P0 = ns.Plates; local dp = P0.DemoPlate; P0.DemoPlate = function(self, ...) local p = dp(self, ...); "
            "p.mark, p.hp, p.target, p.dim, p.auras, p.castInfo, p.glow = nil, 1, false, true, {}, nil, nil; return p end; ") if plain else ""
@@ -4570,13 +4598,14 @@ def plates_view(look, t=1.3, role="dps", plain=False):
            "if not bx.bg then bx.bg = bx:CreateTexture(nil, 'BACKGROUND'); bx.bg:SetAllPoints(bx); "
            "bx.bg:SetTexture('Interface\\\\Glues\\\\LoadingScreens\\\\LoadScreenGruulsLair'); bx.bg:SetTexCoord(190 / 512, 1, 160 / 512, 300 / 512); "
            "bx.dim = bx:CreateTexture(nil, 'BORDER'); bx.dim:SetAllPoints(bx); bx.dim:SetColorTexture(0.03, 0.025, 0.02, 0.62) end; "
-           "bx:Show(); P:TryIt('%s'); P.demo.anim = nil; P:DrawDemo(%s); _G.DisasterZonePlatesDemo:SetScript('OnUpdate', nil)"
-           % (role, look, look, t))
+           "bx:Show(); P:TryIt('%s', nil, %s); P.demo.anim = nil; P:DrawDemo(%s); _G.DisasterZonePlatesDemo:SetScript('OnUpdate', nil)"
+           % (role, look, look, scene and "'%s'" % scene or "nil", t))
     return opened("home", lua)
 
 
 for _l in ("flat", "halo", "sigil", "slate", "gilded", "classic"):
     STATES += [("Nameplates - %s" % _l, plates_view(_l)), ("Nameplates - %s threat tank" % _l, plates_view(_l, 6.3, "tank")),
                ("Nameplates - %s threat" % _l, plates_view(_l, 6.3)), ("Nameplates - %s execute" % _l, plates_view(_l, 11.3)),
-               ("Nameplates - %s plain" % _l, plates_view(_l, 0.5, plain=True))]
+               ("Nameplates - %s plain" % _l, plates_view(_l, 0.5, plain=True)),
+               ("Nameplates - %s levelling" % _l, plates_view(_l, 1.3, scene="field"))]
 

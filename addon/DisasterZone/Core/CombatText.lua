@@ -128,10 +128,10 @@ local function Buffer(key, ev)
 end
 CTE._Flush = Flush
 
+-- (the game's placeholder face never shows: a proc without a picture of its own gets my weapon's; feedback #39)
 local function Icon(spellId, spellName)
-    local tex
-    if spellId and spellId ~= 0 and GetSpellTexture then tex = GetSpellTexture(spellId) end
-    if not tex and spellName and GetSpellTexture then tex = GetSpellTexture(spellName) end
+    local tex, temp = ns.Util.SpellIcon(spellId, spellName)
+    if temp then return ns.Util.WeaponIcon() end
     return tex
 end
 
@@ -219,7 +219,7 @@ local function OnCLEU(_, _, sub, _, src, srcName, _, _, dst, _, _, _, a12, a13, 
             local swing = d == 1
             local r = tonumber(resisted)
             Emit({ k = "taken", amt = amt, spell = swing and "Melee" or spellName, school = swing and "phys" or School(school),
-                   icon = swing and MELEE_ICON or (Icon(spellId, spellName) or MELEE_ICON),
+                   icon = swing and MELEE_ICON or (d == 3 and ns.Util.EnvIcon(a12)) or (Icon(spellId, spellName) or MELEE_ICON),
                    resist = (r and r > 0) and r or nil, crit = crit and true or nil,
                    maxHP = UnitHealthMax and UnitHealthMax("player") or nil })
         end

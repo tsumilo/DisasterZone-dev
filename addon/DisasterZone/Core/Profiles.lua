@@ -32,6 +32,24 @@ local tsort = table.sort
 Profiles.PARTS = { "looks", "layout", "keys" }
 -- the themed parts outside ui.* (Look.THEMED's settings)
 local THEMED = { "meters.theme", "classbar.theme", "swing.theme", "shot.theme" }
+-- the meters' own options go with the looks too (feedback #45): how they look, when they show, which are on, the
+-- threat warning. (Kept fights and how fights split are the meter's data, not a profile's.) A snapshot taken before
+-- 1.5.5 has none of them and leaves them as they are: it has no METER_MARK.
+local METER_OPTS = { "meters.barColor", "meters.icons", "meters.rowSize", "meters.numbers", "meters.bg", "meters.size",
+                     "meters.show", "meters.ooc", "meters.dmg", "meters.thr", "meters.warn", "meters.sound",
+                     "meters.flash", "meters.tankView" }
+local METER_MARK = "meters.inProfile"
+local METER_SET = {}
+for _, path in ipairs(METER_OPTS) do METER_SET[path] = true end
+Profiles.METER_OPTS, Profiles.METER_MARK = METER_OPTS, METER_MARK
+for _, path in ipairs(METER_OPTS) do THEMED[#THEMED + 1] = path end
+-- Is `path` a setting a looks snapshot holds?
+function Profiles.IsLookPath(path)
+    if type(path) ~= "string" then return false end
+    if path:sub(1, 3) == "ui." or path == METER_MARK or METER_SET[path] then return true end
+    for _, t in ipairs(THEMED) do if path == t then return true end end
+    return false
+end
 
 local applying = false     -- (our own changes don't save back while a profile is put on)
 local pending              -- a switch waiting for the fight's end: { id, spec }
@@ -44,6 +62,12 @@ local function InCombat() return InCombatLockdown and InCombatLockdown() and tru
 local function Copy(t) return ns.Layout.Copy(t) end
 local function Demo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false end
 local function MyClass() return UnitClass and select(2, UnitClass("player")) or nil end
+local function Same(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+    for k, v in pairs(a) do if not Same(v, b[k]) then return false end end
+    for k in pairs(b) do if a[k] == nil then return false end end
+    return true
+end
 
 ---------------------------------------------------------------------------
 -- Parts
@@ -81,6 +105,7 @@ function Profiles:ReadLooks()
         local v = DB:GetSetting(path)
         if v ~= nil and type(v) ~= "table" then out[path] = v end
     end
+    out[METER_MARK] = true
     return out
 end
 
@@ -92,11 +117,12 @@ function Profiles:ApplyLooks(snap)
     local now = self:ReadLooks()
     local Look = ns.Look
     if Look then Look.quietReload = true end
+    local meters = snap[METER_MARK] ~= nil          -- (an older snapshot leaves the meters' options alone)
     for path in pairs(now) do
-        if snap[path] == nil then DB:SetSetting(path, nil) end
+        if snap[path] == nil and path ~= METER_MARK and (meters or not METER_SET[path]) then DB:SetSetting(path, nil) end
     end
     for path, v in pairs(snap) do
-        if now[path] ~= v then DB:SetSetting(path, v) end
+        if now[path] ~= v and path ~= METER_MARK then DB:SetSetting(path, v) end
     end
     if Look then Look.quietReload = nil end
     local reload = {}
@@ -427,6 +453,14 @@ function Profiles:PutOnAtLogin()
         for cmd in pairs(now) do if not p.keys[cmd] then same = false end end
         if not same then self:ApplyKeys(p.keys) end
     end
+    -- the meters' places: one account-wide setting, so a character logs in with the last one's meters unless its
+    -- layout puts its own back (feedback #45)
+    local lay = L():Active()
+    if type(lay.meters) == "table" and ns.DB and not Same(ns.DB:GetSetting("meters.layout"), lay.meters) then
+        ns.DB:SetSetting("meters.layout", Copy(lay.meters))
+        local MP = ns.MeterPanels
+        if MP and MP.Rebuild then pcall(MP.Rebuild, MP) end
+    end
     applying = false
 end
 
@@ -538,8 +572,7 @@ function Profiles:OnLogin()
     self:PutOnAtLogin()
     ns:On("SETTINGS_CHANGED", function(path)
         if applying or type(path) ~= "string" then return end
-        local looks = path:sub(1, 3) == "ui." or path == "ui"
-        for _, t in ipairs(THEMED) do if path == t then looks = true end end
+        local looks = path == "ui" or Profiles.IsLookPath(path)
         if looks then U.Debounce("profiles-looks", 0.5, function() Profiles:Capture("looks") end) end
     end)
     ns:RegisterEvent("UPDATE_BINDINGS", function()

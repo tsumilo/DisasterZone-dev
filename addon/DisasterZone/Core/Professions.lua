@@ -10,6 +10,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Professions.lua", ...) then r
 --           ms / os = the main / off spec picked in My BiS (index into ns.SPECS[class]); the talents only fill in
 --           when My BiS has none (somebody's primary talents can be their off spec),
 --           a = key of the player's main when this character is an alt,
+--           sb = the officer who set `a` for a member without DisasterZone (feedback #49): such a record holds no
+--               professions, only the link; the member's own client always wins once they run the addon,
 --           g = { itemID or 0, ... } the gear worn, one per ns.SLOTS slot (1.3; the whole guild sees it: the BiS lists
 --               stay with the loot council) }
 --   own   a character of this account (it logged in here): only this account says which of them is the main
@@ -290,6 +292,7 @@ local function ValidRecord(rec)
         if not ok then rec.t = nil end
     end
     if rec.a ~= nil and type(rec.a) ~= "string" then rec.a = nil end
+    if rec.sb ~= nil and type(rec.sb) ~= "string" then rec.sb = nil end
     if rec.g ~= nil and not ValidGear(rec.g) then rec.g = nil end
     if not IsInt(rec.ms, 1, MAX_SPEC) then rec.ms = nil end
     if not IsInt(rec.os, 1, MAX_SPEC) then rec.os = nil end
@@ -701,7 +704,7 @@ local function Summary(key, rec)
         p[#p + 1] = { id, e.r, e.m, e.s or 0, e.e, e.rr or 0, e.n or 0 }
     end
     tsort(p, function(a, b) return a[1] < b[1] end)
-    return { k = key, v = rec.rev, p = p, ts = rec.t, ms = rec.ms, os = rec.os, a = rec.a, g = rec.g }
+    return { k = key, v = rec.rev, p = p, ts = rec.t, ms = rec.ms, os = rec.os, a = rec.a, g = rec.g, sb = rec.sb }
 end
 
 -- Summaries of `keys`, in batches. Returns the number of messages.
@@ -917,7 +920,13 @@ local function ParseSummary(s)
         gear = {}
         for i = 1, #s.g do gear[i] = s.g[i] end
     end
-    return { key = key, rev = s.v, p = p, t = t, a = main, ms = s.ms, os = s.os, g = gear }
+    -- (an officer's link for a member without DisasterZone: nothing else in it)
+    local sb
+    if s.sb ~= nil then
+        sb = WireKey(s.sb)
+        if not sb or n > 0 or gear or t then return nil end
+    end
+    return { key = key, rev = s.v, p = p, t = t, a = main, ms = s.ms, os = s.os, g = gear, sb = sb }
 end
 
 -- Returns true when the record changed.
@@ -940,13 +949,15 @@ local function ApplySummary(s, sender)
         return true
     end
     if rec and rec.rev >= s.rev then return false end
+    -- an officer's link never replaces what the member's own client shared (it was set by someone who hadn't seen it)
+    if s.sb and rec and rec.rev > 0 and not rec.sb then return false end
     local R = rec and rec.R or {}
     for id, set in pairs(R) do
         local e = s.p[id]
         if not e or set.e < e.e then R[id] = nil end
     end
     b[s.key] = { rev = s.rev, p = s.p, R = R, src = sender, own = rec and rec.own or nil, t = s.t, a = s.a,
-                 ms = s.ms, os = s.os, g = s.g }
+                 ms = s.ms, os = s.os, g = s.g, sb = s.sb }
     QueueWants(s.key)
     return true
 end
@@ -1156,7 +1167,7 @@ end
 -- count), synced (bool) }, ... }; nil when nothing is known about the character.
 function Prof:GetMember(key)
     local rec = type(key) == "string" and GetRec(key)
-    if not rec or rec.rev == 0 or not Visible(key) then return nil end
+    if not rec or rec.rev == 0 or rec.sb or not Visible(key) then return nil end   -- (sb: an officer's link only)
     local out = {}
     for id, e in pairs(rec.p) do
         local set = rec.R[id]
@@ -1301,6 +1312,66 @@ function Prof:SetMain(mainKey)
     return true
 end
 
+-- Feedback #49: members who don't run DisasterZone can never pick their main, so an officer (or the GM) sets it for
+-- them: a record with only the link (a) and who set it (sb), shared like any other. Anyone who runs the addon picks
+-- their own (their record isn't an officer's: RunsAddon), and their choice wins once they do.
+function Prof:RunsAddon(key)
+    local rec = type(key) == "string" and GetRec(key)
+    return (rec and rec.rev > 0 and not rec.sb) and true or false
+end
+
+-- May I set `key`'s main: true, or false and why.
+function Prof:CanSetMainFor(key)
+    local Guild = ns.Guild
+    local me = Util.PlayerKey()
+    if not (Guild and me and type(key) == "string") then return false, "the guild isn't read yet" end
+    if not (Guild:IsOfficer(me, true) or (Guild.GetGM and Guild:GetGM() == me)) then return false, "only officers and the GM can" end
+    if not InGuild(key) then return false, "not in the guild" end
+    if Util.IsMe(key) then return false, "pick your own main above" end
+    if self:RunsAddon(key) then return false, Util.ShortName(key) .. " runs DisasterZone: they pick their own" end
+    return true
+end
+
+-- Makes `key` (a member without DisasterZone) an alt of `mainName`, or their own main (mainName nil). An alt as the
+-- main means that alt's main. Members who were alts of `key` follow it. Returns ok, err.
+function Prof:SetMainFor(key, mainName)
+    local ok, why = self:CanSetMainFor(key)
+    if not ok then return false, why end
+    if ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() then return false, "demo mode saves nothing: turn it off first" end
+    local main = mainName and Util.NormalizeName(mainName) or nil
+    if main == key then main = nil end
+    if main then
+        if not InGuild(main) then return false, Util.ShortName(main) .. " isn't in the guild" end
+        main = self:GetMain(main)
+        if main == key then main = nil end
+    end
+    local b = Bucket(true)
+    if not b then return false, "the guild isn't read yet" end
+    local me = Util.PlayerKey()
+    local changed = {}
+    local function link(k, to)
+        local rec = b[k]
+        if rec and rec.rev > 0 and not rec.sb then return end      -- (theirs to pick)
+        if not rec then rec = { rev = 0, p = {}, R = {} }; b[k] = rec end
+        if rec.a == to and rec.sb then return end
+        rec.a, rec.sb = to, me
+        Bump(rec)
+        changed[#changed + 1] = k
+    end
+    link(key, main)
+    -- (whoever was an alt of `key` by an officer's link goes along to its new main)
+    if main then
+        for k, rec in pairs(b) do
+            if rec.sb and rec.a == key and k ~= key then link(k, main) end
+        end
+    end
+    if #changed > 0 then
+        SendSummaries(changed, "GUILD")
+        Changed()
+    end
+    return true
+end
+
 -- The gear a character wears as last shared: { [sid] = itemID } (empty slots left out), the time it was shared (the
 -- record's rev), or nil when they shared none (not logged in with 1.3 or newer since).
 function Prof:GetGear(key)
@@ -1315,14 +1386,14 @@ end
 
 function Prof:HasData(key)
     local rec = type(key) == "string" and GetRec(key)
-    return (rec and rec.rev > 0 and Visible(key)) and true or false
+    return (rec and rec.rev > 0 and not rec.sb and Visible(key)) and true or false
 end
 
 -- Keys of every character with profession data (in my guild; me included).
 function Prof:GetMembers()
     local out = {}
     for key, rec in pairs(Bucket() or {}) do
-        if rec.rev > 0 and Visible(key) then out[#out + 1] = key end
+        if rec.rev > 0 and not rec.sb and Visible(key) then out[#out + 1] = key end
     end
     tsort(out)
     return out

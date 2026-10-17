@@ -2931,6 +2931,8 @@ local PART_OPTS = {
           { { value = "all", text = "Every caster" }, { value = "target", text = "Your target only" } } },
         { "raidDebuffs", "The raid's debuffs too", "Sunder, Faerie Fire, Curse of the Elements and the like, beside yours.", false },
         { "execute", "Execute range", "A tick at 20% and your finisher's icon once a mob is past it (paladins, warriors).", true },
+        { "levelColor", "Level in difficulty colours", "Grey, green, yellow, orange, red: how hard a mob is for your level.", true },
+        { "tapped", "Grey when someone else tagged it", "Another group hit it first: no loot or experience for you.", true },
     },
     -- (the meter panels' look, moved from Combat > Meters: { setting path, name, line, default, options })
     meters = {

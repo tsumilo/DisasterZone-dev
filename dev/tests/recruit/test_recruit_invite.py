@@ -224,6 +224,55 @@ def an_offline_invite_waits_and_reminds_when_they_come_online():
 
 
 @case
+def joining_without_our_invite_button_marks_them_joined():
+    # feedback #48: Bob talks with Aurelith; the GM invites her with the game's own invite: Bob's client sees the join
+    # line and marks her Joined (who invited: not known), once, for every officer
+    w, c = guild()
+    gina, bob, aur = c["Gina"], c["Bob"], c["Aurelith"]
+    add(w, bob, "Aurelith", c="PALADIN", sp=1)
+    assert person(gina, "Aurelith")["w"] == K("Bob")
+    gina.eval("GuildInvite('Aurelith')")
+    w.tick(2)
+    aur.eval("AcceptGuild()")
+    w.tick(10)
+    p = person(gina, "Aurelith")
+    assert p["st"] == "joined" and p.get("jb") is None and p.get("ja"), p
+    assert p["by"] == K("Bob"), p                                          # (written once, by the one talking to her)
+    # by hand, from the person's menu: Joined the guild, with the team
+    add(w, gina, "Kaelthorn", c="PALADIN", sp=1)
+    assert gina.eval("return ns.Recruit:MarkJoined(..., { team = 't9' })", K("Kaelthorn")) is True
+    w.tick(5)
+    p = person(bob, "Kaelthorn")
+    assert p["st"] == "joined" and p["jb"] == K("Gina") and p["tm"] == "t9", p
+    w.assert_no_errors()
+
+
+@case
+def a_record_moves_to_another_character():
+    # D-4: an alt (Kaelthorn) came through a group first, the main (Aurelith) later: the story goes to the main, the alt
+    # stays listed as theirs and leaves the list; with the main in Recruitment already, the two become one
+    w, c = guild()
+    gina, bob = c["Gina"], c["Bob"]
+    add(w, gina, "Kaelthorn", c="PALADIN", sp=1, note="Met in a Ramparts group")
+    gina.eval("ns.Recruit:AddNote(..., 'Wants SSC')", K("Kaelthorn"))
+    add(w, bob, "Aurelith", c="PALADIN", sp=2, note="Whispered about the guild")
+    w.tick(5)
+    res = gina.eval_py("local ok, k = ns.Recruit:MoveTo(...); return { ok = ok, k = k }", K("Kaelthorn"), K("Aurelith"))
+    assert res == {"ok": True, "k": K("Aurelith")}, res
+    w.tick(5)
+    for cl in (gina, bob):
+        assert person(cl, "Kaelthorn") is None
+        p = person(cl, "Aurelith")
+        notes = sorted(n["t"] for n in p["n"].values()) if isinstance(p["n"], dict) else sorted(n["t"] for n in p["n"])
+        assert notes == ["Met in a Ramparts group", "Wants SSC", "Whispered about the guild"], notes
+        ak = list(p["ak"].values()) if isinstance(p["ak"], dict) else p["ak"]
+        assert ak == [K("Kaelthorn")], p
+    # (a guest mark can't bring the alt back: it's removed)
+    assert gina.eval("return (ns.Recruit:MoveTo(...))", K("Aurelith"), K("Aurelith")) is False
+    w.assert_no_errors()
+
+
+@case
 def a_member_cant_invite_through_recruitment():
     w, c = guild()
     gina, cora = c["Gina"], c["Cora"]
