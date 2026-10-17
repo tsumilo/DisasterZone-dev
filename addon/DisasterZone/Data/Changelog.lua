@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.5.5", date = "19 October 2026", title = "Hold the Line, Naxxramas and fixes from the raid",
+    { version = "1.5.5", date = "17 October 2026", title = "Hold the Line, Naxxramas and fixes from the raid",
       sections = {
           { heading = "Hold the Line", area = "games", kind = "new", hi = true, open = "games",
             lead = "A survivors game: hold the Eastern Plaguelands against the Scourge for 15 minutes.", lines = {
