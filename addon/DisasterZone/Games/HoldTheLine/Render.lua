@@ -898,13 +898,24 @@ local function DrawAirFx(run)
         local k = f.t / f.dur
         local inv = 1 - k
         if f.kind == "pillar" then
-            local w = 72 * (k < 0.12 and k / 0.12 or inv) + 4
-            local r = Tex("add", "rays", f.x, f.y - 190, w, 380, min(1, inv * 1.4), 0, C.HOLY)
-            local cw = 14 * (k < 0.12 and k / 0.12 or inv * inv)
-            local core = Take(V.pools.addCore)
-            ns.UI:GradientRGBA(core, "VERTICAL", 1, 1, 235 / 255, inv, 1, 240 / 255, 180 / 255, 0, true)
-            AtTL(core, f.x - cw / 2, f.y - 400, max(0.1, cw), 400)
-            Tex("add", "crown", f.x, f.y - 8, 70, 22, inv * 0.8, 0, C.GOLD)
+            -- Exorcism: a shaft of light drops out of the sky onto the mark, flares, then thins and fades; a
+            -- sigil burns into the ground under it and spreads (soft textures, never a hard edge)
+            local H = 420
+            local drop = easeOut(min(1, k / 0.09))                     -- (the shaft's foot reaches the ground)
+            local after = max(0, (k - 0.09) / 0.91)
+            local fade = (1 - after) ^ 1.3
+            local w = 30 + 56 * (drop >= 1 and (1 - after) ^ 0.6 or drop)
+            local hh = H * drop
+            local top = f.y + 12 - H
+            Tex("add", "exo_shaft", f.x, top + hh / 2, w * 1.9, hh, 0.55 * fade, 0, C.GOLD)
+            Tex("add", "exo_shaft", f.x, top + hh / 2, w, hh, min(1, 1.2 * fade), 0, C.HOLY)
+            Tex("add", "exo_shaft", f.x, top + hh / 2, w * 0.4, hh, fade, 0, { 1, 1, 0.94 })
+            local sz = 60 + 110 * easeOut(min(1, k * 1.6))
+            local sa = (k < 0.08 and k / 0.08 or 1) * (1 - k) ^ 1.1
+            Tex("add", "exo_sigil", f.x, f.y, sz, sz * 0.42, sa * 0.95, run.t * 0.6, C.GOLD)
+            Tex("add", "exo_sigil", f.x, f.y, sz * 0.72, sz * 0.72 * 0.42, sa * 0.6, -run.t * 0.9, C.HOLY)
+            Glow("add", f.x, f.y - 6, 70 * (0.6 + 0.4 * drop), GLOWC.gold, 0.7 * fade)
+            if k < 0.22 then Glow("add", f.x, f.y - 20, 120, GLOWC.gold, (1 - k / 0.22) * 0.8 * drop) end
         elseif f.kind == "nova" then
             Glow("add", f.x, f.y, f.r * easeOut(min(1, k * 2.5)), GLOWC.blue, inv * 0.5)
         elseif f.kind == "flame" then
