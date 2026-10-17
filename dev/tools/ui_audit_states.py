@@ -436,6 +436,26 @@ def azero_at(map_id, x, y, lua=None):
     return fn
 
 
+def azero_lit(map_id, x, y, hour, lua=None):
+    """Azeromon at map_id x, y at an hour of the day, the picture alone: no paused veil, opening tips or key hints"""
+    def fn(w, c):
+        g = azero_at(map_id, x, y)(w, c)
+        g.eval("ns.AzeroUI._Focus(true)")
+        for _ in range(12):                                    # the opening tips
+            if not g.eval_py("return ns.AzeroUI._State()").get("msg"):
+                break
+            g.eval("ns.AzeroUI._HandleKey('A')")
+            w.tick(0.3)
+        g.eval("ns.Azero:Data().keys = setmetatable({}, { __index = function() return 99 end })")
+        g.eval("ns.Azero.clockHour = %r ns.Azero.forceRain = false ns.Azero:EnterMap(%r, %d, %d, 'down', true)" % (hour, map_id, x, y))
+        if lua:
+            g.eval(lua)
+        g.eval("ns.AzeroUI._Focus(true)")
+        w.tick(0.6)
+        return g
+    return fn
+
+
 def azero_turn(g, w, keys=("A", "A")):
     """plays one turn from the action menu (FIGHT, then the cursor's move: the coach's pick) back to the menu"""
     for k in keys:
@@ -2179,6 +2199,12 @@ STATES = [
     ("Games - Azeromon Goldshire inn at night", azero_at("town", 9, 24, "ns.Azero.clockHour = 22 ns.Azero:EnterMap('town', 9, 24, 'down', true)")),
     ("Games - Azeromon Lion's Pride evening", azero_at("post", 7, 8, "ns.Azero.clockHour = 22 ns.Azero:EnterMap('post', 7, 8, 'down', true)")),
     ("Games - Azeromon Goldshire night", azero_at("town", 13, 10, "ns.Azero.clockHour = 23")),
+    # light on people (Light.lua, 0.44): no veil, no tips, the picture alone
+    ("Games - Azeromon light night", azero_lit("town", 21, 10, 23.2)),
+    ("Games - Azeromon light dusk", azero_lit("town", 17, 12, 19)),
+    ("Games - Azeromon light dawn", azero_lit("town", 17, 12, 6)),
+    ("Games - Azeromon light day", azero_lit("town", 18, 12, 12)),
+    ("Games - Azeromon light off", azero_lit("town", 23, 11, 23.2, "ns.Azero:Data().lights = false")),
     ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),
     ("Games - Azeromon home", azero_at("home", 4, 5)),
     ("Games - Azeromon battle", azero_battle("route1", 11, 20, "kobling")),

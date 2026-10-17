@@ -4716,6 +4716,7 @@ local function BuildWorld()
     R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
     R.playerShadow = Shadow()
     R.playerShadow:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
+    if ns.AzeroLight then ns.AzeroLight.Attach(world, TILE / 16, SetPixelTexture) end   -- light on people (Light.lua)
     -- what I say (Chat.lua), over my head
     R.player.say = Box(world, 100, 26, world:GetFrameLevel() + 15)
     R.player.say:EnableMouse(false)
@@ -4860,6 +4861,52 @@ local function DrawHint()
     h:Show()
 end
 
+-- Light on people (Light.lua, 0.44): which light map is up (as Amb.Night: nil by day outdoors), the people sheet
+-- for a sprite (without the grey blob when lit), a sprite's cell in that sheet, and the frame's lights + lanterns.
+function Amb.DarkKey(m, g)
+    if not (g and g.lightChunks) or Amb.modOK == false then return nil end
+    local period = G:Period()
+    local key = (period == "night" and "n") or ((period == "dusk" or period == "dawn") and "d") or nil
+    if g.indoor and key then key = "n" end
+    if g.cave then key = "n" end
+    return key
+end
+function Amb.CharsFile(t, lit)
+    local file = lit and ns.AzeroLight.CLEAN or CHARS
+    if t.charsFile ~= file then
+        t.charsFile = file
+        SetPixelTexture(t, file)
+        t.charKey = nil                        -- (SetChar sets the frame again)
+    end
+end
+function Amb.CharCell(sprite, face, frame)
+    return (FACE_ROW[face] or 0) * 16 + (SPRITE_COL[sprite] or 3) + (frame or 1)
+end
+function Amb.LightBegin(m, g, px, py)
+    local L = ns.AzeroLight
+    local lit = L and L.On() or false
+    if not lit then
+        if Amb.lit then L.Clear() end
+        Amb.lit = false
+        return false
+    end
+    Amb.lit = true
+    local dark = Amb.DarkKey(m, g)
+    L.Begin({ m = m, g = g, now = now, period = G:Period(), raining = Amb.raining, outdoor = m.def.outdoor, dark = dark,
+              viewX = px * 16 + 8, viewY = py * 16 + 8, reach = math.sqrt((VW * 8) ^ 2 + (VH * 8) ^ 2) + 16,
+              toScreen = function(mx, my) return (mx / 16 - px + HX) * TILE, (my / 16 - py + HY) * TILE end })
+    if dark then
+        for _, nn in ipairs(G.npcs or {}) do                         -- the night watch's lanterns
+            if not nn.hidden and nn.def.lantern then
+                local x, y = Amb.NpcPixels(nn)
+                L.AddLight(nn.id or nn.def.id or nn.def.name, x + 12, y + 9)
+            end
+        end
+        if not g.indoor then L.AddLight("me", px * 16 + 8, py * 16 + 9.6) end   -- the player's own lantern
+    end
+    return true
+end
+
 local function DrawWorld()
     local s = G.save
     local m = G.map
@@ -4929,6 +4976,8 @@ local function DrawWorld()
         end
     end
     -- player
+    local lit = Amb.LightBegin(m, ground, px, py)
+    local Light = ns.AzeroLight
     local frame = 1
     if walking or (G.bump and G.input.dir) then
         local f = G.moving and (G.moving.t / G.moving.dur) or (G.bump and (0.2 - G.bump) / 0.2 or 0)
@@ -4937,6 +4986,8 @@ local function DrawWorld()
     local Chat = ns.AzeroChat
     local pface, plift = s.face, 0
     if walking then Chat:Stand("me") else pface, frame, plift = KH.EmoteLook("me", s.face, frame) end
+    Amb.CharsFile(R.player, lit)
+    R.playerShadow:SetShown(not lit)
     SetChar(R.player, "hero", pface, frame)
     R.player:ClearAllPoints()
     R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE + plift * TILE / 16)
@@ -4950,6 +5001,10 @@ local function DrawWorld()
         local onTall = m.tall[m.key(s.x, s.y)] and not walking
         R.grassOver:SetShown(onTall and true or false)
         if R.player.legs then R.player.legs:Hide() end
+    end
+    if lit then
+        Light.Person("me", Amb.CharCell("hero", pface, frame), px * 16, py * 16,
+            { lift = plift, legs = (R.player.legs and R.player.legs:IsShown()) or R.grassOver:IsShown() })
     end
     -- npcs
     local n = 0
@@ -4982,6 +5037,7 @@ local function DrawWorld()
             if npc.def.dance and not npc.moving and not G:Data().calm then
                 face = ({ "down", "left", "up", "right" })[floor(now * 4 + (npc.homeX or 0)) % 4 + 1]
             end
+            Amb.CharsFile(sp, lit)
             SetChar(sp, npc.def.sprite or "bald", face, nframe)
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
@@ -4990,8 +5046,12 @@ local function DrawWorld()
                 pcall(sp.SetDesaturated, sp, sp.stone)
             end
             sp:Show()
-            sp.shadow:SetShown(not npc.def.stone)
+            sp.shadow:SetShown(not npc.def.stone and not lit)
             Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
+            if lit and not npc.def.stone then
+                Light.Person(npc.id or npc.def.id or ("npc" .. n), Amb.CharCell(npc.def.sprite or "bald", face, nframe),
+                    nx * 16, ny * 16, { lift = (npc.def.lift or 0) + hop, legs = sp.legs and sp.legs:IsShown() })
+            end
             local title = G.NpcTitle(npc.def)
             sp.title:SetText(title and ("<" .. title .. ">") or "")
             sp.name:SetText(G.NpcName(npc.def) or "")
@@ -5037,6 +5097,7 @@ local function DrawWorld()
         sp:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE + lift * TILE / 16)
         sp.shadow:ClearAllPoints()
         sp.shadow:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE)
+        Amb.CharsFile(sp, lit)
         SetChar(sp, "hero", pface, pframe)
         local cc = RAID_CLASS_COLORS and p.class and RAID_CLASS_COLORS[p.class]
         if cc then
@@ -5048,8 +5109,12 @@ local function DrawWorld()
         end
         sp.label:SetText(p.name)
         sp:Show()
-        sp.shadow:Show()
+        sp.shadow:SetShown(not lit)
         Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
+        if lit then
+            Light.Person("peer:" .. tostring(p.key), Amb.CharCell("hero", pface, pframe), nx * 16, ny * 16,
+                { lift = lift, legs = sp.legs and sp.legs:IsShown() })
+        end
         sp.label:Show()
         local word = PEER_BUSY[p.status]
         local said = ns.AzeroChat:Bubble(p.key)
@@ -5063,6 +5128,7 @@ local function DrawWorld()
         end
     end
     for i = pn + 1, #peerSprites do peerSprites[i]:Hide() peerSprites[i].shadow:Hide() if peerSprites[i].legs then peerSprites[i].legs:Hide() end peerSprites[i].label:Hide() peerSprites[i].bubble:Hide() end
+    if lit then Light.End() end
     -- banner / fade
     if G.banner then
         R.banner:Show()
@@ -5767,6 +5833,11 @@ function KH.OpenControls()
     items[#items + 1] = { text = "Ambience", right = onOff("ambience"), onSelect = function(idx, menu)
         G:Data().ambience = G:Data().ambience == false
         menu.items[idx].right = onOff("ambience")
+        UI:RefreshMenu(menu)
+    end }
+    items[#items + 1] = { text = "Lights and shadows", right = onOff("lights"), onSelect = function(idx, menu)
+        G:Data().lights = G:Data().lights == false
+        menu.items[idx].right = onOff("lights")
         UI:RefreshMenu(menu)
     end }
     items[#items + 1] = { text = "Show the key hints again", onSelect = function(idx, menu)
@@ -7114,6 +7185,18 @@ function UI:OnInit()
             local want = (a or ""):lower()
             d.noShake = (want == "off") or (want ~= "on" and not d.noShake) or nil
             ns:Print("Azeromon: big hits %s the battle scene.", d.noShake and "no longer shake" or "shake")
+        elseif cmd == "sky" then
+            -- /dz azeromon sky day | dawn | dusk | night | rain | clear | auto: try the light at any hour, until
+            -- /reload (the realm clock and the weather slot take over again with "auto")
+            local want = (a or ""):lower()
+            local HOURS = { day = 12, dawn = 6, dusk = 19, night = 23 }
+            if HOURS[want] then G.clockHour = HOURS[want]
+            elseif want == "rain" then G.forceRain = true
+            elseif want == "clear" then G.forceRain = false
+            elseif want == "auto" then G.clockHour, G.forceRain = nil, nil
+            else ns:Print("Azeromon: /dz azeromon sky day | dawn | dusk | night | rain | clear | auto") return end
+            ns:Print("Azeromon: the sky is %s%s.", G.clockHour and ("at " .. G:Period()) or "on the realm clock",
+                G.forceRain == nil and "" or (G.forceRain and ", raining" or ", dry"))
         elseif cmd == "look" then
             -- /dz azeromon look 3d | pixel: the beasts as their 3D models or as pixel art (the default)
             local want = (a or ""):lower()
@@ -7483,4 +7566,10 @@ UI._ShadowsShown = function()
     local n = 0
     for _, s in ipairs(sprites) do if s:IsShown() and s.shadow:IsShown() then n = n + 1 end end
     return n
+end
+UI._Light = function()               -- light on people (Light.lua): textures on screen, the sheet the player uses
+    local st = ns.AzeroLight.Stats()
+    st.playerFile = R.player and R.player.charsFile or false
+    st.playerBlob = R.playerShadow and R.playerShadow:IsShown() or false
+    return st
 end

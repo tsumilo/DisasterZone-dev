@@ -6,6 +6,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/Changelog.lu
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.44", date = "18 October 2026", title = "Light on everyone",
+      lines = {
+          "People cast shadows in their own shape, like the houses.",
+          "By day the sun casts them; at dusk they grow long.",
+          "At night every lit lamp near you casts one of its own.",
+          "The side facing a lamp catches a rim of its light.",
+          "Guards' lanterns light the people they walk past.",
+          "CONTROLS has a Lights and shadows switch.",
+          "Try any hour: /dz azeromon sky night (auto to go back).",
+      } },
     { version = "0.43", date = "17 October 2026", title = "Signatures and bosses",
       lines = {
           "Every beast's own signature move has its own effect.",

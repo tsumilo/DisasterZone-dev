@@ -46,6 +46,8 @@ Sprites.lua
 Taming.lua
 Fx.lua
 FxMoves.lua
+LightArt.lua
+Light.lua
 UI.lua
 Poster.lua
 Done.lua

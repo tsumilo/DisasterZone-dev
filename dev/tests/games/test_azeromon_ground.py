@@ -150,6 +150,10 @@ def a_map_without_a_baked_ground_keeps_its_tiles():
 @case
 def people_stand_on_a_shadow():
     w, c = play("town", 10, 9)
+    # with light on people (Light.lua, 0.44) a contact shadow at the feet, with it switched off the old blob
+    assert c.eval_py("return ns.AzeroUI._Light()")["contacts"] >= 1
+    c.eval("ns.Azero:Data().lights = false")
+    w.tick(0.2)
     assert c.eval("return ns.AzeroUI._ShadowsShown()") >= 1
 
 
