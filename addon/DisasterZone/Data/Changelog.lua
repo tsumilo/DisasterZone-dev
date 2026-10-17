@@ -21,7 +21,7 @@ ns.CHANGELOG = {
               "Lurker: the submerge warning, the emerge bar and the next dive now show in the fight.",
               "Leotheras: the demon form timer now learns from your own pulls.",
               "Gruul: the tank's Hurtful Strike bar now shows; it never started before.",
-              "Vashj: the Coilfang Strider bar keeps counting through the whole shield phase.",
+              "Vashj: the Strider and Elite bars keep counting through the whole shield phase.",
               "A wipe while you were released no longer keeps the boss mods running into the next pull.",
               "Learning counts each pull once: a copy from someone who came in late is left out.",
           } },
