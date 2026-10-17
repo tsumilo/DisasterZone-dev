@@ -450,9 +450,13 @@ async fn sync_run(app: AppHandle) -> Result<sync::SyncView> {
     sync::sync_now(&app).await
 }
 
+/// Play (play.rs): what it did, for the window's message. Looking through the running programs takes a moment, so
+/// off the main thread.
 #[tauri::command]
-fn play() -> Result<()> {
-    crate::core::play::play(&state::load())
+async fn play() -> Result<&'static str> {
+    tokio::task::spawn_blocking(|| crate::core::play::play(&state::load()))
+        .await
+        .map_err(|e| crate::core::Error::Msg(e.to_string()))?
 }
 
 /// The character played last, the region and the guild's next raids, from the game's files (player.rs). Reading

@@ -42,20 +42,27 @@ pub fn exec_command(launch_code: &str, flavor: &str) -> Option<String> {
     }
 }
 
-pub fn play(s: &Settings) -> Result<()> {
+/// Play. What it did: "focused" (the game of this folder was running: its window came to the front), "running" (it
+/// runs but has no window to show yet), "command" (the Play command from Settings ran), "launched" (Battle.net was
+/// asked for the game) or "opened" (Battle.net opened: no version known). Battle.net itself won't start a second
+/// copy of a running game, it only shows its page: that looked like Play doing nothing.
+pub fn play(s: &Settings) -> Result<&'static str> {
+    if let Some(pid) = s.flavor_dir().and_then(|d| super::wow::game_process(&d)) {
+        return Ok(if super::wow::bring_to_front(pid) { "focused" } else { "running" });
+    }
     let custom = s.play_command.trim();
     if !custom.is_empty() {
         #[cfg(windows)]
         {
             let mut c = Command::new("cmd");
             c.args(["/C", custom]);
-            return spawn(c);
+            return spawn(c).map(|_| "command");
         }
         #[cfg(not(windows))]
         {
             let mut c = Command::new("sh");
             c.args(["-c", custom]);
-            return spawn(c);
+            return spawn(c).map(|_| "command");
         }
     }
     let exec = exec_command(&s.launch_code, &s.flavor);
@@ -74,19 +81,21 @@ pub fn play(s: &Settings) -> Result<()> {
             return msg("Battle.net was not found: start the game from Battle.net yourself, or set a Play command in Settings");
         };
         let mut c = Command::new(exe);
+        let what = if exec.is_some() { "launched" } else { "opened" };
         if let Some(exec) = exec {
             c.arg(format!("--exec={exec}"));
         }
-        return spawn(c);
+        return spawn(c).map(|_| what);
     }
     #[cfg(target_os = "macos")]
     {
         let mut c = Command::new("open");
         c.args(["-a", "Battle.net"]);
+        let what = if exec.is_some() { "launched" } else { "opened" };
         if let Some(exec) = exec {
             c.args(["--args", &format!("--exec={exec}")]);
         }
-        return spawn(c);
+        return spawn(c).map(|_| what);
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {

@@ -286,13 +286,19 @@ async function doUpdate() {
   await refreshAll();
 }
 
-// Play: the game version of the chosen folder, through Battle.net (play.rs), or the Play command from Settings.
+// Play (play.rs): the game already running comes to the front; else the chosen folder's version through Battle.net,
+// or the Play command from Settings.
 async function play() {
   try {
-    await api.invoke("play");
-    const s = status && status.settings;
-    toast(s && s.playCommand ? "Starting your Play command…"
-      : "Starting World of Warcraft " + (FLAVOR_NAMES[s && s.flavor] || "") + " through Battle.net…", true);
+    const what = await api.invoke("play");
+    const name = "World of Warcraft " + (FLAVOR_NAMES[status && status.settings.flavor] || "");
+    toast({
+      focused: name + " is already running: here it is.",
+      running: name + " is already running.",
+      command: "Starting your Play command…",
+      launched: "Starting " + name + " through Battle.net…",
+      opened: "Opening Battle.net…",
+    }[what] || "Starting " + name + "…", true);
   } catch (e) {
     toast(e);
   }

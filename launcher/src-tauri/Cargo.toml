@@ -48,6 +48,7 @@ tauri-build = { version = "2.7.2", features = [] }
 
 [target."cfg(windows)".dependencies]
 winreg = "0.56.0"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
