@@ -86,7 +86,7 @@ ns.CHANGELOG = {
               "The slam's warning fills toward the moment it lands; its rim flares just before.",
               "The slam lands hard: a flash, a shockwave, thrown rock, rolling dust, a cracked crater.",
               "Skeletons, grenades and cauldrons no longer throw dark squares; braziers glow again.",
-              "Level-up cards turn over cleanly: no battlefield in their window, and the words fade in.",
+              "Level-up cards turn over whole: the scene, the medal and the words turn with the card.",
           } },
           { heading = "Games hub", area = "games", kind = "changed", open = "games", lines = {
               "The dot under the games glides to the next one as you turn, stretching on the way.",

@@ -365,27 +365,30 @@ local function CardPlate(c)
 end
 
 -- a card: the live preview at the bottom, the face (its window cut out) over it, the glass and the words over that,
--- the back over everything while it is turned away
+-- the back over everything while it is turned away. The face turns in whole: the client cannot squeeze a frame or a
+-- line of text, so the preview and the words stay drawn and are seen through clips that narrow with the plate (the
+-- plate, the medal and the rank gems are squeezed for real).
 local function NewCard(parent, i)
     local c = CreateFrame("Button", nil, parent)
     c:SetSize(W_CARD, H_CARD)
     c.i = i
     local L = c:GetFrameLevel()
-    c.pv = NewPreview(c)
+    c.pvClip = CreateFrame("Frame", nil, c)
+    pcall(c.pvClip.SetClipsChildren, c.pvClip, true)
+    c.pvClip:SetFrameLevel(L + 1)
+    c.pv = NewPreview(c.pvClip)
     c.pv.frame:SetPoint("TOPLEFT", c, "TOPLEFT", WIN_X, -WIN_Y)
     c.pv.frame:SetFrameLevel(L + 1)
     c.face = CreateFrame("Frame", nil, c)
     c.face:SetAllPoints()
     c.face:SetFrameLevel(L + 60)
     c.plate = KitTex(c.face, "c2_rare", "BACKGROUND")
-    -- (while the face turns in, its window is a dark pane of the ground that turns with the plate; the live preview,
-    -- the medal and the words fade in over it as the card opens, so the world never shows through the window)
-    c.winFill = c.face:CreateTexture(nil, "BACKGROUND", nil, -3)
-    c.winFill:SetTexture(D.MEDIA .. "ground")
-    c.winFill:SetTexCoord(0.1, 0.1 + WIN_W / 1024, 0.1, 0.1 + WIN_H / 1024)
-    c.winFill:SetVertexColor(0.34, 0.3, 0.38, 1)
-    c.top = CreateFrame("Frame", nil, c.face)
-    c.top:SetAllPoints()
+    c.topClip = CreateFrame("Frame", nil, c.face)
+    pcall(c.topClip.SetClipsChildren, c.topClip, true)
+    c.topClip:SetFrameLevel(L + 62)
+    c.top = CreateFrame("Frame", nil, c.topClip)
+    c.top:SetPoint("TOPLEFT", c.face, "TOPLEFT", 0, 0)
+    c.top:SetSize(W_CARD, H_CARD)
     c.top:SetFrameLevel(L + 62)
     c.glass = KitTex(c.top, "c2_glass", "BACKGROUND")
     KitAt(c.glass, c.top, WIN_X, WIN_Y, WIN_W, WIN_H)
@@ -431,8 +434,11 @@ local function NewCard(parent, i)
     c.kbd = KitTex(c.top, "c2_key", "OVERLAY", 3)
     KitAt(c.kbd, c.top, WIN_X + WIN_W - 8 - 18, WIN_Y + 8, 18, 18)
     c.key = Words(c.top, 10) c.key:SetPoint("CENTER", c.kbd, "CENTER", 0, 0) c.key:SetText(tostring(i)) c.key:SetTextColor(217 / 255, 205 / 255, 180 / 255)
-    -- the light that sweeps a chosen card
-    c.flash = c.top:CreateTexture(nil, "OVERLAY", nil, 6)
+    -- the light that sweeps a chosen card (its own layer: it spills past the card's edges, the clip would cut it)
+    c.fx = CreateFrame("Frame", nil, c)
+    c.fx:SetAllPoints()
+    c.fx:SetFrameLevel(L + 66)
+    c.flash = c.fx:CreateTexture(nil, "OVERLAY", nil, 6)
     c.flash:SetTexture(D.MEDIA .. "UI\\glow") c.flash:SetBlendMode("ADD") c.flash:SetVertexColor(1, 0.86, 0.5, 1)
     c.flash:SetPoint("CENTER", c.top, "TOPLEFT", W_CARD / 2, -(MEDAL_Y + 36)) c.flash:SetSize(W_CARD * 1.5, W_CARD * 1.5)
     c.flash:Hide()
@@ -470,6 +476,7 @@ local function FillCard(c, o)
     -- gems: one per rank, the one this card gives lit
     local n = f.max or 0
     local gw = n * 8 + (n - 1) * 7
+    c.gemN, c.faSet = n, nil
     for g = 1, 5 do
         local t = c.gems[g]
         if g <= n then
@@ -589,22 +596,30 @@ local function AnimateCard(c, t)
     local sc = (0.82 + 0.18 * e) * (c.state == "chosen" and (1.05 + out * 0.04) or 1) * (1 - gone * 0.1)
     c:SetScale(max(0.05, sc))
     c:SetAlpha(min(1, k * 2) * (1 - gone) * (1 - out))
-    -- the face's squeeze: scale its art across, the window's pane with it; the words and the live preview fade in
-    -- over the last fifth of the turn (they cannot be squeezed), the pane fading out under them
+    -- the face's turn: the plate, the medal and the gems squeezed across; the words and the live preview seen through
+    -- clips as wide as the squeezed plate and its window (centred, so nothing slides)
     local fa = not half and w or 0
     if fa < 0.999 or c.faSet ~= fa or c.plateDirty then
-        KitAt(c.plate, c.face, W_CARD * (1 - fa) / 2, 0, max(0.1, W_CARD * fa), H_CARD)
-        c.winFill:ClearAllPoints()
-        c.winFill:SetPoint("TOPLEFT", c.face, "TOPLEFT", W_CARD * (1 - fa) / 2 + WIN_X * fa, -WIN_Y)
-        c.winFill:SetSize(max(0.1, WIN_W * fa), WIN_H)
+        local x0 = W_CARD * (1 - fa) / 2
+        KitAt(c.plate, c.face, x0, 0, max(0.1, W_CARD * fa), H_CARD)
+        c.topClip:ClearAllPoints()
+        c.topClip:SetPoint("TOPLEFT", c.face, "TOPLEFT", x0, 0)
+        c.topClip:SetSize(max(0.1, W_CARD * fa), H_CARD)
+        c.pvClip:ClearAllPoints()
+        c.pvClip:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + WIN_X * fa, -WIN_Y)
+        c.pvClip:SetSize(max(0.1, WIN_W * fa), WIN_H)
+        local mw = max(0.1, 72 * fa)
+        c.medalIcon:ClearAllPoints()
+        c.medalIcon:SetPoint("TOPLEFT", c.top, "TOPLEFT", W_CARD / 2 - mw / 2, -MEDAL_Y)
+        c.medalIcon:SetSize(mw, 72)
+        KitAt(c.ring, c.top, W_CARD / 2 - mw / 2, MEDAL_Y, mw, 72)
+        local n = c.gemN or 0
+        local gw = n * 8 + (n - 1) * 7
+        for g = 1, n do
+            local gx = W_CARD / 2 - gw / 2 + (g - 1) * 15
+            KitAt(c.gems[g], c.top, W_CARD / 2 + (gx - W_CARD / 2) * fa, MEDAL_Y + 84, max(0.1, 8 * fa), 8)
+        end
         c.faSet = fa c.plateDirty = nil
-    end
-    local open = fa < 0.8 and 0 or Easing((fa - 0.8) / 0.2)
-    if c.openA ~= open then
-        c.openA = open
-        c.top:SetAlpha(open)
-        c.pv.frame:SetAlpha(open)
-        c.winFill:SetAlpha(1 - open)
     end
 end
 
