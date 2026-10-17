@@ -6,6 +6,20 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.36", date = "17 October 2026", title = "Battles with a plan",
+      lines = {
+          "Strong moves rest a few turns after you use them.",
+          "Setup moves leave a mark; payoffs on a mark hit hard: Combo!",
+          "Big casts land next turn: guard or interrupt them in time.",
+          "Bosses bring one cast to guard and one to interrupt.",
+          "Each type has six moves; a beast knows four of them.",
+          "Beasts keep their signature moves, learned at higher levels.",
+          "Gorvin swaps moves for free. Pick your fourth slot!",
+          "A coach suggests a move until your first badge.",
+          "Coach on or off: /dz azeromon coach on | off | auto",
+          "Battles last longer, so every turn counts.",
+          "Your beasts relearn their moves for the new battles.",
+      } },
     { version = "0.35", date = "17 October 2026", title = "Pixel beasts",
       lines = {
           "Every beast is now pixel art, made from its own model.",

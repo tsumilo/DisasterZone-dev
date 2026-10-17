@@ -434,6 +434,70 @@ def azero_at(map_id, x, y, lua=None):
     return fn
 
 
+def azero_turn(g, w, keys=("A", "A")):
+    """plays one turn from the action menu (FIGHT, then the cursor's move: the coach's pick) back to the menu"""
+    for k in keys:
+        g.eval("ns.AzeroUI._HandleKey(%r)" % k)
+        w.tick(0.2)
+    for _ in range(100):
+        w.tick(0.2)
+        st = g.eval_py("return ns.AzeroUI._State()")
+        if st.get("actionOpen"):
+            return
+        g.eval("ns.AzeroUI._HandleKey('A')")
+
+
+def azero_combo_menu():
+    """0.36: Frost Shock used, FIGHT open again: Ice Lance COMBO (the coach's cursor), Frost Shock resting, CHILL"""
+    def fn(w, c):
+        g = azero_battle("route1", 11, 20, "kobling")(w, c)
+        azero_turn(g, w)
+        g.eval("ns.AzeroUI._HandleKey('A')")
+        w.tick(0.6)
+        g.eval("ns.AzeroUI._Focus(true)")
+        return g
+    return fn
+
+
+def azero_cast_bar(move="kearthquake"):
+    """0.36: the foe readies a cast (its bar under its box); its fourth-slot answers in your move list"""
+    def fn(w, c):
+        g = azero_battle("route1", 11, 20, "kobling",
+                         "ns.Azero.battle.foe.mon.moves = { { id = '%s', pp = 10 } }" % move)(w, c)
+        azero_turn(g, w)
+        w.tick(0.4)
+        g.eval("ns.AzeroUI._Focus(true)")
+        return g
+    return fn
+
+
+def azero_pet_trainer(sp, lvl, target):
+    """0.36: Gorvin's REMEMBER list (free lessons) with the cards on `target`: a move's effect, cast and cooldown"""
+    def fn(w, c):
+        g = azero_at("post", 12, 7, "local M = ns.AzeroMon local m = M.New(%r, %d, ns.Azero.rng) m.moves = {} "
+                     "for i, id in ipairs({ 'kscorch', 'kimmolate', 'kincinerate', 'kfireward' }) do "
+                     "m.moves[i] = { id = id, pp = ns.AzeroData.moves[id].pp } end "
+                     "ns.Azero.save.party = { m } ns.AzeroUI.tipsOff = true "
+                     "ns.Azero:EnterMap('post', 12, 7, 'left', true)" % (sp, lvl))(w, c)
+        g.eval("ns.AzeroUI._HandleKey('A')")
+        for _ in range(60):
+            w.tick(0.2)
+            lv = g.eval_py("return ns.AzeroUI._Levels()") or []
+            if lv and lv[-1].get("title") == "REMEMBER WHICH MOVE?":
+                break
+            g.eval("ns.AzeroUI._HandleKey('A')")
+        for _ in range(8):
+            cards = g.eval_py("return ns.AzeroUI._MoveCards()") or []
+            if cards and cards[0].get("name") == target:
+                break
+            g.eval("ns.AzeroUI._HandleKey('down')")
+            w.tick(0.05)
+        w.tick(0.3)
+        g.eval("ns.AzeroUI._Focus(true)")
+        return g
+    return fn
+
+
 def azero_menu(hour):
     """Azeromon's start menu over Goldshire at `hour` (the money box: money, badges, realm clock + sky icon)"""
     def fn(w, c):
@@ -2020,6 +2084,10 @@ STATES = [
     ("Games - Azeromon home", azero_at("home", 4, 5)),
     ("Games - Azeromon battle", azero_battle("route1", 11, 20, "kobling")),
     ("Games - Azeromon fight menu", azero_battle("route1", 11, 20, "kobling", "ns.AzeroUI._HandleKey('A')")),
+    ("Games - Azeromon fight menu combo", azero_combo_menu()),
+    ("Games - Azeromon cast bar", azero_cast_bar()),
+    ("Games - Azeromon cast bar long", azero_cast_bar("bsecond_vancleef")),       # Rally the Brotherhood
+    ("Games - Azeromon pet trainer cards", azero_pet_trainer("flamewyrm", 60, "Inferno")),   # signature cast
     # a beast's summary from the battle's PARTY menu: its pixel sprite at a whole-number scale in a menu frame
     ("Games - Azeromon summary sprite", azero_battle("route1", 11, 20, "kobling",
         "for _, k in ipairs({ 'down', 'A', 'A', 'down', 'A' }) do ns.AzeroUI._HandleKey(k) end")),

@@ -7,7 +7,8 @@ local addonName, ns = ...
 local D = {}
 ns.AzeroData = D
 
-D.SAVE_VERSION = 2            -- 2: the bigger Goldshire (0.27): old Goldshire / inn spots are moved on load
+D.SAVE_VERSION = 3            -- 2: the bigger Goldshire (0.27): old Goldshire / inn spots are moved on load
+                              -- 3: battles with cooldowns (0.36): every beast relearns its type's kit
 D.MAX_PARTY = 6
 D.MAX_LEVEL = 100
 D.START_MONEY = 3000       -- copper (30 silver)
@@ -1843,3 +1844,218 @@ D.raidRares = {
     { boss = "Magtheridon", sp = "corehound",  map = "steppes",    level = 55, hours = 24 },
     { boss = "Alar",        sp = "lavasurger", map = "gorge",      level = 56, hours = 24 },
 }
+
+---------------------------------------------------------------------------
+-- 0.36 battles: cooldowns, combos and casts (designed and tuned in the dev kit's balance sim, 2026-10-17:
+-- dev/art/casc/combat_mockup, sim.js; "press the strongest" wins 33 % of even duels, good play ~58 %, every slot used).
+-- Every type has six moves in six roles; a beast knows four: filler + setup + payoff, and one of big cast / guard /
+-- interrupt (Nature: Regrowth instead of an interrupt), swapped at the Pet Trainer.
+-- Move fields read by Battle.lua:
+--   cd          turns the move rests after use (0 = every turn)
+--   role        filler / setup / payoff / nuke / guard / interrupt / heal / buff (the AI and the move box read it)
+--   mark        { id, turns, who = "self" }: a timed mark (D.MARKS)
+--   payoff      { mark | status, mult, consume, self }: power x mult while the target (or `self`) carries it
+--   cast        announced this turn, lands next turn (castVerb: "begins winding up ..."); unstoppable: can't be
+--               interrupted
+--   guard       damage taken x guard for guardTurns turns, priority 2;  interrupt: breaks the target's cast
+--   heal        share of max HP restored;  noImmune: no effect becomes not very effective (thrown rocks vs fliers)
+---------------------------------------------------------------------------
+
+D.BATTLE_HP = 1.6           -- battles last ~5 turns: hits do 1 / 1.6 of the Gen III damage (HP fractions unchanged)
+-- A boss's own number, from tests/games/azero_balance.py (three beasts at the ace's level, no items, 150 fights):
+-- the highest at which the rule list wins 20 points more often than pressing the strongest move did before 0.36
+-- (at most 80 %). Mashing now wins less than it used to, or about as often. Unlisted bosses keep D.BATTLE_HP.
+D.BOSS_HP = { morladim = 1.0, morbentfel = 1.0, stalvan = 1.0, stitches = 0.5, kurzen = 1.0, ganzulah = 0.8,
+              maizoth = 0.8, zanzil = 0.7, mukla = 1.3, firallon = 1.0 }
+-- the same for a boss team led by an ordinary beast (by trainer id): the whole team takes it
+D.TEAM_HP = { yowler = 1.3, gath = 1.0, nef1 = 1.0, nef2 = 1.3, thaurissan = 1.0 }
+D.MARK_DOT = 12             -- a damage-over-time mark with no caster (tests) takes 1/12 of max HP a turn
+D.MARK_DOT_POWER = 22      -- otherwise each tick is a power-22 hit of the caster's, fixed when the mark lands
+                           -- (~1/12 of max HP between equals; a stronger caster's marks hurt more)
+
+D.MARKS = {
+    bleed    = { name = "Bleeding",  short = "BLEED",    dot = true, color = { 0.79, 0.28, 0.24 }, desc = "Bleeds a little each turn." },
+    immolate = { name = "Immolated", short = "IMMOLATE", dot = true, color = { 0.91, 0.46, 0.18 }, desc = "Burns a little each turn." },
+    corrupt  = { name = "Corrupted", short = "CORRUPT",  dot = true, color = { 0.56, 0.37, 0.77 }, desc = "Withers a little each turn." },
+    chill    = { name = "Chilled",   short = "CHILL",    speed = 0.5, color = { 0.37, 0.70, 0.91 }, desc = "Speed halved." },
+    rooted   = { name = "Rooted",    short = "ROOTED",   color = { 0.36, 0.61, 0.20 }, desc = "Held in place by roots." },
+    exposed  = { name = "Exposed",   short = "EXPOSED",  color = { 0.79, 0.60, 0.17 }, desc = "Marked for the kill." },
+    charged  = { name = "Charged",   short = "CHARGED",  color = { 0.18, 0.70, 0.67 }, desc = "Building up power." },
+    regrowth = { name = "Regrowth",  short = "REGROWTH", hot = 10, color = { 0.31, 0.62, 0.23 }, desc = "Heals 1/10 of its HP each turn." },
+}
+
+do
+    local function K(name, typ, role, o)
+        o.name, o.type, o.role = name, typ, role
+        o.power, o.acc, o.cd, o.prio = o.power or 0, o.acc or 100, o.cd or 0, o.prio or 0
+        o.pp = o.pp or ({ filler = 35, setup = 20, payoff = 15, nuke = 10, guard = 15, interrupt = 15, heal = 10 })[role]
+        return o
+    end
+    local function Guard(name, typ) return K(name, typ, "guard", { guard = 0.25, guardTurns = 2, prio = 2, cd = 3 }) end
+    local function Int(name, typ) return K(name, typ, "interrupt", { power = 30, prio = 1, cd = 4, interrupt = true }) end
+    local function Cast(name, typ, verb) return K(name, typ, "nuke", { power = 100, acc = 95, cd = 3, cast = true, castVerb = verb }) end
+    local kit = {
+        -- BEAST (physical)
+        kclaw       = K("Claw", "BEAST", "filler", { power = 40 }),
+        krend       = K("Rend", "BEAST", "setup", { power = 25, cd = 3, mark = { id = "bleed", turns = 3 } }),
+        kferobite   = K("Ferocious Bite", "BEAST", "payoff", { power = 50, cd = 3, payoff = { mark = "bleed", mult = 1.8, consume = true } }),
+        kmaul       = Cast("Savage Maul", "BEAST", "winding up"),
+        khide       = Guard("Thick Hide", "BEAST"),
+        kskullbash  = Int("Skull Bash", "BEAST"),
+        -- FIRE (special)
+        kscorch     = K("Scorch", "FIRE", "filler", { power = 40 }),
+        kimmolate   = K("Immolate", "FIRE", "setup", { power = 10, cd = 3, mark = { id = "immolate", turns = 3 } }),
+        kincinerate = K("Incinerate", "FIRE", "payoff", { power = 50, cd = 3, payoff = { mark = "immolate", mult = 1.6 } }),
+        kpyroblast  = Cast("Pyroblast", "FIRE"),
+        kfireward   = Guard("Fire Ward", "FIRE"),
+        kcounterspell = Int("Counterspell", "FIRE"),
+        -- WATER (special)
+        kwaterbolt  = K("Water Bolt", "WATER", "filler", { power = 40 }),
+        kfrostshock = K("Frost Shock", "WATER", "setup", { power = 25, cd = 3, mark = { id = "chill", turns = 2 } }),
+        kicelance   = K("Ice Lance", "WATER", "payoff", { power = 40, cd = 2, payoff = { mark = "chill", mult = 2.3 } }),
+        ktidalwave  = Cast("Tidal Wave", "WATER", "calling"),
+        kshellshield = Guard("Shell Shield", "WATER"),
+        kwindshear  = Int("Wind Shear", "WATER"),
+        -- NATURE (special)
+        kthorns     = K("Thorns", "NATURE", "filler", { power = 40 }),
+        kroots      = K("Entangling Roots", "NATURE", "setup", { power = 10, acc = 95, cd = 3, mark = { id = "rooted", turns = 3 } }),
+        kthornvolley = K("Thorn Volley", "NATURE", "payoff", { power = 50, cd = 3, payoff = { mark = "rooted", mult = 1.8 } }),
+        kovergrowth = Cast("Overgrowth", "NATURE", "growing"),
+        kbarkskin   = Guard("Barkskin", "NATURE"),
+        kregrowth   = K("Regrowth", "NATURE", "heal", { heal = 0.2, cd = 5, mark = { id = "regrowth", turns = 3, who = "self" } }),
+        -- SHADOW (physical)
+        kshadowbite = K("Shadow Bite", "SHADOW", "filler", { power = 40 }),
+        kcorruption = K("Corruption", "SHADOW", "setup", { power = 10, cd = 3, mark = { id = "corrupt", turns = 4 } }),
+        kdeathcoil  = K("Death Coil", "SHADOW", "payoff", { power = 50, cd = 3, payoff = { mark = "corrupt", mult = 1.6 },
+                                                            effect = { kind = "drain", pct = 50 } }),
+        kshadowbolt = Cast("Shadow Bolt", "SHADOW"),
+        kbonearmor  = Guard("Bone Armor", "SHADOW"),
+        kspelllock  = Int("Spell Lock", "SHADOW"),
+        -- EARTH (physical): Crush Armor's Defense drop is the setup, every hit after it the payoff
+        -- (thrown rocks reach fliers: resisted instead of no effect, so Earth is never walled off by Air)
+        krockthrow  = K("Rock Throw", "EARTH", "filler", { power = 40, noImmune = true }),
+        kcrusharmor = K("Crush Armor", "EARTH", "setup", { power = 25, cd = 2, effect = { kind = "stat", who = "foe", stat = "def", stages = -1 } }),
+        kboulder    = K("Boulder Toss", "EARTH", "payoff", { power = 65, cd = 3, noImmune = true }),
+        kearthquake = Cast("Earthquake", "EARTH", "rumbling into"),
+        kstoneskin  = Guard("Stoneskin", "EARTH"),
+        kwarstomp   = Int("War Stomp", "EARTH"),
+        -- AIR (physical)
+        kdive       = K("Dive", "AIR", "filler", { power = 40 }),
+        khuntersmark = K("Hunter's Mark", "AIR", "setup", { power = 10, cd = 3, mark = { id = "exposed", turns = 3 } }),
+        ktalonrake  = K("Talon Rake", "AIR", "payoff", { power = 50, cd = 3, payoff = { mark = "exposed", mult = 1.8 } }),
+        ktempest    = Cast("Tempest", "AIR", "whipping up"),
+        kwindwall   = Guard("Wind Wall", "AIR"),
+        kscreech    = Int("Screech", "AIR"),
+        -- MECH (physical): charges itself, then spends the charge
+        kgears      = K("Grinding Gears", "MECH", "filler", { power = 40 }),
+        kchargeup   = K("Charge Up", "MECH", "setup", { power = 10, cd = 3, mark = { id = "charged", turns = 3, who = "self" } }),
+        krocketpunch = K("Rocket Punch", "MECH", "payoff", { power = 50, cd = 3, payoff = { mark = "charged", self = true, mult = 1.8, consume = true } }),
+        ksawstorm   = Cast("Sawblade Storm", "MECH", "spinning up"),
+        kdeflector  = Guard("Deflector Shield", "MECH"),
+        kshock      = Int("Electroshock", "MECH"),
+    }
+    for id, mv in pairs(kit) do D.moves[id] = mv end
+    -- the six roles of each type, and the level each is learned at (filler, setup, payoff, cast, guard, interrupt)
+    D.TYPE_KIT = {
+        BEAST  = { "kclaw", "krend", "kferobite", "kmaul", "khide", "kskullbash" },
+        FIRE   = { "kscorch", "kimmolate", "kincinerate", "kpyroblast", "kfireward", "kcounterspell" },
+        WATER  = { "kwaterbolt", "kfrostshock", "kicelance", "ktidalwave", "kshellshield", "kwindshear" },
+        NATURE = { "kthorns", "kroots", "kthornvolley", "kovergrowth", "kbarkskin", "kregrowth" },
+        SHADOW = { "kshadowbite", "kcorruption", "kdeathcoil", "kshadowbolt", "kbonearmor", "kspelllock" },
+        EARTH  = { "krockthrow", "kcrusharmor", "kboulder", "kearthquake", "kstoneskin", "kwarstomp" },
+        AIR    = { "kdive", "khuntersmark", "ktalonrake", "ktempest", "kwindwall", "kscreech" },
+        MECH   = { "kgears", "kchargeup", "krocketpunch", "ksawstorm", "kdeflector", "kshock" },
+    }
+    D.KIT_LEVELS = { 1, 1, 7, 25, 13, 19 }
+
+    -- Bosses bring five moves: their type's filler, setup and payoff, a signature cast that can't be interrupted
+    -- (guard it) and a cast that must be interrupted (a heal, or a rally that sharply raises their Attack).
+    local HEAL = { BEAST = "Lick Wounds", FIRE = "Cauterize", WATER = "Healing Tide", NATURE = "Rejuvenation",
+                   SHADOW = "Dark Mending", EARTH = "Stoneform", AIR = "Second Wind", MECH = "Field Repairs" }
+    local SIG = {           -- [boss] = { cast name, verb, second cast name, "rally" = an Attack rally instead of a heal }
+        hogger    = { "Hogger Smash", "winding up", "Gnaw Bone" },
+        vancleef  = { "Blade Flurry", "readying", "Rally the Brotherhood", "rally" },
+        stitches  = { "Crushing Slam", "raising its arms for", "Stitch Flesh" },
+        mukla     = { "Earthquake", "rumbling into", "Chest Beat", "rally" },
+        smite     = { "Smite Stomp", "winding up", "Smite's Hammer", "rally" },
+        firallon  = { "Broadside", "loading a", "Rally the Crew", "rally" },
+        bangalash = { "Feral Rage", "working up a", "Lick Wounds" },
+        rhahkzor  = { "Ogre Slam", "winding up", "Bellow", "rally" },
+    }
+    for id, s in pairs(D.species) do
+        if s.boss then
+            local best, bp
+            for _, e in ipairs(s.learn) do
+                local mv = D.moves[e[2]]
+                if mv and (mv.power or 0) > (bp or -1) then best, bp = mv, mv.power end
+            end
+            local sig = SIG[id] or {}
+            local castId, secondId = "bcast_" .. id, "bsecond_" .. id
+            D.moves[castId] = K(sig[1] or (best and best.name) or "Crushing Blow", s.type, "nuke",
+                { power = 130, acc = 95, cd = 3, cast = true, unstoppable = true, castVerb = sig[2] or "winding up", pp = 10 })
+            if sig[4] == "rally" then
+                D.moves[secondId] = K(sig[3], s.type, "buff", { cd = 4, cast = true, castVerb = "shouting",
+                    effect = { kind = "stat", who = "self", stat = "atk", stages = 2 }, pp = 10 })
+            else
+                D.moves[secondId] = K(sig[3] or HEAL[s.type] or "Second Wind", s.type, "heal",
+                    { heal = 0.25, cd = 4, cast = true, castVerb = "mending with", pp = 10 })
+            end
+            local tk = D.TYPE_KIT[s.type]
+            s.kit = { tk[1], tk[2], tk[3], castId, secondId }
+        end
+    end
+    -- Signatures: a species keeps its own best moves from before 0.36, folded into the roles so the numbers hold.
+    -- Its strongest big hit (power 85+) becomes its own cast (power 100, like the kit's), its best other hit (50+)
+    -- its own filler (power 45, the kit's is 40); each keeps its old name, type, accuracy and effect, and comes at
+    -- its old level, so beasts keep learning late. A hit of another type than the beast's gets x1.5 (60 / 150): it
+    -- lacks the same-type bonus, so it trades evenly in a neutral fight and is there for its coverage. Like the
+    -- kit's Rock Throw, an Earth hit still reaches fliers (noImmune), or Earth and Air beasts stall each other.
+    local kitName = {}
+    for _, mv in pairs(kit) do kitName[mv.name] = true end
+    local function Sig(s)
+        local cast, hit
+        for _, e in ipairs(s.learn) do
+            local mv = D.moves[e[2]]
+            if mv and not mv.role and (mv.power or 0) >= 85 and not kitName[mv.name]
+               and (not cast or mv.power >= cast.mv.power) then cast = { lvl = e[1], id = e[2], mv = mv } end
+        end
+        for _, e in ipairs(s.learn) do
+            local mv = D.moves[e[2]]
+            if mv and not mv.role and (mv.power or 0) >= 50 and not kitName[mv.name] and not (cast and cast.id == e[2])
+               and (not hit or mv.power >= hit.mv.power) then hit = { lvl = e[1], id = e[2], mv = mv } end
+        end
+        local out = {}
+        if hit then
+            local own = hit.mv.type == s.type
+            local id = (own and "sf_" or "sfx_") .. hit.id
+            D.moves[id] = D.moves[id] or K(hit.mv.name, hit.mv.type, "filler", { power = own and 45 or 60, acc = hit.mv.acc,
+                effect = hit.mv.effect, noImmune = kit[D.TYPE_KIT[hit.mv.type][1]].noImmune, sig = true })
+            out[#out + 1] = { hit.lvl, id }
+        end
+        if cast then
+            local own = cast.mv.type == s.type
+            local id = (own and "sc_" or "scx_") .. cast.id
+            local physical = D.types[cast.mv.type] and D.types[cast.mv.type].physical
+            D.moves[id] = D.moves[id] or K(cast.mv.name, cast.mv.type, "nuke", { power = own and 100 or 150, cd = 3, cast = true,
+                acc = (cast.mv.acc or 0) > 0 and math.min(95, cast.mv.acc) or 95, castVerb = physical and "winding up" or nil,
+                effect = cast.mv.effect, noImmune = kit[D.TYPE_KIT[cast.mv.type][1]].noImmune, sig = true })
+            out[#out + 1] = { cast.lvl, id }
+        end
+        return out
+    end
+
+    -- learnsets: every beast learns its type's kit and its signatures (bosses: their five moves at level 1)
+    for _, s in pairs(D.species) do
+        if s.kit then
+            s.learn = {}
+            for i, mv in ipairs(s.kit) do s.learn[i] = { 1, mv } end
+        elseif D.TYPE_KIT[s.type] then
+            local order = {}
+            for i, mv in ipairs(D.TYPE_KIT[s.type]) do order[#order + 1] = { D.KIT_LEVELS[i], mv, i } end
+            for i, e in ipairs(Sig(s)) do order[#order + 1] = { e[1], e[2], 6 + i } end
+            table.sort(order, function(a, b) if a[1] ~= b[1] then return a[1] < b[1] end return a[3] < b[3] end)
+            s.learn = {}
+            for i, e in ipairs(order) do s.learn[i] = { e[1], e[2] } end
+        end
+    end
+end

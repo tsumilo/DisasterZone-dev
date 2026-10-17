@@ -18,12 +18,16 @@ from _common import case, run_all, solo, no_errors  # noqa: E402
 from _azero_bot import BOT  # noqa: E402
 
 
-def battle(foe="rustgolem"):
+def battle(foe="rustgolem", coach=False, moves=None):
     w, c = solo("Alice", tick=2)
     c.eval(BOT)
     c.eval("T_AZ.seed(4)")
     c.eval("ns.Azero:NewGame()")
+    c.eval("ns.Azero:Data().coach = %s" % ("true" if coach else "false"))      # (the coach moves the cursor)
     c.eval("local M = ns.AzeroMon ns.Azero.save.party = { M.New('murkling', 30, ns.Azero.rng) }")
+    if moves:
+        c.eval("local m = ns.Azero.save.party[1] m.moves = {} for i, id in ipairs({ %s }) do m.moves[i] = { id = id, pp = ns.AzeroData.moves[id].pp } end"
+               % ", ".join("%r" % x for x in moves))
     c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")
@@ -129,7 +133,7 @@ def with_no_pp_at_all_it_struggles():
 
 @case
 def the_move_list_opens_on_the_last_move_used():
-    w, c = battle(foe="dustdevil")
+    w, c = battle(foe="dustdevil", moves=["kwaterbolt", "kclaw", "kfrostshock", "kshellshield"])
     c.eval("ns.Azero.battle.foe.mon.hp = 999")                  # a long fight
     c.eval("ns.AzeroUI._HandleKey('A')")                        # FIGHT
     assert c.eval_py("return ns.AzeroUI._MenuLayout()")["cursor"] == 1
@@ -145,12 +149,26 @@ def the_move_list_opens_on_the_last_move_used():
     assert c.eval_py("return ns.AzeroUI._MenuLayout()")["cursor"] == 2      # the move list: the move it used
     c.eval("ns.AzeroUI._HandleKey('B')")                        # back: the action menu stays on FIGHT
     assert c.eval_py("return ns.AzeroUI._MenuLayout()")["cursor"] == 1
+    # a move that is resting is skipped: Frost Shock (cooldown 3) is used, the list opens on the first ready move
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    c.eval("ns.AzeroUI._HandleKey('down')")
+    c.eval("ns.AzeroUI._HandleKey('left')")
+    c.eval("ns.AzeroUI._HandleKey('A')")                        # Frost Shock
+    for _ in range(80):
+        w.tick(0.2)
+        if c.eval("return ns.Azero.battle and ns.Azero.battle.need") == "action" and c.eval_py("return ns.AzeroUI._State()")["stack"] >= 1:
+            break
+        c.eval("ns.AzeroUI._HandleKey('A')")
+    assert c.eval("return ns.Azero.battle.ally.cd[3]") > 0
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    assert c.eval_py("return ns.AzeroUI._MenuLayout()")["cursor"] == 1
     no_errors(w)
 
 
 @case
 def the_move_panel_says_how_a_move_does_against_this_foe():
-    w, c = battle()                                             # Murkling (Water) vs a Rusty Harvest Golem (Mech)
+    # Murkling (Water) vs a Rusty Harvest Golem (Mech)
+    w, c = battle(moves=["kwaterbolt", "kclaw", "kshellshield", "kfrostshock"])
     c.eval("ns.AzeroUI._HandleKey('A')")                        # FIGHT
     moves = c.eval_py("local o = {} for i, m in ipairs(ns.Azero.battle.ally.mon.moves) do o[i] = m.id end return o")
     seen = {}
@@ -160,11 +178,30 @@ def the_move_panel_says_how_a_move_does_against_this_foe():
             if i == 2:
                 c.eval("ns.AzeroUI._HandleKey('left')")
         seen[mv] = c.eval("return ns.AzeroUI._MoveEff()")
-    assert seen.get("waterjet") == "Super effective" and seen.get("bite") == "Not very effective", seen
-    assert seen.get("leer") == "", seen                          # a status move: no damage to judge
+    assert seen.get("kwaterbolt") == "Super effective" and seen.get("kclaw") == "Not very effective", seen
+    assert seen.get("kshellshield") == "", seen                  # a guard: no damage to judge
     # the type chip's tooltip lists the matchups
     assert c.eval_py("return ns.AzeroUI._Matchups('MECH')") == ["Weak to: Fire, Water", "Resists: Beast, Nature, Air, Shadow, Mech"]
     assert c.eval_py("return ns.AzeroUI._Matchups('AIR')")[-1] == "Immune to: Earth"
+    no_errors(w)
+
+
+@case
+def the_coach_puts_the_cursor_on_its_pick_and_says_why():
+    # on until the first badge: the cursor starts on the rule list's pick, the info box says why in one line
+    w, c = battle(coach=True, moves=["kwaterbolt", "kfrostshock", "kicelance", "kshellshield"])
+    pick = c.eval_py("local b = ns.Azero.battle local u = {} for i in ipairs(b.ally.mon.moves) do if b:Usable('ally', i) then u[#u + 1] = i end end return b:Rotation('ally', u)")
+    c.eval("ns.AzeroUI._HandleKey('A')")                        # FIGHT
+    assert c.eval_py("return ns.AzeroUI._MenuLayout()")["cursor"] == pick == 2, pick         # Frost Shock: set up the chill
+    note = c.eval("return ns.AzeroUI._MoveNote()")
+    assert note.startswith("Coach:"), note
+    c.eval("ns.AzeroUI._HandleKey('left')")                     # another move: its own note, not the coach's
+    assert not c.eval("return ns.AzeroUI._MoveNote()").startswith("Coach:")
+    c.eval("ns.AzeroUI._HandleKey('B')")
+    c.eval("ns.Azero:Data().coach = false")                     # /dz azeromon coach off
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    assert c.eval_py("return ns.AzeroUI._MenuLayout()")["cursor"] == 1
+    assert not c.eval("return ns.AzeroUI._MoveNote()").startswith("Coach:")
     no_errors(w)
 
 

@@ -93,8 +93,8 @@ def the_new_species_are_sound():
     assert r["legend"] == ["magmadar"], r["legend"]
     for m in MOVES:
         assert m in r["moves"], m
-    # final forms keep learning into the 70s and 80s
-    low = [t for t in r["tops"] if t[1] < 70]
+    # final forms keep learning late: their signature moves (0.36) come at their old levels, past 60
+    low = [t for t in r["tops"] if t[1] < 60]
     assert low == [], low
     no_errors(w)
 
@@ -109,8 +109,8 @@ def old_lines_grow_new_forms_and_earlier_forms_are_found():
                watcher = D.species.watcher.evolve, item = D.species.watcher.evolveItem,
                prevHeavy = M.PrevForms('heavygolem'), prevHound = M.PrevForms('corehound'),
                lineage = M.Lineage('greaterlava'),
-               knowsWatcher = legal.overdrive == true, knowsTempered = legal.gears == true and legal.steamjet == true,
-               notLater = legal.sawstorm == nil }""")
+               knowsWatcher = legal.sfx_maul == true, knowsTempered = legal.sf_steamjet == true,
+               notLater = legal.sc_cannon == nil }""")             # (signatures: Maul, Steam Jet; its own Cannon at 74)
     assert r["venom"] == {"level": 46, "into": "glassweb"}, r
     assert r["mastiff"] == {"level": 58, "into": "corehound"}, r
     assert r["watcher"] == {"level": 60, "into": "pummeler"} and r["item"] == {"item": "darkironbar", "into": "heavygolem"}, r
@@ -123,8 +123,8 @@ def old_lines_grow_new_forms_and_earlier_forms_are_found():
       m.moves = { { id = 'tackle', pp = 35 } }
       G.save.party[1] = m
       local t = {} for _, id in ipairs(G:RelearnableMoves(m)) do t[id] = true end
-      return { scythe = t.scythe == true, steamjet = t.steamjet == true, rocket = t.rocketpunch == true }""")
-    assert r == {"scythe": True, "steamjet": True, "rocket": True}, r
+      return { maul = t.sfx_maul == true, steamjet = t.sf_steamjet == true, buzzsaw = t.sc_buzzsaw == true }""")
+    assert r == {"maul": True, "steamjet": True, "buzzsaw": True}, r
     # level evolutions after a battle
     r = c.eval_py("""local G, M = ns.Azero, ns.AzeroMon
       local a = M.New('venomweb', 46, G.rng) local b = M.New('mastiff', 58, G.rng)

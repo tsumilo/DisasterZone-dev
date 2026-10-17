@@ -15,7 +15,7 @@ end
 function T_AZ.bestMove(b)
   local mon, best, bestScore = b.ally.mon, nil, -1
   for i, mv in ipairs(mon.moves) do
-    if mv.pp > 0 then
+    if mv.pp > 0 and (not b.Usable or b:Usable("ally", i)) then      -- (0.36: never a move that is resting)
       local md = D.moves[mv.id]
       local score = md.power * D.Effectiveness(md.type, D.species[b.foe.mon.sp].type)
       if score > bestScore then best, bestScore = i, score end
@@ -23,7 +23,16 @@ function T_AZ.bestMove(b)
   end
   return best or 1
 end
+-- a player who reads the fight: the rule list the coach uses (set T_AZ.policy = T_AZ.reader for a whole suite)
+function T_AZ.reader(b)
+  if not b.Rotation then return nil end
+  local usable = {}
+  for i in ipairs(b.ally.mon.moves) do if b:Usable("ally", i) then usable[#usable + 1] = i end end
+  if #usable == 0 then return nil end
+  return { kind = "move", idx = b:Rotation("ally", usable) }
+end
 function T_AZ.fight(b, policy)
+  policy = policy or T_AZ.policy
   for _ = 1, 2000 do
     local e = b:Pop()
     while e do

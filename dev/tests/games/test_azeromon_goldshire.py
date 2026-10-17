@@ -190,7 +190,8 @@ def old_saves_move_to_the_new_goldshire():
     assert r[1]["map"] == "post" and (r[1]["x"], r[1]["y"]) == (7, 8), r
     assert r[2]["map"] == "route1" and (r[2]["x"], r[2]["y"]) == (10, 3) and (r[2]["rx"], r[2]["ry"]) == (4, 4), r
     assert r[3]["map"] == "town" and (r[3]["x"], r[3]["y"]) == (17, 12), r
-    assert all(e["v"] == 2 and not e["solid"] for e in r), r
+    now = c.eval("return ns.AzeroData.SAVE_VERSION")             # (every old save ends on today's version)
+    assert all(e["v"] == now and not e["solid"] for e in r), r
 
 
 if __name__ == "__main__":

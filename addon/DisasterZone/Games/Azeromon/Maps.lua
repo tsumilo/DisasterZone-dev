@@ -469,7 +469,9 @@ Maps.post = {
               end
               G:Say(who .. "A beast never forgets what it's learned. Sometimes it just needs remindin'.")
               local price = ns.AzeroData.Money(G.RELEARN_PRICE)
-              if not G:YesNo(who .. price .. " a lesson. Shall I remind one of yer beasts of a move?") then
+              local ask = G.RELEARN_PRICE > 0 and (price .. " a lesson. Shall I remind one of yer beasts of a move?")
+                  or "Big cast, guard or interrupt: I'll swap a beast's moves for free. Shall I?"
+              if not G:YesNo(who .. ask) then
                   G:Say(who .. "Suit yerself.")
                   return
               end

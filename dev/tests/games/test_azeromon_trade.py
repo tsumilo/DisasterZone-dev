@@ -197,7 +197,7 @@ def bad_offers_are_refused():
         run(w, (a, b), seconds=0.6, bots=())
         assert a.eval("return ns.AzeroTrade.session.theirs == nil"), wire
     # a beast "from the future": exp beyond its level is trimmed, bad moves dropped
-    mon = a.eval_py("""local w = { sp = 'owlet', lvl = 10, exp = 1e9, ivs = { 99, -5 }, moves = { { id = 'nope', pp = 5 }, { id = 'peck', pp = 99 } } }
+    mon = a.eval_py("""local w = { sp = 'owlet', lvl = 10, exp = 1e9, ivs = { 99, -5 }, moves = { { id = 'nope', pp = 5 }, { id = 'kdive', pp = 99 } } }
       local m = ns.AzeroTrade.Unpack(w)
       return { exp = m.exp, cap = ns.AzeroMon.ExpForLevel(11), iv1 = m.ivs[1], iv2 = m.ivs[2], n = #m.moves, pp = m.moves[1].pp }""")
     assert mon["exp"] < mon["cap"] and mon["iv1"] == 31 and mon["iv2"] == 0 and mon["n"] == 1 and mon["pp"] == 35, mon

@@ -30,7 +30,7 @@ local G = ns.Azero
 local D = ns.AzeroData
 local M = ns.AzeroMon
 
-P.VERSION = 2              -- 2: Park-Miller random numbers, the go handshake, the data fingerprint
+P.VERSION = 3              -- 2: Park-Miller random numbers, the go handshake, the data fingerprint; 3: 0.36 battle rules
 P.ANSWER_TIMEOUT = 30
 P.START_TIMEOUT = 15       -- after my yes, how long I wait for the challenger's go
 P.TURN_TIMEOUT = 60
