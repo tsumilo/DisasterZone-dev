@@ -290,6 +290,13 @@ def _chunk(path, chunkname, strip_bom=True):
     if hit and hit[0] == stamp:
         return hit[1]
     cover = bool(COVER_FILE and chunkname.startswith(COVER_PREFIX))
+    ident = None if _STAMP_ONCE else _identity(path)     # (WSL: one look per file and process already, over 9P)
+    if ident is not None:
+        ident = (ident, chunkname, strip_bom, cover)
+        out = _CHUNKS_BY_ID.get(ident)
+        if out is not None:
+            _CHUNKS[key] = (stamp, out)
+            return out
     native = _native_path(path, chunkname, strip_bom, stamp, cover)
     out = native and _native_get(native, chunkname, cover)
     if out is not None:
@@ -309,9 +316,25 @@ def _chunk(path, chunkname, strip_bom=True):
         src = _cover_source(chunkname, src)
     out = (BC_CACHE_ON and _compile(src, chunkname)) or src
     _CHUNKS[key] = (stamp, out)
+    if ident is not None:
+        _CHUNKS_BY_ID[ident] = out
     if native:
         _native_put(native, h, out)
     return out
+
+
+# The same file under another name (a hard-linked copy: the patch suites stage whole release trees that way, every
+# case) is the same chunk: kept by identity (volume, file id, size, time) too, so a copy's boot costs a stat per file
+# instead of an open (on Windows the first open of each new name is a virus scan) and a cache lookup.
+_CHUNKS_BY_ID = {}
+
+
+def _identity(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns) if st.st_ino else None
 
 
 # Under WSL, _chunk's result is also kept on the Linux disk (NATIVE_DIR), by file path, chunk name, time, size and
@@ -536,6 +559,153 @@ def warm(addon_dir=None, addon_name=ADDON_NAME):
             _chunk(os.path.join(addon_dir, lua), "@Interface/AddOns/%s/%s" % (addon_name, lua.replace("\\", "/")))
 
 
+# -- pre-loaded clients ----------------------------------------------------------------------------------------------
+# A boot was 55-75 % of a suite: ~130 ms of its ~180 ms is running the addon's ~390 files, and they come out the same
+# for every client, because while they load they read next to nothing about who is playing. build_templates() runs
+# them once per Client.index (whose GetTime offset is fixed), before tools/testserver.py or tools/forkrun.py fork, and
+# Client.load_addon takes over that runtime instead of running them again when the client would have run them the
+# same way (Client._template_mismatch): first login of a default client, nothing saved, at the template's time,
+# nothing done to its runtime before. What the files read while the template loaded is recorded and checked:
+#   - the player (the mock's world state, M.W): only at a line listed in TEMPLATE_NAME_CHECKS, else no client takes
+#     the template (a new file-time read of the player shows as "the files read the player's ..." in the notes)
+#   - saved variables: the client must have none; the clock: its boot time must be the template's
+#   - items: the client's world must not redefine one they asked about
+# DZ_TEMPLATES=n (forkrun builds n for its suite) / tools/testserver.py; DZ_TEMPLATE_LOG=<file> logs each decision.
+TEMPLATE_NAME_CHECKS = {
+    # Core/Perf.lua: the Performance page is on from the first file for the developer's character
+    ("Core/Perf.lua", 'local isDev = (UnitName and UnitName("player")) == DEV'): "Tsumil",
+}
+_TEMPLATES = {}          # Client.index -> pre-loaded Client (taken by the first client of that index to load)
+_TEMPLATES_BUILT = False  # (once per process: a process that used them all up does not build more)
+TEMPLATE_NOTES = {}      # why -> count: "taken", or why a client loaded its files itself
+_TEMPLATE_LOG = os.environ.get("DZ_TEMPLATE_LOG") or None
+_TPL_RECORDER = r"""
+local SVN = ...
+local M = __MOCK
+local rec = {}
+local function site()
+  for lvl = 3, 40 do
+    local i = debug.getinfo(lvl, "Sl")
+    if not i then break end
+    local rel = i.source and i.source:match("^@Interface/AddOns/[^/]+/(.+)$")
+    if rel then return rel .. ":" .. tostring(i.currentline) end
+  end
+  return "?"
+end
+local function note(k) rec[#rec + 1] = { k, site() } end
+-- the player and the world: M.W through a proxy that notes every read
+local realW = M.W
+local function proxy(real, path)
+  return setmetatable({}, {
+    __index = function(_, k)
+      note("W." .. path .. tostring(k))
+      local v = real[k]
+      if type(v) == "table" then return proxy(v, path .. tostring(k) .. ".") end
+      return v
+    end,
+    __newindex = function(_, k, v) note("W=" .. path .. tostring(k)); real[k] = v end,
+  })
+end
+M.W = proxy(realW, "")
+-- the clock
+local now, st = rawget(M, "now"), rawget(M, "server_time")
+local oldMT = getmetatable(M)
+rawset(M, "now", nil); rawset(M, "server_time", nil)
+setmetatable(M, {
+  __index = function(t, k)
+    if k == "now" then note("now"); return now elseif k == "server_time" then note("now"); return st end
+    local oi = oldMT and oldMT.__index
+    if type(oi) == "function" then return oi(t, k) elseif oi then return oi[k] end
+  end,
+  __newindex = function(t, k, v)
+    if k == "now" then now = v elseif k == "server_time" then st = v else rawset(t, k, v) end
+  end,
+})
+-- saved variables
+local sv = {}
+for _, n in ipairs(SVN) do sv[n] = true end
+local oldG = getmetatable(_G)
+local gi, gn = oldG and oldG.__index, oldG and oldG.__newindex
+local newG = {}
+if oldG then for k, v in pairs(oldG) do newG[k] = v end end
+newG.__index = function(t, k)
+  if sv[k] then note("sv." .. k) end
+  if type(gi) == "function" then return gi(t, k) elseif gi then return gi[k] end
+end
+newG.__newindex = function(t, k, v)
+  if sv[k] then note("sv=" .. k) end
+  if type(gn) == "function" then return gn(t, k, v) elseif gn then gn[k] = v else rawset(t, k, v) end
+end
+setmetatable(_G, newG)
+-- items asked about
+local wrapped = {}
+local function wrap(tbl, k)
+  local f = rawget(tbl, k)
+  if type(f) ~= "function" then return end
+  wrapped[#wrapped + 1] = { tbl, k, f }
+  rawset(tbl, k, function(item, ...) note("item." .. tostring(item)); return f(item, ...) end)
+end
+for k, v in pairs(_G) do
+  if type(k) == "string" and type(v) == "function" and k:find("Item") then wrap(_G, k) end
+end
+if type(rawget(_G, "C_Item")) == "table" then for k in pairs(C_Item) do wrap(C_Item, k) end end
+function __DZ_TPL_DONE()
+  for _, w in ipairs(wrapped) do rawset(w[1], w[2], w[3]) end
+  setmetatable(_G, oldG)
+  setmetatable(M, oldMT)
+  rawset(M, "now", now); rawset(M, "server_time", st)
+  M.W = realW
+  __DZ_TPL_DONE = nil
+  return rec
+end
+"""
+
+
+def _loading_hooks():
+    """The harness functions a boot's first half goes through: a suite that replaces one (to load other code) must
+    not get files that ran without it."""
+    mod = sys.modules[__name__]
+    return tuple(getattr(mod, n, None) for n in ("_chunk", "_compile", "_cover_source", "_instrument", "_mock_chunk",
+                                                  "_mock_sources", "_xml_scripts", "parse_toc", "_read", "_text")) + \
+        tuple(getattr(Client, n, None) for n in ("_load_one", "_run_files", "_new_runtime", "toc", "_apply_saved")) + \
+        (MOCK_DIR, MODULES, ROOMS_DIR, BC_CACHE_ON, bool(COVER_FILE))
+
+
+def _template_note(why):
+    TEMPLATE_NOTES[why] = TEMPLATE_NOTES.get(why, 0) + 1
+    if _TEMPLATE_LOG:
+        try:
+            with open(_TEMPLATE_LOG, "a", encoding="utf-8") as fh:
+                fh.write("%s\t%s\n" % (why, os.path.basename(sys.argv[0] if sys.argv else "?")))
+        except OSError:
+            pass
+
+
+def build_templates(n):
+    """Pre-loads clients for indexes 0..n-1 (see above). Returns how many it built. The process's random state and
+    client numbering are left as they were, so what forks from it starts like a fresh process."""
+    global _TEMPLATES_BUILT
+    if PATCH_SV_FILE or n <= 0:
+        return 0
+    _TEMPLATES_BUILT = True
+    saved_index, saved_rand = Client._index, _RAND[0]
+    built = 0
+    try:
+        w = World()
+        for i in range(n):
+            if i in _TEMPLATES:
+                continue
+            Client._index = itertools.count(i)
+            c = Client(w, "Pretemplate%d" % i)
+            c._preload()
+            _TEMPLATES[i] = c
+            built += 1
+    finally:
+        Client._index = saved_index
+        _RAND[0] = saved_rand
+    return built
+
+
 def to_lua(rt, obj):
     """Convert Python dict/list/tuple (recursively) into fresh Lua tables; lists/tuples become 1-based arrays.
     (lupa's table_from with recursion can alias sub-tables when the same Python object appears twice.)"""
@@ -621,12 +791,16 @@ class ExtraMember:
 class World:
     def __init__(self, addon_dir=ADDON_DIR, realm="Thunderstrike", officer_rank=1, latency=0.1,
                  guild_ranks=None, addon_throttle=True, onupdate_hidden=False, roster_delay=0.5,
-                 zone="Shattrath City", fail_fast=False, other_addons=(), server_time=1790000000):
+                 zone="Shattrath City", fail_fast=False, other_addons=(), server_time=1790000000,
+                 prebuild_pages=False):
         """officer_rank: guild rank index <= this can read OFFICER chat / officer notes.
         roster_delay: seconds after PLAYER_ENTERING_WORLD until the guild roster is available (None/0 = immediate).
         addon_throttle: simulate the per-prefix server rate limit (10 msg burst, 1/s regen) on SendAddonMessage.
         onupdate_hidden: also run OnUpdate for hidden frames (WoW only runs it for visible frames).
-        other_addons: addon names that IsAddOnLoaded reports as loaded (e.g. "LoonBestInSlot")."""
+        other_addons: addon names that IsAddOnLoaded reports as loaded (e.g. "LoonBestInSlot").
+        prebuild_pages: the main window builds every other page in the background after it first opens, as in the
+        game (UI/MainFrame.lua). Off: a page is built when first shown (building them all was most of a UI suite's
+        time; tests/boot-ui/test_broad.py runs with it on)."""
         self.addon_dir = addon_dir
         self.realm = realm
         self.officer_rank = officer_rank
@@ -639,6 +813,7 @@ class World:
         self.zone = zone
         self.fail_fast = fail_fast
         self.other_addons = list(other_addons)
+        self.prebuild_pages = prebuild_pages
         self.server_time0 = server_time
         self.now = 0.0
         self.clients = []
@@ -661,6 +836,10 @@ class World:
         self._seq = itertools.count()
         self._warned_missing = set()
         self._archived_reports = []
+        # fn(client) called right after a client's saved variables are assigned (before the addon's files with
+        # LoadSavedVariablesFirst): a test helper storing data as an earlier session would have (tests/cdl_council.py
+        # seed_guild_council). Its clients load their files themselves (pre-loaded ones ran without it).
+        self.on_saved_applied = []
 
     # -- time ----------------------------------------------------------------------------------------------------
     @property
@@ -1438,7 +1617,12 @@ class World:
             if c.runtime is not None:
                 c._push_state()
                 if roster_changed and (guild is None or c.guild == guild):
-                    c._call("roster_changed")
+                    if c._pristine and not c.loaded:
+                        # (before its login the mock has no roster to update: a no-op that keeps it pristine)
+                        c._M.set_time(c.time_offset + self.now, self.server_time)
+                        c._M.roster_changed()
+                    else:
+                        c._call("roster_changed")
 
     # -- persistence ---------------------------------------------------------------------------------------------
     def saved_variables(self, client_or_name):
@@ -1605,7 +1789,8 @@ class Client:
         self.time_offset = 1000.0 + 137.25 * self.index
         self.online = bool(online)
         self.runtime = None
-        self.M = None
+        self._M = None
+        self._pristine = False
         self.loaded = False
         self.load_warnings = []
         self._old_errors = []
@@ -1645,27 +1830,32 @@ class Client:
             "time_offset": self.time_offset + w.now, "server_time": w.server_time,
             "known_events": _known_events(), "bank_requires_open": self.bank_requires_open,
         })
+        # The callbacks reach the client through `o` (not `self`): a pre-loaded client's runtime (build_templates)
+        # changes hands when a client takes it over.
+        o = self._owner = [self]
         py = rt.table_from({
-            "send_addon": self._py_send_addon, "send_chat": self._py_send_chat,
-            "set_guild_info_text": self._py_set_guild_info_text, "set_note": self._py_set_note,
-            "give_master_loot": self._py_give_master_loot, "item_lookup": self._py_item_lookup,
-            "random_roll": self._py_random_roll,
-            "set_raid_target": lambda guid, idx: self.world.set_raid_target(self, guid, idx),
-            "invite": lambda name: self.world.invite(self, name),
-            "accept_group": lambda: self.world.accept_group(self),
-            "promote": lambda name: self.world.promote(self, name),
-            "decline_group": lambda: self.world.decline_group(self),
-            "uninvite": lambda name: self.world.uninvite(self, name),
-            "guild_invite": lambda name: self.world.guild_invite(self, name),
-            "accept_guild": lambda: self.world.accept_guild(self),
-            "decline_guild": lambda: self.world.decline_guild(self),
-            "friends": lambda: to_lua(self.runtime, self.world.friend_rows(self)),
-            "add_friend": lambda name, note: self.world.add_friend(self, name, note),
-            "remove_friend": lambda name: self.world.remove_friend(self, name),
-            "convert_to_raid": lambda: self.world.convert_to_raid(self),
-            "set_raid_subgroup": lambda i, g: self.world.set_raid_subgroup(self, i, g),
-            "swap_raid_subgroup": lambda a, b: self.world.swap_raid_subgroup(self, a, b),
-            "load_lod": self._py_load_lod,
+            "send_addon": lambda *a: o[0]._py_send_addon(*a), "send_chat": lambda *a: o[0]._py_send_chat(*a),
+            "set_guild_info_text": lambda *a: o[0]._py_set_guild_info_text(*a),
+            "set_note": lambda *a: o[0]._py_set_note(*a),
+            "give_master_loot": lambda *a: o[0]._py_give_master_loot(*a),
+            "item_lookup": lambda *a: o[0]._py_item_lookup(*a),
+            "random_roll": lambda *a: o[0]._py_random_roll(*a),
+            "set_raid_target": lambda guid, idx: o[0].world.set_raid_target(o[0], guid, idx),
+            "invite": lambda name: o[0].world.invite(o[0], name),
+            "accept_group": lambda: o[0].world.accept_group(o[0]),
+            "promote": lambda name: o[0].world.promote(o[0], name),
+            "decline_group": lambda: o[0].world.decline_group(o[0]),
+            "uninvite": lambda name: o[0].world.uninvite(o[0], name),
+            "guild_invite": lambda name: o[0].world.guild_invite(o[0], name),
+            "accept_guild": lambda: o[0].world.accept_guild(o[0]),
+            "decline_guild": lambda: o[0].world.decline_guild(o[0]),
+            "friends": lambda: to_lua(o[0].runtime, o[0].world.friend_rows(o[0])),
+            "add_friend": lambda name, note: o[0].world.add_friend(o[0], name, note),
+            "remove_friend": lambda name: o[0].world.remove_friend(o[0], name),
+            "convert_to_raid": lambda: o[0].world.convert_to_raid(o[0]),
+            "set_raid_subgroup": lambda i, g: o[0].world.set_raid_subgroup(o[0], i, g),
+            "swap_raid_subgroup": lambda a, b: o[0].world.swap_raid_subgroup(o[0], a, b),
+            "load_lod": lambda name: o[0]._py_load_lod(name),
             "rand": _crt_rand, "srand": _crt_srand,
         })
         self._lua_gc = rt.globals().collectgarbage
@@ -1674,23 +1864,36 @@ class Client:
         fn = res[0] if isinstance(res, tuple) else res
         if fn is None:
             raise RuntimeError("wowmock/mock.lua failed to compile: %s" % (res[1],))
-        self.M = fn(cfg, py, sources)
+        self._M = fn(cfg, py, sources)
         self._cover_table = _cover_tables(rt) if COVER_FILE else None
-        self.M.load_items(_mock_chunk("items.lua"))
+        self._M.load_items(_mock_chunk("items.lua"))
         for iid in self.world.custom_items:
             self._define_item(iid)
         self._push_state()
         if self.preload_lua:
             self.eval(self.preload_lua)
+        # nothing but the harness has touched this runtime yet: load_addon may swap in a pre-loaded one
+        self._pristine = not self.preload_lua
+
+    # The mock's control table. Going through `M` marks the runtime as touched (a test's own set-up before
+    # load_addon): such a client loads its files itself instead of taking a pre-loaded runtime (build_templates).
+    @property
+    def M(self):
+        self._pristine = False
+        return self._M
+
+    @M.setter
+    def M(self, value):
+        self._M = value
 
     def _define_item(self, iid):
         name, q, loc, cls, sub, icon, ilvl, minlvl, bind, stack = self.world.custom_items[iid]
-        self.M.define_item(iid, name, q, loc, cls, sub, icon, ilvl, minlvl, bind, stack)
+        self._M.define_item(iid, name, q, loc, cls, sub, icon, ilvl, minlvl, bind, stack)
 
     def _push_state(self):
         if self.runtime is None:
             return
-        self.M.set_world(to_lua(self.runtime, self.world._state_for(self)))
+        self._M.set_world(to_lua(self.runtime, self.world._state_for(self)))
 
     def _set_time(self):
         self.M.set_time(self.time_offset + self.world.now, self.world.server_time)
@@ -1780,43 +1983,28 @@ class Client:
         # heap grows was a quarter of the boot. One full collection after the login events (~17 ms) instead; only
         # restarting would leave the garbage in place (an idle client allocates too little to finish a cycle), and 60
         # clients a process each holding 25 MB more slowed the whole machine.
-        gc = self._lua_gc
-        gc("stop")
+        self._lua_gc("stop")
+        self._took_template = False
         try:
             return self._load_addon(reload)
         finally:
+            gc = self._lua_gc              # (the pre-loaded runtime's when the client took one over)
             gc("restart")
-            gc("collect")
+            # A pre-loaded runtime was collected after its files ran (build_templates), and the login events only
+            # queue events: nothing to collect. In a forked process a full collection would also copy every page of
+            # the heap (the marks), ~50 ms a client.
+            if not self._took_template:
+                gc("collect")
 
     def _load_addon(self, reload):
         headers, files = self.toc()
-        self._set_time()
-        self.M.set_toc_meta(self.addon_name, to_lua(self.runtime, headers))
-        self._load_rooms = LOAD_ROOMS                # (LOAD_ROOMS as it was when this client logged in)
-        if self.addon_name == ADDON_NAME:
-            for name, folder in self.lod_addons.items():        # (installed: GetAddOnInfo knows it, not loaded)
-                if _exists(os.path.join(folder, name + ".toc")):
-                    self.M.set_toc_meta(name, to_lua(self.runtime, parse_toc(folder, name)[0]))
         sv_first = self.sv_before_files
         if sv_first is None:
             sv_first = (headers.get("loadsavedvariablesfirst") or "").lower() in ("1", "true")
-        if PATCH_SV_FILE and self.addon_name == ADDON_NAME and "DisasterZonePatchDB" not in self.world.saved.get(self.full_name, {}):
-            with open(PATCH_SV_FILE, encoding="utf-8") as fh:
-                self.world.saved.setdefault(self.full_name, {})["DisasterZonePatchDB"] = fh.read()
-        for name, src in self.other_saved.items():
-            self.M.apply_saved(name, src)
-        if sv_first:
-            self._apply_saved(headers)
-        missing = []
-        for rel in files:
-            if rel.lower().endswith(".xml"):
-                if not _exists(os.path.join(self.addon_dir, rel)):
-                    missing.append(rel)
-                    continue
-                for lua in _xml_scripts(self.addon_dir, rel):
-                    self._load_one(lua, missing)
-            else:
-                self._load_one(rel, missing)
+        if self._take_template(reload, headers):
+            missing = list(self._tpl_missing)
+        else:
+            missing = self._run_files(headers, files, sv_first)
         if missing:
             self.load_warnings.append("skipped %d missing file(s): %s" % (len(missing), ", ".join(missing)))
             key = tuple(missing)
@@ -1828,12 +2016,167 @@ class Client:
         if not sv_first:
             self._apply_saved(headers)
         self._hook_popups()
+        if not self.world.prebuild_pages:        # (World(prebuild_pages=True): as in the game)
+            self.eval("local MF = ns and rawget(ns, 'MainFrame') if type(MF) == 'table' then MF.prebuild = false end")
         self.M.addon_loaded(self.addon_name)
         self.M.login_events(not reload, bool(reload), self.world.roster_delay or 0)
         self.loaded = True
         if self.world.fail_fast:
             self.world.assert_no_errors()
         return self
+
+    def _run_files(self, headers, files, sv_first, before_files=None):
+        """The first half of a boot: TOC metadata, saved variables when they come first, every listed file.
+        Returns the files that were not there."""
+        self._set_time()
+        self.M.set_toc_meta(self.addon_name, to_lua(self.runtime, headers))
+        self._load_rooms = LOAD_ROOMS                # (LOAD_ROOMS as it was when this client logged in)
+        if self.addon_name == ADDON_NAME:
+            for name, folder in self.lod_addons.items():        # (installed: GetAddOnInfo knows it, not loaded)
+                if _exists(os.path.join(folder, name + ".toc")):
+                    self.M.set_toc_meta(name, to_lua(self.runtime, parse_toc(folder, name)[0]))
+        if PATCH_SV_FILE and self.addon_name == ADDON_NAME and "DisasterZonePatchDB" not in self.world.saved.get(self.full_name, {}):
+            with open(PATCH_SV_FILE, encoding="utf-8") as fh:
+                self.world.saved.setdefault(self.full_name, {})["DisasterZonePatchDB"] = fh.read()
+        for name, src in self.other_saved.items():
+            self.M.apply_saved(name, src)
+        if sv_first:
+            self._apply_saved(headers)
+        if before_files:
+            before_files()
+        missing = []
+        for rel in files:
+            if rel.lower().endswith(".xml"):
+                if not _exists(os.path.join(self.addon_dir, rel)):
+                    missing.append(rel)
+                    continue
+                for lua in _xml_scripts(self.addon_dir, rel):
+                    self._load_one(lua, missing)
+            else:
+                self._load_one(rel, missing)
+        return missing
+
+    # -- pre-loaded clients ----------------------------------------------------------------------------------------
+    def _template_mismatch(self, t, headers):
+        """Why this client cannot take over pre-loaded client t, or None. The files ran in t with nothing saved, at
+        t's boot time, as a default client of a default world: the client must be one that would have run them the
+        same way (tools/README: pre-loaded clients)."""
+        w, tw = self.world, t.world
+        if not self._pristine:
+            return "touched before load_addon"
+        if os.path.normcase(os.path.abspath(self.addon_dir)) != os.path.normcase(os.path.abspath(t.addon_dir)) \
+                or self.addon_name != t.addon_name:
+            return "another addon folder"
+        if self.lod_addons != t.lod_addons:
+            return "other load-on-demand addons"
+        if (self.preload_lua or self.legacy_globals or self.permissive_fields or self.items_uncached
+                or not self.bank_requires_open or self.other_addons or self.other_saved or w.other_addons
+                or self.sv_before_files is not None):
+            return "client options"
+        if (w.addon_throttle, w.onupdate_hidden) != (tw.addon_throttle, tw.onupdate_hidden):
+            return "world options"
+        if w.on_saved_applied:
+            return "the world stores data with the saved variables"
+        if self.time_offset + w.now != t.time_offset + tw.now or w.server_time != tw.server_time:
+            return "boots at another time"
+        saved = w.saved.get(self.full_name, {})
+        if any(n in saved for n in self._sv_names(headers)):
+            return "saved variables"
+        if _loading_hooks() != t._tpl_hooks:
+            return "the suite changed how the harness loads files"
+        if self.toc() != t._tpl_toc or self._toc_stamps(t._tpl_toc[1]) != t._tpl_stamps:
+            return "the addon's files changed since they were pre-loaded"
+        if t._tpl_items & set(w.custom_items):
+            return "redefines an item the files read"
+        for dev in t._tpl_name_checks:
+            if (self.name == dev) != (t.name == dev):
+                return "the files compare the name with " + dev
+        return None
+
+    def _preload(self):
+        """build_templates: runs the addon's files in this (fresh, default) client, noting what they read, and stops
+        there (load_addon's second half runs in the client that takes it over)."""
+        _new_boot()
+        gc = self._lua_gc
+        gc("stop")
+        headers, files = self.toc()
+        sv_first = (headers.get("loadsavedvariablesfirst") or "").lower() in ("1", "true")
+        try:
+            missing = self._run_files(headers, files, sv_first,
+                                      before_files=lambda: self.eval(_TPL_RECORDER, self._sv_names(headers)))
+            reads = self.eval_py("return __DZ_TPL_DONE()") or []
+        finally:
+            gc("restart")
+            gc("collect")
+        self._tpl_missing, self._tpl_items, self._tpl_name_checks, self._tpl_bad = missing, set(), set(), None
+        self._tpl_toc = (headers, files)
+        self._tpl_stamps = self._toc_stamps(files)
+        self._tpl_hooks = _loading_hooks()
+        lines = {}
+        for key, where in reads:
+            if key == "now" or key.startswith(("sv.", "sv=")):
+                continue                     # (checked per client: same boot time, nothing saved)
+            if key.startswith("item."):
+                v = key[5:]
+                self._tpl_items.add(int(v) if v.isdigit() else v)
+                continue
+            rel, _, line = where.rpartition(":")
+            if key.startswith("W.") and rel and line.isdigit():
+                if rel not in lines:
+                    try:
+                        lines[rel] = _text(os.path.join(self.addon_dir, rel), encoding="utf-8",
+                                           errors="replace").splitlines()
+                    except OSError:
+                        lines[rel] = []
+                n = int(line)
+                text = lines[rel][n - 1].strip() if 0 < n <= len(lines[rel]) else ""
+                dev = TEMPLATE_NAME_CHECKS.get((rel, text))
+                if dev is not None:
+                    self._tpl_name_checks.add(dev)
+                    continue
+            self._tpl_bad = self._tpl_bad or "the files read the player's %s at %s" % (key[2:], where)
+        self._pristine = False
+
+    def _toc_stamps(self, files):
+        """(time, size) of every file a boot runs (XML includes and their scripts), as this process sees them."""
+        out = []
+        for rel in files:
+            if rel.lower().endswith(".xml"):
+                out.append(_stamp(os.path.join(self.addon_dir, rel)))
+                rels = _xml_scripts(self.addon_dir, rel)
+            else:
+                rels = [rel]
+            out.extend(_stamp(os.path.join(self.addon_dir, r)) for r in rels)
+        return out
+
+    def _take_template(self, reload, headers):
+        """Takes over the pre-loaded client for this index (build_templates) when nothing would differ: its runtime
+        has the addon's files run already. True when it did."""
+        if reload or not _TEMPLATES:
+            return False
+        t = _TEMPLATES.get(self.index)
+        why = "no pre-loaded client for index %d" % self.index if t is None else (t._tpl_bad or
+                                                                               self._template_mismatch(t, headers))
+        if why:
+            _template_note(why)
+            return False
+        del _TEMPLATES[self.index]
+        t._owner[0] = self
+        self.runtime, self._M, self._owner, self._lua_gc = t.runtime, t._M, t._owner, t._lua_gc
+        self._cover_table = t._cover_table
+        self._tpl_missing = t._tpl_missing
+        self.load_warnings.extend(t.load_warnings)
+        t.runtime = t._M = None
+        self._lua_gc("stop")
+        self._M["talents"] = to_lua(self.runtime, self.talents)      # (the one identity field the mock keeps itself)
+        for iid in self.world.custom_items:
+            self._define_item(iid)
+        self._push_state()
+        self._set_time()
+        self._load_rooms = LOAD_ROOMS
+        self._took_template = True
+        _template_note("taken")
+        return True
 
     def _hook_popups(self):
         """The addon's own dialogs (UI/Popup.lua, 1.3.5) are logged in __MOCK.popup_log like StaticPopups, so tests
@@ -1857,6 +2200,8 @@ class Client:
             src = self.world.saved.get(self.full_name, {}).get(sv)
             if src is not None:
                 self.M.apply_saved(sv, src)
+        for fn in self.world.on_saved_applied:
+            fn(self)
 
     def set_saved_variable(self, name, lua_source):
         """Pre-seed a SavedVariable (Lua table constructor source, e.g. '{ settings = { debug = true } }') that

@@ -11,8 +11,8 @@ Ledger.lua, RaidLog.lua; Core/DigestSync.lua stays, unused by them). Cases:
                                  new clients are online (new XXD -> old)
   live_both_ways                 both online: each answers the other's poll, signs up for the other's raid and edits
                                  the other's data where allowed; everyone ends the same
-1.4.1 (an in-game update) against real 1.4.0 clients: every addon file that differs from release-1.4.0 put back (git
-show release-1.4.0:<file>, Core/Guild.lua and Core/DigestSync.lua included), so the old client is 1.4.0 as shipped:
+1.4.1 (an in-game update) against real 1.4.0 clients: the old client runs the addon's files as tag release-1.4.0
+has them (Core/Guild.lua and Core/DigestSync.lua included), so it is 1.4.0 as shipped:
   raid_leaders_old_and_new       the raid leaders list (HELLO rlr, RLL, RLQ) both ways: an officer answers an older
                                  rev in a login HELLO, and an officer holding an older list asks (RLQ) the one whose
                                  HELLO shows a newer one; old -> new and new -> old
@@ -26,6 +26,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = os.path.dirname(HERE)
@@ -44,7 +45,11 @@ OLD_COMMIT = "0f0b272"          # release 1.3.5
 OLD_FILES = ["Core/Sync.lua", "Core/Events.lua", "Core/Polls.lua", "Core/Prized.lua",
              "Core/RaidPlan.lua", "Core/Strategy.lua", "Core/GuestBook.lua", "Core/Ledger.lua", "Core/RaidLog.lua"]
 REPO = os.path.dirname(os.path.dirname(TESTS))
-OLD_DIR = os.path.join(os.path.dirname(TESTS), "tf_e", "_mixed_old_%d" % os.getpid(), "DisasterZone")
+# The old copies are built once per run and removed at the end. Under WSL on the Linux disk (/tmp): built in the
+# addon's /mnt/c tree, every boot read them back over 9P, most of this suite's time.
+OLD_ROOT = os.path.join(tempfile.gettempdir() if os.name != "nt" else os.path.join(os.path.dirname(TESTS), "tf_e"),
+                        "_mixed_old_%d" % os.getpid())
+OLD_DIR = os.path.join(OLD_ROOT, "DisasterZone")
 DAY = 86400
 ITEM = 28830                     # Dragonspine Trophy
 
@@ -61,48 +66,54 @@ def old_addon():
                 dst = os.path.join(OLD_DIR, rel, f)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copyfile(os.path.join(root, f), dst)
-    for rel in OLD_FILES:
-        data = subprocess.check_output(["git", "-C", REPO, "show", "%s:addon/DisasterZone/%s" % (OLD_COMMIT, rel)])
+    for rel, data in zip(OLD_FILES, git_blobs(OLD_COMMIT, ["addon/DisasterZone/" + r for r in OLD_FILES])):
         with open(os.path.join(OLD_DIR, rel), "wb") as fh:
             fh.write(data)
     return OLD_DIR
 
 
 OLD_140 = "release-1.4.0"
-OLD_140_DIR = os.path.join(os.path.dirname(TESTS), "tf_e", "_mixed_old_%d" % os.getpid(), "v140", "DisasterZone")
+OLD_140_DIR = os.path.join(OLD_ROOT, "v140", "DisasterZone")
 
 
 def old_140_addon():
-    """This addon as release 1.4.0 shipped it: every file under addon/DisasterZone that differs from the tag (the
-    working tree included) put back. Built once per run."""
+    """This addon as release 1.4.0 shipped it: its Lua, TOC and XML files at the tag (all a client loads). Built once
+    per run."""
     if os.path.exists(os.path.join(OLD_140_DIR, "DisasterZone.toc")):
         return OLD_140_DIR
-    src = harness.ADDON_DIR
-    for root, _dirs, files in os.walk(src):
-        rel = os.path.relpath(root, src)
-        for f in files:
-            if f.lower().endswith((".lua", ".toc", ".xml")):
-                dst = os.path.join(OLD_140_DIR, rel, f)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copyfile(os.path.join(root, f), dst)
-    out = subprocess.check_output(["git", "-C", REPO, "diff", "--name-only", OLD_140, "--", "addon/DisasterZone"])
-    for path in out.decode("utf-8").split():
+    out = subprocess.check_output(["git", "-C", REPO, "ls-tree", "-r", "-z", "--name-only", OLD_140, "--",
+                                   "addon/DisasterZone"])
+    paths = [p for p in out.decode("utf-8").split("\0") if p.lower().endswith((".lua", ".toc", ".xml"))]
+    for path, data in zip(paths, git_blobs(OLD_140, paths)):
         dst = os.path.join(OLD_140_DIR, path[len("addon/DisasterZone/"):])
-        try:
-            data = subprocess.check_output(["git", "-C", REPO, "show", "%s:%s" % (OLD_140, path)],
-                                           stderr=subprocess.DEVNULL)
-        except subprocess.CalledProcessError:
-            if os.path.exists(dst):
-                os.remove(dst)           # (a file 1.4.0 didn't have)
-            continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         with open(dst, "wb") as fh:
             fh.write(data)
     return OLD_140_DIR
 
 
+def git_blobs(rev, paths):
+    """The bytes of each path at rev (None where rev has no such file), as `git show rev:path` gives them, from one
+    git process: a `git show` per file (hundreds) took minutes over /mnt/c in WSL."""
+    req = "".join("%s:%s\n" % (rev, p) for p in paths).encode("utf-8")
+    data = subprocess.run(["git", "-C", REPO, "cat-file", "--batch"], input=req, stdout=subprocess.PIPE,
+                          check=True).stdout
+    out, i = [], 0
+    for _ in paths:
+        j = data.index(b"\n", i)
+        head = data[i:j].split()
+        if len(head) != 3:               # "<rev>:<path> missing"
+            out.append(None)
+            i = j + 1
+            continue
+        size = int(head[2])
+        out.append(data[j + 1:j + 1 + size])
+        i = j + 1 + size + 1
+    return out
+
+
 def cleanup():
-    shutil.rmtree(os.path.dirname(OLD_DIR), ignore_errors=True)
+    shutil.rmtree(OLD_ROOT, ignore_errors=True)
 
 
 NAMES = (("Gina", 0, "PALADIN"), ("Bob", 1, "MAGE"), ("Lee", 3, "WARRIOR"), ("Rita", 3, "PRIEST"), ("Sam", 3, "ROGUE"))

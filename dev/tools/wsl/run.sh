@@ -5,6 +5,13 @@
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DEV="$(dirname "$(dirname "$HERE")")"
 cd "$DEV" || exit 2
+# A worktree made on Windows (C:\Users\emilo\DZ-wt\...) names its git folder by a Windows path (.git holds
+# "gitdir: C:/..."), which git in Linux cannot follow: point git at it (testmap's TOC lookup, two suites ask git).
+ROOT="$(dirname "$DEV")"
+if [ -f "$ROOT/.git" ] && [ -z "$GIT_DIR" ]; then
+  GD="$(sed -n 's/^gitdir: \([A-Za-z]\):\(.*\)$/\/mnt\/\L\1\E\2/p' "$ROOT/.git")"
+  if [ -n "$GD" ] && [ -d "$GD" ]; then export GIT_DIR="$GD" GIT_WORK_TREE="$ROOT"; fi
+fi
 export DISASTERZONE_ADDON_DIR="${DISASTERZONE_ADDON_DIR:-/mnt/c/World of Warcraft/_anniversary_/Interface/AddOns/DisasterZone}"
 # compiled Python modules on the Linux disk (not next to the sources on /mnt/c, and not recompiled every run)
 export PYTHONPYCACHEPREFIX=/var/cache/dz-pyc

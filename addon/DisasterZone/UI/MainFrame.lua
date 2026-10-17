@@ -631,7 +631,8 @@ ShowPanel = function(key)
 end
 
 -- After the window first opens, the other pages are built in the background, one per frame (never in combat), so
--- a first visit to a page is a plain show.
+-- a first visit to a page is a plain show. MainFrame.prebuild = false leaves each page to its first visit (the test
+-- harness: building every page was most of a UI test's time; tests/boot-ui/test_broad.py keeps it on).
 local prebuilding
 
 -- The heavier pages are also painted once in the background (shown and hidden again in the same frame, so nothing is
@@ -651,7 +652,7 @@ local function WarmPanel(def)
 end
 
 local function PrebuildPages()
-    if prebuilding then return end
+    if prebuilding or MainFrame.prebuild == false then return end
     prebuilding = true
     local queue = {}
     for _, def in ipairs(tabList) do

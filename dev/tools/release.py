@@ -86,9 +86,41 @@ class ReleaseError(Exception):
 # Addon tree helpers
 # ---------------------------------------------------------------------------------------------------------------
 
+# Read files are kept by identity (volume, file id, size, time) for this process: a staged tree's files are hard links
+# of the source's (stage_tree(link=True), the patch tests' copies), the same file under another name, and on Windows
+# the first open of each name costs a virus scan (~5 ms a file: three quarters of a patch test). A stat does not.
+_BY_ID = {}          # identity -> bytes (files up to _KEEP bytes)
+_SHA_BY_ID = {}      # identity -> sha256 hex
+_KEEP = 2 << 20
+
+
+def _identity(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns) if st.st_ino else None
+
+
 def read(path):
-    with open(path, "rb") as fh:
-        return fh.read()
+    ident = _identity(path)
+    data = _BY_ID.get(ident) if ident else None
+    if data is None:
+        with open(path, "rb") as fh:
+            data = fh.read()
+        if ident and len(data) <= _KEEP:
+            _BY_ID[ident] = data
+    return data
+
+
+def sha256_file(path):
+    ident = _identity(path)
+    h = _SHA_BY_ID.get(ident) if ident else None
+    if h is None:
+        h = hashlib.sha256(read(path)).hexdigest()
+        if ident:
+            _SHA_BY_ID[ident] = h
+    return h
 
 
 def parse_toc(addon_dir, name=ADDON_NAME):
@@ -149,7 +181,7 @@ def file_hashes(addon_dir, lua_only=False):
     for rel in all_files(addon_dir):
         if lua_only and not rel.endswith((".lua", ".toc")):
             continue
-        out[rel] = hashlib.sha256(read(os.path.join(addon_dir, rel))).hexdigest()
+        out[rel] = sha256_file(os.path.join(addon_dir, rel))
     return out
 
 

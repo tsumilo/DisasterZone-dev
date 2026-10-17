@@ -79,7 +79,11 @@ REC_VERSION = 2   # records with "rec" >= 2: the recorder keeps TOC copies and n
 SHARDS = {
     "scale/test_raid_night.py": 4,          # 4 cases of 1-4 minutes
     "regressions/test_final_review.py": 3,
-    "patch/test_patch_net.py": 2,
+    "patch/test_patch_net.py": 4,           # 25 cases, ~140 s (2026-10-17)
+    "patch/test_patch_boot.py": 3,          # 24 cases, ~80 s
+    "patch/test_release_tool.py": 3,        # 10 cases, ~120 s (two of 30-40 s)
+    "patch/test_patch_scale.py": 2,         # 2 cases: 60-80 s + 25 s
+    "strategy/test_standins_gen.py": 3,     # 17 cases: one ~100 s generator run, the rest ~45 s
     "sync/test_sync_traffic.py": 2,
     "strategy/test_strategy_3d.py": 2,
 }
