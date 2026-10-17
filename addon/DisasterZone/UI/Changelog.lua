@@ -1838,8 +1838,73 @@ function ChangelogUI:Refresh()
     local valid = st.view == "since" and #Unread() >= 2 or st.view == "feedback" and #MyShipped() > 0
         or (st.view and Norm().by[st.view])
     if not valid then st.view = DefaultView() end
+    self:RenderComing()
     self:RenderList()
     self:Render()
+end
+
+-- Coming next under the releases: the next releases the developer shows the guild, with the guild's items planned in
+-- them (mine and my me-toos in gold). The release list gives up the room it takes.
+local COMING_RELEASES, COMING_ITEMS = 2, 3
+function ChangelogUI:RenderComing()
+    local c = panel and panel.coming
+    if not c then return end
+    local Plan = ns.FeedbackPlan
+    local list = Plan and Plan:ComingNext() or {}
+    local w = L.LIST_W
+    local y = -22
+    for i = 1, COMING_RELEASES do
+        local r = list[i]
+        local card = c.cards[i]
+        if r and not card then
+            card = UI():CreateCard(c, { tone = i == 1 and "card" or "inset", pad = 0 })
+            card.v = UI():Text(card, "title", "GOLD")
+            card.v:SetPoint("TOPLEFT", 8, -7)
+            card.th = UI():Text(card, "body", "TEXT")
+            card.th:SetPoint("LEFT", card.v, "RIGHT", 6, 0)
+            card.when = UI():Text(card, "small", "SUB")
+            card.when:SetPoint("TOPRIGHT", -8, -8)
+            card.when:SetJustifyH("RIGHT")
+            card.lines = UI():Text(card, "small", "TEXT", { wrap = true })
+            card.lines:SetPoint("TOPLEFT", 8, -26)
+            card.lines:SetWidth(w - 16)
+            card.lines:SetJustifyH("LEFT")
+            card.lines:SetSpacing(3)
+            c.cards[i] = card
+        end
+        if card then card:SetShown(r ~= nil) end
+        if r then
+            card.v:SetText(r.v)
+            card.when:SetText(r.dt and (date("%d %b", r.dt):gsub("^0", "")) or "")
+            local thW = w - 16 - UI():TextWidth(card.v) - 6 - (r.dt and 44 or 0)
+            UI():FitText(card.th, r.th or "", thW)
+            local lines = {}
+            for j, item in ipairs(r.items) do
+                if j > COMING_ITEMS then
+                    lines[#lines + 1] = S:Wrap("DIM", ("and %d more"):format(#r.items - COMING_ITEMS))
+                    break
+                end
+                local info = ns.Feedback.KIND_INFO[item.kind] or ns.Feedback.KIND_INFO.idea
+                local mine = item.mine or item.voted
+                local t = (item.text or ""):gsub("\n", " ")
+                local cut = mine and 24 or 34
+                if #t > cut then t = t:sub(1, cut - 2):gsub("%s+%S*$", "") .. "..." end
+                lines[#lines + 1] = "|T" .. info.icon .. ":12:12:0:0:64:64:5:59:5:59|t "
+                    .. (mine and S:Wrap("GOLD", t .. " · you asked") or t)
+            end
+            card.lines:SetText(tconcat(lines, "\n"))
+            local h = 26 + max(12, tonumber(card.lines:GetStringHeight()) or 12) + 8
+            card:ClearAllPoints()
+            card:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
+            card:SetSize(w, h)
+            y = y - h - 6
+        end
+    end
+    local shown = #list > 0
+    c:SetShown(shown)
+    local hgt = shown and (-y) or 0
+    c:SetHeight(max(1, hgt))
+    panel.vscroll:SetPoint("BOTTOMRIGHT", panel.list, "BOTTOMRIGHT", -12, shown and (hgt + S.GAP) or 0)
 end
 
 function ChangelogUI:SetSearch(text)
@@ -1907,6 +1972,15 @@ function ChangelogUI:CreatePanel(parent)
     p.vscroll = UI():CreateScrollFrame(left, "DisasterZoneChangelogList")
     p.vscroll:SetPoint("TOPLEFT", p.search, "BOTTOMLEFT", 0, -S.GAP)
     p.vscroll:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -12, 0)
+    -- Coming next (the developer's plan, Core/FeedbackPlan.lua): under the releases, when there is something to show
+    p.coming = CreateFrame("Frame", nil, left)
+    p.coming:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT", 0, 0)
+    p.coming:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", 0, 0)
+    p.coming.head = UI():CreateSectionHeader(p.coming, "Coming next", { style = "caps" })
+    p.coming.head:SetPoint("TOPLEFT", 0, 0)
+    p.coming.head:SetPoint("TOPRIGHT", 0, 0)
+    p.coming.cards = {}
+    p.coming:Hide()
     p.vchild = CreateFrame("Frame", nil, p.vscroll)
     p.vchild:SetSize(L.LIST_W - 12, 10)
     p.vscroll:SetScrollChild(p.vchild)
@@ -2086,4 +2160,5 @@ function ChangelogUI:OnInit()
     end
     ns:RegisterSlash("changelog", function() ChangelogUI:Open() end, "open the Changelog: what's new in each version")
     ns:On("FEEDBACK_UPDATED", function() if panel and panel:IsVisible() then ChangelogUI:Refresh() end end)
+    ns:On("FEEDBACK_PLAN_UPDATED", function() if panel and panel:IsVisible() then ChangelogUI:Refresh() end end)
 end

@@ -280,6 +280,7 @@ UI\BossModSettings.lua
 UI\Changelog.lua
 UI\Feedback.lua
 UI\FeedbackSheet.lua
+UI\FeedbackPlan.lua
 UI\Notify.lua
 UI\PerfUI.lua
 UI\NotifySources.lua

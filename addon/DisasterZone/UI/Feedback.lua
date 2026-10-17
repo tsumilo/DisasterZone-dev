@@ -111,7 +111,11 @@ local function Pill(item)
     local shipped = F:ShippedText(item)
     if shipped then return shipped, "ok" end
     local s = item.state
-    if s == "planned" then return "Planned", "bis" end
+    if s == "planned" then
+        -- (the release it is planned in, when the guild sees it: Coming next)
+        local v = ns.FeedbackPlan and ns.FeedbackPlan:PlannedFor(item.id)
+        return v and ("Planned for " .. v) or "Planned", "bis"
+    end
     if s == "exists" then return "Already in the addon", "ok" end
     if s == "notnow" then return "Not planned", "mute" end
     if s == "removed" then return "Removed", "warn" end
@@ -185,6 +189,7 @@ local function KindIcon(parent, size, ring)
     end
     return f
 end
+FeedbackUI.KindIcon = KindIcon
 
 local function VoteTip(owner, item)
     local names = {}
@@ -814,6 +819,13 @@ local function BuildDetail(box, banner)
         return b
     end
     d.plan = staffButton("Plan it", 64, "planned", "primary")
+    -- (the developer plans with a size and a release: a popover over the button, UI/FeedbackPlan.lua)
+    local planClick = d.plan:GetScript("OnClick")
+    d.plan:SetScript("OnClick", function(self, ...)
+        local PUI = ns.FeedbackPlanUI
+        if d.item and PUI and ns.FeedbackPlan:CanEdit() then return PUI:OpenPlanIt(self, d.item) end
+        if planClick then return planClick(self, ...) end
+    end)
     d.exists = staffButton("Already in the addon", 132, "exists")
     d.notnow = staffButton("Not planned", 86, "notnow")
     d.same = UI():CreateSleekMenuButton(box, "Same as", 82, function(root)
@@ -1101,7 +1113,24 @@ local TABS = {
     { key = "all", label = "Everything" },
     { key = "mine", label = "Yours" },
     { key = "inbox", label = "Inbox", staff = true },
+    { key = "plan", label = "Plan", staff = true },
 }
+
+-- The Plan tab (staff: UI/FeedbackPlan.lua) takes the list and the item's place, and its own toolbar controls.
+local function ShowPlan(on)
+    local L = panel.layout
+    local PUI = ns.FeedbackPlanUI
+    L.content:SetShown(not on)
+    if panel.plan then panel.plan:SetShown(on) end
+    local want = on and PUI and PUI:Filters(L.toolbar) or panel.listFilters
+    if panel.shownFilters ~= want then
+        for _, f in ipairs(panel.shownFilters or {}) do f:Hide() end
+        for _, f in ipairs(want) do f:Show() end
+        L.toolbar:SetFilters(want)
+        panel.shownFilters = want
+    end
+    if on and PUI then PUI:Refresh() end
+end
 
 local function CurrentSort()
     return state.sort or (state.tab == "mine" and "new" or "asked")
@@ -1138,7 +1167,7 @@ function FeedbackUI:Refresh()
     if not panel then return end
     local F = FB()
     local staff = F:AmIStaff()
-    if state.tab == "inbox" and not staff then state.tab = "all" end
+    if (state.tab == "inbox" or state.tab == "plan") and not staff then state.tab = "all" end
     panel.banner.stats:SetText(StatsText())
     -- tabs (the layout's toolbar)
     local bar = panel.layout.toolbar
@@ -1157,6 +1186,8 @@ function FeedbackUI:Refresh()
         end
     end
     bar:SelectTab(state.tab)
+    ShowPlan(state.tab == "plan")
+    if state.tab == "plan" then return end
     panel.kindBar:Select(state.kind or "all")
     panel.sortLink:Refresh()
     -- list
@@ -1189,7 +1220,7 @@ function FeedbackUI:Select(id)
         self:NewsCount() > 0 and "Yours |TInterface\\COMMON\\Indicator-Yellow:12:12:0:0|t" or "Yours")
 end
 
--- Opens the page on a tab ("all" | "mine" | "inbox"), an item picked when given.
+-- Opens the page on a tab ("all" | "mine" | "inbox" | "plan"), an item picked when given.
 function FeedbackUI:Open(tab, id)
     if tab then state.tab = tab end
     if id then
@@ -1260,7 +1291,10 @@ function FeedbackUI:CreatePanel(parent)
             FeedbackUI:Refresh()
         end,
     })
-    bar:SetFilters({ p.sortLink, kinds, p.search })
+    p.listFilters = { p.sortLink, kinds, p.search }
+    bar:SetFilters(p.listFilters)
+    p.shownFilters = p.listFilters
+    p.plan = ns.FeedbackPlanUI and ns.FeedbackPlanUI:Create(L.content) or nil
 
     -- the list in the list column (the shared rows), the item in the detail: its banner, its body
     p.list = UI():CreateScrollList(L.list, ROW_H, InitRow, RowHeight)

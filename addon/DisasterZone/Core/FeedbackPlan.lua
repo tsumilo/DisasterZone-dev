@@ -50,14 +50,14 @@ local MAX_RELEASES = 30
 local COMING_MAX = 6            -- releases the guild sees
 local COMING_ITEMS = 40         -- items per release the guild sees
 local MAX_TIME = 2147483647
-local HELLO_DELAY = 40          -- seconds after login (after the feedback's own sync)
+local HELLO_DELAY = 26          -- seconds after login (with the feedback's own sync, Core/Feedback.lua LOGIN_DELAY)
 local ANSWER_LIMIT = 60
 
 Plan.SIZES, Plan.SIZE_H, Plan.SIZE_INFO, Plan.LATER = SIZES, SIZE_H, SIZE_INFO, LATER
 
 local Now, IsInt = Util.Now, Util.IsInt
 local function F() return ns.Feedback end
-local function DemoOn() return Util.DemoOn() end
+local DemoOn = Util.DemoOn
 local function Comm() return ns.Comm end
 
 ---------------------------------------------------------------------------
@@ -743,7 +743,7 @@ function Plan:OnInit()
 end
 
 function Plan:OnLogin()
-    Util.After(HELLO_DELAY + Util.Jitter("fbplan", 10), AfterLogin)
+    Util.After(HELLO_DELAY + Util.Jitter("fbplan", 8), AfterLogin)
 end
 
 ---------------------------------------------------------------------------

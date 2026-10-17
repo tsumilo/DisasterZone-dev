@@ -30,6 +30,8 @@
   {"kind": "up", "from": "Core/EventLive.lua", "to": "Core/Sync.lua", "why": "L3->L4 Events->Sync", "syms": ["Sync.GetPeer"]},
   {"kind": "up", "from": "Core/Events.lua", "to": "Core/Comm.lua", "why": "L3->L4 Events->Sync", "syms": ["Comm.Fits"]},
   {"kind": "up", "from": "Core/Events.lua", "to": "Core/DigestSync.lua", "why": "L3->L4 Events->Sync", "syms": ["DigestSync.New"]},
+  {"kind": "up", "from": "Core/FeedbackPlan.lua", "to": "Core/Comm.lua", "why": "L3->L4 Guild->Sync", "syms": ["Comm"]},
+  {"kind": "up", "from": "Core/FeedbackPlan.lua", "to": "Core/Sync.lua", "why": "L3->L4 Guild->Sync", "syms": ["Sync.GetPeer"]},
   {"kind": "up", "from": "Core/Feedback.lua", "to": "Core/Comm.lua", "why": "L3->L4 Guild->Sync", "syms": ["Comm"]},
   {"kind": "up", "from": "Core/Feedback.lua", "to": "Core/Sync.lua", "why": "L3->L4 Guild->Sync", "syms": ["Sync.GetPeer"]},
   {"kind": "up", "from": "Core/Feedback.lua", "to": "UI/MainFrame.lua", "why": "L3->L5 Guild->Shell", "syms": ["MainFrame.GetSelectedTab"]},

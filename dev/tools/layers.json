@@ -50,6 +50,7 @@
   "Core/RecruitIntro.lua": 3,
   "Core/RecruitMessage.lua": 3,
   "Core/Feedback.lua": 3,
+  "Core/FeedbackPlan.lua": 3,
 
   "Core/RaidPlan.lua": 3,
   "Core/RaidNights.lua": 3,

@@ -3498,6 +3498,14 @@ STATES[_FB_AT:_FB_AT] = [
                                            "color = ns.Feedback.KIND_INFO.change.color, title = 'Caelith answered your "
                                            "feedback', text = '\"Settings > Swing timer has a Size option.\"', button = "
                                            "'See it' })")),
+    # the release plan (UI/FeedbackPlan.lua): the Plan tab's views, the release check, Plan it in the Inbox
+    ("Feedback - plan board (demo)", fb_view("ns.FeedbackPlanUI:SetView('board')", tab="plan")),
+    ("Feedback - plan sort (demo)", fb_view("ns.FeedbackPlanUI:SetView('sort')", tab="plan")),
+    ("Feedback - plan roadmap (demo)", fb_view("ns.FeedbackPlanUI:SetView('road')", tab="plan")),
+    ("Feedback - release check (demo)", fb_view("ns.FeedbackPlanUI:SetView('board'); "
+                                                "ns.FeedbackPlanUI:OpenCheck(ns.FeedbackPlan:Releases()[1].v)", tab="plan")),
+    ("Feedback - plan it (demo)", fb_view("ns.FeedbackUI:GetPanel().detail.plan:Click()", tab="inbox")),
+    ("Changelog - coming next (demo)", fb_view("ns.ChangelogUI:Open()")),
     ("Changelog - feedback credits", fb_view("local e; for _, x in ipairs(ns.CHANGELOG) do if x.version == ns.version "
                                              "then e = x end end; table.insert(e.sections[1].lines, 1, { 'The roll popup "
                                              "waits until you leave combat.', fb = { 12 }, by = { 'Gina', 'Grimtusk' }, "
