@@ -37,6 +37,11 @@ files). What it cannot: art, the TOC header, libraries, Core\\Boot.lua, the 3D r
 DisasterZone_Rooms next to the addon folder: the zip carries both folders, and the build id covers both). `patch` refuses those and says a full
 release is needed; for art it accepts the change when Core\\BuildInfo.lua's assetPack was raised (the code that
 needs the new art must check ns:HasAssets(n)).
+
+The game packs (DisasterZone_<Game> next to the addon folder, tools/packs.py, dev/docs/GAME_PACKS.md) are part of
+the same tree: their files are named with their folder ("DisasterZone_Chess/Chess.lua") in guards, updates and the
+build id, a full release stages and zips them and stamps each one (its TOC's X-DZ-Build and Core/BuildInfo.lua's
+packs say the same), and an update carries their Lua like the addon's own (not Load.lua / Done.lua, not their art).
 """
 import argparse
 import hashlib
@@ -57,6 +62,7 @@ if HERE not in sys.path:
 
 import patchlib  # noqa: E402
 import launchlib  # noqa: E402
+import packs as packlib  # noqa: E402
 
 ADDON_NAME = "DisasterZone"
 ADDON_DIR = os.path.join(REPO, "addon", ADDON_NAME)
@@ -156,12 +162,48 @@ def rooms_hashes(addon_dir=None):
     return file_hashes(d) if d else {}
 
 
+def pack_of(path):
+    """The game pack a tree path is in ("DisasterZone_Chess/Chess.lua" -> "DisasterZone_Chess"), or None (the addon's
+    own files)."""
+    head, sep, _ = path.partition("/")
+    return head if sep and head.startswith(ADDON_NAME + "_") and head != ROOMS_NAME else None
+
+
+def pack_dirs(addon_dir):
+    """{folder name: path} of the game packs next to an addon folder (tools/packs.py find_packs)."""
+    return packlib.find_packs(addon_dir)
+
+
+def src_path(addon_dir, rel):
+    """Where a tree path is on disk: in the addon folder, or (a pack's) next to it."""
+    if pack_of(rel):
+        return os.path.join(os.path.dirname(os.path.normpath(addon_dir)), rel)
+    return os.path.join(addon_dir, rel)
+
+
+def tree_files(addon_dir):
+    """The TOC files of the addon and then of each game pack (with its folder), in load order."""
+    files = list(parse_toc(addon_dir)[1])
+    for name, folder in pack_dirs(addon_dir).items():
+        files += [name + "/" + f for f in parse_toc(folder, name)[1]]
+    return files
+
+
+def pack_hashes(addon_dir, lua_only=False):
+    """{folder: {path in the pack: sha256}} of the game packs next to an addon folder."""
+    return {name: file_hashes(folder, lua_only=lua_only) for name, folder in pack_dirs(addon_dir).items()}
+
+
 def is_patchable(path):
+    pack = pack_of(path)
+    if pack:
+        inner = path[len(pack) + 1:]
+        return inner.endswith(".lua") and inner not in (packlib.PACK_FIRST, packlib.PACK_LAST)
     return path.endswith(".lua") and not path.startswith("Libs/") and path not in PROTECTED and not is_room_data(path)
 
 
 def patchable_files(addon_dir):
-    return [f for f in parse_toc(addon_dir)[1] if is_patchable(f)]
+    return [f for f in tree_files(addon_dir) if is_patchable(f)]
 
 
 def all_files(addon_dir):
@@ -185,9 +227,9 @@ def file_hashes(addon_dir, lua_only=False):
     return out
 
 
-def build_id(hashes, rooms=None):
+def build_id(hashes, rooms=None, packs=None):
     """The build of a release: its files' hashes (rooms: DisasterZone_Rooms' too, so a release whose room data
-    changed is another build)."""
+    changed is another build; packs: {folder: hashes} of the game packs, the same)."""
     h = hashlib.sha256()
     for rel in sorted(hashes):
         if rel in TOOL_MANAGED:
@@ -195,7 +237,35 @@ def build_id(hashes, rooms=None):
         h.update(rel.encode("utf-8") + b"\0" + hashes[rel].encode("ascii") + b"\n")
     for rel in sorted(rooms or {}):
         h.update((ROOMS_NAME + "/" + rel).encode("utf-8") + b"\0" + rooms[rel].encode("ascii") + b"\n")
+    for name in sorted(packs or {}):
+        for rel in sorted(packs[name]):
+            h.update((name + "/" + rel).encode("utf-8") + b"\0" + packs[name][rel].encode("ascii") + b"\n")
     return h.hexdigest()[:16]
+
+
+def pack_stamp(hashes, name):
+    """A game pack's stamp: its files' hashes without its own TOC (which carries the stamp), so an unchanged pack
+    keeps its stamp, and its folder stays the same from one release to the next."""
+    h = hashlib.sha256()
+    for rel in sorted(hashes):
+        if rel != name + ".toc":
+            h.update(rel.encode("utf-8") + b"\0" + hashes[rel].encode("ascii") + b"\n")
+    return h.hexdigest()[:16]
+
+
+def stamp_pack_toc(raw, stamp):
+    """The TOC text with its '## X-DZ-Build:' line saying stamp (added after the X-DZ-Kind line when missing)."""
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    lines = raw.split(nl)
+    for i, line in enumerate(lines):
+        if line.strip().lower().startswith("## x-dz-build:"):
+            lines[i] = "## X-DZ-Build: " + stamp
+            return nl.join(lines)
+    for i, line in enumerate(lines):
+        if line.strip().lower().startswith("## x-dz-kind:"):
+            lines.insert(i + 1, "## X-DZ-Build: " + stamp)
+            return nl.join(lines)
+    return "## X-DZ-Build: " + stamp + nl + raw
 
 
 def asset_pack(addon_dir):
@@ -206,10 +276,14 @@ def asset_pack(addon_dir):
     return int(m.group(1))
 
 
-def build_info_lua(bid, pack):
+def build_info_lua(bid, pack, stamps=None):
+    """stamps: {pack folder: stamp} of the game packs this release ships (Core/Boot.lua CheckPack)."""
+    rows = ""
+    if stamps:
+        rows = "    packs = {\n" + "".join('        ["%s"] = "%s",\n' % (n, stamps[n]) for n in sorted(stamps)) + "    },\n"
     return ("-- DisasterZone: what is installed on disk (written by dev/tools/release.py for this release).\n"
             "-- See the source tree's Core/BuildInfo.lua for what the fields mean. Never part of an in-game update.\n"
-            "DisasterZoneBuild = {\n    id = \"%s\",\n    assetPack = %d,\n}\n" % (bid, pack))
+            "DisasterZoneBuild = {\n    id = \"%s\",\n    assetPack = %d,\n%s}\n" % (bid, pack, rows))
 
 
 def patch_key_lua(key):
@@ -231,7 +305,7 @@ def guard_for(path):
 
 def guard_state(addon_dir, rel):
     """'ok' | 'missing' | 'wrong' for one patchable file."""
-    data = read(os.path.join(addon_dir, rel))
+    data = read(src_path(addon_dir, rel))
     if data.startswith(b"\xef\xbb\xbf"):
         data = data[3:]
     m = GUARD_RE.match(data)
@@ -243,7 +317,7 @@ def guard_state(addon_dir, rel):
 def guards(addon_dir, action):
     changed, problems = [], []
     for rel in patchable_files(addon_dir):
-        path = os.path.join(addon_dir, rel)
+        path = src_path(addon_dir, rel)
         if not os.path.exists(path):
             problems.append("%s: listed in the TOC but missing" % rel)
             continue
@@ -285,12 +359,14 @@ def _put(path, data):
 # Full release
 # ---------------------------------------------------------------------------------------------------------------
 
-def stage_tree(src, dst, lua_only=False, build=None, key=None, link=False, rooms=False):
+def stage_tree(src, dst, lua_only=False, build=None, key=None, link=False, rooms=False, packs=True):
     """Copy the addon folder `src` to `dst` as a release: BuildInfo gets the build id, the outbox is emptied.
     lua_only=True copies only what the game executes (.toc, .lua): enough for the offline harness.
     link=True hard-links the files instead of copying them (tests: a new copy costs a virus scan on first read).
     rooms=True also copies the DisasterZone_Rooms folder next to `src` (when there is one) next to `dst`; its files
     go into the build id and the record ("rooms").
+    packs=True (default) copies the game packs next to `src` next to `dst` the same way, each stamped (its TOC's
+    X-DZ-Build, BuildInfo's packs); record "packs" ({folder: hashes}) and "packTocs" ({folder: TOC text}).
     Returns the release record (without the zip)."""
     if os.path.exists(dst):
         raise ReleaseError("%s already exists" % dst)
@@ -318,14 +394,36 @@ def stage_tree(src, dst, lua_only=False, build=None, key=None, link=False, rooms
             os.makedirs(os.path.dirname(target), exist_ok=True)
             (os.link if link else shutil.copyfile)(os.path.join(rsrc, rel), target)
         room_hashes = file_hashes(rdst)
+    pack_records, pack_tocs, stamps = {}, {}, {}
+    for name, psrc in (pack_dirs(src).items() if packs else ()):
+        pdst = os.path.join(os.path.dirname(os.path.normpath(dst)), name)
+        if os.path.exists(pdst):
+            raise ReleaseError("%s already exists" % pdst)
+        for rel in all_files(psrc):
+            if lua_only and not rel.endswith((".lua", ".toc")):
+                continue
+            target = os.path.join(pdst, rel)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            if rel == name + ".toc":
+                shutil.copyfile(os.path.join(psrc, rel), target)      # (rewritten below: never a link)
+            else:
+                (os.link if link else shutil.copyfile)(os.path.join(psrc, rel), target)
+        stamps[name] = pack_stamp(file_hashes(pdst), name)
+        toc_path = os.path.join(pdst, name + ".toc")
+        raw = read(toc_path).decode("utf-8-sig")
+        _put(toc_path, stamp_pack_toc(raw, stamps[name]).encode("utf-8"))
+        pack_records[name] = file_hashes(pdst)
+        pack_tocs[name] = parse_toc(pdst, name)[2]
     hashes = file_hashes(dst)
-    bid = build or build_id(hashes, room_hashes)
-    _put(os.path.join(dst, "Core", "BuildInfo.lua"), build_info_lua(bid, pack).encode("utf-8"))
+    bid = build or build_id(hashes, room_hashes, pack_records)
+    _put(os.path.join(dst, "Core", "BuildInfo.lua"), build_info_lua(bid, pack, stamps).encode("utf-8"))
     headers, files, raw = parse_toc(dst)
     record = {"version": headers.get("version", "0"), "build": bid, "assetPack": pack, "files": hashes,
               "toc": raw, "luaOnly": bool(lua_only)}
     if rsrc:
         record["rooms"] = room_hashes
+    if pack_records:
+        record["packs"], record["packTocs"] = pack_records, pack_tocs
     return record
 
 
@@ -351,6 +449,19 @@ def check_tree(addon_dir):
                 ROOMS_NAME, rheaders.get("version"), ADDON_NAME, headers.get("version")))
         if rheaders.get("loadondemand") not in ("1", "true"):
             problems.append("%s.toc lacks '## LoadOnDemand: 1'" % ROOMS_NAME)
+    for name, folder in pack_dirs(addon_dir).items():
+        pheaders, pfiles, _ = parse_toc(folder, name)
+        if ADDON_NAME not in [d.strip() for d in (pheaders.get("dependencies") or "").split(",")]:
+            problems.append("%s.toc lacks '## Dependencies: %s'" % (name, ADDON_NAME))
+        if pheaders.get("x-dz-kind") != "game":
+            problems.append("%s.toc lacks '## X-DZ-Kind: game'" % name)
+        if pheaders.get("loadondemand") in ("1", "true"):
+            problems.append("%s.toc is load-on-demand: a game pack loads at login" % name)
+        if not pfiles or pfiles[0] != packlib.PACK_FIRST or pfiles[-1] != packlib.PACK_LAST:
+            problems.append("%s.toc: %s must be its first file and %s its last" % (
+                name, packlib.PACK_FIRST, packlib.PACK_LAST))
+        if any(pack_of(f) or f.startswith("Media/") for f in pfiles):
+            problems.append("%s.toc lists a path that is not the pack's own Lua" % name)
     return problems
 
 
@@ -375,6 +486,38 @@ def warn_release_suites():
             print("  " + p)
 
 
+README_NAME = "Read me.txt"
+
+
+def readme_text(version, record):
+    """The read-me at the root of the release zip: which folders to copy where."""
+    games = []
+    for name in sorted(record.get("packs", {})):
+        p = packlib.BY_FOLDER.get(name)
+        games.append("  %-26s %s" % (name, p["name"] if p else ""))
+    return "\n".join([
+        "DisasterZone %s" % version,
+        "",
+        "The easy way: the DisasterZone launcher installs and updates all of this for you, and lets you pick",
+        "which games you want (github.com/tsumilo/DisasterZone-releases).",
+        "",
+        "By hand: copy the folders you want into World of Warcraft\\_anniversary_\\Interface\\AddOns.",
+        "",
+        "  DisasterZone               required",
+        "  DisasterZone_Rooms         the 3D views (strategy boards, the chess hall, Raid Trainer's arenas)",
+        "",
+        "Each game is a folder of its own. Copy only the ones you play:",
+        "",
+    ] + games + [
+        "",
+        "Updating by hand: delete the old DisasterZone folders first, then copy the new ones. Pasting over",
+        "the old folders keeps files that are no longer used (from 1.5.5 on that is all the game art that",
+        "used to live inside DisasterZone). Your settings and game progress are kept either way: they are",
+        "in your saved variables, not in these folders.",
+        "",
+    ])
+
+
 def cmd_full(args):
     warn_release_suites()
     problems = check_tree(ADDON_DIR)
@@ -397,11 +540,13 @@ def cmd_full(args):
     record["commit"] = git_commit()
     record["time"] = time.strftime("%Y-%m-%d %H:%M:%S")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for name in (ADDON_NAME, ROOMS_NAME):                # (both folders go into Interface\AddOns)
+        # (every folder goes into Interface\AddOns: the addon, the 3D rooms, the game packs; the read-me at the root)
+        for name in [ADDON_NAME, ROOMS_NAME] + sorted(record.get("packs", {})):
             folder = os.path.join(tmp, name)
             if os.path.isdir(folder):
                 for rel in all_files(folder):
                     zf.write(os.path.join(folder, rel), name + "/" + rel)
+        zf.writestr(README_NAME, readme_text(version, record).replace("\n", "\r\n"))
     shutil.rmtree(tmp)
     with open(record_path, "w", encoding="utf-8") as fh:
         json.dump(record, fh, indent=1)
@@ -409,8 +554,9 @@ def cmd_full(args):
         json.dump({"version": version}, fh)
     # a new base makes the outbox of the previous one meaningless
     _put(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), patchlib.OUTBOX_STUB.encode("utf-8"))
-    print("release %s: build %s, art pack %d, %d files + %d in %s" % (
-        version, record["build"], record["assetPack"], len(record["files"]), len(record.get("rooms", {})), ROOMS_NAME))
+    print("release %s: build %s, art pack %d, %d files + %d in %s + %d game pack(s) (%s)" % (
+        version, record["build"], record["assetPack"], len(record["files"]), len(record.get("rooms", {})), ROOMS_NAME,
+        len(record.get("packs", {})), ", ".join("%s %d" % (n, len(h)) for n, h in sorted(record.get("packs", {}).items()))))
     print("  %s (%.1f MB)" % (zip_path, os.path.getsize(zip_path) / 1048576.0))
     print("  this is now the base for in-game updates. Members install the zip once; after that 'release.py patch'.")
     if getattr(args, "publish", False):
@@ -450,6 +596,23 @@ def diff_against_base(base, addon_dir):
         if k != "version" and base_headers.get(k) != headers.get(k):
             errors.append("TOC header '%s' changed (%r -> %r)" % (k, base_headers.get(k), headers.get(k)))
 
+    # the game packs: the same set, the same TOC headers (but the stamp); their files join the tree with their folder
+    base_packs, base_pack_tocs = base.get("packs", {}), base.get("packTocs", {})
+    now_packs = pack_dirs(addon_dir)
+    for name in sorted(set(base_packs) | set(now_packs)):
+        if name not in now_packs:
+            errors.append("the game pack %s is gone: ship a full release" % name)
+        elif name not in base_packs:
+            errors.append("%s is a new game pack: ship a full release" % name)
+        else:
+            bh, nh = toc_from_text(base_pack_tocs.get(name, ""))[0], parse_toc(now_packs[name], name)[0]
+            for k in sorted(set(bh) | set(nh)):
+                if k != "x-dz-build" and bh.get(k) != nh.get(k):
+                    errors.append("%s.toc header '%s' changed (%r -> %r)" % (name, k, bh.get(k), nh.get(k)))
+    for name in sorted(base_pack_tocs):
+        base_files = base_files + [name + "/" + f for f in toc_from_text(base_pack_tocs[name])[1]]
+    files = tree_files(addon_dir)
+
     base_set, now_set = set(base_files), set(files)
     for f in base_files:
         if not is_patchable(f) and f not in now_set:
@@ -470,7 +633,11 @@ def diff_against_base(base, addon_dir):
             errors.append("the 3D room data changed (%s/%s%s): ship a full release" % (
                 ROOMS_NAME, ", ".join(moved[:3]), ", ..." if len(moved) > 3 else ""))
     now_hashes = file_hashes(addon_dir, lua_only=lua_only)
-    base_hashes = base["files"]
+    for name, h in pack_hashes(addon_dir, lua_only=lua_only).items():
+        now_hashes.update((name + "/" + k, v) for k, v in h.items())
+    base_hashes = dict(base["files"])
+    for name, h in base_packs.items():
+        base_hashes.update((name + "/" + k, v) for k, v in h.items())
     pack = asset_pack(addon_dir)
     art_changed = []
     for rel in sorted(set(base_hashes) | set(now_hashes)):
@@ -479,6 +646,8 @@ def diff_against_base(base, addon_dir):
         if rel.endswith(".lua"):
             if rel.startswith("Libs/") or rel in PROTECTED:
                 errors.append("%s changed" % rel)
+            elif pack_of(rel) and not is_patchable(rel):
+                errors.append("%s changed (a game pack's first or last file: ship a full release)" % rel)
             elif is_room_data(rel):
                 if rel in now_set and rel in base_set:
                     errors.append("%s changed (a 3D room: ship a full release)" % rel)
@@ -505,7 +674,7 @@ def diff_against_base(base, addon_dir):
     for i, f in enumerate(files):
         if not is_patchable(f):
             continue
-        path = os.path.join(addon_dir, f)
+        path = src_path(addon_dir, f)
         if not os.path.exists(path):
             errors.append("%s is listed in the TOC but missing" % f)
             continue
@@ -515,6 +684,8 @@ def diff_against_base(base, addon_dir):
         else:
             before = ""
             for later in files[i + 1:]:
+                if pack_of(later) != pack_of(f):
+                    break       # (a new last file of the addon or of a pack: after its last file, Core/Boot.lua)
                 if later in base_set and is_patchable(later):
                     before = later
                     break
@@ -578,15 +749,19 @@ def source_differences(base, addon_dir):
     """Where the source tree differs from the base release, among what an update or a version bump touches: the
     TOC, the patchable Lua files of either TOC, the docs. Returns [(path, 'changed' | 'new' | 'deleted')]."""
     base_files = set(toc_from_text(base["toc"])[1])
-    now_files = set(parse_toc(addon_dir)[1])
+    base_hashes = dict(base["files"])
+    for name, raw in base.get("packTocs", {}).items():       # (a game pack's files with their folder)
+        base_files |= {name + "/" + f for f in toc_from_text(raw)[1]}
+        base_hashes.update((name + "/" + k, v) for k, v in base.get("packs", {}).get(name, {}).items())
+    now_files = set(tree_files(addon_dir))
     candidates = {f for f in base_files | now_files if is_patchable(f)}
     candidates.add(ADDON_NAME + ".toc")
     candidates |= {f for f in base["files"] if f.endswith(DOC_EXT)}
     out = []
     for rel in sorted(candidates):
-        path = os.path.join(addon_dir, rel)
+        path = src_path(addon_dir, rel)
         have = hashlib.sha256(read(path)).hexdigest() if os.path.exists(path) else None
-        want = base["files"].get(rel)
+        want = base_hashes.get(rel)
         if have != want:
             out.append((rel, "new" if want is None else ("deleted" if have is None else "changed")))
     return out
@@ -603,7 +778,7 @@ def restore_to_base(base, addon_dir, zip_path, backup_dir):
                            "Use --keep-source and undo the change by hand." % (zip_path, base["version"]))
     with zipfile.ZipFile(zip_path) as zf:
         for rel, state in diffs:
-            path = os.path.join(addon_dir, rel)
+            path = src_path(addon_dir, rel)
             if os.path.exists(path):
                 saved = os.path.join(backup_dir, rel)
                 os.makedirs(os.path.dirname(saved), exist_ok=True)
@@ -611,7 +786,7 @@ def restore_to_base(base, addon_dir, zip_path, backup_dir):
             if state == "new":
                 os.remove(path)
             else:
-                data = zf.read(ADDON_NAME + "/" + rel)
+                data = zf.read(rel if pack_of(rel) else ADDON_NAME + "/" + rel)   # (a pack's: its own folder)
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 _put(path, data)
     left = source_differences(base, addon_dir)
@@ -762,7 +937,7 @@ def selftest_parts(addon_dir):
     parts, cur, total, ztotal, mlen = [], [], 0, 0, 0
     room = 0.95                                       # (the manifest and the signature take their share too)
     for rel in patchable_files(addon_dir):
-        src = patchlib.normalize_source(read(os.path.join(addon_dir, rel)))
+        src = patchlib.normalize_source(read(src_path(addon_dir, rel)))
         z = len(patchlib.encode_for_print(patchlib.deflate_raw(src)))
         line = len(rel) + 96
         if cur and (total + len(src) > patchlib.MAX_TOTAL_LEN * room or ztotal + z > patchlib.MAX_TOTAL_ZLEN * room
@@ -787,7 +962,7 @@ def make_selftest(addon_dir, key, seq, part=1):
         state = guard_state(addon_dir, rel)
         if state != "ok":
             raise ReleaseError("%s: guard on line 1 is %s (run 'release.py guards add')" % (rel, state))
-        entries.append({"kind": "F", "path": rel, "src": read(os.path.join(addon_dir, rel))})
+        entries.append({"kind": "F", "path": rel, "src": read(src_path(addon_dir, rel))})
     bad = [x for x in syntax_errors(entries) if not x.startswith("(")]
     if bad:
         raise ReleaseError("syntax errors:\n  " + "\n  ".join(bad))
@@ -985,6 +1160,13 @@ def _run(cmd, cwd=None, check=True):
     return res
 
 
+def zip_folders(zip_path):
+    """The addon folders a release zip carries (DisasterZone, DisasterZone_Rooms, the game packs), the core first."""
+    with zipfile.ZipFile(zip_path) as zf:
+        tops = {n.split("/", 1)[0] for n in zf.namelist() if "/" in n}
+    return tuple([ADDON_NAME] + sorted(t for t in tops if t.startswith(ADDON_NAME + "_")))
+
+
 def cmd_publish(args):
     """Put a full release (dist zip + record) where the launcher finds it: the releases repository (git commit +
     push + a GitHub release carrying the zip), or with --out any folder (no git; for tests and a local try)."""
@@ -998,7 +1180,7 @@ def cmd_publish(args):
         if not os.path.exists(path):
             raise ReleaseError("%s is missing: publish works on a release made with 'release.py full'" % path)
     record = _load_json(record_path, {})
-    tree = launchlib.read_zip_tree(zip_path, (ADDON_NAME, ROOMS_NAME))
+    tree = launchlib.read_zip_tree(zip_path, zip_folders(zip_path))
     stamped = tree.get(ADDON_NAME, {}).get("Core/BuildInfo.lua", b"")
     if ('id = "%s"' % record["build"]).encode("ascii") not in stamped:
         raise ReleaseError("%s does not carry build %s: it is not the zip of that release" % (zip_path, record["build"]))

@@ -171,7 +171,7 @@ def staged_fixture_equals_a_real_download():
     def new_mods(r):
         write(r, "Core/TestNew.lua", guard("Core/TestNew.lua") + "-- test\n")
         toc_add(r, "Core/TestNew.lua", "Core/Constants.lua")
-        toc_remove(r, "DisasterZone_Azeromon/Sound.lua")
+        toc_remove(r, "UI/PerfUI.lua")
     base_dir, record, new_dir = simple_pair(new_mods=new_mods)
     bundle = make(record, new_dir)
     w = World(addon_dir=base_dir)
@@ -227,7 +227,7 @@ class Sandbox:
         dst = _unique("installed")
         with zipfile.ZipFile(os.path.join(release.DIST, "DisasterZone-%s.zip" % version)) as zf:
             names = zf.namelist()
-            assert all(n.startswith("DisasterZone/") for n in names), names[:3]
+            assert all(n.startswith("DisasterZone/") or n == release.README_NAME for n in names), names[:3]
             zf.extractall(dst)
         return os.path.join(dst, "DisasterZone")
 
@@ -343,9 +343,9 @@ def revoke_puts_the_publishers_copy_back_too():
         append(sb.addon, "Core/Util.lua", '\nUtil.PATCH_MARK = "x"\n')
         write(sb.addon, "Core/TestNew.lua", guard("Core/TestNew.lua") + "-- test\nDisasterZoneTestNew = true\n")
         toc_add(sb.addon, "Core/TestNew.lua", "Core/Constants.lua")
-        toc_remove(sb.addon, "DisasterZone_Azeromon/Sound.lua")
-        gone = read(sb.addon, "DisasterZone_Azeromon/Sound.lua")
-        os.remove(os.path.join(sb.addon, "Games", "Azeromon", "Sound.lua"))
+        toc_remove(sb.addon, "UI/PerfUI.lua")
+        gone = read(sb.addon, "UI/PerfUI.lua")
+        os.remove(os.path.join(sb.addon, "UI", "PerfUI.lua"))
         set_version(sb.addon, "1.0.1")
         write(sb.addon, "README.md", "# DisasterZone 1.0.1\n")
         # art changed without a new art pack: an update would be refused, and the sync check says why
@@ -355,7 +355,7 @@ def revoke_puts_the_publishers_copy_back_too():
         write(sb.addon, "Art/map.blp", "BLP2 art")
         ok, lines = release.sync_report(base, [], sb.addon)
         assert ok is False and any(l.strip() == "Core/Util.lua" for l in lines) and \
-            any(l.strip() == "DisasterZone_Azeromon/Sound.lua" for l in lines), lines
+            any(l.strip() == "UI/PerfUI.lua" for l in lines), lines
         sb.run("patch")
         log = json.load(open(log_path, encoding="utf-8"))
         assert set(log[-1]["sha"]) == {"Core/Util.lua", "Core/TestNew.lua"}
@@ -387,7 +387,7 @@ def revoke_puts_the_publishers_copy_back_too():
         for rel, text in pristine.items():
             assert read(sb.addon, rel) == text, rel
         assert not os.path.exists(os.path.join(sb.addon, "Core", "TestNew.lua"))
-        assert read(sb.addon, "DisasterZone_Azeromon/Sound.lua") == gone
+        assert read(sb.addon, "UI/PerfUI.lua") == gone
         assert release.source_differences(base, sb.addon) == []
         assert release.sync_report(base, log, sb.addon)[0] is True
         # what was there is kept
@@ -395,7 +395,7 @@ def revoke_puts_the_publishers_copy_back_too():
         saved = os.path.join(undone, os.listdir(undone)[0])
         assert 'PATCH_MARK = "x"' in read(saved, "Core/Util.lua") and "ns.WIP = true" in read(saved, "Core/Dungeon.lua")
         assert "DisasterZoneTestNew" in read(saved, "Core/TestNew.lua") and "1.0.1" in read(saved, "DisasterZone.toc")
-        assert not os.path.exists(os.path.join(saved, "Games", "Azeromon", "Sound.lua"))
+        assert not os.path.exists(os.path.join(saved, "UI", "PerfUI.lua"))
 
         p.relog()
         w.tick(2)
