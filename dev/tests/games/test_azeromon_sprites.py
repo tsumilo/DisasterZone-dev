@@ -1,4 +1,4 @@
-"""Azeromon's pixel beasts (Games/Azeromon/Sprites.lua + the generated BeastArt.lua / Media/Azeromon/Beasts).
+"""Azeromon's pixel beasts (DisasterZone_Azeromon/Sprites.lua + the generated BeastArt.lua / DisasterZone_Azeromon/Media/Beasts).
 
 Covers: every species (and every shiny skin) has art for both views with every clip, every frame inside its texture;
 the textures on disk are palette BLP2s laid out exactly like the client's own (the format the client really draws);
@@ -81,7 +81,7 @@ def the_textures_are_palette_blps_like_the_clients_own():
       for k, b in pairs(ns.AzeroBeastArt.beasts) do out[#out + 1] = { k, b.tex, b.w, b.h } end
       return out""")
     assert len(idx) >= c.eval("local n = 0 for _ in pairs(ns.AzeroData.species) do n = n + 1 end return n")
-    folder = os.path.join(ADDON, "Media", "Azeromon", "Beasts")
+    folder = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media", "Beasts")
     for key, tex, tw, th in idx:
         path = os.path.join(folder, tex + ".blp")
         assert os.path.exists(path), path

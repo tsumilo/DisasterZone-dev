@@ -27,7 +27,6 @@ FOLDERS = {"bingo": "DisasterZone_Bingo", "trainer": "DisasterZone_Trainer", "az
            "chess": "DisasterZone_Chess", "illidan": "DisasterZone_Illidan", "holdtheline": "DisasterZone_HoldTheLine"}
 TMP = tempfile.mkdtemp(prefix="dzpacks_")
 atexit.register(lambda: shutil.rmtree(TMP, ignore_errors=True))
-_N = [0]
 
 
 def hub(c):
@@ -60,8 +59,7 @@ def tree_copy(mods=None):
     """The addon and its packs (.lua / .toc only, hard links) in a folder of their own, as a development copy with the
     test signing key. mods(root_of_folders) edits it (replace files, never write into them: they are links).
     Returns the copy's DisasterZone folder."""
-    _N[0] += 1
-    root = os.path.join(TMP, "tree%d" % _N[0])
+    root = tempfile.mkdtemp(prefix="tree", dir=TMP)    # (unique: the runner forks a process per case)
     folders = {release.ADDON_NAME: ADDON_DIR}
     folders.update(packs_for(ADDON_DIR))
     for name, src in folders.items():
@@ -69,7 +67,7 @@ def tree_copy(mods=None):
             if rel.endswith((".lua", ".toc")):
                 dst = os.path.join(root, name, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                os.link(os.path.join(src, rel), dst)
+                link_or_copy(os.path.join(src, rel), dst)
     core = os.path.join(root, release.ADDON_NAME)
     put(core, "Core/PatchKey.lua", release.patch_key_lua(test_key()))
     put(core, "Core/BuildInfo.lua", 'DisasterZoneBuild = {\n    id = "dev",\n    assetPack = 99,\n}\n')
@@ -77,6 +75,14 @@ def tree_copy(mods=None):
     if mods:
         mods(root)
     return core
+
+
+def link_or_copy(src, dst):
+    """A hard link (fast on Windows: no virus scan of a new copy), a copy where links can't go (WSL's /tmp)."""
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)
 
 
 def put(folder, rel, text):
@@ -91,9 +97,9 @@ def text(folder, rel):
 
 def released(core):
     """Packages a development copy as a release next to it (stamped packs). -> (release DisasterZone folder, record)"""
-    _N[0] += 1
-    dst = os.path.join(TMP, "rel%d" % _N[0], release.ADDON_NAME)
-    return dst, release.stage_tree(core, dst, lua_only=True, link=True)
+    dst = os.path.join(tempfile.mkdtemp(prefix="rel", dir=TMP), release.ADDON_NAME)
+    same = os.stat(core).st_dev == os.stat(TMP).st_dev       # (links can't cross devices: WSL's /tmp)
+    return dst, release.stage_tree(core, dst, lua_only=True, link=same)
 
 
 def boot(addon_dir, sv=None, **kw):

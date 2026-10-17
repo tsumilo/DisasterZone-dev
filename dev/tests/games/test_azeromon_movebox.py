@@ -20,7 +20,7 @@ from _common import case, run_all, solo, no_errors  # noqa: E402
 from _azero_bot import BOT  # noqa: E402
 
 ADDON = os.environ.get("DISASTERZONE_ADDON_DIR") or os.path.join(TESTS, "..", "..", "addon", "DisasterZone")
-FONT = os.path.join(ADDON, "Media", "Azeromon", "fonts", "PixelifySans-Medium.ttf")
+FONT = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media", "fonts", "PixelifySans-Medium.ttf")
 LINE_W = 472 - 40                    # the line's room: the move list's width less its margins
 SLACK = 1.06                         # the game draws Pixelify a little wider than PIL measures it
 

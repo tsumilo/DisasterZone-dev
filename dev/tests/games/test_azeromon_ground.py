@@ -24,7 +24,7 @@ from _common import case, run_all, solo  # noqa: E402
 from _azero_bot import BOT  # noqa: E402
 
 ADDON = os.path.join(os.path.dirname(DEV), "addon", "DisasterZone")
-GROUND_LUA = os.path.join(ADDON, "Games", "Azeromon", "Ground.lua")
+GROUND_LUA = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Ground.lua")
 
 
 _GROUND = None
@@ -53,7 +53,7 @@ def every_chunk_is_a_power_of_two_tga_of_the_listed_size():
     assert e, "Ground.lua lists no maps"
     for mid, (v, chunks) in e.items():
         for x, y, w, h, tw, th in chunks:
-            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.tga" % (mid, x // 256, y // 256))
+            f = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media", "Ground", "%s_%d_%d.tga" % (mid, x // 256, y // 256))
             assert os.path.exists(f), f
             size = Image.open(f).size
             assert size == (tw, th), (f, size, tw, th)
@@ -67,13 +67,13 @@ def every_pond_has_a_moving_water_strip_of_twelve_frames():
     assert w.get("town"), "Goldshire's pond has no moving water"
     for mid, ponds in w.items():
         for i, (x, y, pw, ph, cols, rows, tw, th) in enumerate(ponds):
-            f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_w%d.tga" % (mid, i + 1))
+            f = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media", "Ground", "%s_w%d.tga" % (mid, i + 1))
             im = Image.open(f).convert("RGBA")
             assert im.size == (tw, th) and im.getextrema()[3][0] == 0, (f, im.size)     # transparent between glints
             assert cols * rows >= 12 and cols * pw <= tw and rows * ph <= th, (f, cols, rows)
-    assert Image.open(os.path.join(ADDON, "Media", "Azeromon", "Ground", "clouds.tga")).size == (256, 256)
+    assert Image.open(os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media", "Ground", "clouds.tga")).size == (256, 256)
     # every baked picture is a TGA (this client draws our palette BLPs as its green missing-texture square)
-    left = [f for f in os.listdir(os.path.join(ADDON, "Media", "Azeromon", "Ground")) if not f.endswith(".tga")]
+    left = [f for f in os.listdir(os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media", "Ground")) if not f.endswith(".tga")]
     assert not left, left
 
 
@@ -316,7 +316,7 @@ def the_sea_glints():
 
 @case
 def the_atlas_has_the_shade_and_shadow_tiles():
-    src = open(os.path.join(ADDON, "Games", "Azeromon", "Atlas.lua")).read()
+    src = open(os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Atlas.lua")).read()
     for name in ("grass1_shade", "wgrass1_shade", "dgrass1_shade", "jgrass1_shade", "shadow",
                  "grass1_forest", "wgrass1_forest", "dgrass1_forest", "jgrass1_forest"):
         assert re.search(r"^\s+%s = \d+,$" % name, src, re.M), name
