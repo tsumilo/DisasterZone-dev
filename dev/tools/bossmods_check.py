@@ -20,7 +20,9 @@ ALERT_FIELDS = {"key", "kind", "spell", "icon", "text", "sub", "role", "on", "st
                 "me", "meText", "phase", "setPhase", "count", "src", "once", "delay", "throttle", "loop", "learn"}
 KINDS = {"bar", "warn", "you", "range"}
 WORDS = {"CAST": "ids", "SUCCESS": "ids", "AURA": "ids", "AURAGONE": "ids", "SUMMON": "ids", "HIT": "ids", "HEAL": "ids",
-         "DIES": "ids", "WIDGET": "ids", "HP": "hp", "YELL": "text", "EMOTE": "text", "ENGAGE": "none", "PHASE": "num"}
+         "DIES": "ids", "WIDGET": "ids", "UCAST": "ids", "SPAWN": "ids", "BACK": "ids", "HP": "hp", "YELL": "text",
+         "EMOTE": "text", "ENGAGE": "none", "PHASE": "num"}
+NOT_SPELLS = ("DIES", "WIDGET", "SPAWN", "BACK")      # (creature / widget ids)
 
 
 def boss_keys():
@@ -71,7 +73,7 @@ def check_trigger(t, where, names, out):
     if form == "ids":
         if not rest or not all(p.isdigit() for p in rest):
             out.append("%s: %r needs ids" % (where, t))
-        elif names is not None and parts[0] not in ("DIES", "WIDGET"):
+        elif names is not None and parts[0] not in NOT_SPELLS:
             for p in rest:
                 if int(p) not in names:
                     out.append("%s: spell %s not in the 2.5.6 client" % (where, p))

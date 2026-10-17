@@ -105,6 +105,9 @@ One string per trigger: a word, then numbers or text.
 | `HEAL <id> [id...]` | SPELL_HEAL |
 | `DIES <npc> [npc...]` | UNIT_DIED of that creature id |
 | `WIDGET <id> [id...]` | UPDATE_UI_WIDGET: that widget's text changed (ev.amount = its first number; an `engage` fires once it is 1 or more) |
+| `UCAST <id> [id...]` | UNIT_SPELLCAST_SUCCEEDED of a creature seen as a unit (boss1-5, target, focus, mouseover, nameplates), once per cast: casts the combat log never shows (the Lurker's Submerge Visual) |
+| `SPAWN <npc> [npc...]` | a creature of that id in the combat log for the first time (each one, by its GUID: adds coming up) |
+| `BACK <npc> [npc...]` | that creature in the combat log again after 20 s without any sign of it (the Lurker emerging) |
 | `HP <pct> [npc]` | the boss (or that creature) drops to `pct`% health or below; fires once per pull |
 | `YELL <text>` | CHAT_MSG_MONSTER_YELL containing the text (English, plain find, case-insensitive) |
 | `EMOTE <text>` | CHAT_MSG_RAID_BOSS_EMOTE / CHAT_MSG_MONSTER_EMOTE containing the text |
@@ -112,7 +115,8 @@ One string per trigger: a word, then numbers or text.
 | `PHASE <n>` | the fight entering phase n |
 
 Prefer spell ids over yells: yells are English only. When a phase change has no spell, use `HP`, then `DIES`, then
-`YELL`. Every spell id must exist in the 2.5.6 client: check with `generators`' spell table
+`YELL`. An ability that never reaches the combat log (check a saved pull with tools/bossmods_learned.py): `UCAST` for
+the boss's own cast, `SPAWN` / `BACK` for creatures coming and going. Every spell id must exist in the 2.5.6 client: check with `generators`' spell table
 (`spell_visuals.table("SpellName")`, build 2.5.6.69795).
 
 ## Hooks (`fn`)

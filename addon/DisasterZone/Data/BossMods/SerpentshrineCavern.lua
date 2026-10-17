@@ -32,27 +32,37 @@ B["SerpentshrineCavern:Hydross"] = {
     },
 }
 
+-- Phase 2 is the Lurker under water. Submerge Visual 28819 is an aura in CM, but on our server it never reached the
+-- combat log (16 Oct 2026: a kill with no submerge seen), so he goes under when DBM sees it (UCAST: his unit's cast)
+-- or when his adds come up, and he is back at his first sign in the log after 20 s gone (or his Whirl or Geyser).
 B["SerpentshrineCavern:Lurker"] = {
     enc = { 624, 2459 },
-    npc = { 21217 },
+    npc = { 21217, 21865, 21873 },  -- the Lurker, Coilfang Ambusher, Coilfang Guardian (the adds while he is under)
+    phases = { [2] = "Submerged" },
     alerts = {
         { key = "spout", kind = "warn", spell = 37433, text = "Spout: jump in the water",
           on = "EMOTE takes a deep breath" },
         -- Spout: first DBM 37, BW 37, CM 42 -> {37, 42}; again DBM 50 (CD), BW 50, CM 45 -> {45, 50}
         { key = "spoutbar", kind = "bar", spell = 37433, start = { 37, 42 }, on = "EMOTE takes a deep breath",
-          cd = { 45, 50 }, stop = "AURA 28819", learn = false },
+          cd = { 45, 50 }, stop = "PHASE 2", learn = false },
         -- Submerge: first DBM 90, BW 90, CM 90 -> 90; after emerging BW 90, DBM 105, CM 120 -> {90, 120}.
-        -- Submerge Visual 28819 is an aura in CM; DBM reads it from UNIT_SPELLCAST_SUCCEEDED (not in our grammar)
-        { key = "submerge", kind = "bar", spell = 28819, text = "Lurker submerges", start = 90, on = "AURAGONE 28819",
-          cd = { 90, 120 } },
+        -- No event of its own to learn from (the phase changes in the saved pulls time it)
+        { key = "submerge", kind = "bar", icon = 28819, text = "Lurker submerges", phase = 1, start = 90,
+          on = "PHASE 1", cd = { 90, 120 } },
         -- Emerge: DBM 60, BW 64, CM 60 + 3 -> {60, 64}; earlier when all nine adds die (DBM)
-        { key = "emerge", kind = "bar", text = "Lurker emerges", icon = 28819, on = "AURA 28819", cd = { 60, 64 },
-          stop = "AURAGONE 28819" },
-        { key = "under", kind = "warn", text = "Lurker submerged: adds", icon = 28819, on = "AURA 28819" },
+        { key = "emerge", kind = "bar", text = "Lurker emerges", icon = 28819, phase = 2, start = { 60, 64 } },
+        { key = "under", kind = "warn", text = "Lurker submerged: adds", icon = 28819, phase = 1, setPhase = 2,
+          on = { "UCAST 28819", "SPAWN 21865 21873" } },
+        -- his Whirl 37363 and Geyser 37478 (BW reads both) come only while he is up
+        { key = "back", kind = "warn", text = "Lurker is back", icon = 28819, phase = 2, setPhase = 1,
+          on = { "BACK 21217", "HIT 37363", "SUCCESS 37478" } },
     },
     fn = {
-        -- first Spout after emerging: CM about 5 s, BW 1 s after its emerge bar -> {1, 5}
-        ["AURAGONE 28819"] = function(m) m:Bar("spoutbar", { 1, 5 }) end,
+        -- first Spout after emerging: CM about 5 s, BW 1 s after its emerge bar -> {1, 5} (unless a Whirl or Geyser
+        -- told us late and his Spout already came: its bar runs from it)
+        ["PHASE 1"] = function(m)
+            if GetTime() - (m.last.spoutbar or -99) > 20 then m:Bar("spoutbar", { 1, 5 }) end
+        end,
     },
 }
 

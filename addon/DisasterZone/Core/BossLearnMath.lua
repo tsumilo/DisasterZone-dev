@@ -3,7 +3,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/BossLearnMath.lua", ...) then
 -- kit's tools/bossmods_learned.py runs this very file (lupa) and gets the same windows the game does. Core/BossLearn.lua
 -- records the pulls and applies what comes out of here; the format is dev/docs/bossmods/LEARNING.md in the dev kit.
 --   learnable  a data alert of kind "bar" with a `spell`, a `start` or a `cd`, not `loop`, not `me`, not `learn = false`
---   predicted  "own": the alert's `on` names its spell, the event is that trigger; "cast": the earliest
+--   predicted  "own": the alert's `on` names its spell, the event is that trigger, and its boss lines (YELL / EMOTE)
+--              too (Leotheras's demon form reaches our log only as his line); "cast": the earliest
 --              SPELL_CAST_START / SPELL_CAST_SUCCESS of its spell (Gruul's Shatter bar starts on Ground Slam's cast)
 --   samples    start = the first event after the pull (or after its phase began); cd = from the bar's (re)start to the
 --              event it predicts. Only inside one phase: a phase change between two casts never makes a sample.
@@ -30,6 +31,7 @@ M.PCT_N = 10               -- samples from which the window is [p10, p90] (neare
 M.CLAMP_LO, M.CLAMP_HI = 0.75, 1.25
 M.WIDE_MIN, M.WIDE_K = 4, 1.25
 M.DEBOUNCE = 1.5           -- s: one alert's events closer than this are one event
+M.LINE_DEBOUNCE = 5        -- s: the same for an alert whose boss line counts too (the line and the spell a few s apart)
 M.STEP = 0.5               -- s: windows are rounded out to this
 M.PAIR = 0.25              -- s: a bar start this close before an event is that event's own trigger
 
@@ -74,12 +76,12 @@ end
 M.Ids = Ids
 
 -- What the recorder needs to know of a learnable alert: { key, spell, mode ("own" | "cast"), own = { [word] = ids },
--- mixed (a trigger that is not the predicted event restarts the bar too), start / cd = { lo, hi } | nil, ph = set |
--- nil, once, fixed }. nil when it is not learnable.
+-- chat (an own alert's boss lines are its event too), mixed (a trigger that is not the predicted event restarts the
+-- bar too), start / cd = { lo, hi } | nil, ph = set | nil, once, fixed }. nil when it is not learnable.
 function M.Spec(a)
     if not M.Learnable(a) then return nil end
     local s = { key = a.key, spell = a.spell, once = a.once and true or nil, own = {} }
-    local named, other = false, false
+    local named, other, chat = false, false, false
     for _, t in ipairs(Triggers(a.on)) do
         local word, ids = Ids(t)
         local hit = false
@@ -90,11 +92,14 @@ function M.Spec(a)
             named = true
             s.own[word] = s.own[word] or {}
             for _, id in ipairs(ids) do s.own[word][#s.own[word] + 1] = id end
+        elseif word == "YELL" or word == "EMOTE" then
+            chat = true
         elseif word then
             other = true
         end
     end
     s.mode = named and "own" or "cast"
+    s.chat = (named and chat) or nil
     s.mixed = (named and other) or nil
     if a.start ~= nil then local lo, hi = M.Window(a.start); if lo then s.start = { lo, hi } end end
     if a.cd ~= nil then local lo, hi = M.Window(a.cd); if lo then s.cd = { lo, hi } end end
@@ -210,7 +215,7 @@ end
 function M.Samples(spec, rec)
     local starts, cds = {}, {}
     if type(rec) ~= "table" or type(rec.o) ~= "table" then return starts, cds end
-    local obs = M.Debounce(rec.o[spec.key], M.DEBOUNCE)
+    local obs = M.Debounce(rec.o[spec.key], spec.chat and M.LINE_DEBOUNCE or M.DEBOUNCE)
     local g = M.Debounce(type(rec.g) == "table" and rec.g[spec.key] or nil, 0)
     local useG = spec.mode == "cast" or spec.mixed
     for _, seg in ipairs(M.Segments(rec)) do

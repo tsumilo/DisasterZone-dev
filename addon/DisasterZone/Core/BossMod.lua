@@ -6,8 +6,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/BossMod.lua", ...) then retur
 -- Off by default: Settings > Combat > Boss mods (bossmods.on). Nothing is read while it is off, and while it is on
 -- the combat log is only read during a boss fight (Core/CombatLog.lua's shared reader).
 --   a fight    starts on ENCOUNTER_START (the data's encounter ids); a boss with `engage` triggers (the Opera's three
---              plays, Hyjal's waves) waits for one of them. Ends on ENCOUNTER_END. After a /reload mid-pull it picks
---              the boss up again from its unit (no first timers then: they come back with the next casts).
+--              plays, Hyjal's waves) waits for one of them. Ends on ENCOUNTER_END, or when it can't have: 5 s out of
+--              the raid it started in (a wipe while I was released, whose ENCOUNTER_END I never got), or the boss's
+--              next ENCOUNTER_START. After a /reload mid-pull it picks the boss up again from its unit (no first
+--              timers then: they come back with the next casts).
 --   alerts     each data alert is one Settings switch (bossmods.off.<boss>.<key>); tank and healer alerts show only
 --              for that role unless "Alerts for other roles" is on (bossmods.roles); my role: bossmods.role
 --              ("auto": the raid's main tank flag, else my talents; Feral by form).
@@ -31,6 +33,9 @@ local DBM_PREFIX, BW_PREFIX = "D5", "BigWigs"
 local GRACE = 1.5                 -- s a window bar stays after its max before it goes
 local WARN_THROTTLE = 2
 local BREAK_MAX = 3600
+local BACK_GAP = 20               -- s without a sign of a creature before BACK <npc> fires on its next one
+local OUT_END = 5                 -- s out of the raid a fight started in before it ends
+local RESTART = 10                -- s: an ENCOUNTER_START this long into a fight of the same boss is its next pull
 
 local function Now() return GetTime() end
 local function Get(path, default)
@@ -64,6 +69,9 @@ local function Triggers(v)
     return v
 end
 
+-- The trigger words keyed by one id each (DIES <npc>, WIDGET <id>, UCAST <spell>, SPAWN <npc>, BACK <npc>): their table.
+local BYID = { DIES = "dies", WIDGET = "widget", UCAST = "ucast", SPAWN = "spawn", BACK = "back" }
+
 -- Adds entry e (fields: a = alert, f = "on" | "stop" | "engage", hook = fn) under the trigger string t.
 local function AddTrigger(def, t, e)
     local word, rest = t:match("^(%u+)%s*(.*)$")
@@ -79,18 +87,12 @@ local function AddTrigger(def, t, e)
                 l[#l + 1] = e
             end
         end
-    elseif word == "DIES" then
+    elseif BYID[word] then
+        local map = T[BYID[word]]
         for id in rest:gmatch("%d+") do
             id = tonumber(id)
-            T.dies[id] = T.dies[id] or {}
-            local l = T.dies[id]
-            l[#l + 1] = e
-        end
-    elseif word == "WIDGET" then
-        for id in rest:gmatch("%d+") do
-            id = tonumber(id)
-            T.widget[id] = T.widget[id] or {}
-            local l = T.widget[id]
+            map[id] = map[id] or {}
+            local l = map[id]
             l[#l + 1] = e
         end
     elseif word == "HP" then
@@ -115,8 +117,10 @@ end
 
 local function Compile(key, def)
     def.key = key
-    def._t = { cleu = {}, dies = {}, hp = {}, yell = {}, emote = {}, engage = {}, phase = {}, widget = {} }
-    def._e = { cleu = {}, dies = {}, hp = {}, yell = {}, emote = {}, engage = {}, phase = {}, widget = {} }   -- (its own engage)
+    def._t = { cleu = {}, dies = {}, hp = {}, yell = {}, emote = {}, engage = {}, phase = {}, widget = {}, ucast = {},
+               spawn = {}, back = {} }
+    def._e = { cleu = {}, dies = {}, hp = {}, yell = {}, emote = {}, engage = {}, phase = {}, widget = {}, ucast = {},
+               spawn = {}, back = {} }   -- (its own engage)
     def.byKey = {}
     for _, a in ipairs(def.alerts or {}) do
         def.byKey[a.key] = a
@@ -438,13 +442,23 @@ function BM:Dispatch(m, l, x)
 end
 
 local seq = 0
+local guidNpc, castSeen = {}, {}  -- (while fights run: creature id per GUID, unit casts already taken by their GUID)
+
 function BM:StartFight(def, opts)
     opts = opts or {}
-    for _, m in ipairs(active) do if m.def == def then return m end end
+    for i = #active, 1, -1 do
+        local m = active[i]
+        if m.def == def then
+            -- (the boss's next ENCOUNTER_START while its last pull still runs: that pull ended without me hearing it)
+            if not (opts.enc and m.enc and not m.demo and Now() - m.t0 >= RESTART) then return m end
+            self:EndFight(m)
+        end
+    end
     seq = seq + 1
     local m = setmetatable({ def = def, id = "f" .. seq .. ":", t0 = opts.t0 or Now(), phase = 1, counts = {}, last = {},
                              once = {}, hpDone = {}, live = true, resumed = opts.resumed, demo = opts.demo,
-                             enc = opts.enc }, M)
+                             enc = opts.enc, spawned = {}, seenAt = {},
+                             inside = (IsInInstance and IsInInstance()) and true or nil }, M)
     active[#active + 1] = m
     if not m.demo then m.lw = Learned(def) end
     for _, a in ipairs(def.alerts or {}) do
@@ -466,6 +480,7 @@ function BM:EndFight(m)
     for i = #active, 1, -1 do if active[i] == m then table.remove(active, i) end end
     for id, b in pairs(bars) do if b.m == m then bars[id] = nil end end
     for id, r in pairs(ranges) do if r.m == m then ranges[id] = nil end end
+    if #active == 0 then guidNpc, castSeen = {}, {} end
     self:Listen()
     ns:Fire("BOSSMOD_BARS")
     ns:Fire("BOSSMOD_RANGE")
@@ -489,7 +504,42 @@ local function Each(fn)
     for i = #active, 1, -1 do local m = active[i]; if m then fn(m, m.def._t) end end
 end
 
+local function Creature(m, l, guid, name, npc)
+    ev.spell, ev.src, ev.srcName, ev.srcNpc, ev.dst, ev.dstName, ev.me, ev.amount, ev.npc, ev.text =
+        nil, guid, name, npc, nil, nil, false, nil, npc, nil
+    BM:Dispatch(m, l, ev)
+end
+
+-- SPAWN <npc>: a creature of that id in the combat log for the first time (each one, by its GUID: the Lurker's adds
+-- coming up). BACK <npc>: one again after BACK_GAP s without any sign of it (the Lurker emerging). Read only while a
+-- running fight has such a trigger.
+local watchNpcs = false
+local function Seen(guid, name)
+    if not guid then return end
+    local npc = guidNpc[guid]
+    if npc == nil then npc = NpcOf(guid) or false; guidNpc[guid] = npc end
+    if not npc then return end
+    local t = Now()
+    for i = #active, 1, -1 do
+        local m = active[i]
+        local T = m and m.def._t
+        if T and T.spawn[npc] and not m.spawned[guid] then
+            m.spawned[guid] = true
+            Creature(m, T.spawn[npc], guid, name, npc)
+        end
+        if T and T.back[npc] then
+            local last = m.seenAt[npc]
+            m.seenAt[npc] = t
+            if last and t - last >= BACK_GAP then Creature(m, T.back[npc], guid, name, npc) end
+        end
+    end
+end
+
 local function OnLog(_, _, sub, _, srcGUID, srcName, _, _, dstGUID, dstName, _, _, spellId, _, _, a15, a16)
+    if watchNpcs then
+        Seen(srcGUID, srcName)
+        Seen(dstGUID, dstName)
+    end
     if sub == "UNIT_DIED" then
         local npc = NpcOf(dstGUID)
         if not npc then return end
@@ -546,6 +596,27 @@ local function CheckHealth(unit)
     end
 end
 BM.CheckHealth = CheckHealth
+BM.UNITS = UNITS
+
+-- UCAST <spell>: UNIT_SPELLCAST_SUCCEEDED of a creature I can see as a unit (boss frames, target, focus, mouseover,
+-- nameplates): casts the combat log never shows, like the Lurker's Submerge Visual. One cast seen through two units
+-- (boss1 and my target) counts once.
+local UCAST_UNIT = {}
+for _, u in ipairs(UNITS) do UCAST_UNIT[u] = true end
+local function OnUnitCast(_, unit, castGUID, spellId)
+    if type(unit) ~= "string" or not (UCAST_UNIT[unit] or strfind(unit, "^nameplate")) then return end
+    local guid = UnitGUID and UnitGUID(unit)
+    local npc = NpcOf(guid)
+    if not npc then return end
+    if castGUID then
+        if castSeen[castGUID] then return end
+        castSeen[castGUID] = true
+    end
+    ev.spell, ev.src, ev.srcName, ev.srcNpc, ev.dst, ev.dstName, ev.me, ev.amount, ev.npc, ev.text =
+        spellId, guid, UnitName and UnitName(unit), npc, nil, nil, false, nil, npc, nil
+    Each(function(m, T) BM:Dispatch(m, T.ucast[spellId], ev) end)
+end
+BM.OnUnitCast = OnUnitCast
 
 local function OnChat(kind, text, target)
     if type(text) ~= "string" then return end
@@ -628,7 +699,17 @@ function BM:Listen()
     local fight = #active > 0
     local any = fight or #armed > 0
     local demo = fight and active[1].demo and #active == 1
+    local ucast, npcs = false, false
+    for _, m in ipairs(active) do
+        if not m.demo then
+            local T = m.def._t
+            ucast = ucast or next(T.ucast) ~= nil
+            npcs = npcs or next(T.spawn) ~= nil or next(T.back) ~= nil
+        end
+    end
+    watchNpcs = npcs
     if ns.CombatLog then ns.CombatLog:SetSubscribed("bossmods", OnLog, any and not demo) end
+    Want("UNIT_SPELLCAST_SUCCEEDED", OnUnitCast, ucast)
     Want("UNIT_HEALTH", OnHealth, fight and not demo)
     Want("CHAT_MSG_MONSTER_YELL", OnYell, any and not demo)
     Want("CHAT_MSG_RAID_BOSS_EMOTE", OnEmote, any and not demo)
@@ -762,7 +843,8 @@ function BM:Countdown(t)
 end
 
 -- A ticker while anything runs: drops spent bars, ends a fight the game forgot to end (no ENCOUNTER_END after a
--- wipe while released), and lets the screen sleep when nothing is left.
+-- wipe while released: a picked-up fight once no encounter is in progress, an encounter's once I have been out of
+-- its raid OUT_END s), and lets the screen sleep when nothing is left.
 local ticker
 function BM:Tick(on)
     if on and not ticker and C_Timer and C_Timer.NewTicker then
@@ -784,9 +866,18 @@ function BM:OnTick()
         end
     end
     if countEnd and t >= countEnd then countEnd = nil end
-    for _, m in ipairs(active) do
-        if not m.demo and not m.enc and not m.def.engage and not (IsEncounterInProgress and IsEncounterInProgress()) then
-            self:EndFight(m)
+    local inside = IsInInstance and IsInInstance()
+    for i = #active, 1, -1 do
+        local m = active[i]
+        if m and not m.demo then
+            if m.enc and m.inside and not inside then
+                m.outAt = m.outAt or t
+                if t - m.outAt >= OUT_END then self:EndFight(m) end
+            elseif not m.enc and not m.def.engage and not (IsEncounterInProgress and IsEncounterInProgress()) then
+                self:EndFight(m)
+            else
+                m.outAt = nil
+            end
         end
     end
     if #active == 0 and not next(bars) and not countEnd then self:Tick(false) end
@@ -947,6 +1038,11 @@ function BM:Inject(m, trigger, fields)
     elseif word == "DIES" then
         ev.npc = id
         self:Dispatch(m, T.dies[id], ev)
+    elseif word == "UCAST" then
+        self:Dispatch(m, T.ucast[id], ev)
+    elseif word == "SPAWN" or word == "BACK" then
+        ev.spell, ev.srcNpc, ev.npc = nil, id, id
+        self:Dispatch(m, T[BYID[word]][id], ev)
     elseif word == "WIDGET" then
         ev.amount = fields.amount or 3
         ev.text = fields.text or ("Wave " .. ev.amount .. " of 8")

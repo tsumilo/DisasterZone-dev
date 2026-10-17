@@ -9,7 +9,9 @@ alarm); tank and healer bars only for that role (my role from settings, "Alerts 
 switched off; the game's pull countdown (START_PLAYER_COUNTDOWN / CANCEL) as a bar and the 5..1 countdown; DBM's and
 BigWigs' break messages from the leader (one bar for both, nothing from a non-assist) and /dz break sending both;
 Try it in every look (no errors, the hosts reused), demo mode; Edit layout's four spots; every data file passing
-tools/bossmods_check.py.
+tools/bossmods_check.py; the Lurker going under (his adds' first sign, or his Submerge Visual seen on a unit) and
+coming back (his first sign after 20 s gone); a fight ending 5 s out of its raid or on the boss's next
+ENCOUNTER_START (a wipe while released, 16 Oct 2026).
 
 Run: luaenv\\Scripts\\python.exe tests\\bossmods\\test_bossmods.py [-k name]
 """
@@ -33,7 +35,7 @@ GRUUL = 19044
 class Fight:
     """Alice (paladin, Retribution talents = damage) with boss mods on, at Gruul; warnings logged."""
 
-    def __init__(self, on=True, **settings):
+    def __init__(self, on=True, npc=GRUUL, name="Gruul the Dragonkiller", **settings):
         w, c = solo("Alice", class_file="PALADIN", guild_rank=0, talents=(0, 5, 41))
         if on:
             c.eval("ns.DB:SetSetting('bossmods.on', true)")
@@ -43,7 +45,7 @@ class Fight:
         w.tick(0.2)
         self.w, self.c = w, c
         self.me = c.eval("return UnitGUID('player')")
-        self.boss = w.spawn_npc(GRUUL, "Gruul the Dragonkiller")
+        self.boss = w.spawn_npc(npc, name)
 
     def start(self):
         self.c.fire("ENCOUNTER_START", 650, "Gruul the Dragonkiller", 4, 25)
@@ -345,6 +347,132 @@ def a_long_fight_tries_in_every_look():
             for _ in range(int((length + 1) / 0.5) + 1):
                 w.tick(0.5)
         w.assert_no_errors()
+
+
+LURKER, AMBUSHER, GUARDIAN = 21217, 21865, 21873
+
+
+def lurker():
+    f = Fight(npc=LURKER, name="The Lurker Below")
+    f.c.fire("ENCOUNTER_START", 624, "The Lurker Below", 4, 25)
+    f.w.tick(0.1)
+    f.t0 = f.c.eval("return ns.BossMod:Active().t0")
+    return f
+
+
+def at(f, t):
+    dt = f.t0 + t - f.c.eval("return GetTime()")
+    if dt > 1e-6:
+        f.w.tick(dt, step=min(0.5, dt))
+
+
+def swing(f, src, dst, src_flags=BOSS_FLAGS):
+    c = f.c
+    c.combat_log(c.eval("return GetTime()"), "SWING_DAMAGE", False, src, "x", src_flags, 0, dst, "y", 0x514, 0, 100)
+    f.w.tick(0.05)
+
+
+def phase(f):
+    return f.c.eval("return ns.BossMod:Active().phase")
+
+
+def keys(f):
+    return sorted(b["key"] for b in f.bars())
+
+
+def unders(f):
+    return [x["text"] for x in f.warns() if x["text"] == "Lurker submerged: adds"]
+
+
+@case
+def the_lurker_goes_under_with_his_adds_and_comes_back():
+    f = lurker()
+    assert keys(f) == ["spoutbar", "submerge"], keys(f)
+    for t in range(5, 90, 5):
+        at(f, t)
+        swing(f, f.me, f.boss, ME_FLAGS)
+    # no Submerge Visual in the log (16 Oct): his adds coming up say he went under
+    at(f, 92)
+    add1 = f.w.spawn_npc(AMBUSHER, "Coilfang Ambusher")
+    swing(f, add1, f.me)
+    assert unders(f) == ["Lurker submerged: adds"] and phase(f) == 2, (f.warns(), phase(f))
+    assert keys(f) == ["emerge"], keys(f)
+    # a spell still in flight lands on him; more adds: nothing more
+    swing(f, f.me, f.boss, ME_FLAGS)
+    add2 = f.w.spawn_npc(GUARDIAN, "Coilfang Guardian")
+    swing(f, add2, f.me)
+    for t in range(100, 150, 5):
+        at(f, t)
+        swing(f, f.me, add1, ME_FLAGS)
+    assert phase(f) == 2 and len(unders(f)) == 1
+    # his first sign after 20 s gone: he is back (submerge bar from now, Spout in 1-5 s)
+    at(f, 152)
+    swing(f, f.me, f.boss, ME_FLAGS)
+    assert phase(f) == 1 and "Lurker is back" in [x["text"] for x in f.warns()], (phase(f), f.warns())
+    assert keys(f) == ["spoutbar", "submerge"], keys(f)
+    sub, spout = f.bar("submerge"), f.bar("spoutbar")
+    assert 89 <= sub["rem"] <= 90.5 and spout["rem"] <= 5, (sub, spout)
+    # an add still alive is no new submerge; a new one next time is
+    at(f, 155)
+    swing(f, add1, f.me)
+    assert phase(f) == 1 and len(unders(f)) == 1
+    at(f, 245)
+    add3 = f.w.spawn_npc(AMBUSHER, "Coilfang Ambusher")
+    swing(f, f.me, add3, ME_FLAGS)
+    assert phase(f) == 2 and len(unders(f)) == 2, (phase(f), unders(f))
+    f.c.fire("ENCOUNTER_END", 624, "The Lurker Below", 4, 25, 1)
+    f.w.tick(0.1)
+    f.w.assert_no_errors()
+
+
+@case
+def the_lurkers_submerge_seen_on_a_unit_sends_him_under():
+    f = lurker()
+    at(f, 30)
+    f.c.target_npc(f.boss)
+    # (a player's cast of the same spell is not his)
+    f.c.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-3-4000-548-100-28819-0000000001", 28819)
+    f.w.tick(0.1)
+    assert phase(f) == 1
+    f.c.fire("UNIT_SPELLCAST_SUCCEEDED", "target", "Cast-3-4000-548-100-28819-0000000002", 28819)
+    f.w.tick(0.1)
+    assert phase(f) == 2 and unders(f) == ["Lurker submerged: adds"], (phase(f), f.warns())
+    assert keys(f) == ["emerge"], keys(f)
+    f.w.assert_no_errors()
+
+
+@case
+def a_fight_ends_out_of_its_raid_or_on_the_bosss_next_pull():
+    f = Fight()
+    w, c = f.w, f.c
+    w.enter_instance(name="Gruul's Lair", instance_id=565, max_players=25)
+    w.tick(1)
+    f.start()
+    first = c.eval("return ns.BossMod:Active().id")
+    w.tick(5)
+    # (an ENCOUNTER_START again this soon is the same pull)
+    f.start()
+    assert c.eval("return ns.BossMod:Active().id") == first
+    # released outside: no ENCOUNTER_END reaches me, the fight ends after 5 s out
+    w.leave_instance()
+    w.tick(4)
+    assert c.eval("return ns.BossMod:Active() ~= nil") is True
+    w.tick(1.5)
+    assert c.eval("return ns.BossMod:Active()") is None
+    assert f.bars() == [], f.bars()
+    # inside, the ENCOUNTER_END missed some other way: the boss's next ENCOUNTER_START is a new pull
+    w.enter_instance(name="Gruul's Lair", instance_id=565, max_players=25)
+    w.tick(1)
+    f.start()
+    old = c.eval("return ns.BossMod:Active().id")
+    w.tick(40)
+    f.start()
+    assert c.eval("return #ns.BossMod:Fights()") == 1
+    assert c.eval("return ns.BossMod:Active().id") != old
+    growth = next(x for x in f.bars() if x["key"] == f.key_of(36300))
+    assert growth["rem"] > 29, growth
+    f.end()
+    w.assert_no_errors()
 
 
 @case

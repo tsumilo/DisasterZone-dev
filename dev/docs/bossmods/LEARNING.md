@@ -36,18 +36,20 @@ Every bar an `fn` hook starts with `m:Bar` must say `learn = false` (tests/bossl
 starts a learnable bar at runtime also marks it in that pull (`hk`), whose samples for it are then ignored.
 
 The **predicted event** of an alert:
-- `own`: its `on` names its spell (`on = "CAST 33525"` on Ground Slam): that trigger's sub-events with those ids.
+- `own`: its `on` names its spell (`on = "CAST 33525"` on Ground Slam): that trigger's sub-events with those ids, and
+  its boss lines (`YELL` / `EMOTE` triggers) too: Leotheras's demon form reaches our log only as his line (16 Oct 2026).
 - `cast`: otherwise the earliest SPELL_CAST_START / SPELL_CAST_SUCCESS of its spell (a SUCCESS within 10 s of a counted
   START is the same cast). Gruul's Shatter bar is started by Ground Slam's cast and predicts Shatter 33654.
 
-Events of one alert closer than 1.5 s are one (debounce). Sources a player controls never count; an alert's `src`
+Events of one alert closer than 1.5 s are one (debounce; 5 s for an alert whose line counts: the line and the spell
+can be a few seconds apart). Sources a player controls never count; an alert's `src`
 applies.
 
 **Samples**, per pull, from the times (seconds from the pull):
 - `start`: the first event after the pull (alerts of phase 1 or without `phase`), or after entering one of the alert's
   phases, minus that moment. Only when the event comes before the next phase change.
 - `cd`: from the bar's (re)start to the event it predicts, inside one phase (never across a phase change): for `own`
-  alerts the gap between two events; for `cast` alerts (and `own` ones with other triggers too) from the latest bar
+  alerts the gap between two events; for `cast` alerts (and `own` ones with other non-line triggers too) from the latest bar
   start by its trigger (`g` times) to the event.
 - **Fixed**: a `cast` alert with no `start` and a single-number `cd` (Shatter 10 s after Ground Slam) is a follow-up the
   game times: measured (the dev tool shows it), never applied. The page says "Fixed · 10 s".
@@ -57,15 +59,22 @@ signature). Median; samples outside 0.5x..1.5x of it are dropped (a missed cast 
 distinct pulls contribute (else "Learning · n of 3"). [p10, p90] by nearest rank from 10 samples on, else [min, max];
 rounded out to 0.5 s (lo down, hi up: the window always holds what was seen). Then the clamp to
 [0.75 x data min, 1.25 x data max]; "far" / "varies" as above. A clean pull = a real encounter (ENCOUNTER_START and
-ENCOUNTER_END), at least 20 s long, the recorder never stopped. Shorter pulls are not even kept.
+ENCOUNTER_END), at least 20 s long, the recorder never stopped. Shorter pulls are not even kept. Not recorded at
+all: a fight that starts within 2 s of coming into the world, or with the boss already below 95% health (I came in
+mid-pull). A fight that ends without its ENCOUNTER_END (5 s out of the raid, or the boss's next ENCOUNTER_START: a wipe
+while released) is not clean.
 
 ## Sharing
 
 3-12 s after the end (a per-player, per-pull delay from the player's name, not math.random), never in a fight (it waits
 and retries every 5 s, up to 2 minutes), only with "Share what we learn" (`bossmods.learnShare`) on: one message on the
 GUILD channel, prefix `CDLk` (Comm class `boss`, BULK priority). Skipped when a guildmate's summary of the same pull with
-at least as many observations already arrived. A pull is the same pull when boss and leader match and the server times
-are within 20 s; observations merge as a union (a time within 0.5 s of one already there counts once).
+at least as many observations already arrived. A pull is the same pull when boss and leader match and it starts and ends
+within 20 s of the other; observations merge as a union (a time within 0.5 s of one already there counts once). Two
+copies of one pull where only one end agrees keep the better one: the same end and a start up to 180 s later = it came
+in mid-pull (dropped); the same start and a later end, or the same end and a start more than 180 s earlier = it ran
+into the next pull (dropped). 16 Oct 2026 had both: a Morogrim kill stored twice (a copy 42 s late) and a Hydross
+"pull" of 22 minutes holding the next pull. Stored pulls are tidied by the same rules after login (`BL:Tidy`).
 
 The message (LibSerialize + deflate, like every Comm message; a Gruul pull is about 300-500 bytes on the wire):
 

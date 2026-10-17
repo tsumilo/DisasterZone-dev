@@ -2,7 +2,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/BossLearn.lua", ...) then ret
 -- Boss mods that learn from the guild's own pulls (ns.BossLearn). The timers in Data/BossMods come from DBM, BigWigs and
 -- cmangos; this measures what each boss really does in our raids and tightens them (the rules: Core/BossLearnMath.lua;
 -- the saved format: dev/docs/bossmods/LEARNING.md in the dev kit). Approved mockup: cleanup_template.html section 3.
---   recorder   during a boss fight only (a real ENCOUNTER_START, not Try it, not a /reload pick-up): the times each
+--   recorder   during a boss fight only (a real ENCOUNTER_START, not Try it, not a /reload pick-up, not one I came
+--              into mid-pull): the times each
 --              learnable bar's event happened, phase changes, and for the developer's review the hostile casts the
 --              data doesn't know (12 a pull) and the boss lines no trigger matched (6). A combat-log subscriber of
 --              its own, after the alerts', every call inside a pcall: an error, or 2,000 recorded events, stops the
@@ -34,7 +35,9 @@ local MAX_EVENTS = 2000           -- recorded events a pull (then it stops: not 
 local MAX_UNK, MAX_YELL, YELL_LEN = 12, 6, 120
 local CAP_BOSS, CAP_ALL = 30, 2000
 local CAST_MAX = 10               -- s: a SPELL_CAST_SUCCESS this soon after the START is the same cast
-local SAME_PULL = 20              -- s: summaries of one boss and leader this close are one pull
+local SAME_PULL = 20              -- s: records of one boss and leader that start (or end) this close are one pull
+local LATE_MAX = 180              -- s: one that ends with another but starts up to this much later came in mid-pull
+local LATE_HP = 95                -- % : the boss below this at the pull means it began before I came in
 local MERGE_TOL = 0.5
 local SEND_MIN, SEND_SPREAD = 3, 9
 local REPORT_AFTER = 15           -- s after the end: the "what we learned" pop-up (after the guild's summaries)
@@ -293,6 +296,15 @@ local function NpcOf(guid)
     return f and f(guid) or nil
 end
 
+-- One event of a learnable alert (s), t s from the pull: kept unless it is the same event as the last one.
+local function Observe(r, s, t)
+    local k = s.i
+    if t - r.lastObs[k] >= (s.chat and Math.LINE_DEBOUNCE or Math.DEBOUNCE) then
+        r.lastObs[k] = t
+        Append(r, r.o[k], t)
+    end
+end
+
 local function Record(r, sub, srcGUID, srcFlags, id, name)
     if not id then return end
     local P = r.plan
@@ -316,10 +328,7 @@ local function Record(r, sub, srcGUID, srcFlags, id, name)
                     if w.success and t - r.pend[k] <= CAST_MAX then
                         r.pend[k] = -99           -- (the end of a cast whose start was counted)
                     else
-                        if t - r.lastObs[k] >= Math.DEBOUNCE then
-                            r.lastObs[k] = t
-                            Append(r, r.o[k], t)
-                        end
+                        Observe(r, s, t)
                         if w.start then r.pend[k] = t end
                     end
                 end
@@ -367,6 +376,9 @@ local function Chat(r, kind, text, keep)
         if e.text and strfind(low, e.text, 1, true) then
             matched = true
             if e.a and e.a.key and r.fired[e.a.key] then r.fired[e.a.key] = r.fired[e.a.key] + 1 end
+            -- (an own alert's line is its event too)
+            local s = e.f == "on" and e.a and r.plan.byKey[e.a.key]
+            if s and s.chat then Observe(r, s, Clock() - r.t0) end
         end
     end
     for _, e in ipairs(E and E[kind] or {}) do
@@ -433,14 +445,30 @@ local function Note(r, kind, m, x, t)
     if not ok then Fail(r, err) end
 end
 
+-- The boss's health in % from the first unit that shows it (boss frames, target, focus, mouseover), or nil.
+local function BossHealth(def)
+    local npc = def.npc and def.npc[1]
+    local units = BM() and BM().UNITS
+    if not (npc and units and UnitGUID and UnitHealth and UnitHealthMax) then return nil end
+    for _, u in ipairs(units) do
+        if NpcOf(UnitGUID(u)) == npc then
+            local hmax = UnitHealthMax(u) or 0
+            if hmax > 0 then return (UnitHealth(u) or 0) / hmax * 100 end
+        end
+    end
+    return nil
+end
+
 -- A fight started (Core/BossMod.lua StartFight, after the alerts are set up): record it when it is a real pull.
 function BL:Begin(m)
     if not (m and m.def and m.live) or m.demo or m.resumed or not m.enc then return end
     if not self:Enabled() then return end
     local def = m.def
-    -- (a fight that "starts" as I come into the world started without me: its clock is not the pull's)
-    if Clock() - enteredAt < 2 then
-        Log("%s: not recorded (the fight started as I came in)", tostring(def.key))
+    -- (a fight that "starts" as I come into the world, or with the boss already hurt, started without me: its clock
+    -- is not the pull's)
+    local hp = BossHealth(def)
+    if Clock() - enteredAt < 2 or (hp and hp < LATE_HP) then
+        Log("%s: not recorded (the fight started before I came in)", tostring(def.key))
         return
     end
     local p = Plan(def)
@@ -607,13 +635,35 @@ local function Total(db)
     return n
 end
 
--- The stored record of the same pull as rec (same boss and leader, within SAME_PULL s), or nil.
+-- How rec stands to x, a stored record of the same boss: nil (another pull), "same" (one pull seen by two of us: they
+-- start and end within SAME_PULL s), or two copies of one pull of which one is worse:
+--   "late"  they end together, one started up to LATE_MAX s later: it came in mid-pull, its first timers are not the
+--           pull's (16 Oct: a Morogrim kill stored twice, a guildmate's copy 42 s late)
+--   "over"  they start together and one ends later, or they end together and one started more than LATE_MAX s
+--           earlier: that one missed its pull's end and ran on into the next pull (16 Oct: a Hydross wipe released
+--           outside, 22 minutes "long" with the next pull in it)
+-- Second value: true when rec is the worse copy, false when x is.
+local function Relation(x, rec)
+    if x.leader ~= rec.leader then return nil end
+    local xa, ra = tonumber(x.at) or 0, tonumber(rec.at) or 0
+    local ds = ra - xa
+    local de = ra + (tonumber(rec.dur) or 0) - xa - (tonumber(x.dur) or 0)
+    local s, e = abs(ds) <= SAME_PULL, abs(de) <= SAME_PULL
+    if s and e then return "same" end
+    if s then return "over", de > 0 end
+    if e and abs(ds) <= LATE_MAX then return "late", ds > 0 end
+    if e then return "over", ds < 0 end
+    return nil
+end
+BL.Relation = Relation
+local WHY = { late = "came in mid-pull", over = "ran into the next pull" }
+
+-- The stored record of the same pull as rec, how rec stands to it and whether rec is the worse copy (Relation), or nil.
 local function Match(boss, rec)
     local list = Store().pulls[boss]
     for _, x in ipairs(type(list) == "table" and list or {}) do
-        if x.leader == rec.leader and abs((tonumber(x.at) or 0) - (tonumber(rec.at) or 0)) <= SAME_PULL then
-            return x
-        end
+        local how, worse = Relation(x, rec)
+        if how then return x, how, worse end
     end
     return nil
 end
@@ -639,15 +689,22 @@ local function Offset(a, b)
 end
 BL.Offset = Offset
 
--- Keeps a pull (or merges it into the record of the same pull). Returns the stored record and whether it was merged.
+-- Keeps a pull (or merges it into the record of the same pull; of two copies of one pull, the better one stays).
+-- Returns the stored record and whether rec went into one already there.
 function BL:AddPull(boss, rec)
     local db = Store()
     local list = db.pulls[boss]
     if type(list) ~= "table" then list = {}; db.pulls[boss] = list end
-    local x = Match(boss, rec)
-    if x then
+    local x, how, worse = Match(boss, rec)
+    if how == "same" then
         Merge(x, rec)
         return x, true
+    elseif how and worse then
+        Log("%s: a pull from %s %s; kept the one from %s", boss, tostring(rec.from), WHY[how], tostring(x.from))
+        return x, true
+    elseif how then
+        Log("%s: the pull from %s %s; kept the one from %s", boss, tostring(x.from), WHY[how], tostring(rec.from))
+        for i = #list, 1, -1 do if list[i] == x then tremove(list, i) end end
     end
     list[#list + 1] = rec
     tsort(list, function(p, q) return (tonumber(p.at) or 0) < (tonumber(q.at) or 0) end)
@@ -667,6 +724,29 @@ function BL:AddPull(boss, rec)
         total = total - 1
     end
     return rec, false
+end
+
+-- Stored pulls that are the worse copy of another stored one go (kept before 1.5.6 knew them). Returns how many.
+function BL:Tidy()
+    local n = 0
+    for boss, list in pairs(Store().pulls) do
+        if type(list) == "table" then
+            for i = #list, 1, -1 do
+                local rec = list[i]
+                for j = 1, #list do
+                    local how, worse
+                    if j ~= i then how, worse = Relation(list[j], rec) end
+                    if how and how ~= "same" and worse then
+                        Log("%s: dropped the stored pull from %s (it %s)", boss, tostring(rec.from), WHY[how])
+                        tremove(list, i)
+                        n = n + 1
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return n
 end
 
 ---------------------------------------------------------------------------
@@ -937,11 +1017,12 @@ function BL:Validate(msg)
         rec.g = {}
         for key, l in pairs(msg.g) do
             local s = type(key) == "string" and keys[key]
-            if not s or not (s.mode == "cast" or s.mixed) then return nil, "bar starts of " .. tostring(key) end
+            if not s then return nil, "bar starts of " .. tostring(key) end
             local t = Undelta(l, d, MAX_OBS_ALERT)
             if not t then return nil, "bar starts of " .. key end
             total = total + #t
-            if #t > 0 then rec.g[key] = t end
+            -- (an older sender times the bar starts of an alert whose boss line counts as its event now: not kept)
+            if #t > 0 and (s.mode == "cast" or s.mixed) then rec.g[key] = t end
         end
     end
     if total > MAX_EVENTS then return nil, "too many" end
@@ -1004,9 +1085,14 @@ function BL:Accept(sender, msg)
         return false, why
     end
     rec.from = sender
-    -- (the same pull timed from another start: someone who came in mid-pull, a client that lagged at the pull)
-    local same = Match(msg.b, rec)
-    if same and same.clean then
+    -- (a worse copy of a pull I have: it came in mid-pull, or ran on into the next pull)
+    local same, how, worse = Match(msg.b, rec)
+    if how and how ~= "same" and worse then
+        Log("dropped a pull from %s: it %s", tostring(sender), WHY[how])
+        return false, how
+    end
+    -- (the same pull timed from another start: a client that lagged at the pull)
+    if how == "same" and same.clean then
         local off, n = Offset(same, rec)
         if n >= 3 and abs(off) > MERGE_TOL then
             Log("dropped a pull from %s: its clock is %.1f s off ours", tostring(sender), off)
@@ -1256,6 +1342,7 @@ function BL:OnLogin()
     Later(3, function()
         if InFight() then return end
         BL:ApplyFixes()
+        BL:Tidy()
         BL:RelearnAll()
     end)
 end

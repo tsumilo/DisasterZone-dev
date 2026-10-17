@@ -11,7 +11,10 @@ sharing with the guild (one summary per pull, its size and delay, suppression, t
 sent in a fight, every odd or old message dropped), the storage caps, the developer's review (only for Tsumil, Use
 applies the new id on that client only), the Settings rows, the boss pills and page, Try it's recording line and
 made-up note (nothing saved or sent), the pop-up after a pull, the data's hook-driven bars marked learn = false,
-and the dev tool against a fixture SavedVariables file.
+and the dev tool against a fixture SavedVariables file. From the 16 Oct 2026 raid: an alert learning from its boss
+line when its spell never shows (Leotheras's demon form), two copies of one pull keeping the better one (a copy that
+came in mid-pull, one that ran into the next pull; stored ones tidied), no recording when the boss is already hurt,
+and a pull that outlives a wipe while released not being clean.
 
 Run: luaenv\\Scripts\\python.exe tests\\bosslearn\\test_bosslearn.py [-k name]
 """
@@ -659,6 +662,164 @@ def storage_keeps_30_pulls_a_boss_and_2000_in_all():
     """)
     assert r["n"] == 30 and r["first"] == 1000000 + 6 * 100, r
     assert r["total"] == 2000 and r["gruul"] == 0 and r["last"] == 30, r     # (the oldest anywhere went first)
+    w.assert_no_errors()
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# what the 16 Oct 2026 raid showed
+# ------------------------------------------------------------------------------------------------------------------
+LEO = "SerpentshrineCavern:Leotheras"
+
+
+@case
+def an_alert_learns_from_its_boss_line_when_its_spell_never_shows():
+    w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
+    c.eval("ns.DB:SetSetting('bossmods.on', true)")
+    w.tick(3)
+    boss = w.spawn_npc(21215, "Leotheras the Blind")
+    c.fire("ENCOUNTER_START", 625, "Leotheras the Blind", 4, 25)
+    t0 = c.eval("return ns.BossMod:Active().t0")
+
+    def to(t):
+        dt = t0 + t - c.eval("return GetTime()")
+        if dt > 1e-6:
+            w.tick(dt, step=min(0.5, dt))
+
+    def yell(text):
+        c.fire("CHAT_MSG_MONSTER_YELL", text, "Leotheras the Blind", "", "", "")
+
+    to(30)
+    yell("Finally, my banishment ends!")
+    to(91)
+    yell("Be gone, trifling elf. I am in control now!")
+    # (where his Metamorphosis aura does show, 2 s after the line: the same event)
+    to(93)
+    c.combat_log(c.eval("return GetTime()"), "SPELL_AURA_APPLIED", False, boss, "Leotheras the Blind", BOSS_FLAGS, 0,
+                 boss, "Leotheras the Blind", BOSS_FLAGS, 0, 37673, "Metamorphosis", 1, "BUFF")
+    to(196.5)
+    yell("Be gone, trifling elf. I am in control now!")
+    to(301.5)
+    yell("Be gone, trifling elf. I am in control now!")
+    to(330)
+    c.fire("ENCOUNTER_END", 625, "Leotheras the Blind", 4, 25, 0)
+    w.tick(1)
+    ps = pulls(c, LEO)
+    assert len(ps) == 1 and times(ps[0]["o"]["demon"]) == [91.0, 196.5, 301.5], ps
+    r = c.eval_py("""
+        local M, def = ns.BossLearnMath, ns.BossMod:Mod(...)
+        local s = M.Spec(def.byKey.demon)
+        local st, cd = M.Samples(s, DisasterZoneBossLearnDB.pulls[...][1])
+        return { st = st, cd = cd, chat = s.chat, mixed = s.mixed or false }
+    """, LEO)
+    assert r == {"st": [61.0], "cd": [105.5, 105.0], "chat": True, "mixed": False}, r
+    # a 1.5.5 sender still times the demon bar's starts: its summary counts, those starts are not kept
+    msg = c.eval_py("""
+        local key = ...
+        local ds = ns.BossLearn.Plan(ns.BossMod:Mod(key)).ds
+        return { t = 'BL', v = 1, av = '1.5.5', b = key, ds = ds, at = GetServerTime() - 3000, l = 'Victhar-Thunderstrike',
+                 d = 3633, k = 1, o = { innerbar = { 1184, 1002 } }, g = { demon = { 910, 1051 }, innerbar = { 910, 1051 } },
+                 ph = { 2, 296 } }
+    """, LEO)
+    rec = c.eval_py("local r, why = ns.BossLearn:Validate(...); return r and { g = r.g } or { why = why }", c._to_lua(msg))
+    assert rec.get("g") and "demon" not in rec["g"] and times(rec["g"]["innerbar"]) == [91.0, 196.1], rec
+    w.assert_no_errors()
+
+
+@case
+def two_copies_of_one_pull_keep_the_better_one():
+    w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
+    r = c.eval_py("""
+        local BL = ns.BossLearn
+        local function rec(at, dur, from) return { id = 'GruulsLair:Gruul|L|' .. at, at = at, leader = 'L', dur = dur,
+            kill = true, clean = true, ds = 'x', from = from, src = 1, o = { slam = { 35 } } } end
+        local function add(...) BL:AddPull('GruulsLair:Gruul', rec(...)) end
+        local function list()
+            local o = {}
+            for _, x in ipairs(DisasterZoneBossLearnDB.pulls['GruulsLair:Gruul'] or {}) do o[#o + 1] = x.from .. '@' .. x.at end
+            return o
+        end
+        -- Morogrim, 16 Oct: my whole kill, then a guildmate's copy that started 42 s late (it came in mid-pull)
+        add(10000, 386.9, 'me'); add(10042, 344.3, 'Tudis')
+        -- the late copy stored first: the whole one takes its place
+        add(20042, 344.3, 'me'); add(20000, 386.9, 'Victhar')
+        -- Hydross, 16 Oct: a copy that missed the wipe's end and ran on into the next pull (same start, 22 minutes)
+        add(30000, 260, 'me'); add(30002, 1327.5, 'Bob')
+        -- the same overrun stored first (an older client's), then the next pull it swallowed: the real pull stays
+        add(40000, 1328.4, 'Bob'); add(41026, 301.7, 'me')
+        -- two pulls a few minutes apart are two pulls
+        add(50000, 120, 'me'); add(50300, 120, 'me')
+        return list()
+    """)
+    assert r == ["me@10000", "Victhar@20000", "me@30000", "me@41026", "me@50000", "me@50300"], r
+    # the guild's late copy is dropped before it is stored, with a line in the log
+    msg = c.eval_py("""
+        local BL = ns.BossLearn
+        local ds = BL.Plan(ns.BossMod:Mod('GruulsLair:Gruul')).ds
+        local at = GetServerTime() - 1000
+        BL:AddPull('GruulsLair:Gruul', { id = 'GruulsLair:Gruul|Kaelor-Thunderstrike|' .. at, at = at,
+            leader = 'Kaelor-Thunderstrike', dur = 386.9, kill = true, clean = true, ds = ds, from = 'me', src = 1,
+            o = { slam = { 38.7 } } })
+        return { t = 'BL', v = 1, av = ns.version, b = 'GruulsLair:Gruul', ds = ds, at = at + 42,
+                 l = 'Kaelor-Thunderstrike', d = 3443, k = 1, o = { slam = { 25 } } }
+    """)
+    ok = c.eval_py("return { ns.BossLearn:Accept('Tudis-Thunderstrike', ...) }", c._to_lua(msg))
+    assert ok == [False, "late"], ok
+    assert "came in mid-pull" in c.eval("return DisasterZoneBossLearnDB.log[#DisasterZoneBossLearnDB.log]")
+    # stored before these rules: tidied after login
+    t = c.eval_py("""
+        local BL = ns.BossLearn
+        local function rec(at, dur, from) return { id = 'X|L|' .. at, at = at, leader = 'L', dur = dur, clean = true,
+            ds = 'x', from = from, src = 1, o = {} } end
+        local P = DisasterZoneBossLearnDB.pulls
+        P['SerpentshrineCavern:Morogrim'] = { rec(6443, 386.9, 'me'), rec(6485, 344.3, 'Tudis') }
+        P['SerpentshrineCavern:Hydross'] = { rec(6245, 1327.5, 'me'), rec(7271, 301.7, 'me') }
+        local n = BL:Tidy()
+        local m, h = P['SerpentshrineCavern:Morogrim'], P['SerpentshrineCavern:Hydross']
+        return { n = n, m = m[1].from .. '@' .. m[1].at .. '/' .. #m, h = h[1].at .. '/' .. #h }
+    """)
+    assert t == {"n": 2, "m": "me@6443/1", "h": "7271/1"}, t
+    w.assert_no_errors()
+
+
+@case
+def a_fight_with_the_boss_already_hurt_is_not_recorded():
+    w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
+    boss = gruul(w, c)
+    w.tick(3)
+    c.target_npc(boss)
+    w.set_npc_hp(boss, 80)
+    f = Fight(w, [c], boss).start()
+    assert c.eval("return ns.BossMod:Active().rec == nil") is True
+    assert "before I came in" in c.eval("return DisasterZoneBossLearnDB.log[#DisasterZoneBossLearnDB.log]")
+    f.to(30)
+    f.end(1)
+    w.tick(1)
+    assert pulls(c) == []
+    w.set_npc_hp(boss, 100)
+    f.start()
+    assert c.eval("return ns.BossMod:Active().rec ~= nil") is True
+    f.end(0)
+    w.assert_no_errors()
+
+
+@case
+def a_pull_that_outlives_a_wipe_while_released_is_not_clean():
+    w, c = solo("Alice", class_file="PALADIN", guild_rank=0)
+    boss = gruul(w, c)
+    w.enter_instance(name="Gruul's Lair", instance_id=565, max_players=25)
+    w.tick(3)
+    f = Fight(w, [c], boss).start()
+    assert c.eval("return ns.BossMod:Active().rec ~= nil") is True
+    f.to(35)
+    f.log("SPELL_CAST_START", 33525, "Ground Slam")
+    f.to(40)
+    w.leave_instance()
+    w.tick(6)
+    assert c.eval("return ns.BossMod:Active()") is None
+    w.tick(20)
+    ps = pulls(c)
+    assert len(ps) == 1 and ps[0]["clean"] is False and not ps[0].get("o"), ps
+    assert summaries(w) == []
     w.assert_no_errors()
 
 
