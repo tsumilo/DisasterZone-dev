@@ -285,6 +285,43 @@ def raid_cells_wear_the_shield_and_the_target_marks():
 
 
 @case
+def a_leader_main_tank_player_frame_never_anchors_in_a_loop():
+    # 2026-10-16 in game: PlaceMarks hung the crown off the shield, the next Set hung the shield off the crown
+    # ("Cannot anchor to a region dependent on it", 17x on the player frame). The client checks at each SetPoint.
+    w, c = halo_raid()
+    for look in ("flat", "classic", "halo"):
+        bad = c.eval_py("""
+            _G.__H = CreateFrame('Frame', nil, UIParent)
+            _G.__F = ns.LookUnits:NewFace(__H, 'big', 'units', 'left')
+            __F:Apply(ns.Look.BY_KEY[...])
+            local bad = {}
+            local function on(r, target, seen)
+                if r == target then return true end
+                if not r or r == UIParent or seen[r] then return false end
+                seen[r] = true
+                for i = 1, r:GetNumPoints() do
+                    local _, rel = r:GetPoint(i)
+                    if on(rel, target, seen) then return true end
+                end
+                return false
+            end
+            for _, k in ipairs({ 'mt', 'mtNo', 'leader', 'level' }) do
+                local r = __F[k]
+                local sp = r.SetPoint
+                r.SetPoint = function(self, p, rel, ...)
+                    if type(rel) == 'table' and on(rel, self, {}) then bad[#bad + 1] = k end
+                    return sp(self, p, rel, ...)
+                end
+            end
+            local d = ns.LookUnits.Fake('player', 1); d.mt = 1; d.leader = true
+            __F:Set(d); __F:Set(d)
+            d.mt = nil; __F:Set(d); d.mt = 2; __F:Set(d)
+            return { #bad, __F.mt:IsShown(), __F.leader:IsShown() }""", look)
+        assert bad == [0, True, True], (look, bad)
+    w.assert_no_errors()
+
+
+@case
 def boss_mods_and_the_threat_meter_know_my_flag():
     w, c = halo_raid()
     c.eval("ns.DB:SetSetting('bossmods.role', 'auto')")

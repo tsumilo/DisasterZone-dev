@@ -1028,6 +1028,12 @@ function Face:SetMainTank(n)
     self.mtNo:SetShown(show)
     if not show then return end
     self.mt:ClearAllPoints()
+    -- (PlaceMarks may have hung the crown off the shield: put it home first, or the shield would hang off itself)
+    local lh = self.leaderHome
+    if lh and self.leader:GetPoint(1) and select(2, self.leader:GetPoint(1)) == self.mt then
+        self.leader:ClearAllPoints()
+        self.leader:SetPoint(lh[1], lh[2], lh[3], lh[4], lh[5])
+    end
     if self.ringOn then
         self.mt:SetPoint("CENTER", self.host, "TOPLEFT", (self.d and self.d.leader) and 28 or 15, -10)
     elseif self.leader:IsShown() then
@@ -1065,6 +1071,8 @@ function Face:PlaceMarks()
         right = self.mt
     end
     if crown then
+        local p, rel, rp, x, y = self.leader:GetPoint(1)
+        if p and rel ~= self.mt and rel ~= self.level then self.leaderHome = { p, rel, rp, x, y } end
         self.leader:ClearAllPoints()
         self.leader:SetPoint("RIGHT", right, "LEFT", right == self.level and -2 or -1, 0)
     end

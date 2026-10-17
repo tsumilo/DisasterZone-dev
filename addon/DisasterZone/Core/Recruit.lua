@@ -802,8 +802,9 @@ function H.ScanFriends()
     local seen, changed, cameOnline = {}, false, {}
     for i = 1, FL.GetNumFriends() or 0 do
         local info = FL.GetFriendInfoByIndex(i)
-        if type(info) == "table" and type(info.name) == "string" then
-            local key = Util.NormalizeName(info.name)
+        -- (a friend whose name hasn't loaded yet comes back as "": skip it until it has one)
+        local key = type(info) == "table" and Util.NormalizeName(info.name)
+        if key then
             local on = info.connected and true or false
             local old = H.live[key]
             local lv = tonumber(info.level)

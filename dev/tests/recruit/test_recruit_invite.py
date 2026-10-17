@@ -57,6 +57,17 @@ def invite(cl, name, opts=None):
 
 
 @case
+def a_friend_without_a_name_yet_is_skipped():
+    # 2026-10-16 in game: the friends list can hand back "" for a name it hasn't loaded ("table index is nil")
+    w, c = guild()
+    gina = c["Gina"]
+    gina.friends.append({"name": "", "connected": True, "level": 70, "area": "Shattrath City"})
+    gina.eval("__MOCK.fire('FRIENDLIST_UPDATE')")
+    w.tick(2)
+    w.assert_no_errors()
+
+
+@case
 def the_people_i_talk_with_go_on_my_friends_list():
     w, c = guild()
     gina, bob = c["Gina"], c["Bob"]
