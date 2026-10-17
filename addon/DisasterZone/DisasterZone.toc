@@ -2,7 +2,7 @@
 ## Title: |cffff8000Disaster|rZone
 ## Notes: Loot council, raid plans, guild members and games for <Casual Disaster>. Formerly CDLoot.
 ## Author: Casual Disaster
-## Version: 1.5.3
+## Version: 1.5.4
 ## X-CDL-Protocol: 1
 ## SavedVariables: DisasterZoneDB, DisasterZonePatchDB, DisasterZoneLogDB, DisasterZoneMeterDB, DisasterZoneBossLearnDB, DisasterZoneBridgeDB
 ## LoadSavedVariablesFirst: 1

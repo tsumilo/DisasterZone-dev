@@ -2584,7 +2584,8 @@ function SettingsUI:BuildQuiet(sec)
         end
     end
     local g, st = quiet("quietCombat")
-    local _, row = self:Switch(sec, "Quiet in combat", "Pop-ups wait until the fight is over (boss fights too).", g, st)
+    local _, row = self:Switch(sec, "Quiet in combat", "Every pop-up (Bingo, raid news, polls...) waits until the fight is over, boss fights "
+        .. "too. Loot always shows.", g, st)
     self:SetDefault(row, true)
     g, st = quiet("quietOpen")
     _, row = self:Switch(sec, "Quiet while the window is open", "Only the bell counts up while DisasterZone is open.", g, st)

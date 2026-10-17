@@ -591,7 +591,7 @@ function RollFrame:ReserveLine(session, stand)
     if not (UI and UI.Toast) then return end
     local itemID = tonumber(session.i)
     local n = type(session.rk) == "table" and #session.rk or 0
-    UI:Toast({ key = "dz-reserve-line", title = ItemText(itemID), duration = 5,
+    UI:Toast({ key = "dz-reserve-line", title = ItemText(itemID), duration = 5, combat = true,
         icon = UI.ItemIcon and UI:ItemIcon(itemID) or nil,
         text = stand == "guild" and "Held for the guild: the loot council decides it."
             or (n == 1 and "Reserved by someone else: not yours to roll." or format("Reserved by %d others: only they roll.", n)) })

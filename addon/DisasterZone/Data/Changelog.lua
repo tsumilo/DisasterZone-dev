@@ -6,6 +6,32 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.5.4", date = "17 October 2026", title = "Keys on the timers and quiet fights",
+      sections = {
+          { heading = "Keys on the next presses", area = "class", kind = "new", hi = true, open = "settings/classtools",
+            lead = "The swing and shot timers show the key each next press is on, like your bars.", lines = {
+              "The key sits in the corner of the next press and of the presses after it.",
+              "The ability's name sits under the ring (Warriors: under the next press).",
+              "Read from your own bars: the game's, the Dock, Bartender, Dominos or ElvUI.",
+              "Shift, Ctrl and Alt show as S-, C- and A-, mouse buttons as M4 and M5.",
+              "Settings > Class tools: switch off the key or the name for each timer.",
+          } },
+          { heading = "Timer opacity", area = "class", kind = "new", open = "settings/classtools", lines = {
+              { "Swing and shot timers: pick how see-through they are in a fight and at rest.", fb = { 29 }, by = { "Släy" }, k = "change" },
+              "At rest can hide the timer completely until auto attack starts.",
+          } },
+          { heading = "Quiet fights", area = "other", kind = "changed", lines = {
+              "Every pop-up waits until the fight and the boss encounter are over.",
+              "Loot keeps showing straight away. Settings > Alerts > Quiet in combat turns it off.",
+          } },
+          { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
+              { "Damage meters no longer flip between trash and the boss fight after a kill.", fb = { 34 }, k = "bug" },
+              { "No more error spam from the main tank shield on your own unit frame.", fb = { 32, 33 }, k = "bug" },
+              { "Recruitment no longer errors when a friend's name hasn't loaded yet.", fb = { 31 }, k = "bug" },
+              "Bingo: plain rezzes after a wipe no longer fill Phoenix Down or Not Dead Yet.",
+              "Classic look: the Warrior timer's spell name sits inside its bar again.",
+          } },
+      } },
     { version = "1.5.3", date = "16 October 2026", title = "Room at the Lion's Pride",
       sections = {
           { heading = "Azeromon: room at the inn", area = "games", kind = "changed", open = "games",

@@ -28,7 +28,15 @@ function H.Safe(what, fn, ...)
     return ok, r
 end
 
-function H.InCombat() return InCombatLockdown and InCombatLockdown() and true or false end
+local inEncounter = false
+function H.InCombat()
+    return (InCombatLockdown and InCombatLockdown()) or inEncounter or false
+end
+-- (Settings > Alerts "Quiet in combat", the notification center's switch: on unless turned off)
+function H.QuietCombat()
+    local st = ns.db and ns.db.settings
+    return not (st and type(st.notify) == "table" and st.notify.quietCombat == false)
+end
 
 -- A sound by SOUNDKIT name ("TELL_MESSAGE") or id.
 function H.Play(sound)
@@ -92,7 +100,8 @@ end
 --              (keepTime = true: filled again by its key, it keeps the time it has left instead of starting again)
 --   progress   0..1: a thin bar along the foot (progressColor, default "OK"); timeBar = true: the time left instead
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
---   combat     false: waits until the fight is over
+--   combat     true: shows in a fight too (loot); otherwise it waits until the fight and the boss encounter are
+--              over, unless the player turned Quiet in combat off (Settings > Alerts; D-2, 2026-10-17)
 --   canShow(opts)  false: it waits in the queue (checked each time it could come: a caller's own quiet rule)
 --   itemID     the item's tooltip while hovered (tipLine: a grey line under it);  rightClose: a right-click dismisses it
 --   onFill(toast)  puts the caller's own pieces in toast.slot each time it is filled (also when it waited first)
@@ -447,7 +456,7 @@ function H.FreeToast()
 end
 
 function H.CanShow(o)
-    if o.combat == false and H.InCombat() then return false end
+    if o.combat ~= true and (o.combat == false or H.QuietCombat()) and H.InCombat() then return false end
     if o.canShow then
         local ok, yes = H.Safe("Toast canShow", o.canShow, o)
         if ok and not yes then return false end
@@ -550,6 +559,9 @@ function UI:PumpToasts() H.Pump() end
 
 if ns.RegisterEvent then
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() H.Pump() end)
+    ns:RegisterEvent("ENCOUNTER_START", function() inEncounter = true end)
+    ns:RegisterEvent("ENCOUNTER_END", function() inEncounter = false; H.Pump() end)
+    ns:RegisterEvent("PLAYER_ENTERING_WORLD", function() inEncounter = false end)
 end
 
 ---------------------------------------------------------------------------

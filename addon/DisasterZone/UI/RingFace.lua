@@ -25,7 +25,7 @@ ns.RingFace = RF
 local UI = ns.UI
 local S = ns.Style
 
-local max, min, pi, cos, sin = math.max, math.min, math.pi, math.cos, math.sin
+local floor, max, min, pi, cos, sin = math.floor, math.max, math.min, math.pi, math.cos, math.sin
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
@@ -317,14 +317,36 @@ function RF:BuildFace(parent, key, variant)
     end
     big.name = UI:Text(ring, key == "slate" and "small" or "page", { 1, 0.88, 0.54 }, { shadow = true })
     big.hint = UI:Text(ring, "emph", "SUB", { font = NARROW, shadow = true })
-    if g.name then
-        big.name:SetPoint("TOPLEFT", ring, "TOPLEFT", g.name[1], g.name[2])
+    -- (Classic: the name inside the bar where a cast bar writes it, from the bar's own place: the warrior's face is
+    -- wider, a fixed spot put it outside the bar)
+    local namePt = g.game and { g.W / 2 + g.x0 + 6, -(g.H / 2 - g.y) + 5 } or g.name
+    if namePt then
+        big.name:SetPoint("TOPLEFT", ring, "TOPLEFT", namePt[1], namePt[2])
         big.name:SetWidth(96)
         big.name:SetJustifyH("LEFT")
         big.showName = true
-    else
-        big.name:SetPoint("LEFT", ring, "RIGHT", 6, 7)
+    elseif not g.game then
+        -- (style A, the user's pick 2026-10-17: the name under the face, centred on the next press)
+        UI:SetTextSize(big.name, "body")
+        -- (a next press beside the ring, the warrior's: under that icon; else under the ring, the lane moves down for it)
+        -- (Pips: starting where the pips start, in line with them)
+        if g.queueFromBig then big.name:SetPoint("TOP", big, "BOTTOM", 0, -3); big.name:SetJustifyH("CENTER")
+        elseif g.path == "pips" then
+            big.name:SetPoint("TOPLEFT", ring, "BOTTOMLEFT", g.W / 2 + g.x0, -3)
+            big.name:SetJustifyH("LEFT")
+            big.underRing = true
+        else
+            big.name:SetPoint("TOP", ring, "BOTTOM", g.big[2], -3)
+            big.name:SetJustifyH("CENTER")
+            big.underRing = true
+        end
+        big.under, big.showName = true, true
     end
+    -- the key it is on, in the top right corner as on an action button (round icons: in from the rim)
+    big.key = UI:Text(big, bs >= 50 and "emph" or "small", { 0.9, 0.9, 0.9 }, { font = NARROW, flags = "OUTLINE" })
+    big.key:SetDrawLayer("OVERLAY", 7)
+    big.key:SetPoint("TOPRIGHT", big, "TOPRIGHT", g.round and -floor(bs * 0.14) or -2, g.round and -floor(bs * 0.1) or -2)
+    big.key:SetJustifyH("RIGHT")
     big.hint:SetPoint("TOPLEFT", big.name, "BOTTOMLEFT", 0, -2)
     big.name:SetShown(big.showName or false)
     big.hint:Hide()
@@ -388,6 +410,10 @@ function RF:BuildFace(parent, key, variant)
         s.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         if g.round then Round(s, s.icon) end
         s.text = UI:Text(s, "small", { 1, 1, 1 }, { font = NARROW, shadow = true })
+        s.key = UI:Text(s, "caps", { 0.9, 0.9, 0.9 }, { font = NARROW, flags = "OUTLINE" })
+        s.key:SetDrawLayer("OVERLAY", 7)
+        s.key:SetPoint("TOPRIGHT", s, "TOPRIGHT", g.round and -floor(size * 0.08) or 0, g.round and -floor(size * 0.04) or 0)
+        s.key:SetJustifyH("RIGHT")
         if g.game then
             s.qs = s:CreateTexture(nil, "OVERLAY")
             ns.Look:QuickFrame(s.qs, s)

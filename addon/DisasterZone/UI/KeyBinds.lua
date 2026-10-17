@@ -850,7 +850,95 @@ function KB:TargetSet() return targetSet end
 -- Entry points
 ---------------------------------------------------------------------------
 
+---------------------------------------------------------------------------
+-- The key a spell is on (the timers' next presses wear it, UI/RingFace.lua)
+---------------------------------------------------------------------------
+
+-- Binding commands of bar buttons: the action slot of button n ("page" = the main bar: its page, or the stance bar
+-- a warrior / druid / rogue form swaps in).
+local SLOT_CMD = {
+    { "^ACTIONBUTTON(%d+)$", "page" }, { "^MULTIACTIONBAR1BUTTON(%d+)$", 60 }, { "^MULTIACTIONBAR2BUTTON(%d+)$", 48 },
+    { "^MULTIACTIONBAR3BUTTON(%d+)$", 24 }, { "^MULTIACTIONBAR4BUTTON(%d+)$", 36 },
+    { "^CLICK BT4Button(%d+):", 0 }, { "^CLICK DominosActionButton(%d+):", 0 }, { "^CLICK ElvUI_Bar1Button(%d+):", 0 },
+}
+local spellKeys                     -- { [spell name] = short key } until the bars or the bindings change
+
+-- The spell on an action slot (a macro's spell too), by name.
+local function SlotSpellName(slot)
+    if not GetActionInfo then return nil end
+    local kind, id = GetActionInfo(slot)
+    if kind == "spell" and id then return GetSpellInfo(id) end
+    if kind == "macro" and id and GetMacroSpell then
+        local r = GetMacroSpell(id)
+        if type(r) == "number" then r = GetSpellInfo(r) end
+        return r
+    end
+    return nil
+end
+
+local function MainSlot(n)
+    local bonus = GetBonusBarOffset and GetBonusBarOffset() or 0
+    if bonus > 0 and (not GetActionBarPage or GetActionBarPage() == 1) then return 72 + (bonus - 1) * 12 + n end
+    return ((GetActionBarPage and GetActionBarPage() or 1) - 1) * 12 + n
+end
+
+-- A key as an action button writes it: "S-E", "C-2", "A-Q", "M4", "WU", "N5".
+function KB.ShortKey(key)
+    if type(key) ~= "string" or key == "" then return nil end
+    local mods, base
+    if key:sub(-1) == "-" then mods, base = key:sub(1, -2), "-"      -- (the minus key: "SHIFT--")
+    else mods, base = key:match("^(.-)([^%-]+)$") end
+    if not base then return key end
+    local m = (mods or ""):gsub("ALT%-", "A-"):gsub("CTRL%-", "C-"):gsub("SHIFT%-", "S-"):gsub("META%-", "M-")
+    base = base:gsub("^NUMPAD", "N"):gsub("MOUSEWHEELUP", "WU"):gsub("MOUSEWHEELDOWN", "WD"):gsub("^BUTTON", "M")
+        :gsub("^MIDDLEBUTTON$", "M3"):gsub("SPACE", "Spc"):gsub("BACKSPACE", "Bks"):gsub("CAPSLOCK", "Caps")
+        :gsub("PAGEUP", "PgU"):gsub("PAGEDOWN", "PgD"):gsub("INSERT", "Ins"):gsub("DELETE", "Del"):gsub("HOME", "Hm")
+        :gsub("ENTER", "Ent")
+    return m .. base
+end
+
+-- The short key of the first binding that presses this spell (a bar button holding it, a SPELL or MACRO binding),
+-- or nil when it is on no bound button.
+function KB:KeyForSpell(name)
+    if not name then return nil end
+    if not spellKeys then
+        spellKeys = {}
+        if GetNumBindings and GetBinding then
+            for i = 1, GetNumBindings() do
+                local cmd, _, k1, k2 = GetBinding(i)
+                local key = k1 or k2
+                if type(cmd) == "string" and key then
+                    local spell
+                    for _, b in ipairs(SLOT_CMD) do
+                        local n = tonumber(cmd:match(b[1]))
+                        if n then
+                            spell = SlotSpellName(b[2] == "page" and MainSlot(n) or (b[2] + n))
+                            break
+                        end
+                    end
+                    if not spell then
+                        spell = cmd:match("^SPELL (.+)$")
+                        local mname = cmd:match("^MACRO (.+)$")
+                        if mname and GetMacroIndexByName and GetMacroSpell then
+                            local r = GetMacroSpell(GetMacroIndexByName(mname))
+                            spell = type(r) == "number" and GetSpellInfo(r) or r
+                        end
+                    end
+                    if spell and not spellKeys[spell] then spellKeys[spell] = KB.ShortKey(key) end
+                end
+            end
+        end
+    end
+    return spellKeys[name]
+end
+
+function KB:ForgetSpellKeys() spellKeys = nil end
+
 function KB:OnLogin()
+    for _, e in ipairs({ "UPDATE_BINDINGS", "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR",
+                         "UPDATE_SHAPESHIFT_FORM", "UPDATE_MACROS", "LEARNED_SPELL_IN_TAB" }) do
+        ns:RegisterEvent(e, function() spellKeys = nil end)
+    end
     ns:RegisterEvent("PLAYER_REGEN_DISABLED", function()
         if active then
             KB:Close(true)

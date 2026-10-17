@@ -3891,7 +3891,7 @@ function DropPanel:RefreshToastText()
     local kicker, kind, title, line = self:ToastContent(e)
     local t = UI:Toast({
         key = TOAST_KEY, kind = kind, kicker = kicker, title = title, text = line, lines = 2,
-        icon = UI:ItemIcon(e.itemID), duration = TOAST_HOLD,
+        icon = UI:ItemIcon(e.itemID), duration = TOAST_HOLD, combat = true,   -- (loot: never held for the fight)
         keepTime = true,                   -- (a "+N more" / item-info refill never starts the 8 s hold again)
         onClick = function()
             LinkToChat(e.itemID)

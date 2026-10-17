@@ -59,6 +59,11 @@ local FILLER = S.C.YOU                     -- (a filler's block: the blue of "yo
 
 local function Ease(x) return 1 - (1 - x) * (1 - x) end
 
+-- Demo mode's keys on the next presses (made up, like an action bar's: nothing is read or bound).
+local DEMO_KEYS = { sob = "2", cs = "3", soc = "1", judge = "S-E", exo = "4", cons = "5", steady = "2", arcane = "3",
+                    multi = "M4", kc = "F", bt = "2", ww = "3", ms = "2", slam = "4", hs = "Q", cleave = "S-Q",
+                    shout = "5", rampage = "S-5", exe = "E", op = "S-2", ham = "R", brage = "S-R" }
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- The ring HUD for a driver (see the header)
 -- ---------------------------------------------------------------------------------------------------------------
@@ -72,6 +77,14 @@ local function NewRing(D)
 
     local function Get(path, default) return D.Get(path, default) end
     local function Practicing() return D.Practicing and D:Practicing() or false end
+
+    -- The key a step's spell is on (style A: the corner of its icon), or "" (off, waiting, on no bound button).
+    local function KeyOf(key)
+        if key == "wait" or not Get("keys", true) then return "" end
+        if D:IsDemo() then return DEMO_KEYS[key] or "1" end
+        local KB = ns.KeyBinds
+        return KB and KB.KeyForSpell and KB:KeyForSpell(D.NameOf(key)) or ""
+    end
 
     -- The theme's face and lane (built once per theme, then swapped in: frame.bar / big / seal / small / lane point
     -- at the one worn now; UI/RingFace.lua).
@@ -132,13 +145,15 @@ local function NewRing(D)
         if not practicing and not Get("rotation", true) then showBar, showLane = true, false end   -- no plan: the ring alone
         frame.bar:SetShown(showBar)
         frame.lane:ClearAllPoints()
-        if showBar then frame.lane:SetPoint("TOP", frame.bar, "BOTTOM", 0, -14)
+        -- (the next press's name under the ring: the lane starts below it)
+        local nameRoom = (frame.big.underRing and Get("names", true) and Get("rotation", true)) and 16 or 0
+        if showBar then frame.lane:SetPoint("TOP", frame.bar, "BOTTOM", 0, -14 - nameRoom)
         else frame.lane:SetPoint("TOP", frame, "TOP", 0, -20) end
         frame.laneWanted = showLane
         -- (as big as what shows: Edit layout's box and its snapping go by the frame; practice keeps the room below)
         local gw = g.W + (g.padL or 0)
         if showLane or practicing then frame:SetSize(max(frame.lane.W, gw) + 40, max(260, g.H + frame.lane.H + 86))
-        else frame:SetSize(gw + 24, g.H + 44) end
+        else frame:SetSize(gw + 24, g.H + 44 + nameRoom) end
     end
 
     -- The ring's frame (twist practice puts its parts around it).
@@ -155,7 +170,18 @@ local function NewRing(D)
     -- Resting: auto attack is not running, so there is nothing to time. A faint empty ring, the rest hidden.
     -- (drawn once, then again only when the icon or the badge changes: repainting the 200 dots every idle frame was
     -- the addon's top CPU handler out of combat; Performance page 2026-10-11)
+    -- How see-through the whole timer is (<prefix>.alpha while it runs, .restAlpha while it rests; feedback #29):
+    -- practice and Edit layout always show it whole.
+    local function Fade(resting)
+        local a = 1
+        if not Practicing() and not R.preview then
+            a = tonumber(Get(resting and "restAlpha" or "alpha", 1)) or 1
+        end
+        if frame:GetAlpha() ~= a then frame:SetAlpha(a) end
+    end
+
     local function Rest()
+        Fade(true)
         local icon = D:RestIcon()
         local badge, badgeText = D:Badge()
         local extra = D.RestExtra and D:RestExtra()
@@ -174,6 +200,7 @@ local function NewRing(D)
         frame.big.cdStart, swipeFrom, wasDue = nil, nil, false
         frame.big.name:SetText("")
         frame.big.hint:SetText("")
+        frame.big.key:SetText("")
         for _, s in ipairs(frame.small) do s:Hide() end
         frame.seal:SetShown(badge ~= nil)
         if badge then frame.seal.icon:SetTexture(badge); frame.seal.text:SetText("") end
@@ -191,6 +218,7 @@ local function NewRing(D)
         local ok, cur = pcall(D.Current, D)
         if not ok or not cur then Rest() return end
         rested = false
+        Fade(false)
         local snap, steps = cur.snap, cur.plan.steps
         local face = D:Face(cur, now)
         local from, to = face.from, face.to
@@ -274,6 +302,8 @@ local function NewRing(D)
             end
             big.shade:SetAlpha((nowPress or swiping) and 0 or 0.45)
             big.name:SetText(StepText(first))
+            big.name:SetShown(big.showName and (not big.under or Get("names", true)) or false)
+            big.key:SetText(KeyOf(first.key))
             if waiting then big.name:SetTextColor(0.62, 0.58, 0.48)
             elseif hot then big.name:SetTextColor(1, 0.66, 0.34)
             else big.name:SetTextColor(1, 0.88, 0.54) end
@@ -289,6 +319,7 @@ local function NewRing(D)
             if st.key ~= "wait" then
                 local sm = frame.small[si]
                 sm.icon:SetTexture(D.Icon(st.key))
+                sm.key:SetText(KeyOf(st.key))
                 sm:Show()
                 si = si + 1
             end
@@ -421,11 +452,22 @@ function ns.SwingRingSettings(S, sec, prefix, latencyHelp)
     if S.LookLinkRow then S:LookLinkRow(sec, "Theme", "The look of this timer.", "timers") end
     S:SwitchSetting(sec, "Show rotation", "The next presses in the middle of the ring (and the plan lane). Off: only the timer.",
         prefix .. ".rotation", true)
+    S:SwitchSetting(sec, "Show the key", "The key each next press is on, in its corner as on your bars (the first bound "
+        .. "button holding that spell). S- Shift, C- Ctrl, A- Alt, M4 a mouse button.", prefix .. ".keys", true)
+    S:SwitchSetting(sec, "Show the ability name", "The next press's name under the ring (Slate and Classic always show it).",
+        prefix .. ".names", true)
     S:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", prefix .. ".idle", false)
     if S.EditLayoutRow then S:EditLayoutRow(sec) end
     local scales = {}
     for _, n in ipairs({ 0.8, 0.9, 1, 1.15, 1.3, 1.5 }) do scales[#scales + 1] = { value = n, text = floor(n * 100) .. "%" } end
     S:DropdownSetting(sec, "Size", "", prefix .. ".scale", 1, scales)
+    local fades = {}
+    for _, n in ipairs({ 1, 0.85, 0.7, 0.55, 0.4 }) do fades[#fades + 1] = { value = n, text = floor(n * 100 + 0.5) .. "%" } end
+    S:DropdownSetting(sec, "Opacity in a fight", "How see-through the timer is while it runs.", prefix .. ".alpha", 1, fades)
+    local rests = { { value = 1, text = "100%" }, { value = 0.6, text = "60%" }, { value = 0.35, text = "35%" },
+                    { value = 0.15, text = "15%" }, { value = 0, text = "Hidden" } }
+    S:DropdownSetting(sec, "Opacity at rest", "While auto attack is off (with Show out of combat on, or between pulls).",
+        prefix .. ".restAlpha", 1, rests)
     local lats = { { value = 0, text = "Auto" } }
     for _, n in ipairs({ 20, 40, 60, 80, 100, 150, 200, 300 }) do lats[#lats + 1] = { value = n, text = n .. " ms" } end
     S:DropdownSetting(sec, "Latency", "Moves the press zone earlier. Auto measures it for you.",
