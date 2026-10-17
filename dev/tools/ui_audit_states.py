@@ -2441,6 +2441,10 @@ STATES = [
         "ns.SettingsUI:SelectSection('mylog')")),
     ("Settings - Alerts grid", opened("settings", "ns.DB:SetSetting('settingsMore.reach', nil); ns.SettingsUI:Refresh(); "
         "ns.SettingsUI:SelectSection('reach')")),
+    # (searched for and jumped to: Feedback's "Report errors by themselves" switch under More options)
+    ("Settings - Report errors switch", opened("settings", "ns.DB:SetSetting('settingsMore.reach', nil); "
+        "ns.SettingsUI:Refresh(); for _, e in ipairs(ns.SettingsUI.index) do if e.title == 'Report errors by themselves' "
+        "then ns.SettingsUI:Jump(e) end end")),
     ("Settings - Combat text (off)", opened("settings", "ns.DB:SetSetting('ui.sct.on', false); ns.Popup:HideAll(); "
         "ns.SettingsUI:Refresh(); ns.SettingsUI:OpenPart('sct')")),
     # the Welcome tour (UI/WelcomeTour.lua, Data/Tours/Welcome.lua): the one-time offer as the GM (every part), a
@@ -3493,6 +3497,10 @@ STATES[_FB_AT:_FB_AT] = [
     # (feedback #20, Vicnado) a pasted error: the item's header icon, the window to read it, the window to paste one
     ("Feedback - pasted error item (demo)", fb_view(FB_PICK.replace("...", "'sort by level'"))),
     ("Feedback - error window", fb_view(FB_PICK.replace("...", "'sort by level'")
+                                        + "; ns.FeedbackSheet:ShowItemError(ns.FeedbackUI:GetPanel().detail.item)")),
+    # a Lua error that reported itself: its ticket and its whole report
+    ("Feedback - error reported by itself (demo)", fb_view(FB_PICK.replace("...", "'expires'"))),
+    ("Feedback - error report window (demo)", fb_view(FB_PICK.replace("...", "'expires'")
                                         + "; ns.FeedbackSheet:ShowItemError(ns.FeedbackUI:GetPanel().detail.item)")),
     ("Feedback - paste error", fb_view(FB_SHEET + "; ns.FeedbackSheet:OpenError({ mode = 'edit', text = "
                                        "ns.Feedback:ErrorText(ns.Feedback:Get(ns.Feedback:List()[1].id)) or 'x' })")),

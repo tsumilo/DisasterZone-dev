@@ -2641,6 +2641,10 @@ function SettingsUI:BuildNotify(sec)
         local h = UI:CreateSectionHeader(sec, g, { style = "caps" })
         self:Place(sec, h, 20, { gap = gi == 1 and 2 or 10, right = #NOTIFY_COLS * NOTIFY_COL_W + 8 })
         for _, def in ipairs(groups[g]) do self:NotifyRow(sec, def) end
+        if g == "Feedback" then
+            self:SwitchSetting(sec, "Report errors by themselves", "A DisasterZone Lua error goes to the developer as a "
+                .. "bug report on its own, with what was going on.", "feedbackAuto", true)
+        end
         if gi == 1 then
             self:SwitchSetting(sec, "Off-spec items too", "Your BiS alerts also fire for items on your off-spec list.",
                 "alerts.offspec", true)

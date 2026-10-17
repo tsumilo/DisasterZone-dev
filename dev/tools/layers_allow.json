@@ -34,7 +34,7 @@
   {"kind": "up", "from": "Core/FeedbackPlan.lua", "to": "Core/Sync.lua", "why": "L3->L4 Guild->Sync", "syms": ["Sync.GetPeer"]},
   {"kind": "up", "from": "Core/Feedback.lua", "to": "Core/Comm.lua", "why": "L3->L4 Guild->Sync", "syms": ["Comm"]},
   {"kind": "up", "from": "Core/Feedback.lua", "to": "Core/Sync.lua", "why": "L3->L4 Guild->Sync", "syms": ["Sync.GetPeer"]},
-  {"kind": "up", "from": "Core/Feedback.lua", "to": "UI/MainFrame.lua", "why": "L3->L5 Guild->Shell", "syms": ["MainFrame.GetSelectedTab"]},
+  {"kind": "up", "from": "Core/Feedback.lua", "to": "UI/MainFrame.lua", "why": "L3->L5 Guild->Shell", "syms": ["MainFrame.GetPageLabel", "MainFrame.GetSelectedTab", "MainFrame.IsShown"]},
   {"kind": "up", "from": "Core/GroupRules.lua", "to": "Core/Comm.lua", "why": "L2->L4 Context->Sync", "syms": ["Comm.RateLimit", "Comm.Register", "Comm.Send"]},
   {"kind": "up", "from": "Core/GroupRules.lua", "to": "Core/Dungeon.lua", "why": "L2->L3 Context->Loot", "syms": ["Dungeon.groupEnabledBy"]},
   {"kind": "up", "from": "Core/GroupRules.lua", "to": "Core/RaidLog.lua", "why": "L2->L3 Context->Raids", "syms": ["RaidLog.GetResumable"]},

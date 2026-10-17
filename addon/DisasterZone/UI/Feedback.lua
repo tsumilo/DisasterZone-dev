@@ -920,7 +920,8 @@ local function RenderDetail()
     end
     -- (an error came with it: its own window, left of the Status menu)
     if item.err then
-        tools[#tools + 1] = { icon = UI().ICON_WARN, tint = ERROR_TINT, title = item.err.p and "Pasted error" or "Lua error",
+        tools[#tools + 1] = { icon = UI().ICON_WARN, tint = ERROR_TINT,
+            title = (item.err.p and not item.auto) and "Pasted error" or "Lua error",
             text = "Opens the error that came with it, to read and copy.",
             onClick = function() if d.item and ns.FeedbackSheet then ns.FeedbackSheet:ShowItemError(d.item) end end }
     end
@@ -952,9 +953,10 @@ local function RenderDetail()
     local who = ns.Util.Trim(((cx.sp or "") .. " " .. (ns.ClassName(cx.cl) or "")))
     if who ~= "" then chips[#chips + 1] = { who } end
     if item.err then
-        chips[#chips + 1] = { (item.err.p and "Pasted error" or "Lua error")
+        chips[#chips + 1] = { ((item.err.p and not item.auto) and "Pasted error" or "Lua error")
             .. ((item.err.n or 1) > 1 and (" ×" .. item.err.n) or ""), "err" }
     end
+    if item.auto then chips[#chips + 1] = { "Sent by itself" } end
     for _, ch in ipairs(d.chips) do ch:Hide() end
     local x = 0
     for i, cdef in ipairs(chips) do

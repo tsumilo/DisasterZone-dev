@@ -27,6 +27,7 @@ local DEFAULTS = {
         openOn = "home",         -- the tab the main window opens on: "home" (the dashboard) | "last" (the tab used last)
         dropPanelMode = "auto",  -- "auto" (anchor to LootFrame when it is open, else floating) | "floating"
         tooltip = { enabled = true, council = true, maxNames = 5 },
+        feedbackAuto = true,     -- a DisasterZone Lua error reports itself to the developer (Core/Feedback.lua)
         announceChannel = "RAID",-- "RAID" | "RAID_WARNING"
         qualityThreshold = 4,    -- 4 = epic, 3 = rare
         viewPhase = nil,         -- nil = follow guild phase; else 1..5 (council views & alerts)

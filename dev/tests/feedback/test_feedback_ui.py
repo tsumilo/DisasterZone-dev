@@ -187,14 +187,23 @@ def news_goes_through_the_notification_center():
     w, c = standard()
     settle(w)
     a = c["Alfa"]
-    # a Lua error: a feedbackError item with Tell Tsumil
+    # a Lua error reports itself: a feedbackError item whose Add details opens the report
     a.eval("ns.Feedback.NoteError('Interface/AddOns/DisasterZone/UI/X.lua:1: boom', '')")
-    w.tick(0.5)
+    w.tick(45, step=0.5)
     errs = a.eval_py("local o = {} for _, it in ipairs(ns.Notify:List()) do if it.kind == 'feedbackError' then "
-                     "o[#o + 1] = it.title end end return o")
-    assert errs == ["DisasterZone hit an error"], errs
+                     "o[#o + 1] = { it.title, ns.Notify:GetActions(it.id)[1].text } end end return o")
+    assert errs == [["DisasterZone hit an error", "Add details"]], errs
+    report = a.eval("return %s:List({ kind = 'bug' })[1].id" % F)
     a.eval("local it; for _, x in ipairs(ns.Notify:List()) do if x.kind == 'feedbackError' then it = x end end "
            "ns.Notify:RunAction(it.id, 1)")
+    w.tick(0.3)
+    assert a.eval_py("local s = ns.FeedbackUI:GetState(); return { s.tab, s.sel }") == ["mine", report]
+    # reporting switched off: Report it, and the form takes the error
+    a.eval("ns.DB:SetSetting('feedbackAuto', false)")
+    a.eval("ns.Feedback.NoteError('Interface/AddOns/DisasterZone/UI/Y.lua:2: bang', '')")
+    w.tick(0.5)
+    a.eval("local it; for _, x in ipairs(ns.Notify:List()) do if x.kind == 'feedbackError' and x.key:find('Y.lua') "
+           "then it = x end end assert(ns.Notify:GetActions(it.id)[1].text == 'Report it') ns.Notify:RunAction(it.id, 1)")
     w.tick(0.2)
     assert a.eval_py("return %s:GetDraft().kind" % SHEET) == "bug"
     a.eval("%s:GetFrame():Hide()" % SHEET)

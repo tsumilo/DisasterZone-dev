@@ -846,7 +846,8 @@ function Sheet:GetQueue() return queue end
 -- the player's own choices in Settings > Notifications. Three kinds:
 --   feedbackAnswer   a source: my items with news (staff answered, a status) until I look at them on the page
 --   feedbackShipped  posted at login: lines of an installed release that credit me
---   feedbackError    posted when DisasterZone hits a Lua error: Tell Tsumil (the error goes with it)
+--   feedbackError    posted when DisasterZone hits a Lua error: it reported itself (Add details / See it), else
+--                    Report it (the form, the error goes with it)
 -- Without the notification center, the same go out as this file's own pop-ups.
 local function N() return ns.Notify end
 
@@ -899,29 +900,75 @@ local function RegisterKinds()
     })
     Nf:RegisterKind("feedbackError", {
         section = "Feedback", page = "feedback", icon = 42, color = F.KIND_INFO.bug.color,
-        label = "DisasterZone errors", desc = "DisasterZone hit a Lua error: report what you were doing.",
+        label = "DisasterZone errors", desc = "DisasterZone hit a Lua error: it reports itself, or you report it.",
         needsYou = false, popup = true, sound = false,
-        open = function() Sheet:Open({ kind = "bug" }) end,
-        actions = function() return { { text = "Report it", primary = true, fn = function() Sheet:Open({ kind = "bug" })
-            end } } end,
+        open = function(it) local a = Sheet.ErrorAction(it); a.fn() end,
+        actions = function(it) return { Sheet.ErrorAction(it) } end,
     })
 end
 
-local function OnError(e)
-    if Sheet:IsOpen() then return end
+-- An error's button: the report it went into (Add details: my own, to answer on; See it: somebody's), else the form.
+function Sheet.ErrorAction(it)
+    local data = it and type(it.data) == "table" and it.data or {}
+    if data.id and FB():Get(data.id) then
+        -- (Yours lists my reports and my me-toos; a fixed one is neither)
+        local tab = data.how == "fixed" and "all" or "mine"
+        return { text = data.how == "filed" and "Add details" or "See it", primary = true, fn = function()
+            local FUI = ns.FeedbackUI
+            if not FUI then return end
+            FUI:Open(tab, data.id)
+            -- (my own report: straight into its answer box)
+            if data.how == "filed" then
+                C_Timer.After(0.1, function()
+                    local p = FUI:GetPanel()
+                    local reply = p and p.detail and p.detail.reply
+                    if reply and reply:IsVisible() then reply:SetFocus() end
+                end)
+            end
+        end }
+    end
+    return { text = "Report it", primary = true, fn = function() Sheet:Open({ kind = "bug" }) end }
+end
+
+-- What the pop-up says: how = nil (report it yourself), "filed", "joined" or "fixed" (item: the guild's report).
+local function ErrorNote(e, how, id)
+    local item = id and FB():Get(id)
+    if how == "filed" then
+        return "It went to the developer by itself, with what was going on. Add what you were doing?"
+    elseif how == "joined" then
+        return "Somebody already reported it: you're on their report now, as a me too."
+    elseif how == "fixed" then
+        return "It's fixed in " .. tostring(item and item.shipped or "a newer release") .. ": update DisasterZone to get it."
+    end
+    return "Report what you were doing? The error goes with it."
+end
+
+local function ShowError(e, how, id)
+    local text = ErrorNote(e, how, id)
+    local act = Sheet.ErrorAction({ data = { id = id, how = how } })
     local Nf = N()
     if Nf and Nf.Post and Sheet.kindsRegistered then
-        Nf:Post("feedbackError", { key = e and e.m or "error", title = "DisasterZone hit an error",
-            text = "Report what you were doing? The error goes with it.", expires = time() + 1800 })
+        Nf:Post("feedbackError", { key = e and e.m or "error", title = "DisasterZone hit an error", text = text,
+            expires = time() + 1800, data = id and { id = id, how = how } or nil })
         return
     end
     Sheet:Toast({
         icon = FB().KIND_INFO.bug.icon, color = FB().KIND_INFO.bug.color,
-        title = "DisasterZone hit an error",
-        text = "Report what you were doing? The error goes with it.",
-        button = "Report it", seconds = 15,
-        fn = function() Sheet:Open({ kind = "bug" }) end,
+        title = "DisasterZone hit an error", text = text, button = act.text, seconds = 15, fn = act.fn,
     })
+end
+
+-- An error: when it reports itself, its pop-up waits for the report (OnReported); else the form is offered now.
+local function OnError(e)
+    if FB():WillReport(e) then return end
+    if Sheet:IsOpen() then return end
+    ShowError(e)
+end
+
+local function OnReported(e, how, id)
+    if how == "known" then return end          -- (told before: this session or the last)
+    if not how and Sheet:IsOpen() then return end
+    ShowError(e, how, id)
 end
 
 -- (without the notification center: one pop-up per new answer, compared with the last one shown)
@@ -987,6 +1034,7 @@ end
 
 function Sheet:OnInit()
     ns:On("FEEDBACK_ERROR", OnError)
+    ns:On("FEEDBACK_AUTO", OnReported)
     ns:On("FEEDBACK_UPDATED", function()
         if sheet and sheet:IsShown() then ns.Util.Debounce("feedback-sheet", 0.2, function() Sheet:LayoutSimilar() end) end
         ns.Util.Debounce("feedback-answers", 1, CheckAnswers)

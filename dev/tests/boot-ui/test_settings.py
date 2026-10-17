@@ -14,6 +14,7 @@ CHECKS = [
     ("Glow on BiS loot buttons", "alerts.glow", False),
     ("BiS badges on the loot window", "alerts.lootBadges", False),
     ("Off-spec items too", "alerts.offspec", False),
+    ("Report errors by themselves", "feedbackAuto", False),     # (Feedback, under the alerts grid's More options)
     ("Announce rolls and winners", "roll.announce", False),
     ("Roll / Pass popup", "roll.popup", False),
     ("Auto-mark the planned mobs", "strategy.autoMark", False),

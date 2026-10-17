@@ -12,7 +12,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Feedback.lua", ...) then retu
 --     "i" item    id "<author>#<n>"           { a, n, kd = kind, x = text, ab = about, rf = page ref, c = context,
 --                                               e = error { m, s = stack, n = times, v = version, p = pasted
 --                                               text (a BugSack copy, the whole of it) }, t = created, an = 1 (no name in the changelog), d = 1
---                                               (withdrawn), rv }
+--                                               (withdrawn), au = 1 (a Lua error that reported itself), rv }
 --     "v" me too  id "<item>+<voter>"          { i, a, d = 1 (taken back), rv }
 --     "r" reply   id "<item>@<author>#<n>"     { i, a, n, x, t, d, rv }
 --     "s" status  id "<item>!"                 { i, a = who set it, s = state, dp = item it duplicates, v = version
@@ -263,7 +263,7 @@ local function Valid(id, rec, now)
         return KIND_OK[rec.kd] and type(rec.x) == "string" and rec.x ~= "" and #rec.x <= TEXT_MAX
             and (rec.ab == nil or (type(rec.ab) == "string" and #rec.ab <= ABOUT_MAX))
             and (rec.rf == nil or (type(rec.rf) == "string" and #rec.rf <= REF_MAX))
-            and IsInt(rec.t, 1, MAX_REV) and (rec.an == nil or rec.an == 1)
+            and IsInt(rec.t, 1, MAX_REV) and (rec.an == nil or rec.an == 1) and (rec.au == nil or rec.au == 1)
             and ValidContext(rec.c) and ValidError(rec.e) and true or false
     end
     if type(rec.i) ~= "string" or #rec.i > ID_MAX or not strfind(rec.i, "#%d+$") then return false end
@@ -693,21 +693,136 @@ function Feedback:OnNewRecords()
 end
 
 ---------------------------------------------------------------------------
--- Lua errors in DisasterZone (attached to a bug; "Tell Tsumil?" offered by the UI)
+-- Lua errors in DisasterZone: kept for a bug, and reported by themselves (Settings > Notifications > Feedback:
+-- settings.feedbackAuto, on unless false). A report is a bug item like any other, sent as the player: its text says
+-- what broke, its error (e.p) holds the whole report (the error, the stack, what was going on, the locals, the other
+-- addons), and au = 1 marks it as sent by itself. Somebody else's open report of the same error gets a me too
+-- instead; one fixed in a newer release, or closed by staff, gets nothing. The developer's own errors stay out of
+-- the guild's list (BugSack shows them); in demo mode they go to the demo list, never sent.
 ---------------------------------------------------------------------------
 
-local errors = {}           -- recent DisasterZone errors this session, newest last: { m, s, n, at, v }
+local errors = {}           -- recent DisasterZone errors, newest last: { m, s, n, at, v, c = context, w = what was going
+                            -- on (lines), d = the same in a few words, l = locals; f = the item it went into, how,
+                            -- x = why it was not reported }
 local ERRORS_KEPT = 5
+local AUTO_DELAY = 8        -- seconds from an error to its report (repeats count up meanwhile) ...
+local AUTO_SPREAD = 30      -- ... plus up to this much per character: a raid that hits it at once reports it once
+local AUTO_PER_SESSION = 3  -- reports one session files (me-toos don't count)
+local AUTO_KEPT = 60        -- errors remembered as reported (db.feedbackAuto)
+local LOCALS_MAX = 900
+local ADDONS_MAX = 400
+local autoFiled = 0
+local loginDone = false     -- (the login sync ran: the guild's reports are known before mine goes out)
+local loginAt               -- GetTime() at login (how long the session ran before an error)
+local demoReported = {}     -- demo mode's db.feedbackAuto (never saved)
 
 local function IsOurs(text)
     return type(text) == "string" and (strfind(text, "DisasterZone", 1, true) ~= nil)
 end
 
-local function NoteError(msg, stack, count)
+-- An error's message without its "3x " count, the folders up to the addon's and the [string "@..."] wrapper.
+local function Bare(m)
+    m = m:gsub("\\", "/"):gsub("^%d+x ", ""):gsub('%[string "@?([^"]*)"%]', "%1")
+    return (m:gsub("^[^:]-[Ii]nterface/[Aa]dd[Oo]ns/", ""))
+end
+
+-- The same error compares as the same key (a pasted copy too).
+local function ErrorKey(m)
+    if type(m) ~= "string" or m == "" then return nil end
+    return strlower(Util.Trim(Bare(m)))
+end
+Feedback.ErrorKey = ErrorKey
+
+-- "UI/RollFrame.lua:412", "attempt to index ..." (where: nil when the message names no file).
+local function ErrorParts(m)
+    local b = Bare(m)
+    local where, what = strmatch(b, "^(.-%.lua:%d+): (.*)$")
+    if not where then return nil, b end
+    return (where:gsub("^DisasterZone/", "")), what
+end
+
+local function Ago(seconds)
+    seconds = max(0, floor(seconds + 0.5))
+    if seconds < 120 then return seconds .. " s" end
+    if seconds < 7200 then return floor(seconds / 60) .. " min" end
+    return floor(seconds / 3600) .. " h"
+end
+
+-- What was going on when an error hit: short lines for its report, and a few words for its text ("Raids page open,
+-- in combat, raid of 25").
+local function Happening()
+    local out, words = {}, {}
+    local MF = ns.MainFrame
+    local open = MF and MF.IsShown and MF:IsShown()
+    local page = open and MF.GetSelectedTab and MF:GetSelectedTab()
+    out[#out + 1] = "Window: " .. (open and ("open on " .. tostring(page or "?")) or "closed")
+    if page then
+        local label = MF.GetPageLabel and MF:GetPageLabel(page)
+        words[#words + 1] = (type(label) == "string" and label ~= "" and label or page) .. " page open"
+    end
+    local fight = InCombatLockdown and InCombatLockdown()
+    out[#out + 1] = "In combat: " .. (fight and "yes" or "no")
+    if fight then words[#words + 1] = "in combat" end
+    local n = GetNumGroupMembers and GetNumGroupMembers() or 0
+    local group = (IsInRaid and IsInRaid()) and ("raid of " .. n) or (n > 0 and ("party of " .. n)) or nil
+    out[#out + 1] = "Group: " .. (group or "none")
+    if group then words[#words + 1] = "in a " .. group end
+    if GetInstanceInfo then
+        local name, kind, _, diff = GetInstanceInfo()
+        if type(kind) == "string" and kind ~= "none" then
+            out[#out + 1] = "Instance: " .. tostring(name) .. " (" .. ((type(diff) == "string" and diff ~= "") and diff or kind) .. ")"
+        end
+    end
+    if DemoOn() then out[#out + 1] = "Demo mode: on" end
+    local now = GetTime and GetTime() or 0
+    if loginAt then out[#out + 1] = "Since login or /reload: " .. Ago(now - loginAt) end
+    local trail = ns.GetTrail and ns:GetTrail() or {}
+    if #trail > 0 then
+        out[#out + 1] = "Last steps (newest last):"
+        for _, st in ipairs(trail) do
+            out[#out + 1] = "  " .. Ago(now - st.at) .. " before: " .. st.text .. (st.n > 1 and (" (x" .. st.n .. ")") or "")
+        end
+    end
+    return out, tconcat(words, ", ")
+end
+
+-- The other addons loaded, as one line (ADDONS_MAX at most), or nil.
+local function AddonList()
+    local A = C_AddOns
+    local num, info, loaded = A and A.GetNumAddOns, A and A.GetAddOnInfo, A and A.IsAddOnLoaded
+    if not (num and info and loaded) then return nil end
+    local names = {}
+    for i = 1, num() do
+        local name = info(i)
+        if type(name) == "string" and not strfind(name, "^DisasterZone") and loaded(name) then names[#names + 1] = name end
+    end
+    tsort(names)
+    local text = "Other addons (" .. #names .. "): " .. (#names > 0 and tconcat(names, ", ") or "none")
+    if #text > ADDONS_MAX then text = strsub(text, 1, ADDONS_MAX - 3) .. "..." end
+    return text
+end
+
+local CleanPaste    -- (below, with Submit)
+
+-- An error's whole report as plain text (PASTE_MAX at most): what BugSack shows, what was going on, the locals,
+-- the other addons loaded.
+local function Report(e)
+    local parts = { (e.n or 1) .. "x " .. e.m }
+    if type(e.s) == "string" and e.s ~= "" then parts[#parts + 1] = e.s end
+    if type(e.w) == "table" and #e.w > 0 then parts[#parts + 1] = "\nWhat was going on:\n" .. tconcat(e.w, "\n") end
+    if type(e.l) == "string" and e.l ~= "" then parts[#parts + 1] = "\nLocals:\n" .. e.l end
+    local ok, addons = pcall(AddonList)
+    if ok and addons then parts[#parts + 1] = "\n" .. addons end
+    return CleanPaste(tconcat(parts, "\n"))
+end
+Feedback.Report = function(_, e) return Report(e) end
+
+local ScheduleReports   -- (below)
+
+local function NoteError(msg, stack, count, locals)
     if type(msg) ~= "string" then msg = tostring(msg) end
     if not (IsOurs(msg) or IsOurs(stack)) then return end
     msg = Clean(msg, ERR_MSG_MAX) or "?"
-    stack = Clean(type(stack) == "string" and stack or "", ERR_STACK_MAX, true)
     for _, e in ipairs(errors) do
         if e.m == msg then
             e.n = e.n + 1
@@ -715,11 +830,20 @@ local function NoteError(msg, stack, count)
             return
         end
     end
-    errors[#errors + 1] = { m = msg, s = stack, n = tonumber(count) or 1, at = time(), v = ns.version }
+    local e = { m = msg, s = Clean(type(stack) == "string" and stack or "", ERR_STACK_MAX, true), n = tonumber(count) or 1,
+                at = time(), v = ns.version }
+    -- what was going on, for the report (none of it ever stops the note)
+    local ok, c = pcall(Feedback.Context, Feedback)
+    if ok then e.c = c end
+    local ok2, w, words = pcall(Happening)
+    if ok2 then e.w, e.d = w, words end
+    if type(locals) == "string" and locals ~= "" then e.l = Clean((locals:gsub("\t", "    ")), LOCALS_MAX, true) end
+    errors[#errors + 1] = e
     while #errors > ERRORS_KEPT do table.remove(errors, 1) end
     local db = ns.db
     if db then db.feedbackErrors = errors end
-    ns:Fire("FEEDBACK_ERROR", errors[#errors])
+    ns:Fire("FEEDBACK_ERROR", e)
+    ScheduleReports()
 end
 Feedback.NoteError = NoteError
 
@@ -728,10 +852,10 @@ function Feedback:GetErrors()
     return errors
 end
 
--- The newest error worth attaching to a bug (in the last 30 minutes), or nil.
+-- The newest error worth attaching to a bug (in the last 30 minutes, and not reported by itself already), or nil.
 function Feedback:RecentError()
     local e = errors[#errors]
-    if e and time() - (e.at or 0) <= 1800 then return e end
+    if e and not e.f and time() - (e.at or 0) <= 1800 then return e end
     return nil
 end
 
@@ -740,22 +864,41 @@ local function HookErrors()
     local BG = BugGrabber
     if type(BG) == "table" and type(BG.RegisterCallback) == "function" then
         local ok = pcall(BG.RegisterCallback, Feedback, "BugGrabber_BugGrabbed", function(_, bug)
-            if type(bug) == "table" then NoteError(bug.message, bug.stack, bug.counter) end
+            if type(bug) == "table" then pcall(NoteError, bug.message, bug.stack, bug.counter, bug.locals) end
         end)
         if ok then return "buggrabber" end
     end
     if not (geterrorhandler and seterrorhandler) then return nil end
     local prev = geterrorhandler()
     local busy = false      -- (never into ourselves: a handler that calls back would loop)
+    local last              -- (the locals only for a message not seen just before: an error every frame stays cheap)
     seterrorhandler(function(msg, ...)
         if busy then return msg end
         busy = true
-        pcall(NoteError, msg, debugstack and debugstack(3, 12, 0) or nil)
+        local locals
+        if msg ~= last and debuglocals then
+            last = msg
+            local ok, l = pcall(debuglocals, 3)
+            if ok then locals = l end
+        end
+        pcall(NoteError, msg, debugstack and debugstack(3, 12, 0) or nil, nil, locals)
         busy = false
         if prev then return prev(msg, ...) end
         return msg
     end)
     return "handler"
+end
+
+-- Is reporting by itself on (Settings > Notifications > Feedback)?
+function Feedback:AutoOn()
+    local DB = ns.DB
+    return not (ns.db and DB and DB.GetSetting and DB:GetSetting("feedbackAuto") == false)
+end
+
+-- Will this error be reported by itself (FEEDBACK_AUTO follows), so the UI waits instead of offering the form?
+function Feedback:WillReport(e)
+    return type(e) == "table" and self:AutoOn() and e.v == ns.version and (DemoOn() or not self:AmIDev())
+        and IsInGuild() and true or false
 end
 
 ---------------------------------------------------------------------------
@@ -771,7 +914,7 @@ local function Rebuild()
         if rec.k == "i" then
             items[id] = {
                 id = id, author = rec.a, n = rec.n, kind = rec.kd, text = rec.x, about = rec.ab, ref = rec.rf,
-                ctx = rec.c, err = rec.e, at = rec.t, rv = rec.rv, anon = rec.an == 1, gone = rec.d == 1,
+                ctx = rec.c, err = rec.e, at = rec.t, rv = rec.rv, anon = rec.an == 1, gone = rec.d == 1, auto = rec.au == 1,
                 votes = {}, replies = {}, voteCount = 0,
             }
         end
@@ -993,7 +1136,7 @@ end
 
 -- An error pasted by the player (a BugSack copy): colour codes, textures and links taken out, plain text kept, cut at
 -- PASTE_MAX. nil when nothing is left.
-local function CleanPaste(text)
+CleanPaste = function(text)
     if type(text) ~= "string" then return nil end
     text = text:gsub("||", "|"):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("|H.-|h(.-)|h", "%1")
     text = text:gsub("\t", "    ")
@@ -1013,7 +1156,8 @@ end
 
 -- Sends feedback. kind: "bug" | "idea" | "change" | "love"; opts: { about = label, ref = page ref, anon = true,
 -- err = error table (Feedback:RecentError()), paste = error text the player pasted (a bug: it replaces err),
--- ctx = context (default Feedback:Context()) }. Returns id or nil, err.
+-- ctx = context (default Feedback:Context()), auto = true (a Lua error reporting itself: paste is its report) }.
+-- Returns id or nil, err.
 function Feedback:Submit(kind, text, opts)
     opts = opts or {}
     if not KIND_OK[kind] then return nil, "pick what kind of feedback it is" end
@@ -1039,14 +1183,18 @@ function Feedback:Submit(kind, text, opts)
     if err and err.s == "" then err.s = nil end
     local paste = kind == "bug" and CleanPaste(opts.paste)
     if paste then
-        -- (m: the first line, what older clients and the tooltips show)
+        -- (m: the first line, what older clients and the tooltips show; a report by itself keeps its error's message
+        -- and count)
         local first = strmatch(paste, "^[^\n]+") or paste
-        err = { m = Clean(first, ERR_MSG_MAX), p = paste, v = type(ns.version) == "string" and strsub(ns.version, 1, 20) or nil }
+        local own = opts.auto and err
+        err = { m = own and err.m or Clean(first, ERR_MSG_MAX), p = paste, n = own and err.n or nil,
+                v = type(ns.version) == "string" and strsub(ns.version, 1, 20) or nil }
     end
     local rec = {
         k = "i", a = me, n = n, kd = kind, x = text, t = Now(), rv = Now(),
         ab = Clean(opts.about, ABOUT_MAX) or nil, rf = type(opts.ref) == "string" and strsub(opts.ref, 1, REF_MAX) or nil,
         c = opts.ctx or self:Context(), e = err, an = opts.anon and 1 or nil,
+        au = (opts.auto and kind == "bug") and 1 or nil,
     }
     if rec.ab == "" then rec.ab = nil end
     if not Put(id, rec) then return nil, "could not save it" end
@@ -1148,6 +1296,109 @@ function Feedback:SetState(id, state, opts)
 end
 
 ---------------------------------------------------------------------------
+-- Errors that report themselves (the notes above, Lua errors in DisasterZone)
+---------------------------------------------------------------------------
+
+-- Errors this account reported: { [key] = { v = version, i = item, t = when } } (demo mode: in memory).
+local function Reported()
+    if DemoOn() then return demoReported end
+    local db = ns.db
+    if not db then return {} end
+    if type(db.feedbackAuto) ~= "table" then db.feedbackAuto = {} end
+    return db.feedbackAuto
+end
+
+local function Remember(key, id)
+    local seen = Reported()
+    seen[key] = { v = ns.version, i = id, t = time() }
+    local keys = {}
+    for k in pairs(seen) do keys[#keys + 1] = k end
+    if #keys <= AUTO_KEPT then return end
+    local function T(k) return type(seen[k]) == "table" and tonumber(seen[k].t) or 0 end
+    tsort(keys, function(a, b) return T(a) < T(b) end)
+    for i = 1, #keys - AUTO_KEPT do seen[keys[i]] = nil end
+end
+
+-- The guild's report of the same error: an open one (the oldest), else the closed one closed last; or nil.
+local function SameErrorItem(key)
+    local open, closed
+    for _, item in pairs(Rebuild()) do
+        if not item.gone and item.err and ErrorKey(item.err.m) == key then
+            if not item.closed then
+                if not open or item.at < open.at then open = item end
+            elseif not closed or (item.stateAt or item.at) > (closed.stateAt or closed.at) then
+                closed = item
+            end
+        end
+    end
+    return open or closed
+end
+
+-- Reports one error by itself. Returns how, id: "filed" (a new bug), "joined" (a me too on somebody's open report),
+-- "fixed" (fixed in a release newer than mine), "known" (reported before, mine, or closed by staff); or nil, why not
+-- ("wait": the guild's feedback isn't in yet, the next login look tries again).
+local function AutoReport(e)
+    if not Feedback:WillReport(e) then return nil, "off" end
+    if time() - (tonumber(e.at) or 0) > 86400 then return nil, "old" end
+    if not DemoOn() and not (loginDone and Store(true, true)) then return nil, "wait" end
+    local key = ErrorKey(e.m)
+    if not key then return nil, "old" end
+    local before = Reported()[key]
+    if type(before) == "table" and before.v == ns.version then return "known", before.i end
+    local same = SameErrorItem(key)
+    if same then
+        if not same.closed then
+            if Feedback:IsMine(same.author) then return "known", same.id end
+            Feedback:Vote(same.id, true)
+            return "joined", same.id
+        end
+        if same.state == "done" and same.shipped and Util.CompareVersions(same.shipped, ns.version) > 0 then
+            return "fixed", same.id
+        end
+        -- (closed by staff: not again; fixed in my release or before and back again: a new report)
+        if same.state ~= "done" then return "known", same.id end
+    end
+    if autoFiled >= AUTO_PER_SESSION then return nil, "enough" end
+    local where, what = ErrorParts(e.m)
+    local text = "Lua error: " .. what .. "\n\nIt reported itself when it happened"
+        .. ((type(e.d) == "string" and e.d ~= "") and (": " .. e.d) or "") .. "."
+    local id, why = Feedback:Submit("bug", text, { about = where, err = e, paste = Report(e), auto = true,
+        ctx = type(e.c) == "table" and e.c or nil })
+    if not id then return nil, why end
+    autoFiled = autoFiled + 1
+    return "filed", id
+end
+
+-- Reasons the player is never told about: reporting is off (the form was offered at once), the error is old.
+local QUIET = { off = true, old = true }
+
+-- Reports the errors not reported yet. FEEDBACK_AUTO (error, how, id) for each one handled, (error, nil, why) for
+-- one that should have gone and couldn't (the UI offers the form then).
+local function Flush()
+    for _, e in ipairs(errors) do
+        if not (e.f or e.x) then
+            local ok, how, id = pcall(AutoReport, e)
+            if not ok then
+                e.x = "error"        -- (never again: it would only fail again)
+            elseif how then
+                e.f, e.how = id or true, how
+                local key = ErrorKey(e.m)
+                if key then Remember(key, id) end
+                ns:Fire("FEEDBACK_AUTO", e, how, id)
+            elseif id ~= "wait" then
+                e.x = id or "?"
+                if not QUIET[e.x] then ns:Fire("FEEDBACK_AUTO", e, nil, e.x) end
+            end
+        end
+    end
+end
+Feedback.FlushReports = Flush
+
+ScheduleReports = function()
+    Util.Debounce("feedback-auto", AUTO_DELAY + Jitter(AUTO_SPREAD, "fbauto"), Flush)
+end
+
+---------------------------------------------------------------------------
 -- Credits (the changelog) and the "your idea shipped" note
 ---------------------------------------------------------------------------
 
@@ -1200,8 +1451,6 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 
-local loginDone = false
-
 local function AfterLogin()
     if loginDone or not IsInGuild() then return end
     local Guild = G()
@@ -1218,6 +1467,8 @@ local function AfterLogin()
     end
     Feedback:SyncNow()
     ns:Fire("FEEDBACK_UPDATED")
+    -- errors that waited for the guild's feedback (this session's, or the last one's before a /reload)
+    ScheduleReports()
 end
 
 function Feedback:OnInit()
@@ -1238,12 +1489,27 @@ function Feedback:OnInit()
         while #errors > ERRORS_KEPT do table.remove(errors, 1) end
     end
     Feedback.errorHook = HookErrors()
+    -- the last steps an error's report tells (pages and slash commands note themselves, Core/Init.lua ns:Trail)
+    ns:RegisterEvent("PLAYER_REGEN_DISABLED", function() ns:Trail("fight started") end)
+    ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() ns:Trail("fight ended") end)
+    ns:RegisterEvent("ENCOUNTER_START", function(_, _, name) ns:Trail("pull " .. tostring(name)) end)
+    ns:RegisterEvent("ENCOUNTER_END", function(_, _, name, _, _, won)
+        ns:Trail(tostring(name) .. (won == 1 and " killed" or " wipe"))
+    end)
+    ns:RegisterEvent("ZONE_CHANGED_NEW_AREA", function()
+        ns:Trail("zone " .. tostring(GetRealZoneText and GetRealZoneText() or "?"))
+    end)
+    ns:RegisterEvent("PLAYER_ENTERING_WORLD", function() ns:Trail("loading screen") end)
+    ns:RegisterEvent("GROUP_JOINED", function() ns:Trail("joined a group") end)
+    ns:RegisterEvent("GROUP_LEFT", function() ns:Trail("left the group") end)
+    ns:RegisterEvent("LOOT_OPENED", function() ns:Trail("loot window") end)
     ns:On("CONFIG_UPDATED", function() Changed() end)
     ns:On("DEMO_TOGGLED", function() Changed() end)
     ns:On("GUILD_KEY_READY", function() cache.dirty = true end)
 end
 
 function Feedback:OnLogin()
+    loginAt = GetTime()
     Util.After(LOGIN_DELAY + Jitter(10, "fb"), AfterLogin)
     ns:On("ROSTER_UPDATED", function()
         if not loginDone then Util.Debounce("feedback-login", LOGIN_DELAY, AfterLogin) end
@@ -1256,7 +1522,8 @@ end
 
 local DEMO_DAY = 86400
 
--- Builds the demo store on first use: nine items from the demo guild at every stage (one is mine).
+-- Builds the demo store on first use: eleven items from the demo guild at every stage (one is mine, one an error that
+-- reported itself).
 function Feedback:DemoStore()
     if demoStore then return demoStore end
     demoStore = { r = {}, seq = {}, no = 19 }
@@ -1325,6 +1592,23 @@ function Feedback:DemoStore()
     item(K("Caelith"), 3, "bug", "Members tab throws an error when I sort by level.", 5400, "Guild › Members",
         ctx("Shattrath City", "MAGE", "Arcane"), 19, { e = { m = "1x DisasterZone/UI/Members.lua:233: attempt to "
             .. "compare nil with number", p = paste, v = v } })
+    -- a Lua error that reported itself, and a me too from another member who hit it
+    local report = table.concat({
+        "3x DisasterZone/UI/RaidSheet.lua:1087: attempt to perform arithmetic on field 'expires' (a nil value)",
+        "[string \"@Interface/AddOns/DisasterZone/UI/RaidSheet.lua\"]:1087: in function 'Refresh'",
+        "[string \"@Interface/AddOns/DisasterZone/UI/RaidSheet.lua\"]:960: in function <...>",
+        "", "What was going on:", "Window: open on raids", "In combat: no", "Group: raid of 25",
+        "Instance: Black Temple (25 Player)", "Since login or /reload: 48 min", "Last steps (newest last):",
+        "  6 min before: pull High Warlord Naj'entus", "  4 min before: High Warlord Naj'entus killed",
+        "  2 min before: loot window", "  40 s before: page raids", "  3 s before: /dz raid",
+        "", "Locals:", "self = <table> {", "}", "(*temporary) = nil",
+        "", "Other addons (6): BugGrabber, BugSack, DBM-Core, Details, Questie, WeakAuras",
+    }, "\n")
+    local auto = item(K("Orinel"), 2, "bug", "Lua error: attempt to perform arithmetic on field 'expires' (a nil value)"
+        .. "\n\nIt reported itself when it happened: Raids page open, in a raid of 25.", 2 * 3600, "UI/RaidSheet.lua:1087",
+        ctx("Black Temple", "WARLOCK", "Destruction"), nil, { au = 1, e = { m = "Interface/AddOns/DisasterZone/UI/"
+            .. "RaidSheet.lua:1087: attempt to perform arithmetic on field 'expires' (a nil value)", n = 3, p = report, v = v } })
+    votes(auto, { "Grimtusk" })
     item(K("Brakka"), 1, "bug", "Atlas shows Sunwell items when I filter by phase 2.", 600, "Atlas",
         ctx("Ironforge", "WARRIOR", "Protection"), nil)
     local kaelyn = item(K("Kaelyn"), 2, "bug", "Gems on My BiS reset after a /reload.", 14 * DEMO_DAY, "My BiS › Gems",
@@ -1360,5 +1644,5 @@ end
 
 -- For the harness and /dump.
 function Feedback:Debug()
-    return { records = CountRecords(), hashes = (Hashes()), errors = #errors, hook = Feedback.errorHook }
+    return { records = CountRecords(), hashes = (Hashes()), errors = #errors, hook = Feedback.errorHook, reported = autoFiled }
 end

@@ -605,6 +605,7 @@ ShowPanel = function(key)
     if not def or not frame then return end
     local switching = currentKey ~= key
     currentKey = key
+    if switching then ns:Trail("page " .. key) end
     local g = GROUP_OF[key]
     local settings = ns.db and ns.db.settings
     if g and settings then

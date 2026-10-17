@@ -310,8 +310,9 @@ local KNOWN_MESSAGES = {
     -- Core/Tanks.lua: the raid's main tanks, their order or the plan's tanks changed
     TANKS_CHANGED = true,
     GUESTBOOK_CHANGED = true, LOOT_HELD = true, CHANGELOG_READ = true,
-    -- the guild's feedback (Core/Feedback.lua): (none) records changed; (error) DisasterZone hit a Lua error
-    FEEDBACK_UPDATED = true, FEEDBACK_ERROR = true,
+    -- the guild's feedback (Core/Feedback.lua): (none) records changed; (error) DisasterZone hit a Lua error; (error,
+    -- how, item | nil, why) the error reported itself (how: filed / joined / fixed / known) or couldn't
+    FEEDBACK_UPDATED = true, FEEDBACK_ERROR = true, FEEDBACK_AUTO = true,
     -- the notification center (Core/Notify.lua): (none) the feed or its counts changed; (id) something new arrived
     NOTIFY_CHANGED = true, NOTIFY_NEW = true,
     POLLS_UPDATED = true, POLL_ANSWERED = true, POLL_ARRIVED = true, POLL_NUDGED = true,
@@ -388,6 +389,37 @@ function ns:Fire(msg, ...)
 end
 
 ---------------------------------------------------------------------------
+-- Trail: the last steps before something went wrong (an automatic error report sends them, Core/Feedback.lua)
+---------------------------------------------------------------------------
+
+-- A ring of the last TRAIL_N steps (pages opened, slash commands, fights, zones); a repeat of the newest step only
+-- counts up. The slots are reused, so a step makes no garbage.
+local TRAIL_N = 12
+local trailText, trailAt, trailCount, trailLast = {}, {}, {}, 0
+
+function ns:Trail(text)
+    if type(text) ~= "string" then return end
+    local now = GetTime and GetTime() or 0
+    if trailLast > 0 and trailText[trailLast] == text then
+        trailCount[trailLast] = trailCount[trailLast] + 1
+        trailAt[trailLast] = now
+        return
+    end
+    trailLast = trailLast % TRAIL_N + 1
+    trailText[trailLast], trailAt[trailLast], trailCount[trailLast] = text, now, 1
+end
+
+-- The steps, oldest first: { { text, at = GetTime() of the last time, n = times in a row }, ... }.
+function ns:GetTrail()
+    local out = {}
+    for i = 1, TRAIL_N do
+        local slot = (trailLast + i - 1) % TRAIL_N + 1
+        if trailText[slot] then out[#out + 1] = { text = trailText[slot], at = trailAt[slot], n = trailCount[slot] } end
+    end
+    return out
+end
+
+---------------------------------------------------------------------------
 -- Slash commands
 ---------------------------------------------------------------------------
 
@@ -421,6 +453,7 @@ local function HandleSlash(input)
     local sub, rest = input:match("^%s*(%S*)%s*(.-)%s*$")
     sub = strlower(sub or "")
     rest = rest or ""
+    ns:Trail(sub == "" and "/dz" or ("/dz " .. sub))
 
     if Boot and Boot.safeMode then
         ns:Print("an in-game update failed to load; reload the interface (/reload) to go back to the installed version.")

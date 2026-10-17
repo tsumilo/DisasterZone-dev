@@ -78,8 +78,8 @@ def build(store):
         if r.get("k") == "i":
             items[rid] = {"id": rid, "author": r.get("a"), "kind": r.get("kd"), "text": r.get("x"),
                           "about": r.get("ab"), "ctx": r.get("c") or {}, "err": r.get("e"), "at": r.get("t"),
-                          "anon": r.get("an") == 1, "gone": r.get("d") == 1, "votes": [], "replies": [],
-                          "state": None, "no": None}
+                          "anon": r.get("an") == 1, "gone": r.get("d") == 1, "auto": r.get("au") == 1,
+                          "votes": [], "replies": [], "state": None, "no": None}
     for rid, r in recs.items():
         it = items.get(r.get("i"))
         if not it:
@@ -135,8 +135,9 @@ def write_inbox():
             no = "#%d" % it["no"] if it["no"] else "(no number yet)"
             lines.append("### %s · %s · %s" % (no, KIND.get(it["kind"], it["kind"]), (it["text"] or "")[:70]))
             lines.append("")
-            lines.append("- **From** %s%s, %s" % (name(it["author"]), " (no name in the changelog)" if it["anon"]
-                                                  else "", day(it["at"])))
+            lines.append("- **From** %s%s%s, %s" % (name(it["author"]), " (no name in the changelog)" if it["anon"]
+                                                    else "", " (a Lua error, sent by itself)" if it["auto"] else "",
+                                                    day(it["at"])))
             if it["about"]:
                 lines.append("- **About** %s" % it["about"])
             c = it["ctx"]
@@ -162,7 +163,8 @@ def write_inbox():
             if it["err"]:
                 e = it["err"]
                 if e.get("p"):
-                    lines += ["Pasted error%s:" % (e.get("v") and " (" + e["v"] + ")" or ""), "", "```", e["p"], "```", ""]
+                    lines += ["%s%s:" % ("Error report" if it["auto"] else "Pasted error",
+                                         e.get("v") and " (" + e["v"] + ")" or ""), "", "```", e["p"], "```", ""]
                 else:
                     lines += ["Lua error (%sx%s):" % (e.get("v") and e["v"] + ", " or "", e.get("n") or 1), "", "```",
                               e.get("m") or "", e.get("s") or "", "```", ""]
@@ -202,7 +204,9 @@ def credits(check=False):
             if not it:
                 problems.append("#%d is not in the feedback (%s)" % (no, text[:50]))
                 return m.group(0)
-            if not it["anon"] and name(it["author"]) not in names:
+            # (an error that reported itself names its player only when they added what they were doing)
+            told = not it["auto"] or any(rep["author"] == it["author"] for rep in it["replies"])
+            if not it["anon"] and told and name(it["author"]) not in names:
                 names.append(name(it["author"]))
             voters.update(v for v in it["votes"] if v != it["author"])
             kind = kind or it["kind"]

@@ -295,5 +295,160 @@ def a_record_with_a_paste_too_long_is_refused():
     w.assert_no_errors()
 
 
+# --- Lua errors that report themselves -------------------------------------------------------------------------
+
+ERR = "Interface/AddOns/DisasterZone/UI/RollFrame.lua:120: attempt to index field 'session' (a nil value)"
+STACK = "[string \"@Interface/AddOns/DisasterZone/UI/RollFrame.lua\"]:120: in function 'Refresh'"
+REPORT_WAIT = 45        # AUTO_DELAY + AUTO_SPREAD and a bit
+
+
+def note(cl, msg=ERR, locals_=None):
+    cl.eval("local m, s, l = ...; ns.Feedback.NoteError(m, s, nil, l)", msg, STACK, locals_)
+
+
+def bugs(cl):
+    return cl.eval_py("local o = {} for _, v in ipairs(%s:List({ kind = 'bug' })) do o[#o + 1] = { id = v.id, "
+                      "auto = v.auto, text = v.text, about = v.about or false, votes = v.voteCount, "
+                      "author = v.author } end return o" % F)
+
+
+def last_error(cl):
+    return cl.eval_py("local e = %s:GetErrors(); e = e[#e]; return e and { f = e.f or false, how = e.how or false, "
+                      "x = e.x or false } or false" % F)
+
+
+def popup(cl):
+    """The notification center's error item: { text, how } or None."""
+    return cl.eval_py("local e = %s:GetErrors(); e = e[#e]; local it = e and ns.Notify:Get('feedbackError\\1' .. e.m) "
+                      "return it and { text = it.text, how = it.data and it.data.how or false } or nil" % F)
+
+
+@case
+def a_lua_error_reports_itself_with_what_was_going_on():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    a.eval("ns:Trail('page raids'); ns:Trail('/dz raid'); ns:Trail('/dz raid')")
+    note(a, locals_="self = <table> {\n}\n")
+    assert popup(a) is None, "no Report it pop-up: the report goes by itself"
+    w.tick(REPORT_WAIT, step=0.5)
+    mine = bugs(a)
+    assert len(mine) == 1 and mine[0]["auto"], mine
+    assert mine[0]["text"].startswith("Lua error: attempt to index field 'session' (a nil value)"), mine[0]["text"]
+    assert mine[0]["about"] == "UI/RollFrame.lua:120", mine[0]["about"]
+    got = c["Tsumil"].eval_py("local v = %s:Get(...); return { no = v.no or false, auto = v.auto, err = v.err }" % F,
+                              mine[0]["id"])
+    assert got["no"] and got["auto"], got
+    assert got["err"]["m"] == ERR, got["err"]["m"]
+    p = got["err"]["p"]
+    for part in ("1x " + ERR, "in function 'Refresh'", "What was going on:", "In combat: no", "/dz raid (x2)",
+                 "Locals:", "self = <table>", "Other addons"):
+        assert part in p, (part, p)
+    # the player is told, with their report to add to; a bug written by hand doesn't take the error again
+    assert popup(a) == {"text": "It went to the developer by itself, with what was going on. Add what you were doing?",
+                        "how": "filed"}, popup(a)
+    assert a.eval("return %s:RecentError() == nil" % F) is True
+    # it happens again: no second report
+    note(a)
+    w.tick(REPORT_WAIT, step=0.5)
+    assert len(bugs(c["Tsumil"])) == 1
+    w.assert_no_errors()
+
+
+@case
+def the_same_error_from_another_member_is_a_me_too():
+    w, c = standard()
+    settle(w)
+    note(c["Alfa"])
+    w.tick(REPORT_WAIT, step=0.5)
+    note(c["Bert"], "1x DisasterZone/UI/RollFrame.lua:120: attempt to index field 'session' (a nil value)")
+    w.tick(REPORT_WAIT, step=0.5)
+    seen = bugs(c["Tsumil"])
+    assert len(seen) == 1 and seen[0]["author"] == K("Alfa") and seen[0]["votes"] == 1, seen
+    assert last_error(c["Bert"])["how"] == "joined"
+    assert popup(c["Bert"])["how"] == "joined", popup(c["Bert"])
+    w.assert_no_errors()
+
+
+@case
+def the_developer_s_errors_and_a_switched_off_report_stay_out():
+    w, c = standard()
+    settle(w)
+    note(c["Tsumil"])                           # (BugSack shows them to the developer)
+    c["Bert"].eval("ns.DB:SetSetting('feedbackAuto', false)")
+    note(c["Bert"])
+    w.tick(REPORT_WAIT, step=0.5)
+    assert bugs(c["Gina"]) == [], bugs(c["Gina"])
+    # Bert is offered the form at once, the error goes with it
+    assert popup(c["Bert"]) == {"text": "Report what you were doing? The error goes with it.", "how": False}
+    assert c["Bert"].eval("return %s:RecentError().m" % F) == ERR
+    w.assert_no_errors()
+
+
+@case
+def three_reports_a_session_at_most():
+    w, c = standard()
+    settle(w)
+    for i in range(4):
+        note(c["Alfa"], "Interface/AddOns/DisasterZone/UI/X%d.lua:%d: boom" % (i, i + 1))
+    w.tick(REPORT_WAIT, step=0.5)
+    assert len(bugs(c["Tsumil"])) == 3
+    # the fourth is left for the form
+    assert last_error(c["Alfa"]) == {"f": False, "how": False, "x": "enough"}, last_error(c["Alfa"])
+    assert popup(c["Alfa"])["how"] is False
+    w.assert_no_errors()
+
+
+@case
+def an_error_fixed_in_a_newer_release_is_not_reported_again():
+    w, c = standard()
+    settle(w)
+    note(c["Alfa"])
+    w.tick(REPORT_WAIT, step=0.5)
+    no = c["Tsumil"].eval_py("return %s:List({ kind = 'bug' })[1].no" % F)
+    c["Bert"].eval("""table.insert(ns.CHANGELOG, 1, { version = "99.0.0", sections = { { lines = {
+        { "The roll popup no longer errors.", fb = { ... }, k = "bug" } } } } })
+      ns:Fire("CONFIG_UPDATED")""", no)
+    note(c["Bert"])
+    w.tick(REPORT_WAIT, step=0.5)
+    assert last_error(c["Bert"])["how"] == "fixed"
+    assert popup(c["Bert"])["text"] == "It's fixed in 99.0.0: update DisasterZone to get it.", popup(c["Bert"])
+    assert bugs(c["Tsumil"])[0]["votes"] == 0
+    w.assert_no_errors()
+
+
+@case
+def an_error_before_a_reload_is_reported_after_it_an_old_version_s_is_not():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    note(a)
+    note(a, "Interface/AddOns/DisasterZone/UI/Old.lua:1: from an older release")
+    a.eval("ns.db.feedbackErrors[2].v = '0.0.1'")
+    w.tick(2)
+    a.logout()                                  # (before its report went out)
+    w.tick(5)
+    a.login()
+    w.tick(40 + REPORT_WAIT, step=0.5)          # (the login look, then the report)
+    seen = bugs(c["Tsumil"])
+    assert [b["about"] for b in seen] == ["UI/RollFrame.lua:120"], seen
+    w.assert_no_errors()
+
+
+@case
+def an_error_reports_itself_in_demo_mode_without_sending_it():
+    w, c = standard()
+    settle(w)
+    t = c["Tsumil"]
+    t.eval("ns.Demo:SetEnabled(true)")
+    note(t)
+    w.tick(REPORT_WAIT, step=0.5)
+    demo = bugs(t)
+    assert any(b["auto"] and b["author"] == K("Tsumil") for b in demo), demo
+    t.eval("ns.Demo:SetEnabled(false)")
+    assert bugs(t) == [] and bugs(c["Gina"]) == [], "demo reports stay in the demo list"
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

@@ -6,6 +6,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.5.5", date = "19 October 2026", title = "Small fixes from the raid",
+      sections = {
+          { heading = "Errors report themselves", area = "other", kind = "new", open = "feedback",
+            lead = "When DisasterZone hits a Lua error, a bug report goes to the developer by itself.", lines = {
+              "It carries the error and what was going on: the page open, your group, your last steps.",
+              "Somebody already reported the same error? You're added to theirs as a me too.",
+              "Add details on the pop-up opens your report, to say what you were doing.",
+              "Settings > Alerts > More options: Report errors by themselves turns it off.",
+          } },
+      } },
     { version = "1.5.4", date = "17 October 2026", title = "Keys on the timers and quiet fights",
       sections = {
           { heading = "Keys on the next presses", area = "class", kind = "new", hi = true, open = "settings/classtools",
