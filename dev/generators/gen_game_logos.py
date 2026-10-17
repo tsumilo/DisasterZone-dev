@@ -359,7 +359,7 @@ def illidan_B():
 
 def azeromon():
     """Azeromon's own title_logo.tga (the generator's pixel letters + ribbon), 2x NEAREST like the game draws it."""
-    im = Image.open(ADDON / "Media" / "Azeromon" / "title_logo.tga").convert("RGBA")
+    im = Image.open(ADDON.parent / "DisasterZone_Azeromon" / "Media" / "title_logo.tga").convert("RGBA")
     big = im.resize((im.size[0] * 2, im.size[1] * 2), Image.NEAREST)
     out = Image.new("RGBA", (W, H))
     out.alpha_composite(big, (OX * K, (OY + 4) * K))
@@ -397,6 +397,13 @@ def build():
         rows.append(f"    {gid} = {{ w = {im.size[0]}, h = {im.size[1]}, l = {l}, t = {t}, r = {r}, b = {b} }},")
     print("-- paste into Games/HubUI.lua LOGOS (texture px; the art spans w x h from the top left of 512 x 256)")
     print("\n".join(rows))
+    # the hub (in DisasterZone) shows every game's poster, installed or not: the two logos the games draw themselves
+    # (Azeromon's title logo, gen_azeromon_title.py; Hold the Line's wordmark, gen_htl_kit.py) get a copy here too
+    import shutil
+    for src, name in ((ADDON.parent / "DisasterZone_Azeromon" / "Media" / "title_logo.tga", "logo_azeromon.tga"),
+                      (ADDON.parent / "DisasterZone_HoldTheLine" / "Media" / "logo.blp", "logo_holdtheline.blp")):
+        if src.exists():
+            shutil.copyfile(src, out / name)
 
 
 if __name__ == "__main__":

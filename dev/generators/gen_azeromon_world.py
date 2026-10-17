@@ -385,7 +385,7 @@ def preview(world, region, path, px=8):
 # Lua output
 # ----------------------------------------------------------------------------------------------------------------
 ADDON = os.path.join(os.path.dirname(DEV), "addon", "DisasterZone")
-WORLD_DIR = os.path.join(ADDON, "Games", "Azeromon", "World")
+WORLD_DIR = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "World")
 BLOCK = 32
 RUNS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_-"     # run length 1..64
 
@@ -474,7 +474,7 @@ def rle3(codes):
 
 
 def emit_ground(world, region, bx0, bx1, by0, by1):
-    """WoW's own ground for the region's blocks (azw_ground): Media/Azeromon/Ground/<region>_<n>.blp pages and the
+    """WoW's own ground for the region's blocks (azw_ground): DisasterZone_Azeromon/Media/Ground/<region>_<n>.blp pages and the
     per-tile slots. -> (per block key: rle string, page count)"""
     import azw_ground as GR
     from azw_blp import write_dxt1 as write_blp
@@ -532,7 +532,7 @@ def emit(world, region, entities, interiors=()):
                "-- %s: blocks %d..%d x %d..%d (32x32 tiles: ground, overlay, shade, area per 8x8 chunk)\n"
                % (name, bx0, bx1, by0, by1),
                "local addonName, ns = ...\nlocal W = ns.AzeroWorldData\nlocal B = W.blocks\n",
-               "-- the ground: WoW's own terrain textures as blended in the client (Media/Azeromon/Ground/%s_<n>.blp)\n"
+               "-- the ground: WoW's own terrain textures as blended in the client (DisasterZone_Azeromon/Media/Ground/%s_<n>.blp)\n"
                "local R = W.AddGround(%s, %d, %d)\n" % (region, lua_str(region), pages, __import__("azw_ground").ROW)]
         out.append("\n".join(lines) + "\n")
         for aid, a in sorted(area_names(areas).items()):
@@ -710,7 +710,7 @@ def entities_for(world, gbox):
     return out, fought, interiors
 
 
-MEDIA = os.path.join(ADDON, "Media", "Azeromon")
+MEDIA = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media")
 MOB_COLS = 5                 # creatures per row of the sheet (3 frame columns each, 4 facing rows)
 
 
@@ -720,7 +720,7 @@ PLAYER_RACES = {1: "Human", 2: "Orc", 3: "Dwarf", 4: "NightElf", 5: "Scourge", 6
 
 
 def emit_sprite_sheet(displays):
-    """Media/Azeromon/mobs.tga: one map sprite per display, from its own model (azw_people), 3 walk frames x 4
+    """DisasterZone_Azeromon/Media/mobs.tga: one map sprite per display, from its own model (azw_people), 3 walk frames x 4
     facings each, 5 to a row. displays: [display id]. -> ({display: index}, sheet height)"""
     from PIL import Image
     import azw_people as PP
@@ -786,7 +786,7 @@ def emit_species(species, sheet, sheet_h, players):
                 d["spr"] = sprites[s["entry"]]
             out.append("S.%s = %s\n" % (s["key"], lua_val(d)))
         out.append("S._byEntry = { %s }\n" % ", ".join("[%d] = %s" % (s["entry"], lua_str(s["key"])) for s in order))
-        out.append("D.MOB_SHEET_H = %d          -- Media/Azeromon/mobs.blp: 512 x this, 5 a row, 32 px frames\n" % sheet_h)
+        out.append("D.MOB_SHEET_H = %d          -- DisasterZone_Azeromon/Media/mobs.blp: 512 x this, 5 a row, 32 px frames\n" % sheet_h)
         out.append("-- the player's own body by race and sex (UnitRace file name, UnitSex 2 / 3)\n")
         out.append("D.PLAYER_SPR = { %s }\n" % ", ".join('["%s%d"] = %d' % (k[0], k[1], v) for k, v in sorted(players.items())))
         cls = {}

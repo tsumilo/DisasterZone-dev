@@ -382,6 +382,7 @@ def opened(key, lua=None):
         g = c["Gina"]
         demo_off(w, c)
         close_all(g)
+        g.eval("if ns.Games then ns.Games._pretend = nil end")     # (the game pack views below pretend)
         tab(g, key)
         if lua:
             w.tick(0.3)
@@ -612,7 +613,7 @@ def azero_whos(town, room, x, y, keeper, hour=19.7):
 
 
 def azero_poster(shot, t=3):
-    """The Games hub with Azeromon's poster in front, its film (Games/Azeromon/Poster.lua) t s into shot `shot`"""
+    """The Games hub with Azeromon's poster in front, its film (DisasterZone_Azeromon/Poster.lua) t s into shot `shot`"""
     seek = ("ns.GamesUI:ShowFront('azeromon') ns.GamesUI:PauseAnim(true) "
             "for _, p in ipairs(ns.GamesUI.__posters) do if p.id == 'azeromon' and p.cover.Seek then "
             "p.cover:Seek(%d, %s) p.cover:Tick(0.01) end end" % (shot, t))
@@ -2348,6 +2349,18 @@ STATES = [
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),
     ("Games - Azeromon in front", opened("games", "ns.GamesUI:ShowFront('azeromon')")),
+    # game packs (dev/docs/GAME_PACKS.md): a game that isn't installed, one from another release, the dialog its
+    # poster opens, and a member with no games at all (every poster a stand-in)
+    ("Games - not installed", opened("games", "ns.Games._pretend = { holdtheline = 'missing' } ns.GamesUI:ShowHub() "
+                                              "ns.GamesUI:ShowFront('holdtheline')")),
+    ("Games - needs update", opened("games", "ns.Games._pretend = { chess = 'update' } ns.GamesUI:ShowHub() "
+                                             "ns.GamesUI:ShowFront('chess')")),
+    ("Games - how to get it", opened("games", "ns.Games._pretend = { holdtheline = 'missing' } ns.GamesUI:ShowHub() "
+                                              "ns.GamesUI:ShowFront('holdtheline') "
+                                              "ns.Popup:Show('DISASTERZONE_GAME_PACK', ns.Games:HowToGet('holdtheline'))")),
+    ("Games - no games", opened("games", "ns.Games._pretend = { bingo = 'missing', trainer = 'missing', "
+                                         "azeromon = 'missing', chess = 'missing', illidan = 'missing', "
+                                         "holdtheline = 'missing' } ns.GamesUI:ShowHub() ns.GamesUI:ShowFront('azeromon')")),
     # its poster's film of Northshire, a moment into each shot (the audit ticks 0.6 s more after the state)
     ("Games - Bingo live", opened("games", "local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
                                            "d.current = { id = 'hubdemo', host = me, started = now, hits = {} } "

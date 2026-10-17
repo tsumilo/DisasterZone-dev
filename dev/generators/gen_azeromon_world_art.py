@@ -4,7 +4,7 @@ Ground edges are the accepted Red Voxel dirt path's own hand-drawn grass rim: ev
 vineyard rows, rocky ground, cliffs, sand, water) is that same 13-piece set with the path's bricks replaced by the
 class's fill and its dark rim recoloured, so all edges share one style. Props are drawn here in the same flat,
 outlined manner as the rest of gen_azeromon_art.py. Tree crowns (bigger than a tile) go to their own texture,
-Media/Azeromon/crowns.tga."""
+DisasterZone_Azeromon/Media/crowns.tga."""
 import colorsys
 import os
 import random

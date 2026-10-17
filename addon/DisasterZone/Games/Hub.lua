@@ -90,7 +90,10 @@ end
 -- Where game id stands here: "ok" (it runs), "missing" (its folder isn't installed), "off" (switched off in the
 -- AddOn list), "update" (its folder is from another release: the boot loader skipped it, Core/Boot.lua CheckPack)
 -- or "error" (installed and switched on, but it didn't start).
+-- (Games._pretend = { [id] = state } shows an installed game as one in that state: tests and the UI audit's views)
 function Games:PackState(id)
+    local pretend = self._pretend and self._pretend[id]
+    if pretend then return pretend end
     if defs[id] then return "ok" end
     local c = byId[id]
     if not c then return "missing" end
@@ -125,9 +128,12 @@ end
 -- { id, name, tagline, desc, icon, order, art, folder, missing = PackState }.
 function Games:GetShelf()
     local out = {}
-    for i = 1, #list do out[#out + 1] = list[i] end
+    local pretend = self._pretend or {}
+    for i = 1, #list do
+        if not pretend[list[i].id] then out[#out + 1] = list[i] end
+    end
     for _, c in ipairs(CATALOG) do
-        if not defs[c.id] then
+        if not defs[c.id] or pretend[c.id] then
             out[#out + 1] = { id = c.id, name = c.name, tagline = c.tagline, desc = c.tagline, icon = c.icon,
                               order = c.order, art = c.art, folder = c.folder, missing = self:PackState(c.id) }
         end

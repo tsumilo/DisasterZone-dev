@@ -6,7 +6,7 @@ with a 3D drop under it, and a red ribbon underneath for the tagline (the taglin
 stays crisp). The shade strip is a white alpha ramp the game tints and stretches for the dark bands at the top and
 bottom of the screen.
 
-    python gen_azeromon_title.py            (writes Media/Azeromon/title_logo.tga + title_shade.tga)
+    python gen_azeromon_title.py            (writes DisasterZone_Azeromon/Media/title_logo.tga + title_shade.tga)
 
 UI.lua reads LOGO_W / LOGO_H / RIBBON (printed at the end) from TITLE_ART at the top of its title section."""
 import math
@@ -16,7 +16,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "addon", "DisasterZone"))
-MEDIA = os.path.join(ROOT, "Media", "Azeromon")
+MEDIA = os.path.join(ROOT, "..", "DisasterZone_Azeromon", "Media")
 FONT = os.path.join(os.path.dirname(__file__), "..", "art", "fonts", "PixelOperator-Bold.ttf")   # the logo keeps its 16 px grid font (CC0)
 
 TEXT = "AZEROMON"

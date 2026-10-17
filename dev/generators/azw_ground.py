@@ -8,7 +8,7 @@ To fit an addon, each tile is described by its (up to) three strongest textures,
 third (10x10: the tile's 8x8 alpha pixels plus one from each neighbour, so the drawn blend runs on across tile
 edges) and its water cover (3x3 levels: itself and its neighbours). The masks are clustered (k-means) into a few
 hundred shapes; every distinct (textures, mask shapes, water shape) is drawn once into the atlas pages
-(Media/Azeromon/Ground/<region>_<n>.blp) and each tile keeps the index of its picture.
+(DisasterZone_Azeromon/Media/Ground/<region>_<n>.blp) and each tile keeps the index of its picture.
 
 tile_layers(...) -> dict of per-tile arrays;  build_tiles(layers) -> (tiles, index);  write_pages(...)"""
 import io

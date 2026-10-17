@@ -1,4 +1,4 @@
-"""Redraw the 5 in Azeromon's Pixelify Sans cuts (Media/Azeromon/fonts).
+"""Redraw the 5 in Azeromon's Pixelify Sans cuts (DisasterZone_Azeromon/Media/fonts).
 
 The static Medium / SemiBold instances shipped with a broken "five": a rounded top and a step in the middle, so it read
 as a mirrored S next to the other digits. This replaces it with a plain pixel 5 on the same grid as that cut's 6
@@ -13,7 +13,7 @@ from fontTools.pens.recordingPen import RecordingPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 
-FONTS = os.path.join(os.path.dirname(__file__), "..", "..", "addon", "DisasterZone", "Media", "Azeromon", "fonts")
+FONTS = os.path.join(os.path.dirname(__file__), "..", "..", "addon", "DisasterZone_Azeromon", "Media", "fonts")
 CUTS = ("PixelifySans-Medium.ttf", "PixelifySans-SemiBold.ttf")
 
 

@@ -1,13 +1,13 @@
-"""Textures for The Binding of Illidan's doors (Games/Illidan/UI.lua), made from the Black Temple's own art:
-  Media/Illidan/door.tga     256 x 256: the gilded door frame (126730) with its middle cut out as an opening down to
+"""Textures for The Binding of Illidan's doors (DisasterZone_Illidan/UI.lua), made from the Black Temple's own art:
+  DisasterZone_Illidan/Media/door.tga     256 x 256: the gilded door frame (126730) with its middle cut out as an opening down to
                              its foot (the room's side), the cut's edge shaded so the frame reads as a deep moulding
-  Media/Illidan/bars.tga     128 x 128: a portcullis - five iron bars (the temple's spiked iron, 128035) with two
+  DisasterZone_Illidan/Media/bars.tga     128 x 128: a portcullis - five iron bars (the temple's spiked iron, 128035) with two
                              cross bands and spiked feet, clear between the bars
-  Media/Illidan/passage.tga  64 x 64: the dark beyond a doorway - black at the top (the far end) fading out to the
+  DisasterZone_Illidan/Media/passage.tga  64 x 64: the dark beyond a doorway - black at the top (the far end) fading out to the
                              bottom (the room's side), darker at the sides
-  Media/Illidan/vignette.tga 256 x 256: black, clear in the middle, darkening towards the edges and most in the
+  DisasterZone_Illidan/Media/vignette.tga 256 x 256: black, clear in the middle, darkening towards the edges and most in the
                              corners (a superellipse), laid over a room's floor
-  Media/Illidan/splat.tga    512 x 128: four stains side by side (what an enemy leaves on the floor), white so the
+  DisasterZone_Illidan/Media/splat.tga    512 x 128: four stains side by side (what an enemy leaves on the floor), white so the
                              game tints them per kind: a ragged pool with droplets and streaks thrown out, a darker
                              rim, a wet sheen towards the top left; alpha thicker in the middle
 The textures come from dev/art/casc/tex (decoded from the installed client: ui_look / the room tools put them there).
@@ -19,7 +19,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 
 DEV = Path(__file__).resolve().parents[1]
 ADDON = DEV.parent / "addon" / "DisasterZone"
-OUT = ADDON / "Media" / "Illidan"
+OUT = ADDON.parent / "DisasterZone_Illidan" / "Media"
 TEX = DEV / "art" / "casc" / "tex"
 
 # the opening, in the frame picture's 0..1: the inner panel's edge, straight down through the foot

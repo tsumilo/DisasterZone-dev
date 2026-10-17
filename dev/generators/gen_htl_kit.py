@@ -1,7 +1,7 @@
 r"""Hold the Line's UI pieces (cards, medal rings, gems, chips, buttons, loot rows, the level digits, the title...)
 drawn by the mockup's own CSS: dev/art/casc/survivors_mockup/kit.html (with v2.css put in) is screenshot by headless
 Chrome on a clear background, cut into its cells and packed into DXT5 pages:
-  Media/HoldTheLine/Kit_<n>.blp   +   Games/HoldTheLine/Kit.lua (ns.HTLKit[name] = { file, u0, u1, v0, v1, w, h, pad })
+  DisasterZone_HoldTheLine/Media/Kit_<n>.blp   +   DisasterZone_HoldTheLine/Kit.lua (ns.HTLKit[name] = { file, u0, u1, v0, v1, w, h, pad })
 w, h are the cell's size in CSS px (pad included: the room left round it for shadows and glows).
 Run from dev: luaenv\Scripts\python.exe generators\gen_htl_kit.py"""
 import json
@@ -18,7 +18,7 @@ import gen_htl_media as M  # noqa: E402
 
 MOCK = M.MOCK
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-OUT_LUA = M.ADDON / "Games" / "HoldTheLine" / "Kit.lua"
+OUT_LUA = M.ADDON.parent / "DisasterZone_HoldTheLine" / "Kit.lua"
 
 
 def shoot(html, name, height):
@@ -44,7 +44,7 @@ def main():
     logo = re.search(r'<div class="logo" id="logo">\s*(.*?)\s*</div>\s*<!-- 2\.', design, re.S).group(1)
     html2 = (MOCK / "kit2.html").read_text(encoding="utf-8").replace("/*DESIGNCSS*/", css).replace("LOGOHTML", json.dumps(logo))
     p2, man2 = shoot(html2, "kit2", 3000)
-    # the hub poster's logo: the wordmark alone, its own texture (Media/HoldTheLine/logo.blp, 512 x 256) - the letters'
+    # the hub poster's logo: the wordmark alone, its own texture (DisasterZone_HoldTheLine/Media/logo.blp, 512 x 256) - the letters'
     # box is printed for Games/HubUI.lua's LOGOS (k = 2: two texture px per UI px)
     for i, (k, im) in enumerate(p2):
         if k == "poster_logo":
@@ -82,7 +82,7 @@ def main():
         rows.append('K.%s = { "%s%s", %s, %s, %s, %s, %d, %d, %d }' % (
             name, M.GAME, n, M.lua_num(round(x / pw, 5)), M.lua_num(round((x + crop.width) / pw, 5)),
             M.lua_num(round(y / ph, 5)), M.lua_num(round((y + crop.height) / ph, 5)), crop.width, crop.height, pad))
-    body = ['if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_HoldTheLine/Kit.lua", ...) then return end -- DisasterZone Games/HoldTheLine/Kit.lua',
+    body = ['if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_HoldTheLine/Kit.lua", ...) then return end -- DisasterZone_HoldTheLine/Kit.lua',
             "-- ns.HTLKit: Hold the Line's UI pieces, cut from the mockup's CSS (dev/generators/gen_htl_kit.py) - do not edit.",
             "-- K[name] = { file, u0, u1, v0, v1, w, h, pad }: w, h in CSS px with pad px of room round the piece (its glow / shadow).",
             "local _, ns = ...", "local K = {}", "ns.HTLKit = K"] + rows

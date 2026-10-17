@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """Render check: an offline reference renderer that measures how correct and how stable the Raid Trainer's software
-room renderer (Games/Trainer/UI.lua: PrepareMesh / DrawMesh / PlaceTex / UpdateOcclusion) is.
+room renderer (DisasterZone_Trainer/UI.lua: PrepareMesh / DrawMesh / PlaceTex / UpdateOcclusion) is.
 
 It boots DisasterZone in the harness (wowmock), puts the player at a list of poses that stress the renderer (and
 walks a short path in small steps), and for every frame builds two images of the 3D view:
@@ -2445,7 +2445,7 @@ def run_suites(baseline=None):
                          note="%s (%.0f s)" % (tail[0][:90], time.perf_counter() - t0)))
         print("   %s %s" % ("PASS" if ok else "FAIL", t), flush=True)
     static = {}
-    for label, argv in (("check.py Games/Trainer", ["tools/check.py", "Games/Trainer"]), ("check.py", ["tools/check.py"])):
+    for label, argv in (("check.py DisasterZone_Trainer", ["tools/check.py", "DisasterZone_Trainer"]), ("check.py", ["tools/check.py"])):
         try:
             p = subprocess.run([py] + argv, cwd=DEV, capture_output=True, text=True, timeout=300, encoding="utf-8",
                                errors="replace")

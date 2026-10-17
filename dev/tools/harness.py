@@ -320,7 +320,7 @@ def _chunk(path, chunkname, strip_bom=True):
     hit = _CHUNKS.get(key)
     if hit and hit[0] == stamp:
         return hit[1]
-    cover = bool(COVER_FILE and chunkname.startswith(COVER_PREFIX))
+    cover = bool(COVER_FILE and _cover_rel(chunkname) is not None)
     ident = None if _STAMP_ONCE else _identity(path)     # (WSL: one look per file and process already, over 9P)
     if ident is not None:
         ident = (ident, chunkname, strip_bom, cover)
@@ -334,7 +334,7 @@ def _chunk(path, chunkname, strip_bom=True):
         _CHUNKS[key] = (stamp, out)
         return out
     global _READING_CHUNK
-    _READING_CHUNK = chunkname.startswith(COVER_PREFIX)  # tools/testmap_rec.py: counted per function, not per file
+    _READING_CHUNK = _cover_rel(chunkname) is not None  # tools/testmap_rec.py: counted per function, not per file
     try:
         with open(path, "rb") as fh:
             src = fh.read()
@@ -394,7 +394,7 @@ def _native_get(native, chunkname, cover):
         h = h.decode("ascii")
         if COVER_SRC and not os.path.exists(os.path.join(COVER_SRC, h + ".lua")):
             return None                     # (testmap pruned the copy: the slow path writes it again)
-        rel = chunkname[len(COVER_PREFIX):]
+        rel = _cover_rel(chunkname)
         _COVER_FILES[rel] = h
         _COVER_TAGS[hashlib.sha1(rel.encode("utf-8")).hexdigest()[:10]] = rel
     return out
@@ -420,6 +420,20 @@ def _native_put(native, h, out):
 COVER_FILE = os.environ.get("DZ_COVER") or None
 COVER_SRC = os.environ.get("DZ_COVER_SRC") or None
 COVER_PREFIX = "@Interface/AddOns/%s/" % ADDON_NAME
+_PACK_CHUNK = re.compile(r"^@Interface/AddOns/(%s_[A-Za-z0-9]+)/(.+)$" % ADDON_NAME)
+
+
+def _cover_rel(chunkname):
+    """The path coverage records for an addon chunk: the addon's own files by their path, a game pack's with its
+    folder ("DisasterZone_Chess/Chess.lua"); None for anything else (the 3D room data, other addons)."""
+    if chunkname.startswith(COVER_PREFIX):
+        return chunkname[len(COVER_PREFIX):]
+    m = _PACK_CHUNK.match(chunkname)
+    if m and m.group(1) != ROOMS_NAME:
+        return m.group(1) + "/" + m.group(2)
+    return None
+
+
 _COVER_FUNCS = {}  # rel -> set(linedefined)
 _COVER_FILES = {}  # rel -> sha1
 _COVER_TAGS = {}  # tag -> rel
@@ -458,7 +472,7 @@ def _instrument(src, tag):
 
 def _cover_source(chunkname, src):
     """Records the source a suite ran (hash + a copy in COVER_SRC) and returns it instrumented."""
-    rel = chunkname[len(COVER_PREFIX):]
+    rel = _cover_rel(chunkname)
     h = hashlib.sha1(src).hexdigest()
     _COVER_FILES[rel] = h
     if COVER_SRC:

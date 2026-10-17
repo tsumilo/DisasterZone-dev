@@ -1,5 +1,5 @@
 """Azeromon world: every placed doodad (tree, bush, fence, barrel...) and building (WMO) of a region, rendered from
-its own model (azw_render) at its real spot and turn, packed into sprite pages (Media/Azeromon/Scenery/<region>_<n>
+its own model (azw_render) at its real spot and turn, packed into sprite pages (DisasterZone_Azeromon/Media/Scenery/<region>_<n>
 .blp, palettised with alpha), plus where each one stands.
 
 Scale: 16 px a tile = 3.84 px a yard, the ground's own scale. Small props (under SMALL yards) are drawn PROP_SCALE

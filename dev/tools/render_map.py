@@ -6,8 +6,8 @@ from PIL import Image
 from _common import solo
 
 ADDON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "addon", "DisasterZone")
-atlas = Image.open(os.path.join(ADDON, "Media", "Azeromon", "atlas.tga")).convert("RGBA")
-names = dict((m.group(1), int(m.group(2))) for m in re.finditer(r"^\s+(\w+) = (\d+),", open(os.path.join(ADDON, "Games", "Azeromon", "Atlas.lua")).read(), re.M))
+atlas = Image.open(os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media", "atlas.tga")).convert("RGBA")
+names = dict((m.group(1), int(m.group(2))) for m in re.finditer(r"^\s+(\w+) = (\d+),", open(os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Atlas.lua")).read(), re.M))
 
 
 def tile(name):
@@ -27,7 +27,7 @@ def baked_ground(c, map_id):
     H = max(y + h for x, y, w, h, tw, th in g["chunks"])
     out = Image.new("RGBA", (W, H))
     for x, y, w, h, tw, th in g["chunks"]:
-        f = os.path.join(ADDON, "Media", "Azeromon", "Ground", "%s_%d_%d.tga" % (map_id, x // 256, y // 256))
+        f = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "Media", "Ground", "%s_%d_%d.tga" % (map_id, x // 256, y // 256))
         out.paste(Image.open(f).convert("RGBA").crop((0, 0, w, h)), (x, y))
     ox, oy = g["mx"] * 16, g["my"] * 16
     return out.crop((ox, oy, W - ox, H - oy))

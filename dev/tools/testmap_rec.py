@@ -53,11 +53,20 @@ def key_of(path):
     real = os.path.normcase(os.path.realpath(p))  # dev/../addon/DisasterZone is a junction to the addon folder
     if real != p and real.startswith(ADDON + os.sep):
         return "addon:" + real[len(ADDON) + 1:].replace("\\", "/")
+    for q in (p, real):                           # a game pack next to the addon: with its folder (tools/packs.py)
+        if q.startswith(_PACKS_UNDER) and os.sep in q[len(_PACKS_UNDER):]:
+            return "addon:" + q[len(_PARENT) + 1:].replace("\\", "/")
     return None
+
+
+_PARENT = os.path.dirname(ADDON)
+_PACKS_UNDER = os.path.join(_PARENT, os.path.normcase("DisasterZone_"))
 
 
 def path_of(key):
     kind, rel = key.split(":", 1)
+    if kind != "dev" and rel.startswith("DisasterZone_") and "/" in rel:
+        return os.path.join(_PARENT, rel.replace("/", os.sep))
     return os.path.join(DEV if kind == "dev" else ADDON, rel.replace("/", os.sep))
 
 
