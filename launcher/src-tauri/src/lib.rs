@@ -357,6 +357,19 @@ async fn restore(id: String, busy: State<'_, Busy>) -> Result<Option<String>> {
     Ok(out)
 }
 
+/// Backups > Back up now (install::backup_now): copies of the addon folders and the saved variables. Copying a few
+/// hundred MB takes a moment, so off the main thread.
+#[tauri::command]
+async fn backup_now(busy: State<'_, Busy>) -> Result<String> {
+    let _guard = busy.0.try_lock().map_err(|_| crate::core::Error::Msg("already working".into()))?;
+    let s = state::load();
+    let lay = layout(&s)?;
+    let keep = s.keep_backups;
+    tokio::task::spawn_blocking(move || install::backup_now(&lay, keep))
+        .await
+        .map_err(|e| crate::core::Error::Msg(e.to_string()))?
+}
+
 /// The Games tab and the picker: which packs to keep ({id: on}; Update then installs or takes them out).
 /// `picked`: the one-time picker was answered.
 #[tauri::command]
@@ -503,6 +516,7 @@ pub fn run() {
             check,
             update,
             backups,
+            backup_now,
             restore,
             set_packs,
             remove_pack,

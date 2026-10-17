@@ -175,6 +175,11 @@ function demoApi() {
           return id;
         }
         case "backups": return backups.slice();
+        case "backup_now": {
+          await wait(900);
+          const id = backup("manual", Object.keys(disk).sort(), []);
+          return id;
+        }
         case "restore": {
           const b = backups.find((x) => x.id === args.id);
           backup("restore", Object.keys(disk), Object.keys(b.snap).filter((f) => !disk[f]));

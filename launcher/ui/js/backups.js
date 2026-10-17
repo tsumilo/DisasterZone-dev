@@ -50,6 +50,7 @@ function backupCard(b, newest) {
     el("span", null, d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : ""));
   const mid = el("div");
   const title = first ? "Before the first install"
+    : b.reason === "manual" ? (folders.length ? "Your backup of " + (b.version || "the addon") : "Your backup of the saved variables")
     : b.reason === "remove" ? "Before removing " + joinNames(folders)
     : b.reason === "restore" ? "Before a restore"
     : "Version " + (b.version || "?") + ", before an update";
@@ -67,7 +68,9 @@ function backupCard(b, newest) {
   mid.append(fol);
   const rt = el("div", "rt");
   if (b.bytes) rt.append(el("span", "sz", fmtBytes(b.bytes)));
-  if (!first && backupOpen !== b.id) {   // (a backup from before the first install holds saved variables only)
+  // (a backup from before the first install, or of a linked development folder, holds saved variables only:
+  // nothing to put back, Open folder has them)
+  if (!first && (b.folders || []).length && backupOpen !== b.id) {
     const btn = el("button", "btn", b.reason === "remove" ? "Put back" : "Restore");
     btn.disabled = working;
     btn.onclick = () => { backupOpen = b.id; drawBackups(); };
@@ -86,6 +89,9 @@ function restoreAsk(b, newest, folders) {
   if (b.reason === "remove") {
     p.append(el("b", null, "Put " + names + " back?"), " " + names + " goes back in as it was when you removed it" +
       (newest ? "" : ", and what changed after that is undone first") + ". What you have now is backed up first, and updates pause until you update again.");
+  } else if (b.reason === "manual") {
+    p.append(el("b", null, "Go back to your backup?"), " " + names + " go back to how they were when you made it" +
+      (b.version ? " (version " + b.version + ")" : "") + ". What you have now is backed up first, and updates pause until you update again. Your saved variables are not touched: they are in the backup's folder if you want them.");
   } else {
     p.append(el("b", null, "Go back to " + (b.version || "this backup") + "?"), " The addon goes back to version " + (b.version || "?") +
       ", with the games as they were then. What you have now is backed up first, and updates pause until you update again. Your saved variables are not touched.");
@@ -119,7 +125,31 @@ async function restoreBackup(b) {
   renderBackups();
 }
 
+// Back up now: copies of the addon's folders and the saved variables, as a backup of its own.
+async function backupNow() {
+  if (working || !status || !status.flavorDir) return;
+  working = true;
+  const btn = $("btn-backup-now");
+  btn.disabled = true;
+  $("backup-now-text").textContent = "Backing up…";
+  drawBackups();
+  try {
+    const id = await api.invoke("backup_now");
+    const list = await api.invoke("backups");
+    const b = list.find((x) => x.id === id);
+    const what = b && b.folders.length ? joinNames(b.folders.map(titleOf)) + (b.savedVariables ? " and your saved variables" : "") : "Your saved variables";
+    toast("Backed up: " + what + (b && b.bytes ? " · " + fmtBytes(b.bytes) : "") + ".", true);
+  } catch (e) {
+    toast(e);
+  }
+  working = false;
+  btn.disabled = false;
+  $("backup-now-text").textContent = "Back up now";
+  renderBackups();
+}
+
 function wireBackups() {
+  $("btn-backup-now").onclick = backupNow;
   $("keep-minus").onclick = () => saveSettings({ keepBackups: Math.max(1, status.settings.keepBackups - 1) }).then(renderBackups);
   $("keep-plus").onclick = () => saveSettings({ keepBackups: Math.min(10, status.settings.keepBackups + 1) }).then(renderBackups);
   $("btn-open-backups").onclick = () => api.invoke("open_folder", { kind: "backups" }).catch(toast);

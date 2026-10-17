@@ -551,7 +551,7 @@ pub struct BackupInfo {
     pub version: Option<String>,
     pub build: Option<String>,
     pub time: String,
-    /// why it was made: "update" | "restore" | "remove"
+    /// why it was made: "update" | "restore" | "remove" | "manual" (Back up now)
     pub reason: String,
     #[serde(default)]
     pub saved_variables: usize,
@@ -797,6 +797,58 @@ pub fn remove(layout: &Layout, folder: &str, keep: usize) -> Result<Option<Strin
         return Ok(None);
     }
     swap_in(layout, None, &[], &[folder.to_string()], "remove", keep, None)
+}
+
+/// Backups > Back up now: copies of the release folders in AddOns and of the DisasterZone saved variables, as a backup
+/// of its own (reason "manual"). Nothing in AddOns moves, so the game can be running. A linked folder (a development
+/// copy: its files live in the dev kit) is left out; with every folder linked it keeps the saved variables alone.
+/// Restoring it puts the folders back as they were now (restore applies the newer backups first).
+pub fn backup_now(layout: &Layout, keep: usize) -> Result<String> {
+    let before = installed(layout);
+    let id = backup_id(layout, before.version.as_deref().unwrap_or("none"));
+    let bdir = layout.backups().join(&id);
+    fs::create_dir_all(&bdir)?;
+    let made = (|| -> Result<BackupInfo> {
+        let sv = backup_saved_variables(layout, &bdir)?;
+        let mut names: Vec<String> = fs::read_dir(layout.addons())
+            .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| release_folder(n)).collect())
+            .unwrap_or_default();
+        names.sort();
+        let mut folders = vec![];
+        for name in names {
+            let live = layout.addons().join(&name);
+            if is_link(&live) || !live.is_dir() {
+                continue;
+            }
+            copy_tree(&live, &bdir.join(&name))?;
+            folders.push(name);
+        }
+        if folders.is_empty() && sv == 0 {
+            return msg("there is nothing to back up yet: no DisasterZone folder and no saved variables");
+        }
+        Ok(BackupInfo {
+            id: id.clone(),
+            version: before.version.clone(),
+            build: before.build.clone(),
+            time: stamp(),
+            reason: "manual".into(),
+            saved_variables: sv,
+            bytes: folders.iter().map(|f| dir_bytes(&bdir.join(f))).sum(),
+            folders,
+            added: vec![],
+        })
+    })();
+    match made {
+        Ok(info) => {
+            fs::write(bdir.join("backup.json"), serde_json::to_vec_pretty(&info).unwrap())?;
+            prune_backups(layout, keep)?;
+            Ok(id)
+        }
+        Err(e) => {
+            let _ = fs::remove_dir_all(&bdir);
+            Err(e)
+        }
+    }
 }
 
 /// Go back to how the addon folders were before backup `id` was made. Every backup from the newest down to `id` is
@@ -1098,6 +1150,70 @@ mod tests {
         assert!(restore(&fx.layout, &all[2].id, 3).unwrap_err().to_string().contains("before DisasterZone was installed"));
         assert!(restore(&fx.layout, "../x", 3).is_err());
         assert!(restore(&fx.layout, "nope", 3).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_manual_backup_copies_and_restores_like_the_others() {
+        let mut fx = Fixture::new();
+        let sv = fx.layout.wtf().join("Account/ME/SavedVariables");
+        fs::create_dir_all(&sv).unwrap();
+        fs::write(sv.join("DisasterZone.lua"), "DisasterZoneDB = {}").unwrap();
+        let chess: Files = &[("Chess.lua", "c1")];
+        let m = fx.publish("1.0", "b1", &[("Core/A.lua", "a1")], &[(ROOMS, ROOMS_FILES), ("DisasterZone_Chess", chess)]);
+        fx.update_with(&m, &[("chess", true)], 5).await.unwrap();
+        fs::create_dir_all(fx.layout.addons().join("DisasterZone_Bridge")).unwrap(); // (the launcher's own: left out)
+
+        let id = backup_now(&fx.layout, 5).unwrap();
+        assert_eq!(fx.backup_dirs(&id), vec!["DisasterZone", "DisasterZone_Chess", "DisasterZone_Rooms", "WTF"]);
+        assert_eq!(fx.read("DisasterZone", "Core/A.lua").as_deref(), Some("a1")); // (copied: still in AddOns)
+        let b = &list_backups(&fx.layout)[0];
+        assert_eq!((b.id.as_str(), b.reason.as_str(), b.version.as_deref()), (id.as_str(), "manual", Some("1.0")));
+        assert_eq!(b.saved_variables, 1);
+        assert!(b.bytes > 0 && b.added.is_empty());
+
+        // 1.1 changes the core and chess; going back to the manual backup puts 1.0 back
+        let m2 = fx.publish("1.1", "b2", &[("Core/A.lua", "a2")], &[(ROOMS, ROOMS_FILES), ("DisasterZone_Chess", &[("Chess.lua", "c2")])]);
+        fx.update_with(&m2, &[], 5).await.unwrap();
+        assert_eq!(fx.read("DisasterZone_Chess", "Chess.lua").as_deref(), Some("c2"));
+        restore(&fx.layout, &id, 5).unwrap();
+        assert_eq!(fx.read("DisasterZone", "Core/A.lua").as_deref(), Some("a1"));
+        assert_eq!(fx.read("DisasterZone_Chess", "Chess.lua").as_deref(), Some("c1"));
+        assert_eq!(installed(&fx.layout).version.as_deref(), Some("1.0"));
+    }
+
+    #[tokio::test]
+    async fn a_manual_backup_counts_toward_the_ones_kept() {
+        let mut fx = Fixture::new();
+        let m = fx.publish("1.0", "b1", &[("Core/A.lua", "a1")], &[]);
+        fx.update_with(&m, &[], 2).await.unwrap();
+        let first = backup_now(&fx.layout, 2).unwrap();
+        backup_now(&fx.layout, 2).unwrap();
+        backup_now(&fx.layout, 2).unwrap();
+        let all = list_backups(&fx.layout);
+        assert_eq!(all.len(), 2);
+        assert!(all.iter().all(|b| b.id != first));
+    }
+
+    #[tokio::test]
+    async fn a_linked_folder_is_left_out_of_a_manual_backup() {
+        let fx = Fixture::new();
+        assert!(backup_now(&fx.layout, 3).unwrap_err().to_string().contains("nothing to back up"));
+        assert!(list_backups(&fx.layout).is_empty());
+        let src = fx._tmp.path().join("devkit");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("DisasterZone.toc"), "## Version: 9.9\n").unwrap();
+        if !link_dir(&src, &fx.layout.addons().join("DisasterZone")) {
+            eprintln!("could not make a directory link here: skipped");
+            return;
+        }
+        let sv = fx.layout.wtf().join("Account/ME/SavedVariables");
+        fs::create_dir_all(&sv).unwrap();
+        fs::write(sv.join("DisasterZone.lua"), "DisasterZoneDB = {}").unwrap();
+        let id = backup_now(&fx.layout, 3).unwrap();
+        assert_eq!(fx.backup_dirs(&id), vec!["WTF"]);
+        let b = &list_backups(&fx.layout)[0];
+        assert!(b.folders.is_empty() && b.saved_variables == 1, "{b:?}");
+        assert!(src.join("DisasterZone.toc").is_file());
     }
 
     #[tokio::test]

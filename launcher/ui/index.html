@@ -197,12 +197,13 @@
         <div class="phead">
           <div>
             <h1 class="ptitle">Backups</h1>
-            <div class="psub">Every update first saves the folders it changes, plus your DisasterZone saved variables; removing a game saves its folder too. Restore one to go back to how things were.</div>
+            <div class="psub">Every update first saves the folders it changes, plus your DisasterZone saved variables; removing a game saves its folder too. Back up now copies everything whenever you like. Restore one to go back to how things were.</div>
           </div>
           <div class="sum">
             <div class="stat"><span>Kept</span><b id="b-kept">—</b></div>
             <div class="stat"><span>Keep the last</span><span class="step"><button class="ibtn" id="keep-minus" aria-label="Keep fewer">−</button><b id="keep">3</b><button class="ibtn" id="keep-plus" aria-label="Keep more">+</button></span></div>
-            <button class="btn lg" id="btn-open-backups"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>Open folder</button>
+            <button class="btn lg ghost" id="btn-open-backups" title="Open the backups folder"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>Open folder</button>
+            <button class="btn lg gold" id="btn-backup-now" title="Copy the addon's folders and your saved variables into a new backup"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10M7.5 9.5 12 14l4.5-4.5"/><path d="M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg><span id="backup-now-text">Back up now</span></button>
           </div>
         </div>
         <div class="blist" id="backups"></div>
@@ -275,7 +276,7 @@
           <div class="panel sc" id="s-play">
             <div class="hdr"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.8v14.4L19 12z"/></svg><b>PLAY</b></div>
             <div class="row">
-              <div class="rl"><div class="rt">Battle.net launch code</div><div class="rd">Optional. With a code (e.g. WoWC) Play starts the game; empty opens Battle.net.</div></div>
+              <div class="rl"><div class="rt">Battle.net launch code</div><div class="rd">Optional. Empty: Play starts the game version picked above through Battle.net. A code (e.g. WoWC) starts the version Battle.net's own menu has picked instead.</div></div>
               <div class="rc"><input class="field" id="set-code" placeholder="empty" spellcheck="false"></div>
             </div>
             <div class="row">

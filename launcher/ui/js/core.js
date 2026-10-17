@@ -286,9 +286,13 @@ async function doUpdate() {
   await refreshAll();
 }
 
+// Play: the game version of the chosen folder, through Battle.net (play.rs), or the Play command from Settings.
 async function play() {
   try {
     await api.invoke("play");
+    const s = status && status.settings;
+    toast(s && s.playCommand ? "Starting your Play command…"
+      : "Starting World of Warcraft " + (FLAVOR_NAMES[s && s.flavor] || "") + " through Battle.net…", true);
   } catch (e) {
     toast(e);
   }
