@@ -6,6 +6,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.40", date = "17 October 2026", title = "A clearer move list",
+      lines = {
+          "The move list says what each move does, in one line.",
+          "The coach tells you why it picked a move, on that line.",
+          "Resting moves show an hourglass and one pip per turn left.",
+          "A move that is ready again glints.",
+          "The box beside it is calmer: PP, rest, type, power, effect.",
+      } },
     { version = "0.39", date = "17 October 2026", title = "The taming moment",
       lines = {
           "Taming is a moment now: a lure, a sigil, a golden orb.",

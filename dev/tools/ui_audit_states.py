@@ -2131,6 +2131,12 @@ STATES = [
     ("Games - Azeromon fight menu", azero_battle("route1", 11, 20, "kobling", "ns.AzeroUI._HandleKey('A')")),
     ("Games - Azeromon fight menu combo", azero_combo_menu()),
     ("Games - Azeromon cast bar", azero_cast_bar()),
+    ("Games - Azeromon fight menu long rests", azero_battle("route1", 11, 20, "kobling",
+        "local b = ns.Azero.battle local m = b.ally.mon m.moves = {} "
+        "for i, id in ipairs({ 'kthorns', 'kroots', 'kthornvolley', 'kregrowth' }) do "
+        "m.moves[i] = { id = id, pp = ns.AzeroData.moves[id].pp } end "
+        "b.ally.cd[2], b.ally.cd[4] = 2, 5 b.foe.marks.rooted = 2 ns.Azero:Data().coach = false "
+        "ns.AzeroUI._HandleKey('A') ns.AzeroUI._HandleKey('right')")),
     ("Games - Azeromon cast bar long", azero_cast_bar("bsecond_vancleef")),       # Rally the Brotherhood
     ("Games - Azeromon battle odds", azero_battle("route1", 11, 20, "kobling", bag=TAME_BAG)),
     ("Games - Azeromon battle bag odds", azero_battle_bag()),
