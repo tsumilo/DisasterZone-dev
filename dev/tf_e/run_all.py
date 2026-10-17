@@ -59,7 +59,8 @@ WSL_DISTRO = os.environ.get("DZ_WSL_DISTRO") or "Ubuntu-26.04"
 # Run on Windows even when WSL is there: staging whole addon trees over 9P is slow (patch), they drive Windows
 # programs / paths (launcher), or 60 clients a shard need more memory than the WSL VM has to spare (scale: ~3.4 GB a
 # shard there, Linux's allocator keeps what the Lua heaps freed).
-WINDOWS_ONLY = ("patch/", "launcher/", "scale/")
+# sync/test_mixed_versions: builds old addon trees from git and the live folder (18 s on Windows, 60 s over 9P).
+WINDOWS_ONLY = ("patch/", "launcher/", "scale/", "sync/test_mixed_versions.py")
 
 SHARDS = testmap.SHARDS                  # suite -> shard count (tools/testmap.py)
 RELEASE_ONLY = testmap.RELEASE_ONLY      # suites only --all runs (or a filter naming them)
