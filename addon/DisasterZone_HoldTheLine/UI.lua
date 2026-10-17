@@ -211,13 +211,13 @@ local function NewRun(cls, opts)
         local nx = ns.HTLGame:RunNaxx(cls)
         opts.frostRes, opts.t3n, opts.ktSlain = nx.frostRes, nx.t3n, nx.ktSlain
         if nx.t3Look and opts.perks then opts.perks.t3 = true end
-        if opts.stage and not ns.HTLGame:StageOpen(opts.stage) and not opts.challenge then opts.stage = nil end
+        if opts.stage and not ns.HTLGame:StageOpen(opts.stage) and not opts.challenge and not opts.dev then opts.stage = nil end
     end
     opts.seed = opts.seed or floor(((time and time() or 1) * 7 + math.random(1, 100000)) % 2000000000)
     run = Hook(E.New(opts))
     acc = 0
     if not opts.attract and view then view.scaler:SetAlpha(1) end
-    if ns.HTLGame and not opts.attract and not opts.lab then ns.HTLGame:Started(run) end
+    if ns.HTLGame and not opts.attract and not opts.lab and not opts.dev then ns.HTLGame:Started(run) end
     return run
 end
 
@@ -292,12 +292,15 @@ local function TickPreviews(dt)
     for _, pv in ipairs(previews) do
         if pv.on and pv.frame:IsVisible() and pv.run then
             pv.acc = min(pv.acc + dt * (pv.fast or 1), STEP * 4)
+            local stepped = pv.drawn ~= pv.run
             while pv.acc >= STEP do
                 pv.acc = pv.acc - STEP
                 E.Step(pv.run, STEP, 0, 0)
                 if pv.run.pvPassive then PassiveFx(pv.run, STEP) end
+                stepped = true
             end
-            Rd.Draw(pv.view, pv.run)
+            pv.idle = (pv.idle or 0) + dt
+            if stepped or pv.view.dirty or pv.idle >= 0.25 then Rd.Draw(pv.view, pv.run) pv.drawn, pv.idle = pv.run, 0 end
         end
     end
 end
@@ -362,21 +365,30 @@ local function CardPlate(c)
 end
 
 -- a card: the live preview at the bottom, the face (its window cut out) over it, the glass and the words over that,
--- the back over everything while it is turned away
+-- the back over everything while it is turned away. The face turns in whole: the client cannot squeeze a frame or a
+-- line of text, so the preview and the words stay drawn and are seen through clips that narrow with the plate (the
+-- plate, the medal and the rank gems are squeezed for real).
 local function NewCard(parent, i)
     local c = CreateFrame("Button", nil, parent)
     c:SetSize(W_CARD, H_CARD)
     c.i = i
     local L = c:GetFrameLevel()
-    c.pv = NewPreview(c)
+    c.pvClip = CreateFrame("Frame", nil, c)
+    pcall(c.pvClip.SetClipsChildren, c.pvClip, true)
+    c.pvClip:SetFrameLevel(L + 1)
+    c.pv = NewPreview(c.pvClip)
     c.pv.frame:SetPoint("TOPLEFT", c, "TOPLEFT", WIN_X, -WIN_Y)
     c.pv.frame:SetFrameLevel(L + 1)
     c.face = CreateFrame("Frame", nil, c)
     c.face:SetAllPoints()
     c.face:SetFrameLevel(L + 60)
     c.plate = KitTex(c.face, "c2_rare", "BACKGROUND")
-    c.top = CreateFrame("Frame", nil, c.face)
-    c.top:SetAllPoints()
+    c.topClip = CreateFrame("Frame", nil, c.face)
+    pcall(c.topClip.SetClipsChildren, c.topClip, true)
+    c.topClip:SetFrameLevel(L + 62)
+    c.top = CreateFrame("Frame", nil, c.topClip)
+    c.top:SetPoint("TOPLEFT", c.face, "TOPLEFT", 0, 0)
+    c.top:SetSize(W_CARD, H_CARD)
     c.top:SetFrameLevel(L + 62)
     c.glass = KitTex(c.top, "c2_glass", "BACKGROUND")
     KitAt(c.glass, c.top, WIN_X, WIN_Y, WIN_W, WIN_H)
@@ -422,8 +434,11 @@ local function NewCard(parent, i)
     c.kbd = KitTex(c.top, "c2_key", "OVERLAY", 3)
     KitAt(c.kbd, c.top, WIN_X + WIN_W - 8 - 18, WIN_Y + 8, 18, 18)
     c.key = Words(c.top, 10) c.key:SetPoint("CENTER", c.kbd, "CENTER", 0, 0) c.key:SetText(tostring(i)) c.key:SetTextColor(217 / 255, 205 / 255, 180 / 255)
-    -- the light that sweeps a chosen card
-    c.flash = c.top:CreateTexture(nil, "OVERLAY", nil, 6)
+    -- the light that sweeps a chosen card (its own layer: it spills past the card's edges, the clip would cut it)
+    c.fx = CreateFrame("Frame", nil, c)
+    c.fx:SetAllPoints()
+    c.fx:SetFrameLevel(L + 66)
+    c.flash = c.fx:CreateTexture(nil, "OVERLAY", nil, 6)
     c.flash:SetTexture(D.MEDIA .. "UI\\glow") c.flash:SetBlendMode("ADD") c.flash:SetVertexColor(1, 0.86, 0.5, 1)
     c.flash:SetPoint("CENTER", c.top, "TOPLEFT", W_CARD / 2, -(MEDAL_Y + 36)) c.flash:SetSize(W_CARD * 1.5, W_CARD * 1.5)
     c.flash:Hide()
@@ -461,6 +476,7 @@ local function FillCard(c, o)
     -- gems: one per rank, the one this card gives lit
     local n = f.max or 0
     local gw = n * 8 + (n - 1) * 7
+    c.gemN, c.faSet = n, nil
     for g = 1, 5 do
         local t = c.gems[g]
         if g <= n then
@@ -580,11 +596,31 @@ local function AnimateCard(c, t)
     local sc = (0.82 + 0.18 * e) * (c.state == "chosen" and (1.05 + out * 0.04) or 1) * (1 - gone * 0.1)
     c:SetScale(max(0.05, sc))
     c:SetAlpha(min(1, k * 2) * (1 - gone) * (1 - out))
-    -- the face's squeeze: scale its art across (a squeezed card shows no words and no preview)
+    -- the face's turn: the plate, the medal and the gems squeezed across; the words and the live preview seen through
+    -- clips as wide as the squeezed plate and its window (centred, so nothing slides)
     local fa = not half and w or 0
-    if fa < 0.999 or c.faSet ~= fa or c.plateDirty then KitAt(c.plate, c.face, W_CARD * (1 - fa) / 2, 0, max(0.1, W_CARD * fa), H_CARD) c.faSet = fa c.plateDirty = nil end
-    c.top:SetAlpha(fa > 0.85 and 1 or 0)
-    c.pv.frame:SetAlpha(fa > 0.85 and 1 or 0)
+    if fa < 0.999 or c.faSet ~= fa or c.plateDirty then
+        local x0 = W_CARD * (1 - fa) / 2
+        KitAt(c.plate, c.face, x0, 0, max(0.1, W_CARD * fa), H_CARD)
+        c.topClip:ClearAllPoints()
+        c.topClip:SetPoint("TOPLEFT", c.face, "TOPLEFT", x0, 0)
+        c.topClip:SetSize(max(0.1, W_CARD * fa), H_CARD)
+        c.pvClip:ClearAllPoints()
+        c.pvClip:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + WIN_X * fa, -WIN_Y)
+        c.pvClip:SetSize(max(0.1, WIN_W * fa), WIN_H)
+        local mw = max(0.1, 72 * fa)
+        c.medalIcon:ClearAllPoints()
+        c.medalIcon:SetPoint("TOPLEFT", c.top, "TOPLEFT", W_CARD / 2 - mw / 2, -MEDAL_Y)
+        c.medalIcon:SetSize(mw, 72)
+        KitAt(c.ring, c.top, W_CARD / 2 - mw / 2, MEDAL_Y, mw, 72)
+        local n = c.gemN or 0
+        local gw = n * 8 + (n - 1) * 7
+        for g = 1, n do
+            local gx = W_CARD / 2 - gw / 2 + (g - 1) * 15
+            KitAt(c.gems[g], c.top, W_CARD / 2 + (gx - W_CARD / 2) * fa, MEDAL_Y + 84, max(0.1, 8 * fa), 8)
+        end
+        c.faSet = fa c.plateDirty = nil
+    end
 end
 
 local function BuildPicker()
@@ -2051,6 +2087,7 @@ ShowTitle = function()
     if UI.lab then UI.lab:Hide() end
     titleT = 0
     LayoutTitle()
+    UI.DevTitlePill()
 end
 
 CloseOv = function(resume)
@@ -2222,6 +2259,205 @@ OpenLab = function(cls)
     UI.SetFocus(true)
 end
 UI.OpenLab = function(cls) OpenLab(cls) end
+
+---------------------------------------------------------------------------
+-- Dev scenarios (a development copy only: DisasterZoneBoot.isDev, never a release). Pick a class, a level and god
+-- mode, a stage and one of its moments - the start, a boss, an elite, the ring - and the run starts 5 s before it
+-- (Engine's DevJump: the clock moved on, the crowd for that time round the hero, levels picked as the bot picks). A dev
+-- run is never recorded: no stats, gold, clears, tokens, achievements or boards. Under a dev run the dev bar jumps to
+-- the next moment, gives levels, toggles god mode. Opened from the title's pill or /dz htl dev.
+-- (UI.lua's main chunk is at Lua's 200-local limit: all of this lives in UI fields.)
+---------------------------------------------------------------------------
+UI.dev = { stage = "epl", level = "auto", god = false }
+UI.DEV_KIND = { ring = "The dead encircle", brood = "Spider brood", swarm = "Bat swarm", dark = "Darkness", storm = "Storm", reaper = "The Pale Rider" }
+function UI.IsDev() return DisasterZoneBoot ~= nil and DisasterZoneBoot.isDev == true end
+function UI.DevLabel(ev)
+    local M = ev.mob and D.MOBS[ev.mob]
+    local name = M and M.name or UI.DEV_KIND[ev.kind] or ev.msg or ev.kind
+    if M and (ev.n or 1) > 1 then name = name .. " x" .. ev.n end
+    return Rd.Clock(ev.t) .. "  " .. name
+end
+function UI.DevStages()
+    local out = { "epl" }
+    if D.STAGES and ns.HTLGame and ns.HTLGame:NaxxReady() then
+        for _, k in ipairs({ "arachnid", "plague", "military", "construct", "frost" }) do if D.STAGES[k] then out[#out + 1] = k end end
+    end
+    return out
+end
+function UI.DevMoments(key)
+    local ST = D.STAGES and D.STAGES[key]
+    local out = { { t = 0, label = "00:00  Start" } }
+    for _, ev in ipairs(ST and ST.events or D.EVENTS) do out[#out + 1] = { t = ev.t, label = UI.DevLabel(ev) } end
+    return out
+end
+function UI.DevLevelAt(t) return min(60, floor(2 + t / 18)) end         -- (Auto: about where a player stands)
+function UI.DevStart(cls, key, t)
+    if not UI.IsDev() then return end
+    local dv = UI.dev
+    if UI.lab then UI.lab:Hide() end
+    if UI.devPanel then UI.devPanel:Hide() end
+    CloseOv()
+    NewRun(cls or dv.cls or Class(), { stage = key ~= "epl" and key or nil, dev = true, god = dv.god })
+    run.dev = true
+    local at = t > 0 and max(0, t - 5) or 0
+    if at > 0 then
+        E.DevJump(run, at)
+        run.pending, run.wantLevelUp, run.blessOnly = 0, nil, nil     -- (a start's own pick - Head Start, the Seal - is moot mid-run)
+    end
+    local lv = dv.level == "auto" and UI.DevLevelAt(at) or dv.level
+    if lv > 1 then E.DevLevels(run, lv - 1) end
+    overlay = nil
+    Sound("crusader")
+    UI.SetFocus(true)
+    UI.DevBar()
+end
+
+-- the sheet: class / level / god, the stages, the chosen stage's moments
+function UI.ShowDev()
+    if not UI.IsDev() or not stage then return end
+    local f = UI.devPanel
+    if not f then
+        f = CreateFrame("Frame", nil, stage)
+        f:SetAllPoints(stage)
+        f:SetFrameLevel(stage:GetFrameLevel() + 24)
+        f:EnableMouse(true)
+        f.shade = f:CreateTexture(nil, "BACKGROUND")
+        f.shade:SetAllPoints() f.shade:SetColorTexture(1, 1, 1, 1)
+        ns.UI:GradientRGBA(f.shade, "VERTICAL", 6 / 255, 4 / 255, 10 / 255, 0.96, 6 / 255, 4 / 255, 10 / 255, 0.8)
+        f.title = Words(f, 26, MORPHEUS) f.title:SetText("Dev scenarios") f.title:SetTextColor(244 / 255, 207 / 255, 106 / 255)
+        f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 40, -34)
+        f.hint = Words(f, 11) f.hint:SetTextColor(157 / 255, 147 / 255, 163 / 255)
+        f.hint:SetText("This development copy only. A moment starts 5 seconds before it; dev runs are never recorded.")
+        f.hint:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -6)
+        f.pills, f.groups = {}, {}
+        UI.devPanel = f
+    end
+    if run and run.dev and not run.over then run.paused = true end
+    ClearOv()
+    overlay = "dev"
+    if UI.devBar then UI.devBar:Hide() end
+    f:Show()
+    UI.DevLayout()
+end
+function UI.CloseDev()
+    if UI.devPanel then UI.devPanel:Hide() end
+    if run and run.dev and not run.over then
+        overlay = nil
+        run.paused = false
+        UI.SetFocus(true)
+        UI.DevBar()
+    else
+        ShowTitle()
+    end
+end
+function UI.DevLayout()
+    local f, dv = UI.devPanel, UI.dev
+    if not f or not f:IsShown() then return end
+    local n, gi = 0, 0
+    local function Pill(label, icon, on, x, y, h, fn)
+        n = n + 1
+        local b = LabPill(f, f.pills, n)
+        b.dimOff = false
+        local w = LabLay(b, label, icon, on, false, x, y, h)
+        b:SetScript("OnClick", function() Sound("hover", 0.03) fn() end)
+        return b, w
+    end
+    local function Group(label, x, y)
+        gi = gi + 1
+        local lab = f.groups[gi] or Words(f, 9)
+        f.groups[gi] = lab
+        lab:SetText(label) lab:SetTextColor(157 / 255, 147 / 255, 163 / 255)
+        lab:ClearAllPoints() lab:SetPoint("LEFT", f, "TOPLEFT", x, -(y + 14)) lab:Show()
+        return x + (lab:GetStringWidth() or 40) + 10
+    end
+    local cls = dv.cls or Class()
+    -- the run: class, level, god mode
+    local y = 104
+    local x = Group("CLASS", 40, y)
+    for _, c in ipairs({ { "PALADIN", "Paladin" }, { "MAGE", "Mage" }, { "WARRIOR", "Warrior" } }) do
+        local _, w = Pill(c[2], nil, cls == c[1], x, y, 28, function() dv.cls = c[1] UI.DevLayout() end)
+        x = x + w + 4
+    end
+    x = Group("LEVEL", x + 26, y)
+    for _, lv in ipairs({ "auto", 1, 10, 25, 50 }) do
+        local _, w = Pill(lv == "auto" and "Auto" or tostring(lv), nil, dv.level == lv, x, y, 28, function() dv.level = lv UI.DevLayout() end)
+        x = x + w + 4
+    end
+    x = Group("GOD MODE", x + 26, y)
+    Pill(dv.god and "On" or "Off", nil, dv.god, x, y, 28, function() dv.god = not dv.god UI.DevLayout() end)
+    -- the stages
+    y = 150
+    x = Group("STAGE", 40, y)
+    for _, k in ipairs(UI.DevStages()) do
+        local ST = D.STAGES and D.STAGES[k]
+        local label = k == "epl" and "Plaguelands" or ST.short or ST.name
+        local _, w = Pill(label, k == "epl" and "spell_shadow_raisedead" or ST.icon, dv.stage == k, x, y, 30, function() dv.stage = k UI.DevLayout() end)
+        x = x + w + 4
+    end
+    -- the moments: each a pill, wrapped to the sheet
+    y = 206
+    Group("MOMENTS  \194\183  " .. (dv.stage == "epl" and "Eastern Plaguelands" or D.STAGES[dv.stage].name), 40, y)
+    y, x = y + 30, 40
+    for _, m in ipairs(UI.DevMoments(dv.stage)) do
+        local b, w = Pill(m.label, nil, false, x, y, 30, function() UI.DevStart(cls, dv.stage, m.t) end)
+        if x + w > OV_W - 40 and x > 40 then
+            x, y = 40, y + 38
+            b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
+        end
+        x = x + w + 6
+    end
+    -- close (back to the paused dev run, or the title)
+    local cb, cw = Pill("Close", nil, false, 0, 0, 28, function() UI.CloseDev() end)
+    cb:ClearAllPoints() cb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -40, -38)
+    for i = n + 1, #f.pills do f.pills[i]:Hide() end
+    for i = gi + 1, #f.groups do f.groups[i]:Hide() end
+end
+
+-- the dev bar: a column of pills at the left under the slots while a dev run plays (or is paused)
+function UI.DevBar()
+    local f = UI.devBar
+    local show = run and run.dev and not run.over and (overlay == nil or overlay == "pause") and stage ~= nil
+    if not show then if f and f:IsShown() then f:Hide() end return end
+    if not f then
+        f = CreateFrame("Frame", nil, stage)
+        f:SetFrameLevel(stage:GetFrameLevel() + 20)
+        f:SetSize(10, 10)
+        f.tag = Words(f, 9) f.tag:SetText("DEV") f.tag:SetTextColor(244 / 255, 207 / 255, 106 / 255)
+        f.tag:SetPoint("TOPLEFT", f, "TOPLEFT", 2, 0)
+        f.pills = {}
+        UI.devBar = f
+    end
+    if f:IsShown() and f.run == run and f.evI == run.evI and f.god == run.god and f.lvl == run.level then return end
+    f.run, f.evI, f.god, f.lvl = run, run.evI, run.god, run.level
+    f:ClearAllPoints() f:SetPoint("TOPLEFT", stage, "TOPLEFT", 12, -166)
+    f:Show()
+    local n, y = 0, 16
+    local function Pill(label, on, fn)
+        n = n + 1
+        local b = LabPill(f, f.pills, n)
+        b.dimOff = false
+        LabLay(b, label, nil, on, false, 0, y, 26)
+        b:SetScript("OnClick", function() Sound("hover", 0.03) fn() end)
+        y = y + 30
+    end
+    Pill("Scenarios", false, function() UI.ShowDev() end)
+    local ev, k = E.DevNext(run)
+    if ev then Pill("Next: " .. UI.DevLabel(ev), false, function() E.DevJump(run, max(run.t, ev.t * k - 5)) UI.SetFocus(true) UI.DevBar() end) end
+    Pill("+5 levels  \194\183  " .. run.level, false, function() E.DevLevels(run, 5) UI.SetFocus(true) UI.DevBar() end)
+    Pill("God mode " .. (run.god and "on" or "off"), run.god, function() run.god = not run.god UI.SetFocus(true) UI.DevBar() end)
+    Pill("Leave", false, function() f:Hide() ShowTitle() end)
+    for i = n + 1, #f.pills do f.pills[i]:Hide() end
+end
+-- the title's way in (top right, a development copy only)
+function UI.DevTitlePill()
+    if not UI.IsDev() or not ov or not ov.title then return end
+    UI.devTitleList = UI.devTitleList or {}
+    local b = LabPill(ov.title, UI.devTitleList, 1)
+    b.dimOff = false
+    LabLay(b, "Dev scenarios", nil, false, false, 0, 0, 28)
+    b:ClearAllPoints() b:SetPoint("TOPRIGHT", ov.title, "TOPRIGHT", -22, -22)
+    b:SetScript("OnClick", function() Sound("hover", 0.03) UI.ShowDev() end)
+end
 
 ---------------------------------------------------------------------------
 -- the guild hall: leaderboard (and the week's challenge), achievements, the Argent Dawn - the mockup's, piece by piece
@@ -3205,17 +3441,22 @@ local function Input()
     return ix, iy
 end
 
+-- (the world is drawn only when it changed: a step ran, the overlay or the run changed, the view was laid out; a
+-- frame in between two 60 Hz steps would draw the same picture again. A slow redraw covers anything else.)
+UI.drawIdle = 0
 local function OnUpdate(_, elapsed)
     elapsed = min(elapsed, 0.1)
     if run then
+        local stepped = false
         if run.attract and run.warm then
             local s = min(run.warm, 0.5)
             E.FastForward(run, s, true)
             run.warm = run.warm - s
             if run.warm <= 0 then run.warm, run.fadeIn = nil, 0 end
+            stepped = true
         elseif run.attract then
             acc = min(acc + elapsed, STEP * 4)
-            while acc >= STEP do acc = acc - STEP E.Step(run, STEP, 0, 0) end
+            while acc >= STEP do acc = acc - STEP E.Step(run, STEP, 0, 0) stepped = true end
             if run.fadeIn then run.fadeIn = run.fadeIn + elapsed view.scaler:SetAlpha(min(1, run.fadeIn / 0.5)) if run.fadeIn >= 0.5 then run.fadeIn = nil end end
             if run.t > 400 then Attract() end
         elseif (focused or overlay) and not run.paused and not run.over then
@@ -3225,26 +3466,32 @@ local function OnUpdate(_, elapsed)
             while acc >= STEP do
                 acc = acc - STEP
                 for _ = 1, run.speed or 1 do E.Step(run, STEP, ix, iy) end
+                stepped = true
             end
         end
-        if overlay == "choosing" then E.StepParts(run, elapsed) end
+        if overlay == "choosing" then E.StepParts(run, elapsed) stepped = true end
         if run.wantLevelUp and overlay == nil then run.wantLevelUp = nil OpenLevelUp() end
         if run.chest and overlay == nil then ShowChest() end
         if run.over and overlay ~= "end" and not run.attract then ShowEnd(run.over) end
-        Rd.Draw(view, run)
+        UI.drawIdle = UI.drawIdle + elapsed
+        if stepped or run ~= UI.drawnRun or overlay ~= UI.drawnOv or view.dirty or UI.drawIdle >= 0.25 then
+            Rd.Draw(view, run)
+            UI.drawnRun, UI.drawnOv, UI.drawIdle = run, overlay, 0
+        end
         view.hud:SetShown(not run.attract)
     end
     TickPicker(elapsed)
     TickTitle(elapsed)
     TickTalents(elapsed)
     TickToast(elapsed)
-    if run and not run.attract and not run.lab and not run.god and not run.over and ns.HTLSocial then
+    if run and not run.attract and not run.lab and not run.god and not run.dev and not run.over and ns.HTLSocial then
         UI.achAcc = (UI.achAcc or 0) + elapsed
         if UI.achAcc >= 1 then UI.achAcc = 0 ns.HTLSocial:CheckRun(run, false) end
     end
     TickEnd(elapsed)
     TickChest(elapsed)
     TickPreviews(elapsed)
+    if UI.devBar or (run and run.dev) then UI.DevBar() end
     if overlay == nil and run and not run.attract and not focused and not run.over then UI.pausedHint:Show() else UI.pausedHint:Hide() end
 end
 
@@ -3257,6 +3504,7 @@ function UI.SetFocus(on)
 end
 local function OnKeyDown(self, key)
     if key == "ESCAPE" then
+        if overlay == "dev" then UI.CloseDev() pcall(self.SetPropagateKeyboardInput, self, false) return end
         if overlay == "pause" then ClosePause() pcall(self.SetPropagateKeyboardInput, self, false) return end
         if run and not run.attract and not run.over and overlay == nil then ShowPause() pcall(self.SetPropagateKeyboardInput, self, false) return end
         UI.SetFocus(false)
@@ -3382,17 +3630,19 @@ function UI:NewPoster(parent)
             return
         end
         self.acc = min(self.acc + elapsed, STEP * 4)
+        local stepped = self.drawn ~= r
         while self.acc >= STEP do
             self.acc = self.acc - STEP
             if r.lvlT and r.lvlT >= 0 then r.lvlT, r.tsGoal, r.ts = -1, 1, 1 end
             r.wantLevelUp, r.chest, r.pending = nil, nil, 0
             E.Step(r, STEP, 0, 0)
+            stepped = true
         end
         -- the scene's end: it fades out over its last second, then the next one warms up
         self.fade = min(1, self.fade + elapsed * 1.5)
         local left = 300 - r.t
         self.view.scaler:SetAlpha(min(self.fade, max(0, left)))
-        Rd.Draw(self.view, r)
+        if stepped or self.view.dirty then Rd.Draw(self.view, r) self.drawn = r end
         self.view.hud:Hide()
         if left <= 0 or r.over then Scene() end
     end

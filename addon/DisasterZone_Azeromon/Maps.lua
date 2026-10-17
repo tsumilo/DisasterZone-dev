@@ -37,6 +37,7 @@ Maps.town = {
     rev = 2,                -- 2: the bigger Goldshire (0.27); presence hides players on another revision (Net.lua)
     music = "forest",
     outdoor = true,
+    shallows = { { 30, 12 }, { 29, 13 }, { 29, 14 }, { 31, 15 } },     -- the pond's west and south edge (wading, 0.46)
     rows = {
         "TTTTTTTTTTTTTTTT.==.TTTTTTTTTTTTTTTT",
         "TTTTTTTTT...TTT..==..TTTTTTTTTTTTTTT",

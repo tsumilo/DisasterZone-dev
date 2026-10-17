@@ -172,9 +172,11 @@ local function emit(o)
 end
 E.emit = emit
 
--- a particle table for o: callers build o fresh only where the mockup did; the hot paths below reuse O
-local O = {}
+-- a particle table for o: callers build o fresh only where the mockup did; the hot paths below reuse O, and the
+-- helpers (sparks, puff, flash, ring) and the trails fill Q (O may be the options a caller hands a helper)
+local O, Q = {}, {}
 local function o0() wipe(O) return O end
+local function q0() wipe(Q) return Q end
 
 local function addDecal(x, y, r, col, kind)
     local d = R.decals
@@ -225,26 +227,34 @@ local function sparks(x, y, n, tint, o)
     for _ = 1, n do
         local a = o.dir and (o.dir + vr(-spr, spr)) or random() * TAU
         local sp = vr(o.v0 or 80, o.v1 or 260)
-        emit({ img = o.img or "sparkle", tint = tint, x = x, y = y, z = o.z or 14, vx = cos(a) * sp, vy = sin(a) * sp * 0.75, vz = vr(o.up0 or 30, o.up1 or 160),
-            g = o.g or 420, drag = 2.2, life = vr(o.l0 or 0.3, o.l1 or 0.65), s0 = o.s or 10, s1 = (o.s or 10) * 0.3, stretch = o.stretch or 0.9, bounce = 0.3, light = o.light })
+        local q = q0()
+        q.img, q.tint, q.x, q.y, q.z, q.vx, q.vy, q.vz = o.img or "sparkle", tint, x, y, o.z or 14, cos(a) * sp, sin(a) * sp * 0.75, vr(o.up0 or 30, o.up1 or 160)
+        q.g, q.drag, q.life, q.s0, q.s1, q.stretch, q.bounce, q.light = o.g or 420, 2.2, vr(o.l0 or 0.3, o.l1 or 0.65), o.s or 10, (o.s or 10) * 0.3, o.stretch or 0.9, 0.3, o.light
+        emit(q)
     end
 end
 local function puff(x, y, n, tint, o)
     o = o or O
     for _ = 1, n do
-        emit({ img = "smoke_sheet", cell = floor(random() * 40), tint = tint, add = false, x = x + vr(-8, 8), y = y + vr(-5, 5), z = o.z or 8,
-            vx = vr(-30, 30) * (o.spread or 1), vy = vr(-20, 20) * (o.spread or 1), vz = vr(10, 50), drag = 1.6, life = vr(0.6, 1.2) * (o.life or 1),
-            s0 = o.s0 or 14, s1 = o.s1 or 40, a0 = o.a or 0.55, a1 = 0, rot = "rnd", vr = vr(-1, 1) })
+        local q = q0()
+        q.img, q.cell, q.tint, q.add, q.x, q.y, q.z = "smoke_sheet", floor(random() * 40), tint, false, x + vr(-8, 8), y + vr(-5, 5), o.z or 8
+        q.vx, q.vy, q.vz, q.drag, q.life = vr(-30, 30) * (o.spread or 1), vr(-20, 20) * (o.spread or 1), vr(10, 50), 1.6, vr(0.6, 1.2) * (o.life or 1)
+        q.s0, q.s1, q.a0, q.a1, q.rot, q.vr = o.s0 or 14, o.s1 or 40, o.a or 0.55, 0, "rnd", vr(-1, 1)
+        emit(q)
     end
 end
 local function flash(img, x, y, size, tint, life, o)
     o = o or O
-    return emit({ img = img, tint = tint, x = x, y = y, z = o.z or 0, life = life or 0.25, s0 = size * (o.from or 0.6), s1 = size, a0 = o.a or 1, a1 = 0,
-        rot = o.rot or "rnd", vr = o.vr or 0, flat = o.flat, light = o.light, sx = o.sx or 1, sy = o.sy or 1, under = o.under, fi = o.fi or 0, follow = o.follow })
+    local q = q0()
+    q.img, q.tint, q.x, q.y, q.z, q.life, q.s0, q.s1, q.a0, q.a1 = img, tint, x, y, o.z or 0, life or 0.25, size * (o.from or 0.6), size, o.a or 1, 0
+    q.rot, q.vr, q.flat, q.light, q.sx, q.sy, q.under, q.fi, q.follow = o.rot or "rnd", o.vr or 0, o.flat, o.light, o.sx or 1, o.sy or 1, o.under, o.fi or 0, o.follow
+    return emit(q)
 end
 local function ring(img, x, y, r0, r1, life, tint, a, o)
-    return emit({ img = img, tint = tint, x = x, y = y, life = life, s0 = r0 * 2, s1 = r1 * 2, a0 = a or 0.9, a1 = 0, flat = true,
-        rot = o and o.rot or "rnd", vr = o and o.vr or 0, ease = o and o.ease, light = o and o.light })
+    local q = q0()
+    q.img, q.tint, q.x, q.y, q.life, q.s0, q.s1, q.a0, q.a1, q.flat = img, tint, x, y, life, r0 * 2, r1 * 2, a or 0.9, 0, true
+    q.rot, q.vr, q.ease, q.light = o and o.rot or "rnd", o and o.vr or 0, o and o.ease, o and o.light
+    return emit(q)
 end
 
 local function shake(t) if not R.ff then R.trauma = min(1, R.trauma + t) end end
@@ -480,36 +490,56 @@ kill = function(e, silent, o)
     if E.ONKILL and not silent then E.ONKILL(e, o) end
 end
 
+local PUFF_BONE, PUFF_BONE_O = { 150 / 255, 140 / 255, 120 / 255 }, { a = 0.4 }
+local PUFF_ROT, PUFF_BLOOD, PUFF_GORE_O = { 70 / 255, 80 / 255, 50 / 255 }, { 90 / 255, 30 / 255, 30 / 255 }, { a = 0.45, s0 = 12, s1 = 34 }
+local SPIRIT_RING, SPIRIT_SPARK, SPIRIT_SPARK_O = { 190 / 255, 150 / 255, 1 }, { 200 / 255, 170 / 255, 1 }, { g = 0, up0 = 0, up1 = 40 }
+local BIG_PUFF, BIG_PUFF_O, BIG_SPARK_O = { 60 / 255, 70 / 255, 40 / 255 }, { a = 0.6, s0 = 30, s1 = 90, spread = 2.5 }, { v0 = 120, v1 = 360 }
 deathFx = function(e, M, o)
     local big = (M.elite or M.boss) and 3 or (M.r > 16 and 1.6 or 1)
     local x, y = e.x, e.y
     if o and o.purge then        -- Ashbringer: the body burns away in light
-        for _ = 1, 10 do emit({ img = "sparkle", tint = C.GOLD, x = x + vr(-10, 10), y = y + vr(-4, 4), z = vr(0, 30), vx = vr(-15, 15), vy = vr(-8, 8), vz = vr(40, 110), drag = 1.2, life = vr(0.6, 1.1), s0 = vr(8, 14), s1 = 2, light = 40 }) end
+        for _ = 1, 10 do
+            local q = q0()
+            q.img, q.tint, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.drag, q.life, q.s0, q.s1, q.light = "sparkle", C.GOLD, x + vr(-10, 10), y + vr(-4, 4), vr(0, 30), vr(-15, 15), vr(-8, 8), vr(40, 110), 1.2, vr(0.6, 1.1), vr(8, 14), 2, 40
+            emit(q)
+        end
         flash("holy_star", x, y - 20, 46, C.GOLD, 0.3, { a = 0.7 })
         emit({ img = "levelup_rays", tint = C.GOLD, x = x, y = y - 22, life = 0.6, s0 = 30, s1 = 36, sx = 0.8, sy = 1.6, a0 = 0.6, a1 = 0 })
         return
     end
     local g = D.GORE[M.ichor]
     if M.ichor == "bone" then
-        for _ = 1, floor(6 * big) do emit({ img = "ice_chunks2", tint = g, add = false, x = x, y = y, z = 18, vx = vr(-90, 90), vy = vr(-60, 60), vz = vr(60, 200), g = 520, drag = 0.6,
-            life = vr(0.7, 1.2), s0 = vr(7, 12), s1 = 6, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = vr(-9, 9), bounce = 0.35 }) end
-        puff(x, y, floor(3 * big), { 150 / 255, 140 / 255, 120 / 255 }, { a = 0.4 })
+        for _ = 1, floor(6 * big) do
+            local q = q0()
+            q.img, q.tint, q.add, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.drag = "dust", g, false, x, y, 18, vr(-90, 90), vr(-60, 60), vr(60, 200), 520, 0.6
+            q.life, q.s0, q.s1, q.a0, q.a1, q.ease, q.rot, q.vr, q.bounce = vr(0.7, 1.2), vr(7, 12), 6, 1, 0, "late", "rnd", vr(-9, 9), 0.35
+            emit(q)
+        end
+        puff(x, y, floor(3 * big), PUFF_BONE, PUFF_BONE_O)
     elseif M.ichor == "spirit" then
         emit({ img = "ghost_purple", x = x, y = y - 20, vy = -40, life = 1.1, s0 = 30 * big, s1 = 46 * big, sx = 2, sy = 1, a0 = 0.8, a1 = 0, rot = -pi / 2, drag = 0.5 })
-        ring("ring_soft", x, y, 6, 44 * big, 0.45, { 190 / 255, 150 / 255, 1 }, 0.7)
-        sparks(x, y, 6, { 200 / 255, 170 / 255, 1 }, { g = 0, up0 = 0, up1 = 40 })
+        ring("ring_soft", x, y, 6, 44 * big, 0.45, SPIRIT_RING, 0.7)
+        sparks(x, y, 6, SPIRIT_SPARK, SPIRIT_SPARK_O)
     else
-        for _ = 1, floor(7 * big) do emit({ img = "blood", tint = g, add = false, x = x, y = y, z = 16, vx = vr(-110, 110), vy = vr(-80, 80), vz = vr(40, 190), g = 560, drag = 0.4,
-            life = vr(0.4, 0.8), s0 = vr(5, 9) * min(1.6, big), s1 = 4, a0 = 1, a1 = 0.6, stretch = 0.5, bounce = 0, decal = random() < 0.35 and { vr(4, 8), D.ICHOR[M.ichor] } or nil }) end
-        puff(x, y, floor(2 * big), M.ichor == "rot" and { 70 / 255, 80 / 255, 50 / 255 } or { 90 / 255, 30 / 255, 30 / 255 }, { a = 0.45, s0 = 12, s1 = 34 })
+        for _ = 1, floor(7 * big) do
+            local q = q0()
+            q.img, q.tint, q.add, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.drag = "blood", g, false, x, y, 16, vr(-110, 110), vr(-80, 80), vr(40, 190), 560, 0.4
+            q.life, q.s0, q.s1, q.a0, q.a1, q.stretch, q.bounce = vr(0.4, 0.8), vr(5, 9) * min(1.6, big), 4, 1, 0.6, 0.5, 0
+            q.decal = random() < 0.35 and { vr(4, 8), D.ICHOR[M.ichor] } or nil       -- (kept by the particle: its own table)
+            emit(q)
+        end
+        puff(x, y, floor(2 * big), M.ichor == "rot" and PUFF_ROT or PUFF_BLOOD, PUFF_GORE_O)
     end
     if M.ichor ~= "spirit" and (random() < 0.28 or big > 1) and not (o and o.noSoul) then   -- the soul leaves the body
-        emit({ img = "ghost_blue", x = x, y = y - 18, vx = vr(-8, 8), vy = -vr(30, 50), life = vr(0.9, 1.3), s0 = 22, s1 = 36, sx = 2, sy = 1, a0 = 0.55, a1 = 0, fi = 0.15, rot = -pi / 2 + vr(-0.2, 0.2), light = 30 })
+        local q = q0()
+        q.img, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1, q.sx, q.sy, q.a0, q.a1, q.fi, q.rot, q.light = "ghost_blue", x, y - 18, vr(-8, 8), -vr(30, 50), vr(0.9, 1.3), 22, 36, 2, 1, 0.55, 0, 0.15, -pi / 2 + vr(-0.2, 0.2), 30
+        emit(q)
         if random() < 0.3 then sound("soulshatter", 0.2) end
     end
-    if big > 2 then puff(x, y, 10, { 60 / 255, 70 / 255, 40 / 255 }, { a = 0.6, s0 = 30, s1 = 90, spread = 2.5 }) sparks(x, y, 20, C.GOLD, { v0 = 120, v1 = 360 }) end
+    if big > 2 then puff(x, y, 10, BIG_PUFF, BIG_PUFF_O) sparks(x, y, 20, C.GOLD, BIG_SPARK_O) end
 end
 
+local HURT_FLASH = { 0.63, 0, 0 }
 local function hurtPlayer(dmg, src)
     local p = R.p
     local reaper = src and src.M and src.M.reaper
@@ -527,7 +557,7 @@ local function hurtPlayer(dmg, src)
     if not R.firstHit then R.firstHit = R.t end
     if R.t >= 600 and p.hp > 0 and p.hp < p.maxHp * 0.15 then R.thread = true end
     p.inv, p.hurtT, R.flash = 0.45 + 0.15 * (R.tal.unbreak or 0), 0.3, 0.25
-    R.flashC = { 0.63, 0, 0 }
+    R.flashC = HURT_FLASH
     shake(0.18)
     if p.hp <= 0 and R.tal.redemption and not R.redeemed then       -- Redemption: once a run, back up at half health
         R.redeemed = true
@@ -582,6 +612,45 @@ local function consecrationAmbient(s, dt, L)
     end
 end
 
+-- The Abomination's slam lands: a hot flash and a fast shockwave, a crater of cracked ground that fades, rock thrown
+-- up and bouncing, dust rolling out from the rim along the ground.
+local SLAM_HOT, SLAM_SMOKE = { 1, 0.55, 0.25 }, { 150 / 255, 200 / 255, 90 / 255 }
+local SLAM_DUST, SLAM_ROCK, SLAM_CRATER = { 0.62, 0.56, 0.46 }, { 0.66, 0.58, 0.47 }, { 0.42, 0.35, 0.3 }
+local SLAM_PUFF, SLAM_PUFF_O, SLAM_FLASH_O, SLAM_SCORCH = { 70 / 255, 80 / 255, 50 / 255 }, { a = 0.5, s0 = 30, s1 = 80, spread = 3 }, { a = 0.95, light = 320 }, { 30 / 255, 26 / 255, 20 / 255 }
+local function slamHit(t)
+    local x, y, r = t.x, t.y, t.r
+    flash("starburst", x, y - 8, 170, SLAM_HOT, 0.24, SLAM_FLASH_O)
+    flash("red_burst", x, y - 6, 120, nil, 0.3, { a = 0.8 })
+    flash("white_orb", x, y, r * 2.2, SLAM_HOT, 0.4, { a = 0.75, flat = true, from = 0.7 })    -- the ground lit by the blow
+    ring("ring_wide", x, y, r * 0.5, r * 1.45, 0.45, SLAM_HOT, 1)
+    ring("ring_shards", x, y, r * 0.4, r * 1.25, 0.4, SLAM_HOT, 0.8)
+    ring("ring_smoke", x, y, 20, r * 1.2, 0.6, SLAM_SMOKE, 0.7)
+    local q = q0()                                  -- the crater (on the ground, under the bodies)
+    q.img, q.tint, q.x, q.y, q.life, q.s0, q.s1, q.a0, q.a1, q.ease, q.flat, q.add, q.rot = "meteor_rock", SLAM_CRATER, x, y, 3.2, r * 1.2, r * 1.26, 1, 0, "late", true, false, "rnd"
+    emit(q)
+    q = q0()                                        -- a ring of dust thrown out along the ground
+    q.img, q.tint, q.x, q.y, q.life, q.s0, q.s1, q.a0, q.a1, q.flat, q.add, q.rot = "rf_ring", SLAM_DUST, x, y, 0.7, 60, r * 2.9, 0.75, 0, true, false, "rnd"
+    emit(q)
+    for _ = 1, 16 do                                -- rock thrown up
+        local a, sp = random() * TAU, vr(90, 260)
+        q = q0()
+        q.img, q.tint, q.add, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.drag = "dust", SLAM_ROCK, false, x + cos(a) * r * 0.3, y + sin(a) * r * 0.23, 8, cos(a) * sp, sin(a) * sp * 0.75, vr(160, 360), 760, 0.5
+        q.life, q.s0, q.s1, q.a0, q.a1, q.ease, q.rot, q.vr, q.bounce = vr(0.8, 1.3), vr(9, 16), 8, 1, 0, "late", "rnd", vr(-8, 8), 0.35
+        emit(q)
+    end
+    for k = 0, 9 do                                 -- dust rolling out from the rim
+        local a = k / 10 * TAU + random() * 0.4
+        q = q0()
+        q.img, q.tint, q.add, q.x, q.y, q.z = "cloud", SLAM_DUST, false, x + cos(a) * r * 0.75, y + sin(a) * r * 0.75 / 1.3, 6
+        q.vx, q.vy, q.vz, q.drag, q.life = cos(a) * 70, sin(a) * 50, vr(8, 26), 1.4, vr(0.9, 1.4)
+        q.s0, q.s1, q.a0, q.a1, q.fi, q.rot, q.vr = 40, 110, 0.75, 0, 0.08, "rnd", vr(-0.6, 0.6)
+        emit(q)
+    end
+    puff(x, y, 8, SLAM_PUFF, SLAM_PUFF_O)
+    shake(0.55) stop(0.07) sound("meteor")
+    addDecal(x, y, r * 0.8, SLAM_SCORCH, "scorch")
+end
+
 local function exorcismHit(t)
     local x, y = t.e.dead and t.x or t.e.x, t.e.dead and t.y or t.e.y
     R.fx[#R.fx + 1] = { kind = "pillar", x = x, y = y, t = 0, dur = 0.75 }
@@ -615,7 +684,7 @@ local function explode(x, y, r, dmg)
     flash("flame", x, y - 20, r * 2, nil, 0.4)
     ring("ring_smoke", x, y, 10, r * 1.2, 0.45, C.FIRE, 0.9)
     puff(x, y, 7, { 50 / 255, 42 / 255, 36 / 255 }, { a = 0.6, s0 = 20, s1 = 70, spread = 2.2, life = 1.3 })
-    for _ = 1, 9 do emit({ img = "ice_chunks2", tint = { 70 / 255, 56 / 255, 40 / 255 }, add = false, x = x, y = y, z = 10, vx = vr(-160, 160), vy = vr(-120, 120), vz = vr(100, 260), g = 600, life = 0.8, s0 = 7, s1 = 6, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = vr(-10, 10), bounce = 0.3 }) end
+    for _ = 1, 9 do emit({ img = "dust", tint = { 70 / 255, 56 / 255, 40 / 255 }, add = false, x = x, y = y, z = 10, vx = vr(-160, 160), vy = vr(-120, 120), vz = vr(100, 260), g = 600, life = 0.8, s0 = 7, s1 = 6, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = vr(-10, 10), bounce = 0.3 }) end
     sparks(x, y, 14, C.EMBER, { v0 = 100, v1 = 340, light = 20 })
     addDecal(x, y, r * 0.7, { 20 / 255, 16 / 255, 14 / 255 }, "scorch")
     for _, e in ipairs(R.en) do if not e.dead and hyp(e.x - x, (e.y - y) * 1.3) < r then hurt(e, dmg, { kb = 70, fx = x, fy = y, school = "fire" }) end end
@@ -897,7 +966,11 @@ local function areaFx(a, dt)
                 emit(q)
             end
         end
-        if random() < 0.35 then emit({ img = "mist", tint = C.ICE, x = a.x + vr(-a.r, a.r) * 0.8, y = a.y + vr(-a.r, a.r) * 0.6, life = 1, s0 = 20, s1 = 50, a0 = 0.12 * f, a1 = 0, rot = "rnd", vr = 0.5, fi = 0.3 }) end
+        if random() < 0.35 then
+            local q = q0()
+            q.img, q.tint, q.x, q.y, q.life, q.s0, q.s1, q.a0, q.a1, q.rot, q.vr, q.fi = "mist", C.ICE, a.x + vr(-a.r, a.r) * 0.8, a.y + vr(-a.r, a.r) * 0.6, 1, 20, 50, 0.12 * f, 0, "rnd", 0.5, 0.3
+            emit(q)
+        end
     else
         while a.emitAcc > 0.03 do
             a.emitAcc = a.emitAcc - 0.03
@@ -909,8 +982,76 @@ local function areaFx(a, dt)
     end
 end
 
+-- The enemies a projectile can touch, from a grid built when the projectiles move (nothing moves an enemy while
+-- they do; an enemy spawned meanwhile is at the end of R.en, past qBuilt, and is walked after the grid's). The grid's
+-- candidates come sorted by their place in R.en, so the hits land in the order a walk over R.en found them.
+local QCELL = 64                  -- (the projectiles' grid; the crowd's own GRID is further down)
+local QG, QGused, QA, QB, QC = {}, {}, {}, {}, {}
+local qBuilt, qMaxR, qFresh = 0, 0, false
+local function qBuild()
+    for k in pairs(QGused) do local b = QG[k] for j = #b, 1, -1 do b[j] = nil end QGused[k] = nil end
+    local en, mr = R.en, 0
+    for i = 1, #en do
+        local e = en[i]
+        e._qi = i
+        local k = floor(e.x / QCELL) * 4099 + floor(e.y / QCELL)
+        local b = QG[k]
+        if not b then b = {} QG[k] = b end
+        b[#b + 1] = e
+        QGused[k] = true
+        local r = e.M.r
+        if r > mr then mr = r end
+    end
+    qBuilt, qMaxR = #en, mr
+end
+-- into list L: every enemy whose centre lies within reach + its own radius of (x, y), and maybe a few more
+local function qNear(L, x, y, reach)
+    if not qFresh then qBuild() qFresh = true end          -- (once a step, at the first query)
+    local n, rr = 0, reach + qMaxR
+    for ix = floor((x - rr) / QCELL), floor((x + rr) / QCELL) do
+        local base = ix * 4099
+        for iy = floor((y - rr) / QCELL), floor((y + rr) / QCELL) do
+            local b = QG[base + iy]
+            if b then for j = 1, #b do n = n + 1 L[n] = b[j] end end
+        end
+    end
+    for a = 2, n do
+        local e = L[a]
+        local k, j = e._qi, a - 1
+        while j >= 1 and L[j]._qi > k do L[j + 1] = L[j] j = j - 1 end
+        L[j + 1] = e
+    end
+    return n
+end
+local function shieldCan(b, e) return not e.dead and not b.hit[e] and not e.M.reaper and hyp(e.x - b.x, e.y - 16 - b.y) < e.M.r + 12 end
+local function frostCan(b, e) return not e.dead and not b.hit[e] and not e.M.reaper and hyp(e.x - b.x, e.y - 18 - b.y) < e.M.r + 6 end
+local function frostHit(b, e)              -- (true: the bolt is spent)
+    b.hit[e] = true
+    hurt(e, b.dmg, { slow = 1.6, school = "frost", kb = 25, fx = b.x - b.vx, fy = b.y - b.vy })
+    flash("frost_burst", b.x, b.y, 46, C.ICE, 0.25, { light = 90 })
+    flash("blue_star", b.x, b.y, 54, C.FROST, 0.18)
+    for _ = 1, 5 do
+        local q = q0()
+        q.img, q.tint, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.life, q.s0, q.s1, q.a0, q.a1, q.rot, q.vr, q.bounce =
+            "ice_chunks", C.FROST, b.x, e.y, 18, b.vx * 0.15 + vr(-80, 80), b.vy * 0.15 + vr(-60, 60), vr(40, 150), 520, vr(0.35, 0.6), vr(6, 10), 4, 1, 0, "rnd", vr(-10, 10), 0.3
+        emit(q)
+    end
+    sound("icelance", 0.07)
+    b.pierce = b.pierce - 1
+    if b.pierce < 0 then b.life = 0 return true end
+end
+local function dragonCan(e, x, y) return not e.dead and not e.M.reaper and e.hitT <= 0 and hyp(e.x - x, e.y - 16 - y) < e.M.r + 14 end
+local function dragonHit(e, x, y, dmg)
+    e.hitT = 0.45
+    hurt(e, dmg, { kb = 30, fx = x, fy = y, school = "fire" })
+    flash("fire_core", x, y, 44, nil, 0.2, { light = 80 })
+    sound("fireimpact2", 0.12, 0.5)
+end
+local MIST_EPROJ, SMOKE_HAZ = { 140 / 255, 90 / 255, 200 / 255 }, { 90 / 255, 150 / 255, 50 / 255 }
+
 local function updateProj(dt)
     local p = R.p
+    qFresh = false
     local i = 1
     while i <= #R.proj do
         local b = R.proj[i]
@@ -928,22 +1069,26 @@ local function updateProj(dt)
                 b.spin = b.spin + dt * 20
                 if b.tgt and not b.tgt.dead then local a = atan2(b.tgt.y - 16 - b.y, b.tgt.x - b.x) b.vx, b.vy = cos(a) * 620, sin(a) * 620 end
                 b.x, b.y = b.x + b.vx * dt, b.y + b.vy * dt
-                if random() < 0.7 then emit({ img = "sparkle", tint = C.GOLD, x = b.x, y = b.y, vx = vr(-30, 30), vy = vr(-30, 30), life = 0.35, s0 = 8, s1 = 1, a0 = 0.9, a1 = 0 }) end
-                for _, e in ipairs(R.en) do
-                    if not e.dead and not b.hit[e] and not e.M.reaper and hyp(e.x - b.x, e.y - 16 - b.y) < e.M.r + 12 then
-                        b.hit[e] = true
-                        hurt(e, b.dmg, { kb = 80, fx = b.x - b.vx * 0.05, fy = b.y - b.vy * 0.05, school = "holy" })
-                        R.arcs[#R.arcs + 1] = { x0 = b.lastX, y0 = b.lastY, x1 = b.x, y1 = b.y, t = 0, life = 0.28 }
-                        b.lastX, b.lastY = b.x, b.y
-                        flash("holy_star", b.x, b.y, 64, C.HOLY, 0.22, { light = 120 })
-                        ring("ring_soft", e.x, e.y, 6, 40, 0.3, C.GOLD, 0.8)
-                        sparks(b.x, b.y, 9, C.GOLD, { dir = atan2(b.vy, b.vx), spread = 0.9, z = 16, v0 = 120, v1 = 320 })
-                        stop(0.022) kick(b.vx, b.vy, 1.2) sound("strike", 0.06)
-                        b.bounces = b.bounces - 1
-                        b.tgt = b.bounces > 0 and nearest(b.x, b.y, 260, b.hit) or nil
-                        if not b.tgt then b.ret = true end
-                        break
-                    end
+                if random() < 0.7 then
+                    local q = q0()
+                    q.img, q.tint, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1, q.a0, q.a1 = "sparkle", C.GOLD, b.x, b.y, vr(-30, 30), vr(-30, 30), 0.35, 8, 1, 0.9, 0
+                    emit(q)
+                end
+                local n, e = qNear(QA, b.x, b.y + 16, 12), nil
+                for j = 1, n do if shieldCan(b, QA[j]) then e = QA[j] break end end
+                if not e then local en, j = R.en, qBuilt + 1 while en[j] do if shieldCan(b, en[j]) then e = en[j] break end j = j + 1 end end
+                if e then
+                    b.hit[e] = true
+                    hurt(e, b.dmg, { kb = 80, fx = b.x - b.vx * 0.05, fy = b.y - b.vy * 0.05, school = "holy" })
+                    R.arcs[#R.arcs + 1] = { x0 = b.lastX, y0 = b.lastY, x1 = b.x, y1 = b.y, t = 0, life = 0.28 }
+                    b.lastX, b.lastY = b.x, b.y
+                    flash("holy_star", b.x, b.y, 64, C.HOLY, 0.22, { light = 120 })
+                    ring("ring_soft", e.x, e.y, 6, 40, 0.3, C.GOLD, 0.8)
+                    sparks(b.x, b.y, 9, C.GOLD, { dir = atan2(b.vy, b.vx), spread = 0.9, z = 16, v0 = 120, v1 = 320 })
+                    stop(0.022) kick(b.vx, b.vy, 1.2) sound("strike", 0.06)
+                    b.bounces = b.bounces - 1
+                    b.tgt = b.bounces > 0 and nearest(b.x, b.y, 260, b.hit) or nil
+                    if not b.tgt then b.ret = true end
                 end
                 if b.ret then
                     local a = atan2(p.y - 22 - b.y, p.x - b.x)
@@ -955,20 +1100,19 @@ local function updateProj(dt)
                 end
             elseif b.kind == "frost" then
                 b.x, b.y, b.spin = b.x + b.vx * dt, b.y + b.vy * dt, b.spin + dt * 9
-                if random() < 0.85 then emit({ img = "mist", tint = C.ICE, x = b.x - b.vx * 0.02, y = b.y - b.vy * 0.02, vx = b.vx * 0.05 + vr(-10, 10), vy = b.vy * 0.05 + vr(-10, 10), life = 0.35, s0 = 10, s1 = 26, a0 = 0.4, a1 = 0, rot = "rnd" }) end
-                if random() < 0.4 then emit({ img = "sparkle", tint = C.FROST, x = b.x, y = b.y, vx = vr(-40, 40), vy = vr(-40, 40), life = 0.3, s0 = 7, s1 = 1 }) end
-                for _, e in ipairs(R.en) do
-                    if not e.dead and not b.hit[e] and not e.M.reaper and hyp(e.x - b.x, e.y - 18 - b.y) < e.M.r + 6 then
-                        b.hit[e] = true
-                        hurt(e, b.dmg, { slow = 1.6, school = "frost", kb = 25, fx = b.x - b.vx, fy = b.y - b.vy })
-                        flash("frost_burst", b.x, b.y, 46, C.ICE, 0.25, { light = 90 })
-                        flash("blue_star", b.x, b.y, 54, C.FROST, 0.18)
-                        for _ = 1, 5 do emit({ img = "ice_chunks", tint = C.FROST, x = b.x, y = e.y, z = 18, vx = b.vx * 0.15 + vr(-80, 80), vy = b.vy * 0.15 + vr(-60, 60), vz = vr(40, 150), g = 520, life = vr(0.35, 0.6), s0 = vr(6, 10), s1 = 4, a0 = 1, a1 = 0, rot = "rnd", vr = vr(-10, 10), bounce = 0.3 }) end
-                        sound("icelance", 0.07)
-                        b.pierce = b.pierce - 1
-                        if b.pierce < 0 then b.life = 0 break end
-                    end
+                if random() < 0.85 then
+                    local q = q0()
+                    q.img, q.tint, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1, q.a0, q.a1, q.rot = "mist", C.ICE, b.x - b.vx * 0.02, b.y - b.vy * 0.02, b.vx * 0.05 + vr(-10, 10), b.vy * 0.05 + vr(-10, 10), 0.35, 10, 26, 0.4, 0, "rnd"
+                    emit(q)
                 end
+                if random() < 0.4 then
+                    local q = q0()
+                    q.img, q.tint, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1 = "sparkle", C.FROST, b.x, b.y, vr(-40, 40), vr(-40, 40), 0.3, 7, 1
+                    emit(q)
+                end
+                local n, spent = qNear(QB, b.x, b.y + 18, 6), false
+                for j = 1, n do local e = QB[j] if frostCan(b, e) and frostHit(b, e) then spent = true break end end
+                if not spent then local en, j = R.en, qBuilt + 1 while en[j] do local e = en[j] if frostCan(b, e) and frostHit(b, e) then break end j = j + 1 end end
             elseif b.kind == "arcane" then
                 if not b.tgt or b.tgt.dead then local vis = visible() b.tgt = #vis > 0 and vis[floor(rnd() * #vis) + 1] or nil end
                 if b.tgt then
@@ -977,7 +1121,11 @@ local function updateProj(dt)
                     b.vx, b.vy = b.vx + (cos(a) * 380 - b.vx) * k, b.vy + (sin(a) * 380 - b.vy) * k
                 end
                 b.x, b.y = b.x + b.vx * dt, b.y + b.vy * dt
-                if random() < 0.5 then emit({ img = "sparkle", tint = C.ARC, x = b.x, y = b.y, vx = vr(-20, 20), vy = vr(-20, 20), life = 0.4, s0 = 7, s1 = 1 }) end
+                if random() < 0.5 then
+                    local q = q0()
+                    q.img, q.tint, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1 = "sparkle", C.ARC, b.x, b.y, vr(-20, 20), vr(-20, 20), 0.4, 7, 1
+                    emit(q)
+                end
                 if b.tgt and hyp(b.tgt.x - b.x, b.tgt.y - 18 - b.y) < b.tgt.M.r + 6 then
                     hurt(b.tgt, b.dmg, { school = "arcane", kb = 12, fx = b.x - b.vx, fy = b.y - b.vy })
                     flash("arcane_burst", b.x, b.y, 44, nil, 0.25, { light = 70 })
@@ -994,7 +1142,11 @@ local function updateProj(dt)
                     local f = min(1, b.t / b.dur)
                     b.gx, b.gy = b.sx + (b.tx - b.sx) * f, b.sy + 20 + (b.ty - b.sy - 20) * f
                     b.x, b.y = b.gx, b.gy - 20 * (1 - f) - sin(f * pi) * 110
-                    if random() < 0.8 then emit({ img = "sparkle", tint = C.EMBER, x = b.x + 5, y = b.y - 7, vx = vr(-30, 30), vy = vr(-40, 0), life = 0.3, s0 = 6, s1 = 1 }) end
+                    if random() < 0.8 then
+                        local q = q0()
+                        q.img, q.tint, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1 = "sparkle", C.EMBER, b.x + 5, b.y - 7, vr(-30, 30), vr(-40, 0), 0.3, 6, 1
+                        emit(q)
+                    end
                     if f >= 1 then b.life = 0 explode(b.tx, b.ty, b.r, b.dmg) end
                 end
             end
@@ -1013,15 +1165,13 @@ local function updateProj(dt)
             local o = dr.orbs[k] or {}
             o.x, o.y, o.a = x, y, a
             dr.orbs[k] = o
-            emit({ img = "flame", x = x, y = y, vx = -sin(a) * 30, vy = vr(-30, -10), life = 0.35, s0 = 22, s1 = 6, a0 = 0.8, a1 = 0, rot = "rnd" })
-            for _, e in ipairs(R.en) do
-                if not e.dead and not e.M.reaper and e.hitT <= 0 and hyp(e.x - x, e.y - 16 - y) < e.M.r + 14 then
-                    e.hitT = 0.45
-                    hurt(e, 8 + 4 * dr.r, { kb = 30, fx = x, fy = y, school = "fire" })
-                    flash("fire_core", x, y, 44, nil, 0.2, { light = 80 })
-                    sound("fireimpact2", 0.12, 0.5)
-                end
-            end
+            local q = q0()
+            q.img, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1, q.a0, q.a1, q.rot = "flame", x, y, -sin(a) * 30, vr(-30, -10), 0.35, 22, 6, 0.8, 0, "rnd"
+            emit(q)
+            local n = qNear(QC, x, y + 16, 14)
+            for j = 1, n do local e = QC[j] if dragonCan(e, x, y) then dragonHit(e, x, y, 8 + 4 * dr.r) end end
+            local en, j = R.en, qBuilt + 1
+            while en[j] do local e = en[j] if dragonCan(e, x, y) then dragonHit(e, x, y, 8 + 4 * dr.r) end j = j + 1 end
         end
         for k = n + 1, #dr.orbs do dr.orbs[k] = nil end
     end
@@ -1031,7 +1181,11 @@ local function updateProj(dt)
         local b = R.eproj[i]
         b.life = b.life - dt
         b.x, b.y = b.x + b.vx * dt, b.y + b.vy * dt
-        if random() < 0.5 then emit({ img = "mist", tint = b.tint or { 140 / 255, 90 / 255, 200 / 255 }, x = b.x, y = b.y, life = 0.4, s0 = 10, s1 = 20, a0 = 0.4, a1 = 0, rot = "rnd" }) end
+        if random() < 0.5 then
+            local q = q0()
+            q.img, q.tint, q.x, q.y, q.life, q.s0, q.s1, q.a0, q.a1, q.rot = "mist", b.tint or MIST_EPROJ, b.x, b.y, 0.4, 10, 20, 0.4, 0, "rnd"
+            emit(q)
+        end
         if hyp(b.x - p.x, b.y - (p.y - 18)) < (b.size and b.size * 0.5 or 14) then hurtPlayer(b.dmg, b.src or { M = MOBS.lich }) b.life = 0 flash(b.img or "shadow_glyph", b.x, b.y, 40, b.tint, 0.3) end
         if b.life <= 0 then remove(R.eproj, i) else i = i + 1 end
     end
@@ -1042,7 +1196,9 @@ local function updateProj(dt)
         t.t = t.t - dt
         if t.kind == "flamestrike" and t.t > 0 and random() < 0.9 then
             local a, d = random() * TAU, sqrt(random()) * t.r * 0.9
-            emit({ img = "sparkle", tint = C.EMBER, x = t.x + cos(a) * d, y = t.y + sin(a) * d / 1.3, vz = vr(40, 140), life = 0.5, s0 = 8, s1 = 2 })
+            local q = q0()
+            q.img, q.tint, q.x, q.y, q.vz, q.life, q.s0, q.s1 = "sparkle", C.EMBER, t.x + cos(a) * d, t.y + sin(a) * d / 1.3, vr(40, 140), 0.5, 8, 2
+            emit(q)
         end
         if t.onTick and t.t > 0 then t.onTick(t, dt) end
         if t.t <= 0 then
@@ -1051,10 +1207,7 @@ local function updateProj(dt)
             elseif t.kind == "pillar" then exorcismHit(t)
             elseif t.kind == "flamestrike" then flamestrikeHit(t)
             elseif t.kind == "slam" then
-                ring("ring_smoke", t.x, t.y, 20, t.r * 1.2, 0.6, { 150 / 255, 200 / 255, 90 / 255 }, 1)
-                puff(t.x, t.y, 12, { 70 / 255, 80 / 255, 50 / 255 }, { a = 0.6, s0 = 30, s1 = 80, spread = 3 })
-                shake(0.5) stop(0.06) sound("meteor")
-                addDecal(t.x, t.y, t.r * 0.8, { 30 / 255, 26 / 255, 20 / 255 }, "scorch")
+                slamHit(t)
                 if hyp(p.x - t.x, (p.y - t.y) * 1.3) < t.r then hurtPlayer(30, { M = MOBS.abom }) end
             elseif t.kind == "fnova" then
                 ring("nova_ring", t.x, t.y, 20, t.r, 0.45, { 190 / 255, 150 / 255, 1 }, 1)
@@ -1088,7 +1241,12 @@ local function updateProj(dt)
         h.t, h.acc = h.t + dt, (h.acc or 0) + dt
         if h.vx then h.x, h.y = h.x + h.vx * dt, h.y + (h.vy or 0) * dt end
         if h.onTick then h.onTick(h, dt)
-        elseif random() < 0.4 then emit({ img = "smoke_sheet", cell = floor(random() * 40), tint = h.tint or { 90 / 255, 150 / 255, 50 / 255 }, add = false, x = h.x + vr(-h.r, h.r) * 0.8, y = h.y + vr(-h.r, h.r) * 0.5, z = 4, vz = vr(6, 20), life = 1.6, s0 = 24, s1 = 54, a0 = 0.4, a1 = 0, fi = 0.3, rot = "rnd", vr = 0.4 }) end
+        elseif random() < 0.4 then
+            local q = q0()
+            q.img, q.cell, q.tint, q.add, q.x, q.y, q.z, q.vz = "smoke_sheet", floor(random() * 40), h.tint or SMOKE_HAZ, false, h.x + vr(-h.r, h.r) * 0.8, h.y + vr(-h.r, h.r) * 0.5, 4, vr(6, 20)
+            q.life, q.s0, q.s1, q.a0, q.a1, q.fi, q.rot, q.vr = 1.6, 24, 54, 0.4, 0, 0.3, "rnd", 0.4
+            emit(q)
+        end
         local inside = h.t >= (h.arm or 0) and hyp(p.x - h.x, (p.y - h.y) * 1.3) < h.r
         if inside and h.slow then R.pSlowN = min(R.pSlowN, h.slow) end
         local ev = h.every or 0.5
@@ -1098,7 +1256,12 @@ local function updateProj(dt)
     for _, f in ipairs(R.fx) do
         if f.kind == "wave" then
             local rr2 = f.r * easeOut(min(1, f.t / f.dur))
-            for _ = 1, 10 do local a = random() * TAU emit({ img = "sparkle", tint = C.HOLY, x = f.x + cos(a) * rr2, y = f.y + sin(a) * rr2 / 1.3, vz = vr(20, 80), life = 0.35, s0 = 9, s1 = 2 }) end
+            for _ = 1, 10 do
+                local a = random() * TAU
+                local q = q0()
+                q.img, q.tint, q.x, q.y, q.vz, q.life, q.s0, q.s1 = "sparkle", C.HOLY, f.x + cos(a) * rr2, f.y + sin(a) * rr2 / 1.3, vr(20, 80), 0.35, 9, 2
+                emit(q)
+            end
             for _, e in ipairs(R.en) do
                 if not e.dead and not f.hit[e] and hyp(e.x - f.x, (e.y - f.y) * 1.3) < rr2 then
                     f.hit[e] = true
@@ -1154,10 +1317,17 @@ local function boss(e, dt, d)
     end
 end
 
+-- (numeric loops and a few locals over the mockup's; the same sums in the same order, so a seeded run is unchanged.
+-- R.en is walked with while en[i]: an enemy spawned during the walk is reached, as ipairs did)
+local UNITS
 local function updateEnemies(dt)
     local p = R.p
+    local en = R.en
+    UNITS = UNITS or ns.HTLArt.UNITS
     for k in pairs(gridUsed) do local b = grid[k] for j = #b, 1, -1 do b[j] = nil end gridUsed[k] = nil end
-    for _, e in ipairs(R.en) do
+    local i = 1
+    while en[i] do
+        local e = en[i]
         if not e.dead then
             local k = floor(e.x / GRID) * 4099 + floor(e.y / GRID)
             local b = grid[k]
@@ -1165,18 +1335,29 @@ local function updateEnemies(dt)
             b[#b + 1] = e
             gridUsed[k] = true
         end
+        i = i + 1
     end
-    for _, e in ipairs(R.en) do
+    i = 1
+    while en[i] do
+        local e = en[i]
+        i = i + 1
         if not e.dead then
             local M = e.M
             e.spawnT = e.spawnT + dt
-            e.flash, e.hitT, e.sq = max(0, e.flash - dt), max(0, e.hitT - dt), max(0, e.sq - dt * 1.6)
-            e.slow, e.stun = max(0, e.slow - dt), max(0, e.stun - dt)
+            local v = e.flash - dt if v < 0 then v = 0 end e.flash = v
+            v = e.hitT - dt if v < 0 then v = 0 end e.hitT = v
+            v = e.sq - dt * 1.6 if v < 0 then v = 0 end e.sq = v
+            v = e.slow - dt if v < 0 then v = 0 end e.slow = v
+            v = e.stun - dt if v < 0 then v = 0 end e.stun = v
             if e.frz > 0 then
                 e.frz = e.frz - dt
                 if e.frz <= 0 then
                     e.frz = 0
-                    for _ = 1, 6 do emit({ img = "ice_chunks", tint = C.FROST, x = e.x, y = e.y, z = 20, vx = vr(-90, 90), vy = vr(-60, 60), vz = vr(60, 160), g = 520, life = 0.5, s0 = 9, s1 = 5, rot = "rnd", vr = 8, bounce = 0.3 }) end
+                    for _ = 1, 6 do
+                        local q = q0()
+                        q.img, q.tint, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.life, q.s0, q.s1, q.rot, q.vr, q.bounce = "ice_chunks", C.FROST, e.x, e.y, 20, vr(-90, 90), vr(-60, 60), vr(60, 160), 520, 0.5, 9, 5, "rnd", 8, 0.3
+                        emit(q)
+                    end
                     sound("icenuke", 0.15, 0.4)
                 end
             end
@@ -1196,7 +1377,7 @@ local function updateEnemies(dt)
                 if M.reaper then sp = M.spd + max(0, R.t - 900) * 6 end
                 if e.frz > 0 or e.stun > 0 then sp = 0 end
                 local dx, dy = p.x - e.x, p.y - e.y
-                local d = hyp(dx, dy)
+                local d = sqrt(dx * dx + dy * dy)
                 if d == 0 then d = 1 end
                 if M.boss then boss(e, dt, d) elseif M.naxx and E.MOBTICK then E.MOBTICK(e, dt, d) end
                 if R.preview then sp = 0 end
@@ -1209,19 +1390,24 @@ local function updateEnemies(dt)
                     if M.fly or M.ghost then vx, vy = vx + cos(R.t * 3 + e.wob) * sp * 0.35, vy + sin(R.t * 2.6 + e.wob) * sp * 0.35 end
                 end
                 if not M.fly and not e.fixed then
-                    local cx, cy = floor(e.x / GRID), floor(e.y / GRID)
+                    local ex, ey, Mr, mk = e.x, e.y, M.r, M.mass + 0.5
+                    local cx, cy = floor(ex / GRID), floor(ey / GRID)
                     local sx, sy = 0, 0
                     for ix = cx - 1, cx + 1 do
+                        local base = ix * 4099
                         for iy = cy - 1, cy + 1 do
-                            local b = grid[ix * 4099 + iy]
+                            local b = grid[base + iy]
                             if b then
-                                for _, o in ipairs(b) do
+                                for j = 1, #b do
+                                    local o = b[j]
                                     if o ~= e then
-                                        local ox, oy, rr2 = e.x - o.x, e.y - o.y, M.r + o.M.r
+                                        local ox, oy = ex - o.x, ey - o.y
+                                        local oM = o.M
+                                        local rr2 = Mr + oM.r
                                         local dd = ox * ox + oy * oy
                                         if dd < rr2 * rr2 and dd > 0.01 then
                                             local l = sqrt(dd)
-                                            local push = (rr2 - l) / rr2 * o.M.mass / (M.mass + 0.5)
+                                            local push = (rr2 - l) / rr2 * oM.mass / mk
                                             sx, sy = sx + ox / l * push, sy + oy / l * push
                                         end
                                     end
@@ -1233,11 +1419,11 @@ local function updateEnemies(dt)
                 end
                 if e.kb > 0 then vx, vy = vx + e.kx * e.kb * 4, vy + e.ky * e.kb * 4 e.kb = max(0, e.kb - dt * 420) end
                 e.x, e.y = e.x + vx * dt, e.y + vy * dt
-                local mv = hyp(vx, vy)
+                local mv = sqrt(vx * vx + vy * vy)
                 if e.cast or e.atkT > 0 then e.dir = dirOf(dx, dy)
                 elseif mv > 5 and sp > 0 then e.dir = dirOf(vx, vy) end
                 if (sp > 0 or e.fixed) and not (e.frz > 0) then
-                    local U = ns.HTLArt.UNITS[M.sprite or e.type] or ns.HTLArt.UNITS.ghoul
+                    local U = UNITS[M.sprite or e.type] or UNITS.ghoul
                     e.anim = e.anim + dt * (e.fixed and 14 or 8 / (U.moveDur / 1000) * clamp(mv / max(1, M.spd), 0.5, 1.6))
                 end
                 if e.atkT > 0 then e.atkT = e.atkT - dt end
@@ -1248,8 +1434,10 @@ local function updateEnemies(dt)
             end
         end
     end
-    local i = 1
-    while i <= #R.en do if R.en[i].dead then table.remove(R.en, i) else i = i + 1 end end
+    -- the dead leave, the rest keep their order (one pass)
+    local n, j = #en, 0
+    for k = 1, n do local e = en[k] if not e.dead then j = j + 1 en[j] = e end end
+    for k = j + 1, n do en[k] = nil end
 end
 
 ---------------------------------------------------------------------------
@@ -1316,7 +1504,7 @@ local function updatePickups(dt)
             if k.hp <= 0 then
                 got = true
                 flash("white_orb", k.x, k.y - 20, 80, C.GREEN, 0.4, { light = 160 })
-                for _ = 1, 10 do emit({ img = "ice_chunks2", tint = { 120 / 255, 110 / 255, 100 / 255 }, add = false, x = k.x, y = k.y, z = 20, vx = vr(-140, 140), vy = vr(-100, 100), vz = vr(80, 240), g = 600, life = 0.9, s0 = 9, s1 = 7, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = 8, bounce = 0.3 }) end
+                for _ = 1, 10 do emit({ img = "dust", tint = { 120 / 255, 110 / 255, 100 / 255 }, add = false, x = k.x, y = k.y, z = 20, vx = vr(-140, 140), vy = vr(-100, 100), vz = vr(80, 240), g = 600, life = 0.9, s0 = 9, s1 = 7, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = 8, bounce = 0.3 }) end
                 puff(k.x, k.y, 6, { 100 / 255, 150 / 255, 70 / 255 }, { a = 0.5, s0 = 20, s1 = 60, spread = 2 })
                 sound("fireimpact2", 0.05, 0.6)
                 local roll = rnd()
@@ -1559,6 +1747,7 @@ end
 -- step
 ---------------------------------------------------------------------------
 local function updFeel(dt)
+    R.shakeT = (R.shakeT or 0) + dt              -- (the camera shake's clock: Render's Camera)
     R.trauma = max(0, R.trauma - dt * 1.4)
     local k = max(0, 1 - dt * 12)
     R.kick.x, R.kick.y = R.kick.x * k, R.kick.y * k
@@ -1606,6 +1795,7 @@ function E.Step(run, dt, ix, iy)
     local wdt = dt * run.ts
     if run.p.dead then
         run.p.deadT = run.p.deadT + dt
+        run.shakeT = (run.shakeT or 0) + dt
         if run.p.deadT > 1.6 and not run.over then run.over = "dead" end
         updFx(wdt) updParts(dt)
         return
@@ -1688,6 +1878,40 @@ function E.FastForward(run, secs, bot)
     end
     run.bot, run.ff = b, nil
     run.pending = 0
+end
+
+-- Dev scenarios (UI.lua, a development copy only). DevJump moves the clock to t at once, as if the run had come
+-- that far: the stage's events before t are passed (their bosses never came) and the crowd for t closes in round the
+-- hero; play from there is the real thing. DevLevels gives n level-ups, each picked as the bot picks.
+function E.DevJump(run, t)
+    E.Use(run)
+    local EV, k = R.ST.events or D.EVENTS, R.rules.rush or 1
+    R.t = max(R.t, t)
+    while R.evI <= #EV and EV[R.evI].t * k <= R.t do R.evI = R.evI + 1 end
+    local n, want = 0, floor(R.ST.target(R.t) * 1.1)
+    for _, e in ipairs(R.en) do if not e.dead then n = n + 1 end end
+    for _ = n + 1, want do
+        local a, d = rnd() * TAU, rr(160, 560)
+        local x, y = R.p.x + cos(a) * d, R.p.y + sin(a) * d * 0.72
+        spawn(pickW(waveAt(R.t)), x, y, { dir = dirOf(R.p.x - x, R.p.y - y) })
+    end
+end
+function E.DevLevels(run, n)
+    E.Use(run)
+    for _ = 1, n do
+        R.level = R.level + 1
+        R.xpNext = floor(6 + R.level * 4 + max(0, R.level - 20) * 6 + 0.5)
+        local c = choices(3)
+        local pick = c[1]
+        for _, o in ipairs(c) do if o.kind == "spell" and SPELLS[o.id].cls then pick = o break end end
+        if pick then apply(pick) end
+    end
+    R.xp = 0
+end
+-- the next event of the run's stage after its clock (for the dev bar's Next)
+function E.DevNext(run)
+    local EV = run.ST.events or D.EVENTS
+    return EV[run.evI], (run.rules.rush or 1)
 end
 
 -- relics that tick (in E.Step, the run in R)

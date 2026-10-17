@@ -162,7 +162,7 @@ def close_all(cl):
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
                               'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
                               'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts', 'DZLookGallery', 'DZLookLongNames', 'DZAuditFull', 'DZGroupStage',
-                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves', 'DisasterZoneReserveDemo', 'DisasterZoneKeyBinds' }) do
+                              'DisasterZoneWardrobeBar', 'DisasterZoneWardrobePicker', 'DisasterZoneWardrobeIcons', 'DisasterZoneReserves', 'DisasterZoneReserveDemo', 'DisasterZoneKeyBinds', 'DisasterZoneResourceBar' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       -- (the shared pop-ups of UI:Toast, which replaced some of the named ones above)
@@ -343,6 +343,11 @@ BOI_AUD = ("BOI_AUD = BOI_AUD or {} local E = ns.BoI "
            "  for _, x in ipairs(r.map.list) do if x.type == 'boss' then boss = x end end "
            "  local nb = E.Neighbours(r.map, boss, true)[1] r.room = nb.room r.room.cleared = true E.ChangeRoom(r, E.OPP[nb.dir]) "
            "  r.mode = 'play' if setup then setup(r.bossF, r) end BOI_AUD.run(r, frames) end ")
+# The Games hub mid-turn: a game in front (Lua: an id in quotes, or an index into the posters), a turn to poster
+# `to` (Lua; i = the front's index), held `t` s in
+HUB_RUN = ("local i, g = nil, %s for k, p in ipairs(ns.GamesUI.__posters) do if p.id == g or k == g then i = k end end "
+           "ns.GamesUI:ShowFront(ns.GamesUI.__posters[i].id) ns.GamesUI:PauseAnim(true) ns.GamesUI:Turn(%s) "
+           "ns.GamesUI:StepAnim(%s)")
 # Hold the Line: a Paladin run at level 7 with a hand of three (a spell rank-up, a blessing that awakens Ashbringer, gadget)
 HTL_LEVEL = ("ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
              "local r = ns.HTLUI._Run() r.level, r.pending = 7, 1 ns.HTL.AddSpell(r, 'avenger') "
@@ -391,11 +396,12 @@ def opened(key, lua=None):
     return fn
 
 
-def azero_battle(map_id, x, y, foe, then=None, bag=None, lead="murkling"):
-    """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN); bag: the bag's Lua table"""
+def azero_battle(map_id, x, y, foe, then=None, bag=None, lead="murkling", pre=None):
+    """a wild battle on map_id, at the action menu (FIGHT / BAG / PARTY / RUN); bag: the bag's Lua table; pre: Lua
+    run before the battle starts (the hour, the rain: BattleScene picks its light at the start)"""
     def fn(w, c):
         g = azero_at(map_id, x, y, "local M = ns.AzeroMon ns.Azero.save.party = { M.New(%r, 12, ns.Azero.rng) }" % lead
-                     + (" ns.Azero.save.bag = %s" % bag if bag else ""))(w, c)
+                     + (" ns.Azero.save.bag = %s" % bag if bag else "") + (" " + pre if pre else ""))(w, c)
         import importlib.util
         spec = importlib.util.spec_from_file_location("_azero_bot", os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                       "..", "tests", "games", "_azero_bot.py"))
@@ -404,6 +410,9 @@ def azero_battle(map_id, x, y, foe, then=None, bag=None, lead="murkling"):
         g.eval(bot.BOT)
         g.eval("T_AZ.settle()")                              # past the opening tips
         g.eval("ns.AzeroUI._Focus(true)")
+        if pre:
+            g.eval(pre)                                      # (again: settling resets the weather)
+            w.tick(0.3)
         g.eval("ns.Azero:Run(function(gm) gm:WildBattle(%r, 8) end)" % foe)
         for _ in range(80):
             w.tick(0.2)
@@ -432,6 +441,26 @@ def azero_at(map_id, x, y, lua=None):
         if lua:
             g.eval(lua)
         w.tick(0.3)
+        return g
+    return fn
+
+
+def azero_lit(map_id, x, y, hour, lua=None, face="down"):
+    """Azeromon at map_id x, y at an hour of the day, the picture alone: no paused veil, opening tips or key hints"""
+    def fn(w, c):
+        g = azero_at(map_id, x, y)(w, c)
+        g.eval("ns.AzeroUI._Focus(true)")
+        for _ in range(12):                                    # the opening tips
+            if not g.eval_py("return ns.AzeroUI._State()").get("msg"):
+                break
+            g.eval("ns.AzeroUI._HandleKey('A')")
+            w.tick(0.3)
+        g.eval("ns.Azero:Data().keys = setmetatable({}, { __index = function() return 99 end })")
+        g.eval("ns.Azero.clockHour = %r ns.Azero.forceRain = false ns.Azero:EnterMap(%r, %d, %d, %r, true)" % (hour, map_id, x, y, face))
+        if lua:
+            g.eval(lua)
+        g.eval("ns.AzeroUI._Focus(true)")
+        w.tick(0.6)
         return g
     return fn
 
@@ -1630,7 +1659,7 @@ SHOT_HUD = ("__MOCK.real_geometry = true; __MOCK.ranged_speed = 2.2; "
 WAR_HUD = ("__MOCK.real_geometry = true; "
            "local names = { [29707] = 'Heroic Strike', [25231] = 'Cleave', [30335] = 'Bloodthirst', [1680] = 'Whirlwind', "
            "[25236] = 'Execute', [30033] = 'Rampage', [2048] = 'Battle Shout', [2687] = 'Bloodrage', [25212] = 'Hamstring', "
-           "[30330] = 'Mortal Strike', [25242] = 'Slam' }; "
+           "[30330] = 'Mortal Strike', [25242] = 'Slam', [12328] = 'Sweeping Strikes', [11585] = 'Overpower' }; "
            "local old = GetSpellInfo; GetSpellInfo = function(x, ...) if names[x] then return names[x] end "
            "for _, n in pairs(names) do if n == x then return n end end return old(x, ...) end; "
            "__MOCK.spell_cd = __MOCK.spell_cd or {}; "
@@ -1648,10 +1677,66 @@ WAR_HUD = ("__MOCK.real_geometry = true; "
            "__MOCK.fire('UNIT_ATTACK_SPEED', 'player'); "
            "W.OnMH(GetTime() - %s); if oh then W.OnOH(GetTime() - 1.0) end; ns.WarriorSwingHUD:Update()")
 
-def war_hud(theme, at="1.7", style="both", rage=62, oh="2.6", queued="false", spec="fury"):
-    return opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.theme', '%s'); " % theme
+# Resource bar (Core/Resource.lua, UI/ResourceBar.lua; feedback #26): Gina's bar switched on and always shown, its
+# snapshot a fixed moment (KIND: rage = Fury 62 with marks and the Heroic Strike line; cat = 58 energy, the tick ring,
+# combo points, druid mana; rogue = 31 energy before a tick; mana = a healer 81% with the regen tick), in THEME / SHAPE.
+RES_SAMPLES = {
+    "rage": "{ kind = 'rage', v = 62, mx = 100, line = 40, fight = true, marks = { { key = 'ww', cost = 25 }, "
+            "{ key = 'bt', cost = 30 } } }",
+    "cat": "{ kind = 'energy', v = 58, mx = 100, tick = 0.35, ghost = 20, cp = 4, mana = { pct = 61, shift = 22 }, "
+           "fight = true, marks = { { key = 'rip', cost = 30 }, { key = 'shred', cost = 42 } } }",
+    "rogue": "{ kind = 'energy', v = 31, mx = 100, tick = 0.8, ghost = 20, cp = 3, fight = true, marks = { "
+             "{ key = 'snd', cost = 25 }, { key = 'evis', cost = 35 }, { key = 'ss', cost = 40 } } }",
+    "mana": "{ kind = 'mana', v = 8100, mx = 10000, tick = 0.6, ghost = 150, fight = true, marks = {} }",
+    "cap": "{ kind = 'energy', v = 94, mx = 100, tick = 0.85, ghost = 20, cp = 5, cap = true, fight = true, marks = { "
+           "{ key = 'snd', cost = 25 }, { key = 'evis', cost = 35 }, { key = 'ss', cost = 40 } } }",
+    "held": "{ kind = 'rage', v = 47, mx = 100, line = 40, held = 12, fight = true, marks = { { key = 'ww', cost = 25 }, "
+            "{ key = 'bt', cost = 30 } } }",
+}
+RES_HUD = ("__MOCK.real_geometry = true; local R = ns.Resource; R.Snapshot = function() return SAMPLE end; "
+           "ns.DB:SetSetting('power.enabled', true); ns.DB:SetSetting('power.show', 'always'); "
+           "ns.DB:SetSetting('power.restAlpha', 1); ns.DB:SetSetting('power.theme', 'THEME'); "
+           "ns.DB:SetSetting('power.shape', 'SHAPE'); ns.DB:SetSetting('power.num', 'NUM'); ns.ResourceBar:Refresh()")
+
+
+def res_hud(theme, shape="bar", kind="rage", num="ring"):
+    return opened("home", "ns.MainFrame:Close(); " + RES_HUD.replace("SAMPLE", RES_SAMPLES[kind])
+                  .replace("THEME", theme).replace("SHAPE", shape).replace("NUM", num))
+
+
+def war_hud_bare(theme):
+    """The Warrior swing timer with "Rage in the timer" off (D-10): the next press in the middle, no globe."""
+    return opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.rage', false); ns.DB:SetSetting('war.theme', '%s'); " % theme
+                  + (WAR_HUD % "1.7").replace("STYLE", "bar").replace("RAGE", "62").replace("OH_SPEED", "2.6")
+                  .replace("QUEUED", "false").replace("SPEC", "fury"))
+
+
+def war_hud(theme, at="1.7", style="both", rage=62, oh="2.6", queued="false", spec="fury", sit=None):
+    return opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.rage', true); ns.DB:SetSetting('war.theme', '%s'); " % theme
+                  + ("ns.Situation:SetDemo(%s); " % sit if sit else "")
                   + (WAR_HUD % at).replace("STYLE", style).replace("RAGE", str(rage)).replace("OH_SPEED", oh)
                   .replace("QUEUED", queued).replace("SPEC", spec))
+
+
+# Situations (Core/Situation.lua, feedback #30): a situation played on the timer (Situation:SetDemo: the Demo page's
+# moments use it too), Arms with a two-hander unless said.
+SIT_PACK = "{ kind = 'pack', n = 4 }"
+SIT_HELD = "{ kind = 'pack', n = 3, held = { key = 'poly', name = 'Polymorph', icon = 'Interface\\\\Icons\\\\Spell_Nature_Polymorph' } }"
+SIT_PLAYER = "{ kind = 'player', cls = 'ROGUE', who = 'Rogue' }"
+SIT_LOCKED = "{ kind = 'pack', n = 5, locked = true }"
+# (a state on one tool: the others the earlier states switched on go off)
+SIT_ONLY = ("ns.WarriorSwing.IsMine = function() return false end; ns.WarriorSwing:Refresh(); "
+            "ns.SwingTimer.IsRet = function() return false end; ns.SwingTimer:Refresh(); "
+            "ns.ShotTimer.IsMine = function() return false end; ns.ShotTimer:Refresh(); ")
+
+
+def sit_war(theme, sit, rage=64, at="1.0", extra=""):
+    st = war_hud(theme, at=at, style="bar", rage=rage, oh="nil", spec="arms", sit=sit)
+    if extra:
+        st = opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('war.theme', '%s'); ns.Situation:SetDemo(%s); %s"
+                    % (theme, sit, extra) + (WAR_HUD % at).replace("STYLE", "bar").replace("RAGE", str(rage))
+                    .replace("OH_SPEED", "nil").replace("QUEUED", "false").replace("SPEC", "arms"))
+    return st
 
 
 # The Dock (UI/LookDock.lua): the game's bottom bars stood in for (containers of 45 px buttons with a Ret paladin's
@@ -2138,6 +2223,11 @@ STATES = [
     ("Games - Azeromon poster crossfade", azero_poster(3, 7.2)),
     # (Azeromon's poster on the side: a still of its film, no painting behind it)
     ("Games - Azeromon poster side", opened("games", "ns.GamesUI:ShowFront('chess') ns.GamesUI:PauseAnim(true)")),
+    # the dots' runner (GamesUI RunDots): stretched front end first on its way to the next game, gathering there, and
+    # from the last game back along the row to the first
+    ("Games - dots running", opened("games", HUB_RUN % ("'trainer'", "i + 1", 0.12))),
+    ("Games - dots gathering", opened("games", HUB_RUN % ("'trainer'", "i + 1", 0.3))),
+    ("Games - dots back to the first", opened("games", HUB_RUN % ("#ns.GamesUI.__posters", "i + 1", 0.2))),
     # the overworld on maps with a baked ground (gen_azeromon_ground.py): Goldshire's square, Route 1's meadows
     ("Games - Azeromon world map", azero_at("town", 12, 11, "local g = ns.Azero g.save.visited = {} for id in pairs(ns.AzeroMaps) do g.save.visited[id] = true end ns.AzeroWorld:Open() ns.AzeroUI._Focus(true)")),
     # the painted world map (gen_azeromon_worldmap.py): a new game under mist, by night, a place being revealed
@@ -2179,6 +2269,25 @@ STATES = [
     ("Games - Azeromon Goldshire inn at night", azero_at("town", 9, 24, "ns.Azero.clockHour = 22 ns.Azero:EnterMap('town', 9, 24, 'down', true)")),
     ("Games - Azeromon Lion's Pride evening", azero_at("post", 7, 8, "ns.Azero.clockHour = 22 ns.Azero:EnterMap('post', 7, 8, 'down', true)")),
     ("Games - Azeromon Goldshire night", azero_at("town", 13, 10, "ns.Azero.clockHour = 23")),
+    # light on people (Light.lua, 0.44): no veil, no tips, the picture alone
+    ("Games - Azeromon light night", azero_lit("town", 21, 10, 23.2)),
+    ("Games - Azeromon light dusk", azero_lit("town", 17, 12, 19)),
+    ("Games - Azeromon light dawn", azero_lit("town", 17, 12, 6)),
+    ("Games - Azeromon light day", azero_lit("town", 18, 12, 12)),
+    ("Games - Azeromon light off", azero_lit("town", 23, 11, 23.2, "ns.Azero:Data().lights = false")),
+    # water that reflects (Water.lua, 0.46): the dock, wading, night, rain
+    ("Games - Azeromon water dock", azero_lit("lakeshire", 25, 12, 12, face="left")),
+    ("Games - Azeromon water wading", azero_lit("lakeshire", 21, 16, 12, face="left")),
+    ("Games - Azeromon water night", azero_lit("lakeshire", 24, 12, 23.2, face="left")),
+    ("Games - Azeromon water rain", azero_lit("lakeshire", 24, 12, 12, "ns.Azero.forceRain = true", face="left")),
+    ("Games - Azeromon water pond", azero_lit("town", 29, 13, 12, face="left")),
+    # battles where you stand (BattleScene.lua, 0.45): the spot, the hour, the weather
+    ("Games - Azeromon spot road night", azero_battle("town", 17, 3, "wolfpup", pre="ns.Azero.clockHour = 23 ns.Azero.forceRain = false")),
+    ("Games - Azeromon spot town day", azero_battle("town", 25, 15, "kobling", pre="ns.Azero.clockHour = 12 ns.Azero.forceRain = false")),
+    ("Games - Azeromon spot pond dusk", azero_battle("town", 30, 11, "lurkling", pre="ns.Azero.clockHour = 19 ns.Azero.forceRain = false")),
+    ("Games - Azeromon spot lake night", azero_battle("lakeshire", 21, 13, "murlocwarrior", pre="ns.Azero.clockHour = 23 ns.Azero.forceRain = false")),
+    ("Games - Azeromon spot pond rain", azero_battle("town", 30, 11, "lurkling", pre="ns.Azero.clockHour = 12 ns.Azero.forceRain = true")),
+    ("Games - Azeromon spot westfall dusk", azero_battle("westfall", 10, 10, "coyote", pre="ns.Azero.clockHour = 19 ns.Azero.forceRain = false")),
     ("Games - Azeromon Route 1 meadow", azero_at("route1", 4, 10)),
     ("Games - Azeromon home", azero_at("home", 4, 5)),
     ("Games - Azeromon battle", azero_battle("route1", 11, 20, "kobling")),
@@ -2345,6 +2454,12 @@ STATES = [
     ("Games - Hold the Line desecrated", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 0, 499, 0 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI.ShowT3() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
     ("Games - Hold the Line relic coffer", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 0, 499, 0 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN', { stage = 'arachnid' }) for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
                                           "local r = ns.HTLUI._Run() ns.HTL.OpenChest(r, true, 'n_anub') local ch = r.chest r.chest = nil "
+    # (a development copy only: the dev scenarios sheet on the Construct Quarter, and a dev run at 4:55 with its bar)
+    ("Games - Hold the Line dev scenarios", opened("games", "ns.GamesUI:Select('holdtheline') for _ = 1, 20 do ns.HTLUI._Tick(1 / 60) end "
+                                         "ns.HTLUI.dev.stage = 'construct' ns.HTLUI.ShowDev() for _ = 1, 10 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line dev run", opened("games", "ns.GamesUI:Select('holdtheline') for _ = 1, 20 do ns.HTLUI._Tick(1 / 60) end "
+                                   "ns.HTLUI.dev.stage, ns.HTLUI.dev.level = 'epl', 'auto' ns.HTLUI.DevStart('PALADIN', 'epl', 300) "
+                                   "for _ = 1, 60 do ns.HTLUI._Tick(1 / 60) local r = ns.HTLUI._Run() r.wantLevelUp, r.pending, r.chest = nil, 0, nil end")),
                                           "ns.HTLUI._ShowLoot(ch.items, ch.gold, ch.relics) for _ = 1, 150 do ns.HTLUI._Tick(1 / 60) end")),
     ("Games - Hold the Line naxx run", opened("games", "local d = ns.Games:GetData('holdtheline') d.wins, d.runs, d.frozen, d.bank, d.frostRes = 2, 9, 0, 499, 0 d.naxx = { cleared = { arachnid = true, plague = true }, best = { arachnid = 1012, plague = 1044 }, kills = { PALADIN = { n_anub = 1, n_faerlina = 1, n_maexxna = 1, n_noth = 1, n_heigan = 1, n_loatheb = 1, n_razuvious = 1 } } } d.t3 = { PALADIN = { wrist = true, hands = true, waist = true, legs = true }, MAGE = { wrist = true } } ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('MAGE', { stage = 'construct' }) "
                                      "local r = ns.HTLUI._Run() r.god = true r.bot = true for _ = 1, 300 * 10 do r.wantLevelUp = nil r.chest = nil ns.HTL.Step(r, 1 / 10, 0, 0) end "
@@ -2666,6 +2781,40 @@ STATES = [
     ("Swing timer theme - classic", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('swing.theme', 'classic'); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
     ("Shot timer theme - classic", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'classic'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
     ("Shot timer theme - pips", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('shot.theme', 'pips'); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
+    ("Resource bar - halo bar rage", res_hud("halo", "bar", "rage")),
+    ("Resource bar - halo upright cat", res_hud("halo", "upright", "cat")),
+    ("Resource bar - halo globe rogue", res_hud("halo", "globe", "rogue")),
+    ("Resource bar - halo bar mana", res_hud("halo", "bar", "mana")),
+    ("Resource bar - sigil bar rage", res_hud("sigil", "bar", "rage")),
+    ("Resource bar - sigil upright cat", res_hud("sigil", "upright", "cat")),
+    ("Resource bar - sigil globe rogue", res_hud("sigil", "globe", "rogue")),
+    ("Resource bar - sigil bar mana", res_hud("sigil", "bar", "mana")),
+    ("Resource bar - slate bar rage", res_hud("slate", "bar", "rage")),
+    ("Resource bar - slate upright cat", res_hud("slate", "upright", "cat")),
+    ("Resource bar - slate globe rogue", res_hud("slate", "globe", "rogue")),
+    ("Resource bar - slate bar mana", res_hud("slate", "bar", "mana")),
+    ("Resource bar - gilded bar rage", res_hud("gilded", "bar", "rage")),
+    ("Resource bar - gilded upright cat", res_hud("gilded", "upright", "cat")),
+    ("Resource bar - gilded globe rogue", res_hud("gilded", "globe", "rogue")),
+    ("Resource bar - gilded bar mana", res_hud("gilded", "bar", "mana")),
+    ("Resource bar - pips bar rage", res_hud("pips", "bar", "rage")),
+    ("Resource bar - pips upright cat", res_hud("pips", "upright", "cat")),
+    ("Resource bar - pips globe rogue", res_hud("pips", "globe", "rogue")),
+    ("Resource bar - pips bar mana", res_hud("pips", "bar", "mana")),
+    ("Resource bar - classic bar rage", res_hud("classic", "bar", "rage")),
+    ("Resource bar - classic upright cat", res_hud("classic", "upright", "cat")),
+    ("Resource bar - classic globe rogue", res_hud("classic", "globe", "rogue")),
+    ("Resource bar - classic bar mana", res_hud("classic", "bar", "mana")),
+    ("Resource bar - halo bar capping", res_hud("halo", "bar", "cap")),
+    ("Resource bar - halo bar heroic strike queued", res_hud("halo", "bar", "held")),
+    ("Resource bar - halo bar number on the bar", res_hud("halo", "bar", "rage", "bar")),
+    ("Settings - Resource bar", demo("ns.DB:SetSetting('power.enabled', true); ns.SettingsUI:SelectSection('power')", "settings")),
+    ("Warrior swing timer rage off - halo", war_hud_bare("halo")),
+    ("Warrior swing timer rage off - sigil", war_hud_bare("sigil")),
+    ("Warrior swing timer rage off - gilded", war_hud_bare("gilded")),
+    ("Warrior swing timer rage off - slate", war_hud_bare("slate")),
+    ("Warrior swing timer rage off - pips", war_hud_bare("pips")),
+    ("Warrior swing timer rage off - classic", war_hud_bare("classic")),
     ("Warrior swing timer theme - halo", war_hud("halo")),
     ("Warrior swing timer theme - sigil", war_hud("sigil")),
     ("Warrior swing timer theme - slate", war_hud("slate")),
@@ -2683,6 +2832,28 @@ STATES = [
     ("Warrior swing timer - two-hander", war_hud("halo", at="-0.45", style="bar", rage=53, oh="nil", spec="arms")),
     ("Warrior swing timer - two-hander slate", war_hud("slate", at="-0.45", style="bar", rage=53, oh="nil", spec="arms")),
     ("Settings - Warrior swing timer", demo("ns.SettingsUI:SelectSection('war')", "settings")),
+    ("Situations - warrior pack halo", sit_war("halo", SIT_PACK)),
+    ("Situations - warrior pack sigil", sit_war("sigil", SIT_PACK)),
+    ("Situations - warrior pack gilded", sit_war("gilded", SIT_PACK)),
+    ("Situations - warrior pack slate", sit_war("slate", SIT_PACK)),
+    ("Situations - warrior pack pips", sit_war("pips", SIT_PACK)),
+    ("Situations - warrior pack classic", sit_war("classic", SIT_PACK)),
+    ("Situations - warrior held halo", sit_war("halo", SIT_HELD, rage=58)),
+    ("Situations - warrior player halo", sit_war("halo", SIT_PLAYER, rage=20,
+                                                 extra="ns.WarriorSwing.state.opUntil = GetTime() + 4; ")),
+    ("Situations - warrior locked halo", sit_war("halo", SIT_LOCKED, rage=47)),
+    ("Situations - ret player", opened("home", "ns.MainFrame:Close(); " + SIT_ONLY + "ns.Situation:SetDemo({ kind = 'player', "
+                                       "cls = 'PRIEST', who = 'Priest' }); ns.SwingTimer.state.demoStun = GetTime() + 4; "
+                                       + (SWING_HUD % "1.2").replace("STYLE", "bar"))),
+    ("Situations - hunter player", opened("home", "ns.MainFrame:Close(); " + SIT_ONLY + "ns.Situation:SetDemo({ kind = 'player', "
+                                          "cls = 'PRIEST', who = 'Priest' }); __MOCK.known_spells[5116] = true; "
+                                          "local o5 = GetSpellInfo; GetSpellInfo = function(x, ...) if x == 5116 or x == 'Concussive Shot' "
+                                          "then return 'Concussive Shot' end return o5(x, ...) end; "
+                                          + (SHOT_HUD % "0.25").replace("STYLE", "bar"))),
+    ("Settings - Situations search", demo("ns.SettingsUI.searchBox:SetText('situation'); ns.SettingsUI:Search('situation')", "settings")),
+    ("Settings - Situations search pack", demo("ns.SettingsUI.searchBox:SetText('pack'); ns.SettingsUI:Search('pack')", "settings")),
+    ("Settings - Situations search stance", demo("ns.SettingsUI.searchBox:SetText('stance'); ns.SettingsUI:Search('stance')", "settings")),
+    ("Settings - Situations search sting", demo("ns.SettingsUI.searchBox:SetText('sting'); ns.SettingsUI:Search('sting')", "settings")),
     ("Dock - flat", opened("home", DOCK_STATE.replace("LOOK", "flat"))),
     ("Dock - halo", opened("home", DOCK_STATE.replace("LOOK", "halo"))),
     ("Dock - sigil", opened("home", DOCK_STATE.replace("LOOK", "sigil"))),

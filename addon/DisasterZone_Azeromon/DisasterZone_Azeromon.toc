@@ -46,6 +46,13 @@ Sprites.lua
 Taming.lua
 Fx.lua
 FxMoves.lua
+LightArt.lua
+Light.lua
+BeastRim.lua
+BattleScenes.lua
+BattleScene.lua
+WaterArt.lua
+Water.lua
 UI.lua
 Poster.lua
 Done.lua

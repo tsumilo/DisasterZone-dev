@@ -162,6 +162,8 @@ function Sprite:Tint()
     local v = 1 - (self.dark or 0)
     local s = self.shade
     local sr, sg, sb = s and s[1] or 1, s and s[2] or 1, s and s[3] or 1
+    local l = self.light
+    if l then sr, sg, sb = sr * l[1], sg * l[2], sb * l[3] end
     if self.glow then
         local c = ns.AzeroData.SHINY_GLOW or { 1, 0.85, 0.45 }
         local m = max(c[1], c[2], c[3], 0.01)
@@ -169,6 +171,15 @@ function Sprite:Tint()
     else
         self.tex:SetVertexColor(v * sr, v * sg, v * sb)
     end
+end
+
+-- The scene's light on the beast (BattleScene.lua): the period's shade with a lamp's pool let through; nil = none.
+-- Multiplied with the effects' shade, so the two never fight.
+function Sprite:SetLight(r, g, b)
+    local l = self.light
+    if (r == nil and l == nil) or (l and r and l[1] == r and l[2] == g and l[3] == b) then return end
+    self.light = r and { r, g, b } or nil
+    if self.key then self:Tint() end
 end
 
 -- The battle effects (Fx.lua): the colour the beast is drawn in (Corrupted darkens it in pulses); nil = its own.

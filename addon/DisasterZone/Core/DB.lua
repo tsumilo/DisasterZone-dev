@@ -62,26 +62,56 @@ local DEFAULTS = {
         -- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): Retribution only. style "bar" | "lane" | "both";
         -- latencyMs 0 = auto; use.exo / use.cons = the optional fillers (off, as in WoWSims' rotation); consMana =
         -- Consecration only above this mana %; reports / pos are kept here too
+        -- sit = its situations (Core/Situation.lua): mode auto | key | off, show = the chip, sound; Ret has a player
+        -- only: stunJudge = judge Seal of Command on a stunned target, hoj = Hammer of Justice to set it up
         swing = { enabled = false, style = "bar", idle = false, scale = 1, latencyMs = 0,
                   use = { exo = false, cons = false }, consMana = 40,
-                  sound = false, mobType = "Demon" },
+                  sound = false, mobType = "Demon",
+                  sit = { mode = "auto", show = true, sound = false }, stunJudge = true, hoj = false },
         -- Shot timer (Core/ShotTimer.lua, UI/ShotTimerHUD.lua): every Hunter. style / idle / scale /
         -- latencyMs / sound as the swing timer's; use.* = the shots the planner may suggest (all on, as in WoWSims'
         -- rotation); aspects = Viper / Hawk hints, Viper below viperStart %, Hawk again from viperStop %; base =
         -- the ranged weapon's own speed learned from Steady Shot casts [itemID]; reactMs = a cast is only suggested
         -- with this long to press it (0 = WoWSims' bot); reports / pos are kept here too
+        -- sit = its situations (Core/Situation.lua: a pack from 3 within 28 yd; count, delays, bosses, cc.<key>);
+        -- volley / etrap = in a pack; conc / aimed / sting (viper | both | off) / wclip = against a player
         shot = { enabled = false, style = "bar", idle = false, scale = 1, latencyMs = 0, reactMs = 250,
                  use = { multi = true, arcane = true, kc = true }, aspects = true, viperStart = 5, viperStop = 25,
-                 sound = false },
+                 sound = false,
+                 sit = { mode = "auto", show = true, sound = false, packFrom = 3, reach = "28", count = "both",
+                         inDelay = 1, outDelay = 3, bosses = "count" },
+                 volley = false, etrap = false, conc = true, aimed = true, sting = "viper", wclip = true },
         -- Warrior swing timer (Core/WarriorSwing.lua, UI/WarriorSwingHUD.lua): Arms and Fury. style / idle / scale /
         -- latencyMs / sound as the swing timer's; hsLine = the Heroic Strike line in rage (0 = WoWSims': 40, two-handed
         -- Arms 80); number = rage in numbers; motion = the rage globe / bar moves (eases, sways, bubbles);
         -- ohBright = the off-hand ring brightens while Heroic Strike is queued;
-        -- use.* = the presses the planner may suggest (Hamstring weaving off, as it only pays with Sword Spec / WF)
+        -- use.* = the presses the planner may suggest (Hamstring weaving off, as it only pays with Sword Spec / WF);
+        -- rage = the rage globe / bar in the timer (off: the next press takes the middle, as on the Ret and Hunter rings)
         war = { enabled = false, style = "bar", idle = false, scale = 1, latencyMs = 0, hsLine = 0, number = true,
                 motion = true, ohBright = true, sound = false,
                 use = { bt = true, ms = true, ww = true, slam = true, exe = true, rampage = true, shout = true,
-                        brage = true, ham = false, hs = true } },
+                        brage = true, ham = false, hs = true },
+                -- sit = its situations (Core/Situation.lua: a pack from 2 within 10 yd); pack.* / player.* = the
+                -- presses there; cleaveLine = Cleave's rage line in a pack; dance never | players | always (stance
+                -- dancing), danceRage = the most rage a swap may throw away; hamRefresh = s before Hamstring ends;
+                -- hsLinePlayer = Heroic Strike's line against a player (0 = as for one target)
+                sit = { mode = "auto", show = true, sound = false, packFrom = 2, reach = "10", count = "both",
+                        inDelay = 1, outDelay = 3, bosses = "count" },
+                pack = { sweep = true, ww = true, slam = true, ms = true, exe = true, cleave = true },
+                player = { ham = true, ms = true, op = true, ww = true, exe = true, hs = true, slam = false, rend = false },
+                cleaveLine = 40, dance = "players", danceRage = 10, hamRefresh = 2, hsLinePlayer = 0, rage = true },
+        -- Resource bar (Core/Resource.lua, UI/ResourceBar.lua; feedback #26): every class. theme = a class tool look;
+        -- shape bar | upright | globe; num ring | bar | pct | full | off (mana shows a percent); marks.<CLASS> = the
+        -- presses picked for a mark (none until the player picks); icons = spell icons instead of pegs; hsLine /
+        -- queued / swing = the warrior extras (swing = the next swing's rage, opt-in); tick ring | spark | off; rule =
+        -- the five-second rule on the ring; cap = warn before capping; combo = combo points (#27); formMana = druid mana
+        -- under the forms; show always | combat | active (in combat, or not at rest); restAlpha = out of combat;
+        -- color game | class | own (own = { r, g, b })
+        power = { enabled = false, theme = "halo", shape = "bar", num = "ring", marks = {}, icons = false, hsLine = true,
+                  queued = true, swing = false, tick = "ring", rule = true, cap = true, combo = true, formMana = true,
+                  show = "active", restAlpha = 0.4, color = "game", own = { r = 0.62, g = 0.36, b = 1 }, scale = 1 },
+        -- the situation switch key's pick (Core/Situation.lua) holds until the fight ends ("fight") or until pressed back
+        sit = { hold = "fight" },
         -- Blessings (Core/Blessings.lua, UI/BlessingsBar.lua): paladins. bar "group" (party and raid) | "raid" | "off";
         -- warnMin = a blessing counts as running out this many minutes before it ends; free = anyone may assign
         -- me (Pally Power's Free Assignment); symbols = warn under this many Symbols of Kings; pets = pets count

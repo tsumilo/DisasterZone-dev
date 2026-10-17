@@ -247,9 +247,11 @@ def _load(key):
     else:
         path = key
         name = re.sub(r"[^a-z0-9_]+", "_", path).strip("_")       # (keeps "_": _UI-Frame is not UI-Frame)
-        addon = "interface\\addons\\disasterzone\\"
-        if path.startswith(addon):
-            base = os.path.join(ADDON, *path[len(addon):].split("\\"))
+        # the core or one of its packs (DisasterZone_Azeromon, DisasterZone_Rooms, ...), next to each other on disk
+        pm = re.match(r"interface\\addons\\(disasterzone[^\\]*)\\(.*)$", path)
+        if pm:
+            root = ADDON if pm.group(1) == "disasterzone" else os.path.join(os.path.dirname(os.path.abspath(ADDON)), pm.group(1))
+            base = os.path.join(root, *pm.group(2).split("\\"))
             for ext in ("", ".tga", ".blp", ".png"):
                 if os.path.isfile(base + ext):
                     pal = _palette_blp(base + ext)
@@ -359,7 +361,17 @@ def texture_image(r, w, h):
         W, H = src.size
         tc = r.get("tc")
         tcv = [float(x) for x in (tc.values() if isinstance(tc, dict) else tc)] if tc else []
-        if len(tcv) >= 8:
+        slanted = len(tcv) >= 8 and (abs(tcv[0] - tcv[2]) > 1e-6 and abs(tcv[1] - tcv[5]) > 1e-6
+                                     or abs(tcv[0] - tcv[2]) > 1e-6 and abs(tcv[0] - tcv[4]) > 1e-6
+                                     or abs(tcv[1] - tcv[3]) > 1e-6 and abs(tcv[1] - tcv[5]) > 1e-6)
+        if slanted:
+            # corners UL, LL, UR, LR that are no box: an affine map of the texture (a slanted or sheared quad,
+            # Light.lua's shadows, Render3D's faces), sampled nearest like a pixel texture
+            ulx, uly, llx, lly, urx, ury = tcv[0] * W, tcv[1] * H, tcv[2] * W, tcv[3] * H, tcv[4] * W, tcv[5] * H
+            im = src.transform((w, h), Image.AFFINE, ((urx - ulx) / w, (llx - ulx) / h, ulx,
+                                                      (ury - uly) / w, (lly - uly) / h, uly), resample=Image.NEAREST)
+            crop = None
+        elif len(tcv) >= 8:
             # corners UL, LL, UR, LR: a box of the texture, maybe turned or mirrored
             xs, ys = tcv[0::2][:4], tcv[1::2][:4]
             x0, x1, y0, y1 = min(xs) * W, max(xs) * W, min(ys) * H, max(ys) * H
@@ -398,7 +410,9 @@ def texture_image(r, w, h):
                 crop = crop.transpose(Image.FLIP_LEFT_RIGHT)
             if flip_y:
                 crop = crop.transpose(Image.FLIP_TOP_BOTTOM)
-        if r.get("htile") or r.get("vtile"):
+        if crop is None:
+            pass                                                    # (the slanted quad is drawn already)
+        elif r.get("htile") or r.get("vtile"):
             # a tiled texture (horizTile / vertTile): the piece at its own size, repeated over the region
             cw, ch = crop.size
             tw = max(1, int(round(cw * (h / ch)))) if r.get("htile") and not r.get("vtile") else (cw if r.get("htile") else w)

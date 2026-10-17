@@ -25,6 +25,9 @@ local tsort = table.sort
 
 local kits, order = {}, {}
 
+-- class = ClassKit.ANY: a tool for every class (the resource bar); specs then must be nil.
+ClassKit.ANY = "ANY"
+
 function ClassKit:Register(def)
     if type(def) ~= "table" or type(def.key) ~= "string" or type(def.class) ~= "string" then
         error("ClassKit:Register: key and class are required", 2)
@@ -46,7 +49,7 @@ function ClassKit:Get(key) return kits[key] end
 function ClassKit:List(classFile)
     local out = {}
     for _, k in ipairs(order) do
-        if not classFile or k.class == classFile then out[#out + 1] = k end
+        if not classFile or k.class == classFile or k.class == ClassKit.ANY then out[#out + 1] = k end
     end
     return out
 end
@@ -124,6 +127,7 @@ end
 -- True when the kit is for this character: its class, and one of its specs (any spec when it names none); a kit
 -- playing in demo, or of a class picked on the Demo page.
 local function RealMine(self, k)
+    if k.class == ClassKit.ANY then return true end
     if k.class ~= self:MyClass() then return false end
     if not k.specs then return true end
     local mine = self:MySpecs()
@@ -192,6 +196,7 @@ end
 function ClassKit:ForWhom(key)
     local k = kits[key]
     if not k then return "" end
+    if k.class == ClassKit.ANY then return "Every class" end
     local cls = ns.ClassName(k.class, true) or k.class
     if not k.specs then return "Every " .. cls .. " spec" end
     return table.concat(k.specs, " and ") .. " " .. cls .. "s"

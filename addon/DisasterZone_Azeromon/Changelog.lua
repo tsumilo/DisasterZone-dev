@@ -6,6 +6,35 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/Changelog.lu
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.46", date = "18 October 2026", title = "Water that reflects",
+      lines = {
+          "Lakes and ponds mirror the trees and houses on the shore.",
+          "Things further back show further out, and it all ripples.",
+          "Stand at a shore or on a dock and you show in the water.",
+          "Wade into the shallows of Goldshire's pond or Lakeshire.",
+          "Rain rings the water and leaves puddles on the roads.",
+          "At night the moon lays a glitter path across the water.",
+      } },
+    { version = "0.45", date = "18 October 2026", title = "Battles where you stand",
+      lines = {
+          "A fight takes its scene from where you stood.",
+          "Goldshire's pond, road and houses, Lakeshire's lake.",
+          "Battles keep the hour: dusk, night and rain come too.",
+          "At night the street lamp lights the beasts beside it.",
+          "Beasts cast shadows and catch a rim of the light.",
+          "The scene drifts gently; water mirrors the shore.",
+          "A big hit pushes the camera in. /dz azeromon shake off",
+      } },
+    { version = "0.44", date = "18 October 2026", title = "Light on everyone",
+      lines = {
+          "People cast shadows in their own shape, like the houses.",
+          "By day the sun casts them; at dusk they grow long.",
+          "At night every lit lamp near you casts one of its own.",
+          "The side facing a lamp catches a rim of its light.",
+          "Guards' lanterns light the people they walk past.",
+          "CONTROLS has a Lights and shadows switch.",
+          "Try any hour: /dz azeromon sky night (auto to go back).",
+      } },
     { version = "0.43", date = "17 October 2026", title = "Signatures and bosses",
       lines = {
           "Every beast's own signature move has its own effect.",

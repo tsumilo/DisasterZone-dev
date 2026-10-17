@@ -5,7 +5,8 @@ Pale Rider at 15:00 ending the run as a win); every spell of both classes casts 
 level-ups open the picker with three cards whose previews run, a pick adds the spell / blessing and the icon flies to
 the bar; a coffer from an elite opens and its legendary can be taken; a bot plays 15 minutes with god mode to the
 end without an error; the panel: title, class pick, keys move, Esc pauses, the spell lab (and leaving it); talents bought with banked
-gold, carried into runs, refunded.
+gold, carried into runs, refunded; the dev scenarios (a development copy only) jump to a stage's moment and are never
+recorded.
 
 Run: luaenv\Scripts\python.exe tests\games\test_holdtheline.py [-k name]
 """
@@ -331,6 +332,38 @@ def a_run_earns_achievements_and_reaches_the_guild_board():
         c.eval("ns.HTLUI.%s()" % show)
         w.tick(0.2)
     no_errors(w)
+
+@case
+def dev_scenarios_jump_to_a_moment_and_are_never_recorded():
+    w, c = boot()
+    c.eval("ns.Games:Open('holdtheline')")
+    w.tick(1.0)
+    assert c.eval_py("return ns.HTLUI.IsDev()"), "the test tree is a development copy"
+    assert c.eval_py("local l = ns.HTLUI.devTitleList return l ~= nil and l[1]:IsShown()"), "no Dev pill on the title"
+    labels = c.eval_py("local t = {} for _, m in ipairs(ns.HTLUI.DevMoments('epl')) do t[#t + 1] = m.label end return t")
+    assert "05:00  Unstoppable Abomination" in labels and labels[0] == "00:00  Start", labels
+    before = c.eval_py("local d = ns.Games:GetData('holdtheline') return { d.runs, d.kills, d.bank, d.wins }")
+    c.eval("ns.HTLUI.ShowDev()")
+    assert c.eval_py("return ns.HTLUI._Overlay()") == "dev"
+    # 5 s before the Abomination: the clock, the crowd and Auto's level, then she comes on time
+    c.eval("ns.HTLUI.dev.level = 'auto' ns.HTLUI.DevStart('MAGE', 'epl', 300)")
+    r = c.eval_py("local r = ns.HTLUI._Run() return { t = r.t, en = #r.en, level = r.level, dev = r.dev, bar = ns.HTLUI.devBar:IsShown() }")
+    assert r["t"] == 295 and r["en"] > 100 and r["level"] == 18 and r["dev"] and r["bar"], r
+    for _ in range(80):
+        c.eval("ns.HTLUI._Tick(0.1) local r = ns.HTLUI._Run() r.wantLevelUp, r.pending, r.chest = nil, 0, nil")
+    assert c.eval_py("local r = ns.HTLUI._Run() return r.boss and r.boss.type") == "abom"
+    # a locked quarter opens for a dev run; dying in it records nothing
+    c.eval("ns.HTLUI.DevStart('WARRIOR', 'construct', 600)")
+    r = c.eval_py("local r = ns.HTLUI._Run() return { stage = r.stage, t = r.t, open = ns.HTLGame:StageOpen('construct') }")
+    assert r["stage"] == "construct" and r["t"] == 595 and not r["open"], r
+    c.eval("local r = ns.HTLUI._Run() r.god = false r.p.hp = 0 r.p.dead = true r.p.deadT = 0")
+    for _ in range(40):
+        c.eval("ns.HTLUI._Tick(0.1)")
+    assert c.eval_py("return ns.HTLUI._Overlay()") == "end"
+    after = c.eval_py("local d = ns.Games:GetData('holdtheline') return { d.runs, d.kills, d.bank, d.wins }")
+    assert after == before, (before, after)
+    no_errors(w)
+
 
 if __name__ == "__main__":
     run_all(globals())

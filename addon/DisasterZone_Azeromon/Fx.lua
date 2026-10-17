@@ -623,14 +623,18 @@ function F.Ghost(side, dx, dy, a, c)
 end
 
 local SX, SY = 0, 0                          -- the shake's offset this frame (game pixels)
+local DX, DY, LDX, LDY = 0, 0, 0, 0          -- the scene's drift (UI pixels, right and down), and what is applied
+-- The beasts and the effects glide with the ground when the scene drifts (BattleScene.lua: the ground layer's
+-- slow sway, in UI pixels snapped to the screen's own, so nothing jumps a whole game pixel at a time).
+function F.Drift(dx, dy) DX, DY = dx or 0, dy or 0 end
 local function ApplyBeasts()
     for _, side in ipairs(SIDES) do
         local m, s = fx.models[side], BM[side]
         local ox, oy = s.dx + SX, s.dy + SY
-        if ox ~= (s.ax or 0) or oy ~= (s.ay or 0) then
+        if ox ~= (s.ax or 0) or oy ~= (s.ay or 0) or DX ~= (s.adx or 0) or DY ~= (s.ady or 0) then
             m:ClearAllPoints()
-            m:SetPoint("BOTTOMLEFT", fx.b, "TOPLEFT", m.baseX + ox * P, m.baseY - oy * P)
-            s.ax, s.ay = ox, oy
+            m:SetPoint("BOTTOMLEFT", fx.b, "TOPLEFT", m.baseX + ox * P + DX, m.baseY - oy * P - DY)
+            s.ax, s.ay, s.adx, s.ady = ox, oy, DX, DY
         end
         local spr = m.spr
         if spr and spr.key then
@@ -691,14 +695,15 @@ local function StepShake(dt)
         if k > 0.3 and (not fx.shakeOn or fx.shakeOn()) then SHK.ox, SHK.oy = floor(rr(-k, k) + 0.5), floor(rr(-k * 0.6, k * 0.6) + 0.5)
         else SHK.ox, SHK.oy = 0, 0 end
     end
-    if SHK.ox ~= SX or SHK.oy ~= SY then
-        SX, SY = SHK.ox, SHK.oy
+    if SHK.ox ~= SX or SHK.oy ~= SY or DX ~= LDX or DY ~= LDY then
+        local shook = SHK.ox ~= SX or SHK.oy ~= SY
+        SX, SY, LDX, LDY = SHK.ox, SHK.oy, DX, DY
         for _, f in ipairs({ fx.under, fx.shade, fx.over }) do
             f:ClearAllPoints()
-            f:SetPoint("TOPLEFT", fx.b, "TOPLEFT", SX * P, -SY * P)
-            f:SetPoint("BOTTOMRIGHT", fx.b, "BOTTOMRIGHT", SX * P, -SY * P)
+            f:SetPoint("TOPLEFT", fx.b, "TOPLEFT", SX * P + DX, -(SY * P + DY))
+            f:SetPoint("BOTTOMRIGHT", fx.b, "BOTTOMRIGHT", SX * P + DX, -(SY * P + DY))
         end
-        if fx.scene then fx.scene(SX * P, -SY * P) end
+        if fx.scene and shook then fx.scene(SX * P, -SY * P) end
     end
 end
 
@@ -875,7 +880,10 @@ function F.React(run, X, t, o)
         if X.type and X.power > 0 then F.Sound("hit", X.type) end
         if X.guarded then F.GuardHit(X.b, X.hit, X) if o.shake then F.Shake(max(1, o.shake - 1), 0.12) end return end
         F.Clip(X.b, 9)
-        if o.shake then F.Shake(o.shake, o.shakeDur or 0.2) end
+        if o.shake then
+            F.Shake(o.shake, o.shakeDur or 0.2)
+            if fx.punch then fx.punch(X.b, o.shake) end            -- (BattleScene: the camera pushes in on it)
+        end
         if o.stop and o.stop > 0 then F.Hitstop(o.stop) end
     end)
     if X.guarded then return end
@@ -1579,7 +1587,7 @@ function F.Attach(b, foeModel, allyModel, opts)
         return f
     end
     fx = { b = b, models = { foe = foeModel, ally = allyModel }, play = opts.play, anim = opts.anim, scene = opts.scene,
-           shakeOn = opts.shakeOn, castBar = opts.castBar }
+           shakeOn = opts.shakeOn, castBar = opts.castBar, punch = opts.punch }
     -- (the beasts are 2 levels up, the HP boxes 5: effects pass under the boxes)
     fx.under, fx.shade, fx.over = layer(1), layer(3), layer(4)
     fx.pools = { under = NewPool(fx.under, "block"), shade = NewPool(fx.shade, "block"), over = NewPool(fx.over, "block"),
@@ -1596,23 +1604,24 @@ function F.Reset()
     if not fx then return end
     LISTS.under.n, LISTS.over.n, GLOWS.under.n, GLOWS.over.n, STARS.n = 0, 0, 0, 0, 0
     for _, pool in pairs(fx.pools) do pool.used = 0 EndPool(pool) end
-    if SX ~= 0 or SY ~= 0 then
-        SX, SY = 0, 0
+    if SX ~= 0 or SY ~= 0 or LDX ~= DX or LDY ~= DY then
+        local shook = SX ~= 0 or SY ~= 0
+        SX, SY, LDX, LDY = 0, 0, DX, DY
         for _, f in ipairs({ fx.under, fx.shade, fx.over }) do
             f:ClearAllPoints()
-            f:SetPoint("TOPLEFT", fx.b, "TOPLEFT", 0, 0)
-            f:SetPoint("BOTTOMRIGHT", fx.b, "BOTTOMRIGHT", 0, 0)
+            f:SetPoint("TOPLEFT", fx.b, "TOPLEFT", DX, -DY)
+            f:SetPoint("BOTTOMRIGHT", fx.b, "BOTTOMRIGHT", DX, -DY)
         end
-        if fx.scene then fx.scene(0, 0) end
+        if fx.scene and shook then fx.scene(0, 0) end
     end
     ResetBeasts()
     for _, side in ipairs(SIDES) do
         local m, s = fx.models[side], BM[side]
-        if (s.ax or 0) ~= 0 or (s.ay or 0) ~= 0 then
+        if (s.ax or 0) ~= 0 or (s.ay or 0) ~= 0 or (s.adx or 0) ~= DX or (s.ady or 0) ~= DY then
             m:ClearAllPoints()
-            m:SetPoint("BOTTOMLEFT", fx.b, "TOPLEFT", m.baseX, m.baseY)
+            m:SetPoint("BOTTOMLEFT", fx.b, "TOPLEFT", m.baseX + DX, m.baseY - DY)
         end
-        s.ax, s.ay = 0, 0
+        s.ax, s.ay, s.adx, s.ady = 0, 0, DX, DY
         local spr = m.spr
         if spr and spr.key then
             if (s.appA or 0) > 0 then spr:SetFx(spr.shrink or 1, 0) end

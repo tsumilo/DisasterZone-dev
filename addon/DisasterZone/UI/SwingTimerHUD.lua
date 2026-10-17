@@ -42,9 +42,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingTimerHUD.lua", ...) then r
 --                                        lane's window brightens toward its end (the twist lands there)
 --   Lane(cur, now)                       marks { { t, strong } } (up to 4) and windows { { t0, t1 } } for the lane
 --   StepWidth(step, snap)                how long a step's lane block is (optional: the GCD)
+--   Variant()                            optional: the variant now (a setting can change it: the warrior's rage)
 --   VARIANT                              optional: the face's variant (UI/RingFace.lua RF.VARIANT, "warrior"), then
 --   Extra(cur, now)                      what RingFace:PaintExtra draws every frame, and
 --   RestExtra()                          { oh (true: show the empty off-hand cycle), rage, line } while resting
+--   StanceIcon(n)                        optional: the icon of stance n for a step's .stance (warrior stance dancing)
+-- A tool with situations (Core/Situation.lua, registered under its prefix) gets the situation chip under its face
+-- (<prefix>.sit.show): cur.snap.sit (or cur.sit) is the situation Info; the next press flashes when it changes.
 local addonName, ns = ...
 
 local UI = ns.UI
@@ -62,7 +66,26 @@ local function Ease(x) return 1 - (1 - x) * (1 - x) end
 -- Demo mode's keys on the next presses (made up, like an action bar's: nothing is read or bound).
 local DEMO_KEYS = { sob = "2", cs = "3", soc = "1", judge = "S-E", exo = "4", cons = "5", steady = "2", arcane = "3",
                     multi = "M4", kc = "F", bt = "2", ww = "3", ms = "2", slam = "4", hs = "Q", cleave = "S-Q",
-                    shout = "5", rampage = "S-5", exe = "E", op = "S-2", ham = "R", brage = "S-R" }
+                    shout = "5", rampage = "S-5", exe = "E", op = "S-2", ham = "R", brage = "S-R", sweep = "S-F",
+                    rend = "S-4", hoj = "6", volley = "S-3", etrap = "T", conc = "C", aimed = "4", vsting = "V",
+                    ssting = "S-V", wclip = "Z" }
+
+-- The chip's words and icon for a situation Info (Core/Situation.lua): kind, icon, coords, text.
+local PACK_ICON, ONE_ICON = "Interface\\Icons\\Ability_Warrior_Cleave", "Interface\\Icons\\INV_Sword_27"
+local CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
+local function ChipLook(sit)
+    if sit.held then return "held", sit.held.icon, nil, strformat("%s in reach", sit.held.name or "") end
+    if sit.kind == "player" then
+        local c = CLASS_ICON_TCOORDS and sit.cls and CLASS_ICON_TCOORDS[sit.cls]
+        return "player", c and CIRCLES or "Interface\\Icons\\Achievement_Arena_2v2_7", c,
+            sit.who and strformat("Player · %s", sit.who) or "Player"
+    end
+    if sit.kind == "pack" then
+        return "pack", PACK_ICON, nil, (sit.n or 0) > 0 and strformat("Pack · %d", sit.n) or "Pack"
+    end
+    return "single", ONE_ICON, nil, "One target"
+end
+
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- The ring HUD for a driver (see the header)
@@ -73,6 +96,8 @@ local function NewRing(D)
     local zoneWasOpen
     local lastTo, lastLanded, flashAt, shownKey, shownAt, lastExtra = nil, nil, nil, nil, 0, nil
     local swipeFrom, wasDue = nil, false   -- (the middle icon's swipe: since when this press has been the next one)
+    local lastSit                          -- (the situation chip's last look: a change flashes the next press)
+    local situations = ns.Situation and ns.Situation:Tool(D.prefix) ~= nil
     local rested, restIcon, restBadge, restExtra = false, nil, nil, nil   -- (Rest's look is on, for these)
 
     local function Get(path, default) return D.Get(path, default) end
@@ -90,15 +115,17 @@ local function NewRing(D)
     -- at the one worn now; UI/RingFace.lua).
     local faces, lanes = {}, {}
     local function Wear(key)
-        if frame.themeKey == key then return end
+        local variant = D.Variant and D:Variant() or D.VARIANT
+        local fk = variant and (key .. ":" .. variant) or key       -- (each variant of a theme is its own face)
+        if frame.faceKey == fk then return end
         if frame.face then frame.face.root:Hide(); frame.lane:Hide() end
-        if not faces[key] then
-            faces[key] = ns.RingFace:BuildFace(frame, key, D.VARIANT)
-            lanes[key] = ns.RingFace:BuildLane(frame, key, { span = LANE_SPAN, back = LANE_BACK, gold = GOLD, fade = D.FADE })
+        if not faces[fk] then
+            faces[fk] = ns.RingFace:BuildFace(frame, key, variant)
+            lanes[fk] = ns.RingFace:BuildLane(frame, key, { span = LANE_SPAN, back = LANE_BACK, gold = GOLD, fade = D.FADE })
         end
-        local face = faces[key]
-        frame.themeKey, frame.face = key, face
-        frame.bar, frame.big, frame.seal, frame.small, frame.lane = face.root, face.big, face.seal, face.small, lanes[key]
+        local face = faces[fk]
+        frame.themeKey, frame.faceKey, frame.face = key, fk, face
+        frame.bar, frame.big, frame.seal, frame.small, frame.lane = face.root, face.big, face.seal, face.small, lanes[fk]
         face.root:ClearAllPoints()
         -- (a face with its next press beside it, D.VARIANT: the frame has room for that on the left)
         face.root:SetPoint("TOP", frame, "TOP", (face.geo.padL or 0) / 2, -20)
@@ -114,6 +141,7 @@ local function NewRing(D)
             position = false, strata = "MEDIUM", layout = D.prefix })
         frame:EnableMouse(false)
         frame.dots = {}
+        if situations then frame.chip = ns.RingFace:BuildChip(frame) end
         Wear(ns.RingFace:Key(D.prefix, Practicing()))
 
         frame:SetScript("OnUpdate", function() R:Update() end)
@@ -147,6 +175,17 @@ local function NewRing(D)
         frame.lane:ClearAllPoints()
         -- (the next press's name under the ring: the lane starts below it)
         local nameRoom = (frame.big.underRing and Get("names", true) and Get("rotation", true)) and 16 or 0
+        -- (the situation chip under that: round and tile faces centred under the ring, flat ones at their left edge)
+        local chipRoom = 0
+        if frame.chip then
+            frame.chip:ClearAllPoints()
+            if g.round or g.path == "square" then frame.chip:SetPoint("TOP", frame.bar, "BOTTOM", 0, -4 - nameRoom)
+            else frame.chip:SetPoint("TOPLEFT", frame.bar, "BOTTOMLEFT", 0, -4 - nameRoom) end
+            if showBar and not practicing and Get("sit.show", true) and Get("sit.mode", "auto") ~= "off" then
+                chipRoom = ns.RingFace.CHIP_H + 4
+            end
+        end
+        nameRoom = nameRoom + chipRoom
         if showBar then frame.lane:SetPoint("TOP", frame.bar, "BOTTOM", 0, -14 - nameRoom)
         else frame.lane:SetPoint("TOP", frame, "TOP", 0, -20) end
         frame.laneWanted = showLane
@@ -201,6 +240,9 @@ local function NewRing(D)
         frame.big.name:SetText("")
         frame.big.hint:SetText("")
         frame.big.key:SetText("")
+        frame.big.stance:Set(nil)
+        if frame.chip then frame.chip:Hide() end
+        lastSit = nil
         for _, s in ipairs(frame.small) do s:Hide() end
         frame.seal:SetShown(badge ~= nil)
         if badge then frame.seal.icon:SetTexture(badge); frame.seal.text:SetText("") end
@@ -263,6 +305,28 @@ local function NewRing(D)
             frame.seal.text:SetText(badgeText or "")
         end
 
+        -- the situation (Core/Situation.lua): the chip under the face; a change flashes the ring and pops the next press
+        local sit = snap.sit or cur.sit
+        if frame.chip then
+            local want = sit and not Practicing() and Get("sit.show", true)
+                and (sit.kind ~= "single" or sit.held ~= nil or sit.locked) and frame.bar:IsShown()
+            if want then
+                local kind, icon, coords, text = ChipLook(sit)
+                local key = kind .. "|" .. text .. "|" .. tostring(sit.locked)
+                if key ~= frame.chip.paintKey then
+                    ns.RingFace:PaintChip(frame.chip, kind, icon, coords, text, sit.locked)
+                    frame.chip.paintKey = key
+                end
+                frame.chip:Show()
+            elseif frame.chip:IsShown() then
+                frame.chip:Hide()
+                frame.chip.paintKey = nil
+            end
+        end
+        local sk = sit and (sit.kind .. ":" .. (sit.held and sit.held.key or "") .. ":" .. tostring(sit.locked)) or nil
+        if lastSit and sk ~= lastSit then flashAt, shownAt = now, now end
+        lastSit = sk
+
         if inZone and not zoneWasOpen and Get("sound", false) and hot then
             PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856, "Master")
         end
@@ -271,7 +335,18 @@ local function NewRing(D)
         -- the next press in the middle: dimmed until due, a small pop when it changes
         local big = frame.big
         local showRotation = Practicing() or Get("rotation", true)
-        big:SetShown(showRotation)
+        -- (a face whose middle is the next press, the rotation hidden: the main-hand weapon there instead of a hole)
+        local weapon = not showRotation and frame.face.geo.middleWeapon
+        big:SetShown(showRotation or weapon or false)
+        if weapon then
+            big:SetScale(1)
+            big.icon:SetTexture(D:RestIcon())
+            big.icon:SetDesaturated(false)
+            big.cd:Hide()
+            big.cdStart = nil
+            big.name:SetText("")
+            big.key:SetText("")
+        end
         if not showRotation then first = nil end
         if first then
             local dt = first.at - now
@@ -302,8 +377,10 @@ local function NewRing(D)
             end
             big.shade:SetAlpha((nowPress or swiping) and 0 or 0.45)
             big.name:SetText(StepText(first))
+            ns.RingFace:FitName(frame.face)
             big.name:SetShown(big.showName and (not big.under or Get("names", true)) or false)
             big.key:SetText(KeyOf(first.key))
+            big.stance:Set(first.stance and D.StanceIcon and D.StanceIcon(first.stance) or nil)
             if waiting then big.name:SetTextColor(0.62, 0.58, 0.48)
             elseif hot then big.name:SetTextColor(1, 0.66, 0.34)
             else big.name:SetTextColor(1, 0.88, 0.54) end
@@ -320,6 +397,7 @@ local function NewRing(D)
                 local sm = frame.small[si]
                 sm.icon:SetTexture(D.Icon(st.key))
                 sm.key:SetText(KeyOf(st.key))
+                sm.stance:Set(st.stance and D.StanceIcon and D.StanceIcon(st.stance) or nil)
                 sm:Show()
                 si = si + 1
             end
@@ -475,13 +553,181 @@ function ns.SwingRingSettings(S, sec, prefix, latencyHelp)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
+-- The Situations rows (Core/Situation.lua) a timer with a rotation adds to its Settings card: the switch, the chip,
+-- the switch key, then under More options the pack's and the player's rows. opts: { pack (the tool has a pack),
+-- packRows(S, sec), playerRows(S, sec), modeDesc }. Every number and press is a setting (the user, 2026-10-17).
+-- ---------------------------------------------------------------------------------------------------------------
+local function SGet(path, default)
+    local v = ns.DB and ns.DB:GetSetting(path)
+    if v == nil then return default end
+    return v
+end
+local function SSet(path, v) if ns.DB then ns.DB:SetSetting(path, v) end end
+
+local function Choices(list, fmt)
+    local out = {}
+    for _, v in ipairs(list) do
+        if type(v) == "table" then out[#out + 1] = { value = v[1], text = v[2] }
+        else out[#out + 1] = { value = v, text = strformat(fmt, v) } end
+    end
+    return out
+end
+ns.SituationChoices = Choices
+
+local function Caps(S, sec, text)
+    local h = ns.UI:CreateSectionHeader(sec, text, { style = "caps" })
+    S:Place(sec, h, 20, { gap = 10 })
+    return h
+end
+ns.SituationCaps = Caps
+
+-- A row whose control picks several of a list (a ticked menu): items = { { key, text } }, each a switch at
+-- path .. key (default on unless defaults[key] == false). Back to defaults ticks them back.
+function ns.SituationPicks(S, sec, title, desc, path, items, defaults, tip)
+    defaults = defaults or {}
+    local row = S:Row(sec, title, desc, tip)
+    local function Def(k) return defaults[k] ~= false end
+    local function On(k) return SGet(path .. k, Def(k)) and true or false end
+    local dd = ns.UI:CreateMultiDropdown(row, 170, function()
+        local out = {}
+        for _, it in ipairs(items) do out[#out + 1] = { value = it[1], text = it[2] } end
+        return out
+    end, On, function(k, want) SSet(path .. k, want and true or false) end, function()
+        local n = 0
+        for _, it in ipairs(items) do if On(it[1]) then n = n + 1 end end
+        if n == #items then return "All " .. #items end
+        if n == 0 then return "None" end
+        return strformat("%d of %d", n, #items)
+    end)
+    dd:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.control = dd
+    S.PlaceText(row, 170)
+    row.isChanged = function()
+        for _, it in ipairs(items) do if On(it[1]) ~= Def(it[1]) then return true end end
+        return false
+    end
+    row.reset = function() for _, it in ipairs(items) do SSet(path .. it[1], nil) end end
+    row.getValue = row.isChanged
+    row.setting = { default = false }
+    S.settingRows[#S.settingRows + 1] = row
+    S.refreshers[#S.refreshers + 1] = dd
+    return dd, row
+end
+
+-- The switch key's row: the key it is on (or Not bound) and a button that takes the next key pressed. Right-click
+-- the button: no key. (SetBinding is not allowed in a fight: it says so.)
+local capture
+local function KeyRow(S, sec)
+    local Sit = ns.Situation
+    local row = S:Row(sec, "Switch key", "Goes Automatic, One target, Pack, Player (the situations this timer has) and "
+        .. "back. Right-click the button for no key.")
+    local btn
+    local function Paint()
+        local k = Sit:KeyText()
+        if capture and capture.btn == btn and capture:IsShown() then btn:SetText("Press a key...")
+        else btn:SetText(k or "Set key") end
+        row.desc:SetText("Goes Automatic, One target, Pack, Player (the situations this timer has) and back. "
+            .. (k and "Right-click the button for no key." or "Not bound yet."))
+    end
+    btn = ns.UI:CreateSleekButton(row, "Set key", 120, 22, function(self, mouse)
+        if InCombatLockdown and InCombatLockdown() then ns:Print("Keys can't be set in a fight.") return end
+        if mouse == "RightButton" then
+            local k = GetBindingKey and GetBindingKey("DISASTERZONE_SITUATION")
+            if k and SetBinding then
+                SetBinding(k)
+                if SaveBindings then pcall(SaveBindings, GetCurrentBindingSet and GetCurrentBindingSet() or 1) end
+            end
+            Paint()
+            return
+        end
+        capture = capture or CreateFrame("Frame", nil, UIParent)
+        capture:SetAllPoints(UIParent)
+        capture:SetFrameStrata("FULLSCREEN_DIALOG")
+        capture:EnableKeyboard(true)
+        if capture.SetPropagateKeyboardInput then capture:SetPropagateKeyboardInput(false) end
+        capture.btn = btn
+        capture:SetScript("OnKeyDown", function(cf, key)
+            if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL" or key == "LALT" or key == "RALT" then
+                return
+            end
+            cf:Hide()
+            if key ~= "ESCAPE" and SetBinding and not (InCombatLockdown and InCombatLockdown()) then
+                local chord = (IsAltKeyDown and IsAltKeyDown() and "ALT-" or "")
+                    .. (IsControlKeyDown and IsControlKeyDown() and "CTRL-" or "")
+                    .. (IsShiftKeyDown and IsShiftKeyDown() and "SHIFT-" or "") .. key
+                SetBinding(chord, "DISASTERZONE_SITUATION")
+                if SaveBindings then pcall(SaveBindings, GetCurrentBindingSet and GetCurrentBindingSet() or 1) end
+            end
+            Paint()
+        end)
+        capture:Show()
+        Paint()
+    end, "secondary")
+    if btn.RegisterForClicks then btn:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+    btn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.control = btn
+    S.PlaceText(row, 120)
+    S.refreshers[#S.refreshers + 1] = { Refresh = Paint }
+    Paint()
+    return row
+end
+
+function ns.SituationSettings(S, sec, prefix, opts)
+    opts = opts or {}
+    local P = prefix .. ".sit."
+    local function On() return SGet(P .. "mode", "auto") ~= "off" end
+    Caps(S, sec, "Situations")
+    S:DropdownSetting(sec, "Switch by situation", opts.modeDesc or ("Automatic: one target, a pack or a player as the "
+        .. "fight changes. My key only: your switch key decides."),
+        P .. "mode", "auto", Choices({ { "auto", "Automatic" }, { "key", "My key only" }, { "off", "Off" } }))
+    S:Needs(select(2, S:SwitchSetting(sec, "Show the situation", "A small plate under the ring while it isn't one "
+        .. "target. The next press flashes once when it changes.", P .. "show", true)), On)
+    S:Needs(KeyRow(S, sec), On)
+    S:Needs(select(2, S:DropdownSetting(sec, "Your pick holds", "What the switch key picked, for every timer.", "sit.hold",
+        "fight", Choices({ { "fight", "Until the fight ends" }, { "key", "Until I press it again" } }))), On)
+    S:Needs(select(2, S:SwitchSetting(sec, "Sound on a switch", "A short click when the timer changes situation on "
+        .. "its own.", P .. "sound", false)), On)
+    S:MoreOptions(sec)
+    if opts.pack then
+        Caps(S, sec, "Pack")
+        local function R(row) return S:Needs(row, On) end
+        R(select(2, S:DropdownSetting(sec, "Pack from", "How many enemies make a pack.", P .. "packFrom",
+            ns.Situation:Tool(prefix).packFrom, Choices({ 2, 3, 4, 5, 6, 8 }, "%d enemies"))))
+        R(select(2, S:DropdownSetting(sec, "Reach", "Where an enemy has to be to count. These are the distances the "
+            .. "game can tell in a fight.", P .. "reach", ns.Situation:Tool(prefix).reach,
+            Choices({ { "melee", "Melee" }, { "10", "10 yards" }, { "28", "28 yards" } }))))
+        R(select(2, S:DropdownSetting(sec, "Count", "Enemy nameplates in combat, the enemies your multi-target "
+            .. "attacks hit in the last 3 s, or both.", P .. "count", "both",
+            Choices({ { "both", "Both" }, { "plates", "Nameplates" }, { "hits", "Hits" } }))))
+        R(select(2, S:DropdownSetting(sec, "Switch to a pack after", "How long the count has to hold first.",
+            P .. "inDelay", 1, Choices({ { 0, "At once" }, { 0.5, "0.5 s" }, { 1, "1 s" }, { 1.5, "1.5 s" }, { 2, "2 s" }, { 3, "3 s" } }))))
+        R(select(2, S:DropdownSetting(sec, "Back to one target after", "How long the count has to stay under it.",
+            P .. "outDelay", 3, Choices({ 1, 2, 3, 4, 5, 8 }, "%d s"))))
+        R(select(2, S:DropdownSetting(sec, "On bosses", "Count adds: a boss with adds near you plays as a pack. My key "
+            .. "only: a boss stays one target until you press your key.", P .. "bosses", "count",
+            Choices({ { "count", "Count adds" }, { "key", "My key only" } }))))
+        local cc = {}
+        for _, c in ipairs(ns.Situation.CC) do
+            cc[#cc + 1] = { c.key, (GetSpellInfo and GetSpellInfo(c.id)) or c.key }
+        end
+        R(select(2, ns.SituationPicks(S, sec, "Keep crowd control safe", "Any damage breaks these, so the presses that "
+            .. "hit more than your target wait while one is in reach.", P .. "cc.", cc)))
+        if opts.packRows then opts.packRows(S, sec, R) end
+    end
+    if opts.playerRows then
+        Caps(S, sec, "Player")
+        opts.playerRows(S, sec, function(row) return S:Needs(row, On) end)
+    end
+end
+
+-- ---------------------------------------------------------------------------------------------------------------
 -- The Retribution swing timer's ring (Core/SwingTimer.lua)
 -- ---------------------------------------------------------------------------------------------------------------
 local HUD = ns:NewModule("SwingTimerHUD")
 local ST                         -- ns.SwingTimer
 
 -- Lane labels have about 60 px: the word that tells the spells apart.
-local SHORT = { cs = "Strike", soc = "Command", exo = "Exorcism", cons = "Consec." }
+local SHORT = { cs = "Strike", soc = "Command", exo = "Exorcism", cons = "Consec.", hoj = "Hammer" }
 
 local D = {
     prefix = "swing", frameName = "DisasterZoneSwingTimer", layoutName = "Swing timer", layoutOrder = 30,
@@ -578,5 +824,15 @@ if ns.ClassKit then ns.ClassKit:Extend("swing", { iconPath = "Interface\\Icons\\
                 r.target or "Fight", tw, tw + late + clip, late, clip, fill))
         end,
     }
+    -- (no pack for Ret: the twist is the same on one target or many)
+    ns.SituationSettings(S, sec, "swing", {
+        modeDesc = "Automatic: a player's presses while you target an enemy player. My key only: your switch key "
+            .. "decides.",
+        playerRows = function(S, sec, R)
+            R(select(2, S:SwitchSetting(sec, "Judge Command on a stun", "A stunned or incapacitated target: judge Seal "
+                .. "of Command, which does double damage then, instead of Seal of Blood.", "swing.stunJudge", true)))
+            R(select(2, S:SwitchSetting(sec, "Hammer of Justice", "Suggest it to set up that Judgement (6 s stun, "
+                .. "1 min cooldown).", "swing.hoj", false)))
+        end })
     S:EndSection(sec)
 end }) end

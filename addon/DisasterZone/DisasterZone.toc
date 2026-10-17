@@ -50,6 +50,7 @@ Data\AtlasPortraits.lua
 Data\Consumables.lua
 Data\Classes\Paladin.lua
 Data\Classes\Shaman.lua
+Data\Classes\Resource.lua
 Data\Changelog.lua
 Data\ClassicArt.lua
 Data\BossPortraits.lua
@@ -135,10 +136,12 @@ Core\Meter.lua
 Core\Threat.lua
 Core\MeterDemo.lua
 Core\ClassKit.lua
+Core\Situation.lua
 Core\SwingTimer.lua
 Core\SwingPractice.lua
 Core\ShotTimer.lua
 Core\WarriorSwing.lua
+Core\Resource.lua
 Core\ClassPlanner.lua
 Core\Blessings.lua
 Core\Totems.lua
@@ -306,6 +309,8 @@ UI\SwingTimerHUD.lua
 UI\SwingPracticeUI.lua
 UI\ShotTimerHUD.lua
 UI\WarriorSwingHUD.lua
+UI\ResourceFace.lua
+UI\ResourceBar.lua
 UI\PlannerWindow.lua
 UI\BlessingsUI.lua
 UI\BarFace.lua

@@ -76,13 +76,15 @@ local function SetTile(t, name)
     t:Show()
 end
 
-local function SetChar(t, sprite, face, frame)
-    local key = sprite .. face .. frame
+-- cut: show only the top `cut` rows (someone wading in the shallows: the legs are under the water, 0.46)
+local function SetChar(t, sprite, face, frame, cut)
+    local key = sprite .. face .. frame .. (cut or "")
     if t.charKey == key then return end
     t.charKey = key
     local c = (SPRITE_COL[sprite] or 3) + frame
     local r = FACE_ROW[face] or 0
-    t:SetTexCoord(c * 16 / 256 + E, (c + 1) * 16 / 256 - E, r * 16 / 128 + E, (r + 1) * 16 / 128 - E)
+    t:SetTexCoord(c * 16 / 256 + E, (c + 1) * 16 / 256 - E, r * 16 / 128 + E, (r * 16 + (cut or 16)) / 128 - E)
+    t:SetHeight(TILE * (cut or 16) / 16)
 end
 
 -- size is the old design size; drawn at 1.25x in the pixel font.
@@ -3170,6 +3172,20 @@ end
 local function StartBattleView(b)
     ApplyBattleTheme(G.map and G.map.def.theme)
     R.battleSkyAlpha = ApplySky(R.battleSky, G.map and G.map.def.outdoor, 0.75, G.map and G.map.def.gloom)
+    -- 0.45: the scene of the spot you stood on, at this hour and in this weather (BattleScene.lua); the old
+    -- picture, its colour bands and the flat tint step aside
+    local s = G.save
+    local how = ns.AzeroBattleScene.Begin(G.map, s and s.x, s and s.y, G.raining)
+    if how == "layers" then
+        local bg = R.bg
+        for _, x in ipairs({ bg.art, bg.clouds, bg.sky, bg.field, bg.stripe }) do if x then x:Hide() end end
+        if bg.clouds then bg.clouds.on = false end
+        for _, x in ipairs(bg.skyBands) do x:Hide() end
+        for _, x in ipairs(bg.fieldBands) do x:Hide() end
+        for _, x in ipairs(bg.platforms) do x:Hide() end
+        R.battleSky:Hide()
+        R.battleSkyAlpha = 0
+    end
     local foeSp = b.foe and b.foe.mon and D.species[b.foe.mon.sp]
     if b.wild and foeSp and (foeSp.rare or foeSp.legendary) and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
     ns.AzeroSound:Play("encounter")
@@ -3201,6 +3217,7 @@ end
 local function EndBattleView()
     BT.battle, BT.actionOpen = nil, nil
     ns.AzeroTaming.Reset()
+    ns.AzeroBattleScene.End()
     ns.AzeroFx.Reset()
     R.bagDesc:SetHeight(80)                  -- (the battle bag's was as tall as the text box)
     R.battle:Hide()
@@ -3960,12 +3977,7 @@ function Amb.Night(m, g, px, py)
                          (0.6 + 0.08 * math.sin(now * 9) * math.sin(now * 5.3)) * k)
                 end
             end
-            -- the player's lantern (outdoors)
-            if not g.indoor then
-                gn = gn + 1
-                Glow(gn, HX * TILE + TILE / 2, HY * TILE + TILE * 0.6, 44 * S, 1, 0.7, 0.35,
-                     (0.4 + 0.05 * math.sin(now * 7)) * k)
-            end
+            -- (the player carries no light: a glow round them with no lantern to be seen read as them glowing)
         end
     end
     for i = n + 1, #Amb.lightTex do Amb.lightTex[i]:Hide() end
@@ -4671,6 +4683,7 @@ function Amb.Draw(m, g, px, py)
         Amb.Smoke(m, px, py)
     end
     Amb.Glints(m, g, px, py)
+    Amb.WaterLife(m, g, px, py, period)          -- (0.46: rain rings and puddles, moonlight, rings round a wader)
     Amb.Steps(m, px, py)
     if g then Amb.Acts(m, px, py) end      -- (maps without a baked ground have no ambient at all)
     if Amb.gurgles and Amb.gurglesAt ~= now then Amb.gurgles:Hide() end
@@ -4716,6 +4729,8 @@ local function BuildWorld()
     R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
     R.playerShadow = Shadow()
     R.playerShadow:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
+    if ns.AzeroLight then ns.AzeroLight.Attach(world, TILE / 16, SetPixelTexture) end   -- light on people (Light.lua)
+    if ns.AzeroWater then ns.AzeroWater.Attach(world, TILE / 16, SetPixelTexture) end   -- water that reflects (Water.lua)
     -- what I say (Chat.lua), over my head
     R.player.say = Box(world, 100, 26, world:GetFrameLevel() + 15)
     R.player.say:EnableMouse(false)
@@ -4860,6 +4875,72 @@ local function DrawHint()
     h:Show()
 end
 
+-- Light on people (Light.lua, 0.44): which light map is up (as Amb.Night: nil by day outdoors), the people sheet
+-- for a sprite (without the grey blob when lit), a sprite's cell in that sheet, and the frame's lights + lanterns.
+function Amb.DarkKey(m, g)
+    if not (g and g.lightChunks) or Amb.modOK == false then return nil end
+    local period = G:Period()
+    local key = (period == "night" and "n") or ((period == "dusk" or period == "dawn") and "d") or nil
+    if g.indoor and key then key = "n" end
+    if g.cave then key = "n" end
+    return key
+end
+function Amb.CharsFile(t, lit)
+    local file = lit and ns.AzeroLight.CLEAN or CHARS
+    if t.charsFile ~= file then
+        t.charsFile = file
+        SetPixelTexture(t, file)
+        t.charKey = nil                        -- (SetChar sets the frame again)
+    end
+end
+function Amb.CharCell(sprite, face, frame)
+    return (FACE_ROW[face] or 0) * 16 + (SPRITE_COL[sprite] or 3) + (frame or 1)
+end
+function Amb.LightBegin(m, g, px, py)
+    local L = ns.AzeroLight
+    local lit = L and L.On() or false
+    if not lit then
+        if Amb.lit then L.Clear() end
+        Amb.lit = false
+        return false
+    end
+    Amb.lit = true
+    local dark = Amb.DarkKey(m, g)
+    L.Begin({ m = m, g = g, now = now, period = G:Period(), raining = Amb.raining, outdoor = m.def.outdoor, dark = dark,
+              viewX = px * 16 + 8, viewY = py * 16 + 8, reach = math.sqrt((VW * 8) ^ 2 + (VH * 8) ^ 2) + 16,
+              toScreen = function(mx, my) return (mx / 16 - px + HX) * TILE, (my / 16 - py + HY) * TILE end })
+    if dark then
+        for _, nn in ipairs(G.npcs or {}) do                         -- the night watch's lanterns
+            if not nn.hidden and nn.def.lantern then
+                local x, y = Amb.NpcPixels(nn)
+                L.AddLight(nn.id or nn.def.id or nn.def.name, x + 12, y + 9)
+            end
+        end
+    end
+    return true
+end
+-- Water that reflects (Water.lua, 0.46): the frame's reflection rows; who wades (the shallows: legs under water)
+function Amb.WaterBegin(m, g, px, py)
+    Amb.waders = Amb.waders or {}
+    for i = #Amb.waders, 1, -1 do Amb.waders[i] = nil end
+    if not ns.AzeroWater then return false end
+    Amb.view = Amb.view or {}
+    local v = Amb.view
+    v.x0, v.y0 = (px - HX) * 16 - 16, (py - HY) * 16 - 16
+    v.x1, v.y1 = (px - HX + VW) * 16 + 16, (py - HY + VH) * 16 + 16
+    return ns.AzeroWater.Begin({ m = m, g = g, now = now, raining = Amb.raining, calm = G:Data().calm, view = v,
+        toScreen = function(mx, my) return (mx / 16 - px + HX) * TILE, (my / 16 - py + HY) * TILE end })
+end
+function Amb.Wades(m, x, y)
+    local k = m.shallow and m.key(floor(x + 0.5), floor(y + 0.5))
+    return k and m.shallow[k] and true or false
+end
+function Amb.WaterLife(m, g, px, py, period)
+    if not (ns.AzeroWater and Amb.view) then return end
+    ns.AzeroWater.Life({ m = m, now = now, raining = Amb.raining, calm = G:Data().calm, period = period, view = Amb.view,
+        waders = Amb.waders, pix = function(mx, my, w, h, r, gg, b, a, layer, sub) Amb.Pix(px, py, mx, my, w, h, r, gg, b, a, layer, sub) end })
+end
+
 local function DrawWorld()
     local s = G.save
     local m = G.map
@@ -4929,6 +5010,10 @@ local function DrawWorld()
         end
     end
     -- player
+    local lit = Amb.LightBegin(m, ground, px, py)
+    local Light, Water = ns.AzeroLight, ns.AzeroWater
+    local wet = Amb.WaterBegin(m, ground, px, py)
+    local wade = Amb.Wades(m, px, py)
     local frame = 1
     if walking or (G.bump and G.input.dir) then
         local f = G.moving and (G.moving.t / G.moving.dur) or (G.bump and (0.2 - G.bump) / 0.2 or 0)
@@ -4937,7 +5022,9 @@ local function DrawWorld()
     local Chat = ns.AzeroChat
     local pface, plift = s.face, 0
     if walking then Chat:Stand("me") else pface, frame, plift = KH.EmoteLook("me", s.face, frame) end
-    SetChar(R.player, "hero", pface, frame)
+    Amb.CharsFile(R.player, lit)
+    R.playerShadow:SetShown(not lit and not wade)
+    SetChar(R.player, "hero", pface, frame, wade and 11 or nil)
     R.player:ClearAllPoints()
     R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE + plift * TILE / 16)
     KH.FitBubble(R.player.say, Chat:Bubble("me"))
@@ -4951,6 +5038,12 @@ local function DrawWorld()
         R.grassOver:SetShown(onTall and true or false)
         if R.player.legs then R.player.legs:Hide() end
     end
+    if lit and not wade then
+        Light.Person("me", Amb.CharCell("hero", pface, frame), px * 16, py * 16,
+            { lift = plift, legs = (R.player.legs and R.player.legs:IsShown()) or R.grassOver:IsShown() })
+    end
+    if wet then Water.Person("me", Amb.CharCell("hero", pface, frame), px * 16, py * 16, { wade = wade }) end
+    if wade then Amb.waders[#Amb.waders + 1] = { px * 16, py * 16 } end
     -- npcs
     local n = 0
     for _, npc in ipairs(G.npcs) do
@@ -4982,6 +5075,7 @@ local function DrawWorld()
             if npc.def.dance and not npc.moving and not G:Data().calm then
                 face = ({ "down", "left", "up", "right" })[floor(now * 4 + (npc.homeX or 0)) % 4 + 1]
             end
+            Amb.CharsFile(sp, lit)
             SetChar(sp, npc.def.sprite or "bald", face, nframe)
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
@@ -4990,8 +5084,13 @@ local function DrawWorld()
                 pcall(sp.SetDesaturated, sp, sp.stone)
             end
             sp:Show()
-            sp.shadow:SetShown(not npc.def.stone)
+            sp.shadow:SetShown(not npc.def.stone and not lit)
             Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
+            if lit and not npc.def.stone then
+                Light.Person(npc.id or npc.def.id or ("npc" .. n), Amb.CharCell(npc.def.sprite or "bald", face, nframe),
+                    nx * 16, ny * 16, { lift = (npc.def.lift or 0) + hop, legs = sp.legs and sp.legs:IsShown() })
+            end
+            if wet and not npc.def.stone then Water.Person(nil, Amb.CharCell(npc.def.sprite or "bald", face, nframe), nx * 16, ny * 16) end
             local title = G.NpcTitle(npc.def)
             sp.title:SetText(title and ("<" .. title .. ">") or "")
             sp.name:SetText(G.NpcName(npc.def) or "")
@@ -5037,7 +5136,9 @@ local function DrawWorld()
         sp:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE + lift * TILE / 16)
         sp.shadow:ClearAllPoints()
         sp.shadow:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE)
-        SetChar(sp, "hero", pface, pframe)
+        Amb.CharsFile(sp, lit)
+        local pwade = Amb.Wades(m, nx, ny)
+        SetChar(sp, "hero", pface, pframe, pwade and 11 or nil)
         local cc = RAID_CLASS_COLORS and p.class and RAID_CLASS_COLORS[p.class]
         if cc then
             sp:SetVertexColor(0.55 + cc.r * 0.45, 0.55 + cc.g * 0.45, 0.55 + cc.b * 0.45)
@@ -5048,8 +5149,14 @@ local function DrawWorld()
         end
         sp.label:SetText(p.name)
         sp:Show()
-        sp.shadow:Show()
+        sp.shadow:SetShown(not lit and not pwade)
         Amb.Legs(sp, m, ground, nx * 16, ny * 16, px, py)
+        if lit and not pwade then
+            Light.Person("peer:" .. tostring(p.key), Amb.CharCell("hero", pface, pframe), nx * 16, ny * 16,
+                { lift = lift, legs = sp.legs and sp.legs:IsShown() })
+        end
+        if wet then Water.Person(nil, Amb.CharCell("hero", pface, pframe), nx * 16, ny * 16, { wade = pwade }) end
+        if pwade then Amb.waders[#Amb.waders + 1] = { nx * 16, ny * 16 } end
         sp.label:Show()
         local word = PEER_BUSY[p.status]
         local said = ns.AzeroChat:Bubble(p.key)
@@ -5063,6 +5170,8 @@ local function DrawWorld()
         end
     end
     for i = pn + 1, #peerSprites do peerSprites[i]:Hide() peerSprites[i].shadow:Hide() if peerSprites[i].legs then peerSprites[i].legs:Hide() end peerSprites[i].label:Hide() peerSprites[i].bubble:Hide() end
+    if lit then Light.End() end
+    if Water then Water.End() end
     -- banner / fade
     if G.banner then
         R.banner:Show()
@@ -5767,6 +5876,11 @@ function KH.OpenControls()
     items[#items + 1] = { text = "Ambience", right = onOff("ambience"), onSelect = function(idx, menu)
         G:Data().ambience = G:Data().ambience == false
         menu.items[idx].right = onOff("ambience")
+        UI:RefreshMenu(menu)
+    end }
+    items[#items + 1] = { text = "Lights and shadows", right = onOff("lights"), onSelect = function(idx, menu)
+        G:Data().lights = G:Data().lights == false
+        menu.items[idx].right = onOff("lights")
         UI:RefreshMenu(menu)
     end }
     items[#items + 1] = { text = "Show the key hints again", onSelect = function(idx, menu)
@@ -6517,13 +6631,14 @@ local function BuildBattle()
             bg.clouds:SetTexture(MEDIA .. "Ground\\battle_clouds")
         end
         bg.clouds:SetAlpha(0.9)
-        b:SetScript("OnUpdate", function()
-            if bg.clouds:IsShown() then
-                local u = (now * 2) / 256
-                bg.clouds:SetTexCoord(-u, art.w / 256 - u, 0, 1)
-            end
-        end)
     end
+    b:SetScript("OnUpdate", function(_, elapsed)
+        if bg.clouds and bg.clouds:IsShown() then
+            local u = (now * 2) / 256
+            bg.clouds:SetTexCoord(-u, art.w / 256 - u, 0, 1)
+        end
+        ns.AzeroBattleScene.Update(elapsed)                          -- (battles where you stand, 0.45)
+    end)
     local fp = Tex(b, "BORDER")
     fp:SetSize(240, 60)
     fp:SetPoint("CENTER", b, "TOPLEFT", FOE_X, -FOE_Y)
@@ -6558,7 +6673,9 @@ local function BuildBattle()
                 t:ClearAllPoints()
                 t:SetPoint("TOPLEFT", b, "TOPLEFT", dx, dy)
             end
+            ns.AzeroBattleScene.Shake(dx, dy)                        -- (the layered scene shakes the same)
         end,
+        punch = function(side, amp) ns.AzeroBattleScene.Punch(side, amp) end,
         shakeOn = function() return not G:Data().noShake end,
         -- an interrupted cast's bar turns red, shakes and drops away; put back once it hides (Scr.SetCastBar)
         castBar = function(side, p)
@@ -6574,6 +6691,13 @@ local function BuildBattle()
             bar:SetAlpha(1 - p)
             bar.edge:SetColorTexture(0.88, 0.34, 0.29, 1)
         end,
+    })
+    -- 0.45: battles where you stand (BattleScene.lua): the layered scene, the beasts' light, the push-in on a hit
+    ns.AzeroBattleScene.Build(b, S3, SetPixelTexture, {
+        bleed = function() return R.bleed or 1 end,
+        models = function() return R.foeModel, R.allyModel end,
+        drift = function(dx, dy) ns.AzeroFx.Drift(dx, dy) end,
+        shakeOn = function() return not G:Data().noShake end,
     })
 
     -- HP boxes, laid out like the GBA games: name + type, level, status; an "HP" tag and bar;
@@ -7114,6 +7238,18 @@ function UI:OnInit()
             local want = (a or ""):lower()
             d.noShake = (want == "off") or (want ~= "on" and not d.noShake) or nil
             ns:Print("Azeromon: big hits %s the battle scene.", d.noShake and "no longer shake" or "shake")
+        elseif cmd == "sky" then
+            -- /dz azeromon sky day | dawn | dusk | night | rain | clear | auto: try the light at any hour, until
+            -- /reload (the realm clock and the weather slot take over again with "auto")
+            local want = (a or ""):lower()
+            local HOURS = { day = 12, dawn = 6, dusk = 19, night = 23 }
+            if HOURS[want] then G.clockHour = HOURS[want]
+            elseif want == "rain" then G.forceRain = true
+            elseif want == "clear" then G.forceRain = false
+            elseif want == "auto" then G.clockHour, G.forceRain = nil, nil
+            else ns:Print("Azeromon: /dz azeromon sky day | dawn | dusk | night | rain | clear | auto") return end
+            ns:Print("Azeromon: the sky is %s%s.", G.clockHour and ("at " .. G:Period()) or "on the realm clock",
+                G.forceRain == nil and "" or (G.forceRain and ", raining" or ", dry"))
         elseif cmd == "look" then
             -- /dz azeromon look 3d | pixel: the beasts as their 3D models or as pixel art (the default)
             local want = (a or ""):lower()
@@ -7419,6 +7555,11 @@ UI._Sprite = function(which)
     local m = (which == "ally") and R.allyModel or R.foeModel
     return m and m.spr:State()
 end
+UI._Model = function(which) return (which == "ally") and R.allyModel or R.foeModel end
+UI._Bg = function()                  -- the old battle picture (hidden while a layered scene shows, 0.45)
+    local bg = R.bg
+    return bg and { art = bg.art and bg.art:IsShown() or false, clouds = bg.clouds and bg.clouds:IsShown() or false } or nil
+end
 UI._SpriteAnim = function(which, id) Anim((which == "ally") and R.allyModel or R.foeModel, id) end
 UI._ShowFoe = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7) end
 UI._ShowFoeShiny = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7, true) end
@@ -7483,4 +7624,11 @@ UI._ShadowsShown = function()
     local n = 0
     for _, s in ipairs(sprites) do if s:IsShown() and s.shadow:IsShown() then n = n + 1 end end
     return n
+end
+UI._PlayerHeight = function() return R.player and R.player:GetHeight() or 0 end   -- (wading: the legs cut, 0.46)
+UI._Light = function()               -- light on people (Light.lua): textures on screen, the sheet the player uses
+    local st = ns.AzeroLight.Stats()
+    st.playerFile = R.player and R.player.charsFile or false
+    st.playerBlob = R.playerShadow and R.playerShadow:IsShown() or false
+    return st
 end

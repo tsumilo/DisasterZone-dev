@@ -168,7 +168,7 @@ S._Award = Award
 
 -- a real run (not the lab, not god mode): its achievements so far; final = it just ended (won or not)
 function S:CheckRun(run, final)
-    if not run or run.lab or run.god or run.attract or run.preview then return end
+    if not run or run.lab or run.god or run.dev or run.attract or run.preview then return end
     local naxx = run.stage and run.stage ~= "epl"
     for _, a in ipairs(D.ACHIEVEMENTS) do
         -- (the Plaguelands' survival and class wins belong to the Plaguelands; the necropolis's to the necropolis)
@@ -278,7 +278,7 @@ local function Stamp(e)
 end
 
 function S:RunEnded(run, won, home)
-    if not run or run.lab or run.god or run.attract or run.preview then return end
+    if not run or run.lab or run.god or run.dev or run.attract or run.preview then return end
     local d, me, week = Data(), Me(), self:Week()
     if (run.stage or "epl") == "epl" then d.clsBest[run.cls] = max(d.clsBest[run.cls] or 0, floor(run.t)) end
     d.goldTotal = d.goldTotal + (home or 0)

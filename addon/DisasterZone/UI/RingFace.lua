@@ -17,6 +17,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RingFace.lua", ...) then return
 --   RingFace:BuildLane(parent, key)    the lane: the lane frame (.W, .bg, .ticks, .windows, .blocks, .now, .gain)
 --   RingFace:Paint(face, p)            colours the cycle: p { frac, z0, z1, s0, hot, inZone, pulse, fade }
 --   RingFace:Key(prefix, practicing)   the theme key a timer wears now
+--   RingFace:BuildChip(parent)         the situation chip (Core/Situation.lua) under the face; PaintChip colours it
+-- A press's icon (big, small[i]) carries .stance: the stance it needs (warrior stance dancing), :Set(texture | nil).
 local addonName, ns = ...
 
 local RF = { rings = {} }
@@ -85,6 +87,28 @@ RF.VARIANT = {
     },
 }
 
+-- The warrior's face with "Rage in the timer" off (war.rage; the resource bar, UI/ResourceBar.lua, can carry the rage
+-- instead): no globe and no rage row; on the round and tile looks the next press takes the middle, sized to sit inside
+-- the off-hand ring, the presses after it left of the ring; middleWeapon: the main-hand weapon there while the
+-- rotation is hidden (an empty hole otherwise).
+do
+    local bare = {}
+    local MIDDLE = { halo = 74, sigil = 78, gilded = 70 }
+    for key, v in pairs(RF.VARIANT.warrior) do
+        local c = {}
+        for k, val in pairs(v) do c[k] = val end
+        c.globe, c.rage = nil, nil
+        if MIDDLE[key] then
+            c.big = { MIDDLE[key], 0, 0 }
+            c.queueFromBig, c.bigBezel = nil, nil
+            c.padL = 66                      -- (room for the presses after it, left of the ring, inside the frame)
+            c.middleWeapon = true
+        end
+        bare[key] = c
+    end
+    RF.VARIANT.warrior_bare = bare
+end
+
 -- The timer themes: the class tool themes' names, with tips for a timer.
 RF.THEMES = {
     { key = "halo", name = "Halo", tip = "A ring of flat strokes around the round next press." },
@@ -118,6 +142,47 @@ local function Bezel(parent, layer, size, sub)
     t:SetSize(size, size)
     return t
 end
+
+-- The next press's name under it when the press sits beside the ring (the warrior's faces): centred under the icon,
+-- pushed left as far as it has to so it never runs into the ring ("Sweeping Strikes" is wider than the room).
+function RF:FitName(face)
+    local g, big = face.geo, face.big
+    if not (g.queueFromBig and big.under) then return end
+    local w = UI:TextWidth(big.name)
+    if w == big.fitW then return end
+    big.fitW = w
+    local room = -g.W / 2 - g.big[2] - 4          -- from the press's centre to the ring's left edge
+    big.name:ClearAllPoints()
+    big.name:SetPoint("TOP", big, "BOTTOM", -max(0, floor(w / 2 - room + 0.5)), -3)
+end
+
+-- The stance a press needs (the warrior's stance dancing, Core/WarriorSwing.lua): the stance's icon small in the
+-- press's bottom-left corner, rimmed gold on black. m:Set(texture) shows it, m:Set(nil) hides it.
+local STANCE_RIM = { 0.79, 0.64, 0.15 }
+local function StanceMark(holder, size)
+    local m = {}
+    m.out = Part(holder, "OVERLAY", WHITE, 0, 0, 0, 1, 4)
+    m.rim = Part(holder, "OVERLAY", WHITE, STANCE_RIM[1], STANCE_RIM[2], STANCE_RIM[3], 1, 5)
+    m.icon = Part(holder, "OVERLAY", WHITE, nil, nil, nil, nil, 6)
+    m.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    m.icon:SetSize(size, size)
+    m.icon:SetPoint("BOTTOMLEFT", holder, "BOTTOMLEFT", -floor(size * 0.25), -floor(size * 0.25))
+    m.rim:SetPoint("TOPLEFT", m.icon, "TOPLEFT", -1, 1)
+    m.rim:SetPoint("BOTTOMRIGHT", m.icon, "BOTTOMRIGHT", 1, -1)
+    m.out:SetPoint("TOPLEFT", m.icon, "TOPLEFT", -2, 2)
+    m.out:SetPoint("BOTTOMRIGHT", m.icon, "BOTTOMRIGHT", 2, -2)
+    function m:Set(tex)
+        if tex then self.icon:SetTexture(tex) end
+        local on = tex ~= nil
+        if self.shown == on then return end
+        self.shown = on
+        self.icon:SetShown(on); self.rim:SetShown(on); self.out:SetShown(on)
+    end
+    m.shown = true
+    m:Set(nil)
+    return m
+end
+RF.StanceMark = StanceMark
 
 -- A point on the cycle at f (0..1), `off` out from its middle line (WoW coordinates from the face's centre).
 function RF.Pos(g, f, off)
@@ -348,6 +413,7 @@ function RF:BuildFace(parent, key, variant)
     big.key:SetPoint("TOPRIGHT", big, "TOPRIGHT", g.round and -floor(bs * 0.14) or -2, g.round and -floor(bs * 0.1) or -2)
     big.key:SetJustifyH("RIGHT")
     big.hint:SetPoint("TOPLEFT", big.name, "BOTTOMLEFT", 0, -2)
+    big.stance = StanceMark(big, max(11, floor(bs * 0.42)))
     big.name:SetShown(big.showName or false)
     big.hint:Hide()
     if g.game then
@@ -414,6 +480,7 @@ function RF:BuildFace(parent, key, variant)
         s.key:SetDrawLayer("OVERLAY", 7)
         s.key:SetPoint("TOPRIGHT", s, "TOPRIGHT", g.round and -floor(size * 0.08) or 0, g.round and -floor(size * 0.04) or 0)
         s.key:SetJustifyH("RIGHT")
+        s.stance = StanceMark(s, max(8, floor(size * 0.45)))
         if g.game then
             s.qs = s:CreateTexture(nil, "OVERLAY")
             ns.Look:QuickFrame(s.qs, s)
@@ -430,6 +497,52 @@ function RF:BuildFace(parent, key, variant)
     end
     if variant then RF:BuildExtra(face) end
     return face
+end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- The situation chip (Core/Situation.lua; look A of the mockup claude.ai/artifact/F7uzKaTkq9oHbjqk2CQNj3): a small
+-- plate under the face, hidden for one target. Its edge takes the situation's colour (ember a pack, frost crowd
+-- control holding the pack presses back, red a player), an icon, a few words, a key when the switch key picked it.
+-- ---------------------------------------------------------------------------------------------------------------
+RF.SIT_COLORS = { pack = { 1, 0.56, 0.2 }, held = { 0.5, 0.71, 1 }, player = { 0.89, 0.28, 0.2 },
+                  single = { 0.91, 0.89, 0.82 } }
+local CHIP_H, CHIP_ICON, CHIP_KEY = 16, 12, "Interface\\Icons\\INV_Misc_Key_03"
+RF.CHIP_H = CHIP_H
+
+function RF:BuildChip(parent)
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetSize(60, CHIP_H)
+    c.glow = Part(c, "BACKGROUND", SOFT, 1, 1, 1, 0.35, -2)
+    c.glow:SetBlendMode("ADD")
+    c.glow:SetPoint("TOPLEFT", c, "TOPLEFT", -8, 6)
+    c.glow:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 8, -6)
+    c.bg = UI:Fill(c, { 0.04, 0.03, 0.02, 0.88 }, "BACKGROUND")
+    UI:AddEdges(c, "BORDER")
+    c.icon = Part(c, "ARTWORK")
+    c.icon:SetSize(CHIP_ICON, CHIP_ICON)
+    c.icon:SetPoint("LEFT", c, "LEFT", 2, 0)
+    c.text = UI:Text(c, "small", { 0.96, 0.92, 0.82 }, { shadow = true })
+    c.text:SetPoint("LEFT", c.icon, "RIGHT", 4, 0)
+    c.lock = Part(c, "ARTWORK", CHIP_KEY)
+    c.lock:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    c.lock:SetSize(11, 11)
+    c.lock:SetPoint("LEFT", c.text, "RIGHT", 4, 0)
+    c:Hide()
+    return c
+end
+
+-- kind: a key of SIT_COLORS; icon + coords (nil: an icon's inner part); text; locked: the switch key picked it.
+function RF:PaintChip(c, kind, icon, coords, text, locked)
+    local col = self.SIT_COLORS[kind] or self.SIT_COLORS.single
+    UI:SetEdgeColor(c, col[1], col[2], col[3], 0.9)
+    c.glow:SetVertexColor(col[1], col[2], col[3], 0.35)
+    c.icon:SetTexture(icon)
+    if coords then c.icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+    else c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+    c.text:SetText(text or "")
+    c.lock:SetShown(locked and true or false)
+    c:SetWidth(floor(2 + CHIP_ICON + 4 + UI:TextWidth(c.text) + (locked and 15 or 0) + 6 + 0.5))
+    c:Show()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -670,9 +783,9 @@ function RF:BuildExtra(face)
         x.ohBorder:Place(ring, g.W / 2 + g.x0 - 7, g.H / 2 - og.y - og.band - 2, g.len + 14, og.band * 2 + 4)
     end
 
-    -- rage
+    -- rage (none with "Rage in the timer" off: the warrior_bare variant)
     local r = g.rage
-    if not r then
+    if not r and g.globe then
         local D = g.globe[1]
         local gl = CreateFrame("Frame", nil, ring)
         gl:SetFrameLevel(ring:GetFrameLevel() + 1)
@@ -756,7 +869,7 @@ function RF:BuildExtra(face)
         gl.num = UI:Text(gl, "emph", { 1, 0.95, 0.84 }, { font = NARROW, shadow = true, justify = "CENTER" })
         gl.num:SetPoint("CENTER", 0, 0)
         x.globe, x.D = gl, D
-    elseif r.kind == "bar" then
+    elseif r and r.kind == "bar" then
         local b = CreateFrame("Frame", nil, ring)
         b:SetFrameLevel(ring:GetFrameLevel() + 1)
         b:SetSize(g.len, r.h)
@@ -787,7 +900,7 @@ function RF:BuildExtra(face)
         end
         b.W = g.len
         x.bar = b
-    else
+    elseif r then
         local pg = Merge(g, { y = r.y })
         x.pips = Cells(ring, pg, "ARTWORK", 2)
         x.pipLine = Part(ring, "OVERLAY", WHITE)
@@ -1051,7 +1164,9 @@ local SAMPLE = {
 -- size and, for faces whose queue sits outside their left, the queue's width).
 local function SampleFace(parent, key, prefix)
     local sm = SAMPLE[prefix] or SAMPLE.swing
-    local face = RF:BuildFace(parent, key, sm.variant)
+    local variant = sm.variant
+    if prefix == "war" and ns.DB and ns.DB:GetSetting("war.rage") == false then variant = "warrior_bare" end
+    local face = RF:BuildFace(parent, key, variant)
     local g = face.geo
     face.big.icon:SetTexture(sm.big)
     face.seal.icon:SetTexture(sm.badge)

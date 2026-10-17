@@ -1357,8 +1357,142 @@ def write_lua(index):
     print("wrote Atlas.lua", len(index), "tiles")
 
 
+# ------------------------------------------------------------------------------------------------ light on people
+# Azeromon 0.44 (Light.lua). From the people sheet:
+#   chars_clean.tga  the sheet without the grey blob under every sprite (lit people get a cast shadow instead)
+#   chars_sil.tga    each cell's silhouette, white, with a soft one-pixel edge, in a cell padded LIGHT_PADX pixels
+#                    left and right: Light.lua slants it into a shadow with SetTexCoord's eight numbers, and a slant
+#                    reaches past the frame's own 16 columns. Also the contact shadow stamp under the feet.
+#   LightArt.lua     per cell, the edge pixels with the way each one faces (16 directions): the rim light.
+LIGHT_ART_LUA = os.path.join(ADDON, "..", "DisasterZone_Azeromon", "LightArt.lua")
+LIGHT_ASSET = 17                       # the art set these files came with (ns:HasAssets)
+BLOB = (117, 113, 97)                  # the blob colour under the sprites of characters.png
+LIGHT_CW, LIGHT_CH, LIGHT_PADX, LIGHT_PADY, LIGHT_PER_ROW = 56, 18, 20, 1, 18
+LIGHT_W, LIGHT_H = 1024, 256
+B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+
+def _clean_chars(img):
+    """the sheet with the blob under each sprite removed: flood from the see-through pixels through blob-coloured
+    pixels in each cell's lower rows (a blob colour inside a sprite's outline is never reached)"""
+    out = img.copy()
+    px = out.load()
+    W, H = out.size
+    for cy in range(0, H, 16):
+        for cx in range(0, W, 16):
+            seen = set()
+            stack = [(x, y) for y in range(cy + 9, cy + 16) for x in range(cx, cx + 16) if px[x, y][3] == 0]
+            while stack:
+                x, y = stack.pop()
+                for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                    if not (cx <= nx < cx + 16 and cy + 9 <= ny < cy + 16) or (nx, ny) in seen:
+                        continue
+                    p = px[nx, ny]
+                    if p[3] and p[:3] == BLOB:
+                        seen.add((nx, ny))
+                        stack.append((nx, ny))
+            for x, y in seen:
+                px[x, y] = (0, 0, 0, 0)
+    return out
+
+
+def light_cell(c):
+    """where cell c of the people sheet sits in chars_sil.tga: the frame's top-left corner"""
+    return ((c % LIGHT_PER_ROW) * LIGHT_CW + LIGHT_PADX, (c // LIGHT_PER_ROW) * LIGHT_CH + LIGHT_PADY)
+
+
+def _edges(cell):
+    """the edge pixels of a 16 x 16 frame (alpha) as (x, y, direction 0..15), direction = the way out of the body
+    (0 = right, 4 = down, 8 = left, 12 = up), from its see-through neighbours"""
+    import math
+    on = lambda x, y: 0 <= x < 16 and 0 <= y < 16 and cell[y][x]
+    out = []
+    for y in range(16):
+        for x in range(16):
+            if not on(x, y):
+                continue
+            nx = ny = 0.0
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if (dx or dy) and not on(x + dx, y + dy):
+                        k = 0.7 if dx and dy else 1.0
+                        nx += dx * k
+                        ny += dy * k
+            if abs(nx) + abs(ny) < 0.01:
+                continue
+            d = int(round(math.atan2(ny, nx) / (2 * math.pi / 16))) % 16
+            out.append((x, y, d))
+    return out
+
+
+def build_light():
+    sheet = Image.new("RGBA", (256, 128), (0, 0, 0, 0))
+    sheet.paste(CH, (0, 0))
+    clean = _clean_chars(sheet)
+    tga(clean, "chars_clean")
+    sil = Image.new("RGBA", (LIGHT_W, LIGHT_H), (255, 255, 255, 0))
+    sp = sil.load()
+    cp = clean.load()
+    edges = {}
+    for c in range(128):
+        cx, cy = (c % 16) * 16, (c // 16) * 16
+        cell = [[cp[cx + x, cy + y][3] > 0 for x in range(16)] for y in range(16)]
+        if not any(any(r) for r in cell):
+            continue
+        ox, oy = light_cell(c)
+        for y in range(16):
+            for x in range(16):
+                if cell[y][x]:
+                    sp[ox + x, oy + y] = (255, 255, 255, 255)
+        for y in range(-1, 17):                                    # the soft edge, one pixel round the body
+            for x in range(-1, 17):
+                inside = 0 <= x < 16 and 0 <= y < 16 and cell[y][x]
+                if inside:
+                    continue
+                near = any(0 <= x + dx < 16 and 0 <= y + dy < 16 and cell[y + dy][x + dx]
+                           for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                if near and 0 <= y < 16:
+                    sp[ox + x, oy + y] = (255, 255, 255, 115)
+        edges[c] = _edges(cell)
+    # the contact shadow under the feet: a soft 14 x 5 oval, in the first free cell
+    cx0, cy0 = light_cell(128)
+    contact = (cx0 + 1, cy0 + 2, 14, 5)
+    for y in range(5):
+        for x in range(14):
+            d = ((x + 0.5 - 7) / 7) ** 2 + ((y + 0.5 - 2.5) / 2.5) ** 2
+            if d < 1:
+                sp[contact[0] + x, contact[1] + y] = (255, 255, 255, 255 if d < 0.45 else 150)
+    tga(sil, "chars_sil")
+    lines = [
+        'if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/LightArt.lua", ...) then return end '
+        "-- DisasterZone_Azeromon/LightArt.lua  (GENERATED by dev/generators/gen_azeromon_art.py - do not edit)",
+        "-- Light on people (Light.lua): Media/chars_sil.tga holds each people-sheet cell's silhouette at cell(c), padded",
+        "-- `padx` columns left and right for the slant; edges[c] lists the cell's edge pixels for the rim light, two",
+        "-- characters each (base 64: x + y * 16 + direction * 256, direction 0..15 = the way out of the body,",
+        "-- 0 right, 4 down, 8 left, 12 up).",
+        "local addonName, ns = ...",
+        "ns.AzeroLightArt = {",
+        "    asset = %d, w = %d, h = %d, cw = %d, ch = %d, padx = %d, pady = %d, perRow = %d," % (
+            LIGHT_ASSET, LIGHT_W, LIGHT_H, LIGHT_CW, LIGHT_CH, LIGHT_PADX, LIGHT_PADY, LIGHT_PER_ROW),
+        "    contact = { %d, %d, %d, %d }," % contact,
+        "    edges = {",
+    ]
+    for c in sorted(edges):
+        s = "".join(B64[(x + y * 16 + d * 256) & 63] + B64[(x + y * 16 + d * 256) >> 6] for x, y, d in edges[c])
+        lines.append('        [%d] = "%s",' % (c, s))
+    lines += ["    },", "}"]
+    with open(LIGHT_ART_LUA, "w", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+    print("wrote LightArt.lua", len(edges), "cells")
+
+
 if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["light"]:
+        build_light()
+        sys.exit(0)
     idx = build_atlas()
     build_chars()
     build_platform()
+    build_light()
     write_lua(idx)

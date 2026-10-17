@@ -270,27 +270,72 @@ def hiding_the_tab_mid_turn_or_mid_open_leaves_a_clean_state():
     no_errors(w)
 
 
+RUNNER = "return ns.GamesUI.__runner()"   # { left, right, r, g, b, on its way, row level, row alpha }
+
+
+def slot(i):
+    """The centre of dot i (0-based) on the row."""
+    return (i + 0.5) * 22
+
+
+def rests_on(r, i):
+    return abs(r[0] - (slot(i) - 10)) < 1e-6 and abs(r[1] - (slot(i) + 10)) < 1e-6 and not r[5]
+
+
+def accent_of(c, gid):
+    """The runner's colour with game gid in front (at rest)."""
+    c.eval("ns.GamesUI:ShowFront(...)", gid)
+    return c.eval_py(RUNNER)[2:5]
+
+
+def same(a, b):
+    return all(abs(x - y) < 1e-6 for x, y in zip(a, b))
+
+
 @case
-def the_dots_stretch_and_take_the_colour_with_the_turn():
-    """The front game's dot is a pill in its colour; a turn shrinks and greys the old one while the new one stretches
-    and takes its colour, at the posters' pace (half-way: both between a dot and a pill)."""
+def the_runner_glides_to_the_new_dot_front_end_first_and_takes_its_colour():
+    """The front game's dot wears the runner, a pill in its colour, over small grey dots; a turn stretches it front
+    end first towards the next dot, then its back end follows and it gathers there in the new game's colour. It
+    runs a little longer than the posters turn. Past the last game it goes straight back along the row."""
     w, c = solo()
     c.world = w
     hub(c)
     order = c.eval_py("local o = {} for i, p in ipairs(%s) do o[i] = p.id end return o" % POSTERS)
-    i0 = order.index(front(c))
+    n = len(order)
+    new = accent_of(c, order[1])
+    old = accent_of(c, order[0])
+    r = c.eval_py(RUNNER)
+    assert rests_on(r, 0) and same(r[2:5], old), r
     d = c.eval_py("return ns.GamesUI.__dots()")
-    assert d[i0][0] == 20 and all(x[0] == 6 for k, x in enumerate(d) if k != i0), d
-    assert abs(d[i0][4] - 1) < 1e-6 and all(abs(x[4] - 0.24) < 1e-6 for k, x in enumerate(d) if k != i0), d
-    i1 = (i0 + 1) % len(order)
-    c.eval("ns.GamesUI:PauseAnim(true) ns.GamesUI:Turn(%d) ns.GamesUI:StepAnim(0.16)" % (i1 + 1))
-    d = c.eval_py("return ns.GamesUI.__dots()")
-    assert 6 < d[i0][0] < 20 and 6 < d[i1][0] < 20, d                    # both on their way
-    assert 0.24 < d[i1][4] < 1 and 0.24 < d[i0][4] < 1, d
-    c.eval("ns.GamesUI:StepAnim(0.3) ns.GamesUI:PauseAnim(false)")
-    d = c.eval_py("return ns.GamesUI.__dots()")
-    assert d[i1][0] == 20 and d[i0][0] == 6, d
-    assert abs(d[i1][4] - 1) < 1e-6 and abs(d[i0][4] - 0.24) < 1e-6, d
+    assert all(x[0] == 6 and abs(x[4] - 0.24) < 1e-6 for x in d), d
+    c.eval("ns.GamesUI:PauseAnim(true) ns.GamesUI:Turn(2) ns.GamesUI:StepAnim(0.12)")
+    r = c.eval_py(RUNNER)
+    assert r[5] and r[1] > slot(0) + 10 + 3, r                                    # the front end is away
+    assert abs(r[0] - (slot(0) - 10)) < 0.5, r                                    # the back end not yet
+    assert not same(r[2:5], old) and not same(r[2:5], new), r                     # its colour on the way over
+    c.eval("ns.GamesUI:StepAnim(0.2)")
+    assert c.eval("return ns.GamesUI:IsAnimating()") is False                    # (the posters are done first)
+    assert c.eval_py(RUNNER)[5] is True
+    c.eval("ns.GamesUI:StepAnim(0.15)")
+    r = c.eval_py(RUNNER)
+    assert rests_on(r, 1) and same(r[2:5], new), r
+    assert c.eval("return ns.GamesUI:GetFront()") == order[1]
+    # round the end: from the last game the next is the first, and the runner goes back along the row
+    c.eval("ns.GamesUI:ShowFront(...)", order[-1])
+    assert rests_on(c.eval_py(RUNNER), n - 1)
+    c.eval("ns.GamesUI:Turn(%d) ns.GamesUI:StepAnim(0.12)" % (n + 1))
+    r = c.eval_py(RUNNER)
+    assert r[0] < slot(n - 1) - 10 - 3 and abs(r[1] - (slot(n - 1) + 10)) < 0.5, r
+    c.eval("ns.GamesUI:StepAnim(0.4)")
+    assert rests_on(c.eval_py(RUNNER), 0)
+    # the row lies above the posters (no shadow over it) and goes with the side posters when a game opens
+    top = c.eval("local m = 0 for _, p in ipairs(%s) do m = math.max(m, p:GetFrameLevel()) end return m" % POSTERS)
+    assert c.eval_py(RUNNER)[6] > top
+    c.eval("ns.GamesUI:ShowFront('trainer') for _, p in ipairs(%s) do if p.off == 0 then p:Click() end end "
+           "ns.GamesUI:StepAnim(0.2)" % POSTERS)
+    assert c.eval_py(RUNNER)[7] < 0.5
+    c.eval("ns.GamesUI:StepAnim(0.6) ns.GamesUI:PauseAnim(false)")
+    assert c.eval("return ns.GamesUI:GetSelected()") == "trainer"
     no_errors(w)
 
 

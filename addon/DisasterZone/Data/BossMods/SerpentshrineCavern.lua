@@ -166,12 +166,13 @@ B["SerpentshrineCavern:Vashj"] = {
         { key = "elementalup", kind = "warn", spell = 38253, text = "Tainted Elemental up: kill it", phase = 2,
           on = "CAST 38253", throttle = 30 },
         -- Strider: first DBM 63, BW 63, CM 62 -> 63; again DBM 63, BW 63, CM 60 -> 63, looped as DBM and BW do. CM's
-        -- Panic Periodic 38257 on the spawn never reached our log (17 Oct 2026: Striders up, their Panic and Mind Blast
-        -- casts logged, the bar never restarted), so there is no spawn event to restart it on
-        { key = "strider", kind = "bar", text = "Coilfang Strider", icon = 38257, phase = 2, start = 63, cd = 63,
-          loop = true },
-        -- Elite: first DBM 47.5, BW 47.5, CM 47 -> 47.5; repeats (47.5 / 46) have no spawn event: first only
-        { key = "elite", kind = "bar", text = "Coilfang Elite", phase = 2, start = 47.5 },
+        -- Panic Periodic 38257 goes on it at spawn, but reaches only the logs of players near the spawn (17 Oct 2026:
+        -- one of five pulls), so it resyncs the loop when seen
+        { key = "strider", kind = "bar", text = "Coilfang Strider", icon = 38257, phase = 2, start = 63,
+          on = "AURA 38257", cd = 63, throttle = 10, loop = true },
+        -- Elite: first DBM 47.5, BW 47.5, CM 47 -> 47.5; again DBM 47.5, BW 47.5 (CM 46) -> 47.5, looped as DBM and
+        -- BW do (no spawn event of their own)
+        { key = "elite", kind = "bar", text = "Coilfang Elite", phase = 2, start = 47.5, cd = 47.5, loop = true },
         { key = "core", kind = "warn", spell = 38132, text = "Tainted Core on %t: pass it",
           meText = "Tainted Core on you: pass it", on = "AURA 38132" },
         { key = "phase3", kind = "warn", text = "Phase 3: Vashj is back", sub = "Avoid the spore clouds", icon = 38575,
