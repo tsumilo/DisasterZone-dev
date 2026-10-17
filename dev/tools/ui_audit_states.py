@@ -3500,6 +3500,12 @@ STATES[_FB_AT:_FB_AT] = [
                                            "'See it' })")),
     # the release plan (UI/FeedbackPlan.lua): the Plan tab's views, the release check, Plan it in the Inbox
     ("Feedback - plan board (demo)", fb_view("ns.FeedbackPlanUI:SetView('board')", tab="plan")),
+    # (four releases with long themes, like the developer's real plan: the arrows page past the ones that don't fit)
+    ("Feedback - plan board, many releases (demo)", fb_view(
+        "local P = ns.FeedbackPlan; P:SetRelease('1.7.0', { th = 'Ad hoc raids and smarter outfits', bg = 24, pub = true }); "
+        "P:SetRelease('1.8.0', { th = 'Atlas: classic content', bg = 14, pub = true }); "
+        "P:AddDevItem('Disable popups during combat fights, bingo, etc.', 'change', 'S', '1.7.0'); "
+        "ns.FeedbackPlanUI:SetView('board')", tab="plan")),
     ("Feedback - plan sort (demo)", fb_view("ns.FeedbackPlanUI:SetView('sort')", tab="plan")),
     ("Feedback - plan roadmap (demo)", fb_view("ns.FeedbackPlanUI:SetView('road')", tab="plan")),
     ("Feedback - release check (demo)", fb_view("ns.FeedbackPlanUI:SetView('board'); "

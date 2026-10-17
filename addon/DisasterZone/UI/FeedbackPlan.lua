@@ -26,6 +26,8 @@ local WRAP = { wrap = true }
 local LATER = "later"
 local CARD_H = 52
 local HEAD_H = 62
+local MIN_COL = 180         -- a release column never gets narrower: releases past what fits page with the arrows
+local SIDE_W = 160          -- To sort and Later: narrower, the releases get the room
 local GAP = S.GAP
 local DEV_ICON = "Interface\\Icons\\INV_Misc_Note_01"
 local SIZE_PILL = { S = "ok", M = "bis", L = "warn", XL = "bad" }
@@ -265,6 +267,7 @@ local function NewPlanCard(parent)
     b.who = UI():Text(b, "small", "SUB")
     b.who:SetPoint("BOTTOMRIGHT", -6, 6)
     b.who:SetJustifyH("RIGHT")
+    b.who:SetWordWrap(false)
     b.slip = b:CreateTexture(nil, "OVERLAY")
     b.slip:SetPoint("TOPLEFT")
     b.slip:SetPoint("BOTTOMLEFT")
@@ -294,6 +297,9 @@ local function NewPlanCard(parent)
         local tw = width - 36
         self.text:SetWidth(tw)
         UI():FitText(self.text, UI():SafeText((c.text or ""):gsub("\n", " ")), floor(tw * 1.7))
+        -- (as tall as the words need, so the pill row never sits on them)
+        local th = min(self.text:GetStringHeight() or 0, 2 * (S.FONT.body + 3))
+        self:SetHeight(max(CARD_H, floor(6 + th + 6 + 18 + 5)))
         local tc = c.done and 0.6 or 0.92
         self.text:SetTextColor(tc, tc, tc)
         self.size:Set(c.done and "Done" or SizeText(c.sz), c.done and "ok" or (SIZE_PILL[c.sz] or "mute"))
@@ -312,6 +318,9 @@ local function NewPlanCard(parent)
         else
             self.who:SetText(S:Wrap("DIM", c.dev and "only staff" or ""))
         end
+        -- (the name gets what the pill, number and group mark leave: cut with "...", never drawn over them)
+        local left = 30 + (self.size:GetWidth() or 20) + 5 + (self.meta:GetStringWidth() or 0) + (c.g and 16 or 0) + 8
+        self.who:SetWidth(max(20, min((self.who:GetStringWidth() or 0) + 2, width - left - 6)))
         UI():SetEdgeColor(self, S:Color("EDGE"))
         self.slip:SetShown(c.slipped and true or false)
     end
@@ -330,8 +339,18 @@ local function NewColumn(parent)
     col.title = UI():Text(col, "title", "GOLD")
     col.title:SetPoint("TOPLEFT", 8, -8)
     col.date = UI():Text(col, "small", "SUB")
-    col.date:SetPoint("TOPRIGHT", -26, -9)
-    col.date:SetJustifyH("RIGHT")
+    col.date:SetPoint("BOTTOMLEFT", col.title, "BOTTOMRIGHT", 8, 1)
+    col.date:SetJustifyH("LEFT")
+    col.date:SetWordWrap(false)
+    -- (the arrows through the releases when they don't all fit: on the first and the last release column)
+    col.prev = UI():CreateArrowButton(col, false, 18, 18, function() PlanUI:PageReleases(-1) end)
+    col.prev:SetPoint("TOPLEFT", 5, -6)
+    UI():AttachTooltip(col.prev, "Earlier releases", nil, { anchor = "ANCHOR_TOP" })
+    col.prev:Hide()
+    col.next = UI():CreateArrowButton(col, true, 18, 18, function() PlanUI:PageReleases(1) end)
+    col.next:SetPoint("TOPRIGHT", -25, -6)
+    UI():AttachTooltip(col.next, "Later releases", nil, { anchor = "ANCHOR_TOP" })
+    col.next:Hide()
     col.more = UI():CreateTipIconButton(col, 18, UI().ICON.more, "Release", "Release check, and the release's settings.",
         function(self) if col.rl and col.rl ~= LATER then PlanUI:ReleaseMenu(self, col.rl) end end)
     col.more:SetPoint("TOPRIGHT", -4, -5)
@@ -372,7 +391,7 @@ local function NewColumn(parent)
 end
 
 -- Lays out one column for release r (nil: To sort; { v = LATER }: Later) at width w, height h.
-local function FillColumn(col, rl, rel, w, h)
+local function FillColumn(col, rl, rel, w, h, page)
     local Plan = P()
     col.rl = rl
     col:SetSize(w, h)
@@ -380,7 +399,13 @@ local function FillColumn(col, rl, rel, w, h)
     col.title:SetTextColor(S:Color(rel and "GOLD" or "TEXT"))
     col.date:SetText(rel and rel.dt and Day(rel.dt) or "")
     col.more:SetShown(rel ~= nil)
-    if rel then col.date:SetPoint("TOPRIGHT", -26, -9) else col.date:SetPoint("TOPRIGHT", -8, -9) end
+    col.title:ClearAllPoints()
+    col.title:SetPoint("TOPLEFT", (page == -1) and 28 or 8, -8)
+    col.prev:SetShown(page == -1)
+    col.next:SetShown(page == 1)
+    -- (the date after the version, cut before the buttons on the right)
+    local right = (rel and 26 or 8) + (page == 1 and 21 or 0)
+    col.date:SetWidth(max(10, w - ((page == -1) and 28 or 8) - (col.title:GetStringWidth() or 0) - 8 - right))
     col.theme:SetText(rel and (rel.th or "") .. (rel.pub and "" or S:Wrap("DIM", rel.th and "  · staff only" or "Staff only"))
         or (rl == nil and "New, not placed yet" or "Good ideas, no date yet"))
     local cards = Plan:Cards(rl)
@@ -411,7 +436,7 @@ local function FillColumn(col, rl, rel, w, h)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", col.child, "TOPLEFT", 0, y)
         b:Show()
-        y = y - CARD_H - 5
+        y = y - b:GetHeight() - 5
     end
     for i = #cards + 1, #col.cards do col.cards[i]:Hide() end
     col.empty:SetShown(#cards == 0)
@@ -426,24 +451,42 @@ local function FillColumn(col, rl, rel, w, h)
     col:Show()
 end
 
+-- Steps the board's releases one column on (dir 1) or back (-1).
+function PlanUI:PageReleases(dir)
+    state.relFirst = (state.relFirst or 1) + (dir or 1)
+    Refresh()
+end
+
 local function RenderBoard(frame, w, h)
     local rels = P():Releases()
+    -- (To sort and Later always show; as many releases between them as fit at MIN_COL, at least one)
+    local side = min(SIDE_W, floor((w - 3 * GAP) / 3))
+    local slots = max(1, min(4, floor((w - 2 * side - GAP) / (MIN_COL + GAP))))
+    local first = max(1, min(state.relFirst or 1, #rels - slots + 1))
+    state.relFirst = first
+    local last = min(#rels, first + slots - 1)
     local list = { { rl = nil } }
-    for i, r in ipairs(rels) do
-        if i <= 4 then list[#list + 1] = { rl = r.v, rel = r } end
+    for i = first, last do
+        local it = { rl = rels[i].v, rel = rels[i] }
+        if i == first and first > 1 then it.page = -1 end
+        if i == last and last < #rels then it.page = 1 end
+        list[#list + 1] = it
     end
     list[#list + 1] = { rl = LATER }
     local n = #list
-    local cw = floor((w - (n - 1) * GAP) / n)
+    local rw = floor((w - 2 * side - (n - 1) * GAP) / (n - 2))
+    local x = 0
     for i, it in ipairs(list) do
         local col = columns[i]
         if not col then
             col = NewColumn(frame)
             columns[i] = col
         end
+        local cw = (i == 1 or i == n) and side or rw
         col:ClearAllPoints()
-        col:SetPoint("TOPLEFT", frame, "TOPLEFT", (i - 1) * (cw + GAP), 0)
-        FillColumn(col, it.rl, it.rel, cw, h)
+        col:SetPoint("TOPLEFT", frame, "TOPLEFT", x, 0)
+        FillColumn(col, it.rl, it.rel, cw, h, it.page)
+        x = x + cw + GAP
     end
     for i = n + 1, #columns do columns[i]:Hide() end
 end

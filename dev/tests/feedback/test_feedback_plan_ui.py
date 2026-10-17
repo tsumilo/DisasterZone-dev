@@ -66,6 +66,42 @@ def the_developer_sees_every_view_and_sheet():
 
 
 @case
+def many_releases_page_with_arrows_and_nothing_overlaps():
+    # 2026-10-17 in game: four releases squeezed six columns into the window (version over date, name over number)
+    w, c = standard()
+    setup_plan(w, c)
+    t = c["Tsumil"]
+    for v, th in (("1.9.3", "Ad hoc raids and smarter outfits"), ("1.9.4", "Atlas: classic content")):
+        assert t.eval("return (%s:SetRelease(..., { th = select(2, ...), bg = 10, pub = true }))" % P, v, th) is True
+    open_plan(t, w, "board")
+    assert board_titles(t) == ["To sort", "1.9.1", "1.9.2", "Later"], board_titles(t)
+    arrows = """local f = ns.FeedbackPlanUI:GetFrame(); local o = {}
+      for _, kid in ipairs({ f.board:GetChildren() }) do
+        if kid:IsShown() and kid.next then o[#o + 1] = (kid.prev:IsShown() and "<" or "") .. (kid.next:IsShown() and ">" or "") end
+      end
+      return table.concat(o, ",")"""
+    assert t.eval(arrows) == ",,>,", t.eval(arrows)
+    t.eval("%s:PageReleases(1)" % PUI)
+    assert board_titles(t) == ["To sort", "1.9.2", "1.9.3", "Later"], board_titles(t)
+    assert t.eval(arrows) == ",<,>,", t.eval(arrows)
+    t.eval("%s:PageReleases(5)" % PUI)
+    assert board_titles(t) == ["To sort", "1.9.3", "1.9.4", "Later"], board_titles(t)
+    # every card's name ends before it reaches the number on its row
+    bad = t.eval_py("""local f = ns.FeedbackPlanUI:GetFrame(); local bad = {}
+      for _, col in ipairs({ f.board:GetChildren() }) do
+        for _, b in ipairs(col.cards or {}) do
+          if b:IsShown() and b.who:GetText() and b.who:GetText() ~= "" then
+            local room = b:GetWidth() - 30 - b.size:GetWidth() - 5 - b.meta:GetStringWidth() - 6
+            if b.who:GetWidth() > room then bad[#bad + 1] = b.who:GetText() end
+          end
+        end
+      end
+      return bad""")
+    assert not bad, bad
+    w.assert_no_errors()
+
+
+@case
 def plan_it_in_the_inbox_sizes_and_places_an_item():
     w, c = standard()
     setup_plan(w, c)
