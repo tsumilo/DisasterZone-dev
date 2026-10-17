@@ -628,7 +628,7 @@ end
 
 function LT:Demo()
     if not holder then return end
-    local on = On() and ns.Demo and ns.Demo:IsEnabled() and not (IsInRaid and IsInRaid())
+    local on = On() and ns.Demo and ns.Demo.IsOn and ns.Demo:IsOn("tanks") and not (IsInRaid and IsInRaid())
     self:ShowPreview(on and true or false)
 end
 
@@ -812,7 +812,8 @@ function LT:OnLogin()
         LT:Names()
         LT:Refresh()
     end)
-    ns:On("DEMO_TOGGLED", function() LT:Demo() end)
+    -- (the Demo page's main tanks part, Core/DemoParts.lua)
+    ns:On("DEMO_PARTS_CHANGED", function(key) if key == "tanks" or key == "stop" then LT:Demo() end end)
     ns:On("EDIT_LAYOUT", function(on) if not on then LT:Orient() end end)
     ns:On("LAYOUT_CHANGED", function(what) if what == "applied" or what == "profile" then LT:Orient() end end)
     self:Demo()

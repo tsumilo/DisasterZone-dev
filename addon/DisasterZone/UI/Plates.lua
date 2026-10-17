@@ -760,8 +760,13 @@ function P:OnLogin()
         if P.stackLater then P:ApplyStacking() end
     end)
     ns:On("UI_LOOK_CHANGED", function(part) if part == "plates" then P:Restyle() end end)
-    ns:On("DEMO_TOGGLED", function(on)
-        if on then P:TryIt() elseif P:DemoRunning() then P:StopDemo() end
+    -- its part on the Demo page (Core/DemoParts.lua): the council's scene on each demo pull (looping or once)
+    local function DemoOn() return ns.Demo and ns.Demo.IsOn and ns.Demo:IsOn("plates") end
+    ns:On("DEMO_PULL", function(started)
+        if started and DemoOn() then P:TryIt(nil, ns.Demo:IsLooping()) end
+    end)
+    ns:On("DEMO_PARTS_CHANGED", function(key, on)
+        if (key == "plates" or key == "stop") and not on and P:DemoRunning() then P:StopDemo() end
     end)
     self:Restyle()
 end

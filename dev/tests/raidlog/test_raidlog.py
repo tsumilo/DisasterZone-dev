@@ -744,7 +744,7 @@ def demo_mode_fills_the_raids_tab_without_touching_the_real_log():
     w, c = solo(council=None)
     c.eval("ns.db.raids.real = { id = 'real', start = GetServerTime() - 3600, stop = GetServerTime(), bosses = {}, att = {} }")
     saved = c.eval_py("return ns.db.raids")
-    c.slash("/dz demo")
+    c.slash("/dz demo guild")
     w.tick(1)
     raids = c.eval_py("local out = {}; for i, r in ipairs(ns.RaidLog:GetRaids()) do out[i] = { id = r.id, zone = r.zone, "
                       "n = #r.bosses, att = ns.Util.Count(r.att), aw = #ns.RaidLog:GetAwards(r), auto = r.autoEnded } end; return out")
@@ -770,11 +770,11 @@ def demo_mode_fills_the_raids_tab_without_touching_the_real_log():
     w.tick(0.3)
     assert c.find_text("100%", True, True)
     # toggling off brings the real log back; nothing demo was saved
-    c.slash("/dz demo")
+    c.slash("/dz demo guild")
     w.tick(1)
     assert [r["id"] for r in c.eval_py("return ns.RaidLog:GetRaids()")] == ["real"]
     assert c.eval_py("return ns.db.raids") == saved
-    c.slash("/dz demo")
+    c.slash("/dz demo guild")
     w.tick(1)
     assert c.eval_py("local r = ns.RaidLog:GetRaids()[1]; return { r.start, r.bosses[1].enc, ns.RaidLog:GetAwards(r)[1].i }") == again
     w.assert_no_errors()

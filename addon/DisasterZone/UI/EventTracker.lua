@@ -132,7 +132,7 @@ function T:MyEvent()
     -- demo mode's live cup (or the board last looked at): only once its board was opened (switching demo mode on puts
     -- nothing in the world)
     if ns.Util.DemoOn() then
-        if not self.demoSeen then return nil end
+        if not (self.demoSeen or (ns.Demo.IsOn and ns.Demo:IsOn("tracker"))) then return nil end
         local occ = self.demoOcc or "odemo1"
         local st, def = StateOf(occ)
         if not (st and def) then return nil end
@@ -2445,6 +2445,7 @@ function T:OnInit()
         T.demoSeen, T.demoOcc = nil, nil
         T:Later()
     end)
+    ns:On("DEMO_PARTS_CHANGED", function(key) if key == "tracker" or key == "stop" then T:Later() end end)
     ns:On("EVENT_ANNOUNCE", function(_, text) T:Announce(text) end)
     ns:On("EVENT_COUNTDOWN", function(_, seconds) T:Countdown(seconds) end)
     -- part 2: the addon's own messages for me (EventLive played a sound already: EVENT_SOUND needs nothing here)

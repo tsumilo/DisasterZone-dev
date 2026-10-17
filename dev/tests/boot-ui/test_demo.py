@@ -227,5 +227,82 @@ def demo_works_without_a_guild_and_sends_nothing():
     no_errors(w)
 
 
+# ------------------------------------------------------------------------------------------------------------------
+# 1.6.0, the Demo picker (Core/DemoParts.lua): each part on screen is picked on its own
+# ------------------------------------------------------------------------------------------------------------------
+
+@case
+def the_demo_guild_alone_puts_nothing_on_screen():
+    w, c = solo("Alice", guild_rank=3, tick=3)          # a Holy Paladin: the Ret swing timer isn't hers
+    c.eval("ns.Demo:SetEnabled(true)")
+    w.tick(1)
+    assert c.eval("return ns.Demo:IsEnabled()") is True
+    assert c.eval("return #ns.Demo:OnList()") == 0
+    assert c.eval("return ns.Plates:DemoRunning()") is False
+    assert c.eval("return ns.SwingTimer.active") is False
+    for kit in ("swing", "bless", "totems", "shot", "war"):
+        assert c.eval("return ns.ClassKit:IsLive(...)", kit) is False, kit
+    assert c.eval("return ns.ClassKit:IsMine('totems')") is False   # another class's tools: only once picked
+    assert c.eval("return DisasterZoneDemoBar ~= nil and DisasterZoneDemoBar:IsShown()") in (False, None)
+    no_errors(w)
+
+
+@case
+def one_pull_stops_after_thirty_seconds_and_a_loop_keeps_going():
+    w, c = solo("Alice", guild_rank=3, tick=3)
+    c.eval("ns.Demo:SetOn('swing', true)")
+    w.tick(1)
+    assert c.eval("return ns.SwingTimer.active") is True
+    assert c.eval("return ns.ClassKit:IsLive('swing')") is True
+    assert c.eval("return DisasterZoneDemoBar:IsShown()") is True
+    w.tick(31)
+    assert c.eval("return ns.SwingTimer.active") is False, "the swings went on after the one pull"
+    assert c.eval("return ns.Demo:IsOn('swing')") is True       # (still picked: Again plays it once more)
+    c.eval("ns.Demo:StartPull()")
+    w.tick(1)
+    assert c.eval("return ns.SwingTimer.active") is True
+    c.eval("ns.Demo:SetMode('loop')")
+    w.tick(65)
+    assert c.eval("return ns.SwingTimer.active") is True, "the loop stopped"
+    c.eval("ns.Demo:SetOn('swing', false)")
+    w.tick(0.5)
+    assert c.eval("return ns.SwingTimer.active") is False
+    assert c.eval("return DisasterZoneDemoBar:IsShown()") is False
+    no_errors(w)
+
+
+@case
+def other_classes_tools_show_once_their_class_is_picked():
+    w, c = solo("Alice", guild_rank=3, tick=3)
+    c.eval("ns.Demo:SetEnabled(true)")
+    assert c.eval("return ns.ClassKit:IsMine('totems')") is False
+    c.eval("ns.Demo:SetClassPicked('SHAMAN', true)")
+    assert c.eval("return ns.ClassKit:IsMine('totems')") is True
+    assert c.eval("return ns.Totems:IsDemo()") is False          # (listed, not playing: its part is off)
+    c.eval("ns.Demo:SetOn('totems', true)")
+    assert c.eval("return ns.Totems:IsDemo()") is True
+    c.eval("ns.Demo:SetClassPicked('SHAMAN', false)")            # the class put away takes its tools off the screen
+    assert c.eval("return ns.Demo:IsOn('totems')") is False
+    assert c.eval("return ns.Totems:IsDemo()") is False
+    no_errors(w)
+
+
+@case
+def picks_are_kept_over_a_reload_but_nothing_starts_by_itself():
+    w, c = solo("Alice", guild_rank=3, tick=3)
+    c.eval("ns.Demo:SetOn('plates', true); ns.Demo:SetOn('sct', true)")
+    w.tick(1)
+    c.relog()
+    w.tick(2)
+    assert c.eval("return ns.Demo:IsActive()") is False
+    assert c.eval("return ns.Plates:DemoRunning()") is False
+    assert sorted(c.eval_py("return ns.Demo:SavedPicks()")) == ["plates", "sct"]
+    c.slash("/dz demo mine")
+    w.tick(0.5)
+    assert c.eval("return ns.Demo:IsOn('plates') and ns.Demo:IsOn('sct')") is True
+    assert c.eval("return ns.Plates:DemoRunning()") is True
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

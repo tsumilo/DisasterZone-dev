@@ -112,7 +112,9 @@ local CARDS = {
     classtools = { label = "Class tools", build = "BuildClassTools", icon = 60,
                    lead = function()
                        local CK = ns.ClassKit
-                       if CK and CK:IsDemo() then return "Demo mode: every class's tools, with made-up data. Nothing is cast or sent." end
+                       if CK and #CK:Mine() > #CK:List(CK:MyClass()) then
+                           return "Demo: the tools of the classes picked on the Demo page too. Nothing is cast or sent."
+                       end
                        return "Tools for your class and spec. They start off: switch on the ones you want, open a card for its settings."
                    end,
                    visible = function() return SettingsUI:HasClassTools() end },
@@ -151,8 +153,9 @@ local CARDS = {
     -- the Welcome tour's parts and the strategy board's tutorial (UI/WelcomeTour.lua)
     tutorials = { label = "Tutorials", build = "BuildTutorials", icon = 47,
                   lead = "Short tours on the real windows. Nothing you do in one is sent to the guild." },
+    -- (UI/DemoPage.lua builds it: the parts on screen, the demo guild's pages, the moments; Core/DemoParts.lua)
     demo = { label = "Demo mode", build = "BuildDemo", icon = 22,
-             lead = "Made-up guild members and a raid to try things solo. Never saved or sent." },
+             lead = "Try any part of the addon with made-up data, one at a time or all together. Never saved or sent." },
     about = { label = "About", build = "BuildAbout", icon = 34,
               lead = "Your version, how your list is shared, and help for tracking down problems." },
 }
@@ -2269,14 +2272,14 @@ end
 -- Class tools (Core/ClassKit.lua): one section, a card per tool of my class: its header (icon, name, who it is for,
 -- the tool's own action, an on/off switch, a chevron) opens and closes its settings. Every card starts closed (open
 -- state lasts the session); tools for another spec are grey with "not your spec", tools switched off are dimmed. In
--- demo mode every class's tools show (and work with made-up data). A kit's settings(SettingsUI, body) fills the card
+-- a demo the tools of the classes picked on the Demo page show too (and work with made-up data). A kit's settings(SettingsUI, body) fills the card
 -- with the usual rows (body works as a section of its own) and ends it.
 local KIT_HEAD_H, KIT_GAP, KIT_INSET = 46, 8, 14
 
 function SettingsUI:HasClassTools()
     local CK = ns.ClassKit
     if not CK then return false end
-    return CK:IsDemo() or #CK:List(CK:MyClass()) > 0
+    return #CK:List(CK:MyClass()) > 0 or #CK:Mine() > 0
 end
 
 local kitOpen = {}   -- key -> true while that card is open (this session only)
@@ -2360,11 +2363,11 @@ function SettingsUI:LayoutClassTools()
     local sec = self.sections and self.sections.classtools
     if not sec or not sec.cards then return end
     local CK = ns.ClassKit
-    local demo, mine = CK:IsDemo(), CK:MyClass()
+    local mine = CK:MyClass()
     local y = sec.top
     for _, card in ipairs(sec.cards) do
         local kit = card.kit
-        if demo or kit.class == mine then
+        if kit.class == mine or CK:IsMine(kit.key) then
             local open = KitOpen(kit.key)
             local forMe, on = CK:IsMine(kit.key), CK:IsOn(kit.key)
             card:ClearAllPoints()
@@ -2965,7 +2968,7 @@ function PartInfo(key)
     return p and p.label or key, p and p.tip or ""
 end
 
--- Is the part there for me (class bars and timers: their class tools are my class's, or demo mode)?
+-- Is the part there for me (class bars and timers: their class tools are my class's, or a class picked in a demo)?
 function SettingsUI:PartShown(key)
     local p = PART[key]
     if not (p and p.kits) then return true end
@@ -2973,7 +2976,7 @@ function SettingsUI:PartShown(key)
     if not CK then return false end
     for _, k in ipairs(p.kits) do
         local kit = CK:Get(k)
-        if kit and (CK:IsDemo() or kit.class == CK:MyClass()) then return true end
+        if kit and (kit.class == CK:MyClass() or CK:IsMine(kit.key)) then return true end
     end
     return false
 end
@@ -3335,7 +3338,7 @@ function SettingsUI:BuildPart(sec, p)
         local CK = ns.ClassKit
         for _, prefix in ipairs(PART.timers.kits) do
             local kit = CK and CK:Get(prefix)
-            if kit and ns.RingFace and (CK:IsDemo() or kit.class == CK:MyClass()) then
+            if kit and ns.RingFace and (kit.class == CK:MyClass() or CK:IsMine(kit.key)) then
                 ns.RingFace:SettingsRow(self, sec, prefix, kit.label)
             end
         end
@@ -3810,33 +3813,7 @@ function SettingsUI:RefreshTutorials()
     sec.height = -y + 8
 end
 
-function SettingsUI:BuildDemo(sec)
-    sec.y = sec.y - 4
-    self:Switch(sec, "Demo data", "Fake guild members and a raid to try the council views solo. Never saved or sent.",
-        function() return (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) and true or false end,
-        function(a, b)
-            if ns.Demo and ns.Demo.SetEnabled then ns.Demo:SetEnabled(Bool(a, b)) end
-        end)
-    self:EndSection(sec)
-    local y = sec.y - 16
-    local sim = ns.UI:CreateSleekButton(sec, "Simulate a boss drop", nil, 22, function()
-        if ns.Loot and ns.Loot.SimulateDrop then ns.Loot:SimulateDrop() end
-    end)
-    Put(sim, sec, 0, y)
-    AddTooltip(sim, "Simulate a boss drop", "Opens the drop panel with a made-up boss drop. In demo mode, click Roll "
-        .. "on any of its items to watch a roll.")
-    local demoRoll
-    demoRoll = ns.UI:CreateSleekButton(sec, "Demo a roll", nil, 22, function() SettingsUI:OpenDemoRollMenu(demoRoll) end)
-    demoRoll:SetPoint("LEFT", sim, "RIGHT", 8, 0)
-    AddTooltip(demoRoll, "Demo a roll", "Turns on demo mode and starts a roll the demo raid answers: a random prized "
-        .. "drop, or a scenario that shows one of the guild's loot rules (also /dz demo <name>). Nothing is sent.")
-    local recent = ns.UI:CreateSleekButton(sec, "Recent drops", nil, 22, function()
-        if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
-    end)
-    recent:SetPoint("LEFT", demoRoll, "RIGHT", 8, 0)
-    AddTooltip(recent, "Recent drops", "The boss drops seen this session, in the drop panel.")
-    sec.height = -(y - 22) + 8
-end
+-- (SettingsUI:BuildDemo, the Demo mode card's page: UI/DemoPage.lua)
 
 function SettingsUI:BuildAbout(sec)
     sec.y = sec.y - 4
@@ -3873,29 +3850,7 @@ function SettingsUI:BuildAbout(sec)
     self:EndSection(sec)
 end
 
--- 1.3.5: the Demo a roll menu - a random prized drop, or one of the scenarios (Core/DemoScenarios.lua).
-function SettingsUI:OpenDemoRollMenu(owner)
-    local D = ns.Demo
-    ns.UI:ContextMenu(owner, function(root)
-        local rv = root:CreateButton("Loot reserves: a pug night", function()
-            if ns.ReserveDemo then ns.ReserveDemo:Start() end
-        end)
-        rv:SetTitleAndTextTooltip("Loot reserves: a pug night", "Step through a made-up pug night in Serpentshrine "
-            .. "Cavern as the raid leader, a raider or a pug with chat only. Nothing is sent.")
-        root:CreateButton("Random prized drop", function() SettingsUI:DemoRoll() end)
-        root:CreateDivider()
-        root:CreateTitle("Loot rules scenarios")
-        for _, def in ipairs(D and D.SCENARIOS or {}) do
-            local b = root:CreateButton(def.label, function()
-                local ok, err = D:RunScenario(def.key)
-                if not ok then ns:Print("Demo scenario not started: %s", tostring(err)) end
-            end)
-            b:SetTitleAndTextTooltip(def.label, def.desc)
-        end
-    end)
-end
-
--- "Demo a roll": demo mode on, a simulated drop, and a local roll on its first item.
+-- The Demo page's "A prized drop" (Core/DemoParts.lua): demo mode on, a simulated drop, a local roll on its first item.
 function SettingsUI:DemoRoll()
     if ns.Demo and ns.Demo.ClearScenario then ns.Demo:ClearScenario() end
     local D = ns.Demo
@@ -4610,7 +4565,7 @@ end
 CARDS.classtools.summary = function()
     local CK = ns.ClassKit
     if not CK then return "" end
-    if CK:IsDemo() then return "Demo: every class's tools" end
+    if #CK:Mine() > #CK:List(CK:MyClass()) then return "Demo: the picked classes' tools too" end
     local on = {}
     for _, kit in ipairs(CK:List(CK:MyClass())) do
         if CK:IsOn(kit.key) then on[#on + 1] = kit.label end
@@ -4677,8 +4632,17 @@ CARDS.tutorials.summary = function()
     return format("%d of %d tours done", done, n)
 end
 CARDS.demo.summary = function()
-    local on = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
-    return on and "On · made-up guild and raid" or "Off · try the council views solo"
+    local D = ns.Demo
+    if not (D and D.OnList) then return "" end
+    local n, m = #D:OnList(), D:GetMoment()
+    if n == 0 and not m then
+        return D:IsEnabled() and "Demo guild on · nothing on screen" or "Off · pick what to try"
+    end
+    local bits = {}
+    if n > 0 then bits[#bits + 1] = format("%d on screen", n) end
+    if m then bits[#bits + 1] = "a moment playing" end
+    if D:IsEnabled() then bits[#bits + 1] = "demo guild on" end
+    return (table.concat(bits, " · "):gsub("^%l", string.upper))
 end
 CARDS.about.summary = function()
     local SY = ns.Sync
@@ -4850,7 +4814,7 @@ function SettingsUI:LayoutResults()
     local hits = {}
     for _, e in ipairs(self.index) do
         local where = e.path[#e.path]
-        if (not e.kit or self:KitShown(e.kit) or (ns.ClassKit and ns.ClassKit:IsDemo()))
+        if (not e.kit or self:KitShown(e.kit) or (ns.ClassKit and ns.ClassKit:IsMine(e.kit)))
             and (not e.part or self:PartShown(e.part)) and (not e.card or self:CardVisible(e.card))
             and (Lower(e.title):find(q, 1, true) or Lower(e.desc):find(q, 1, true) or Lower(where):find(q, 1, true)) then
             hits[#hits + 1] = e

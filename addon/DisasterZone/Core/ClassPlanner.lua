@@ -78,10 +78,11 @@ function M:Me()
     return k and Util.ShortName(k) or nil
 end
 
--- Demo mode (Core/Demo.lua): a made-up raid with me among the class's players and leading. Edits stay in memory;
--- nothing is sent, scanned or cast.
+-- Demo (its part picked on the Demo page, Core/DemoParts.lua): a made-up raid with me among the class's players and
+-- leading. Edits stay in memory; nothing is sent, scanned or cast.
 function M:IsDemo()
-    return ns.ClassKit and ns.ClassKit:IsDemo() or false
+    local kit = self.planner and self.planner.kit
+    return ns.ClassKit and kit and ns.ClassKit:IsDemo(kit.key) or false
 end
 
 -- In a group (or the demo's raid)?
@@ -338,8 +339,14 @@ function M:OnLogin()
         if prefix == P.prefix then mod:OnMessage(text, channel, sender) end
     end)
     if mod[P.isClass](mod) then mod:ScanSelf() end
-    ns:On("DEMO_TOGGLED", function(on) mod:OnDemoToggled(on) end)
-    if mod:IsDemo() then mod:OnDemoToggled(true) end
+    -- (its demo part picked or put away: the made-up raid in, or the real one back)
+    local function demoSync()
+        local want = mod:IsDemo()
+        if want ~= (P.demo ~= nil) then mod:OnDemoToggled(want) end
+    end
+    ns:On("DEMO_TOGGLED", demoSync)
+    ns:On("DEMO_PARTS_CHANGED", demoSync)
+    demoSync()
     local wasInGroup = IsInGroup()
     ns:RegisterEvent("GROUP_ROSTER_UPDATE", function()
         local now = IsInGroup()

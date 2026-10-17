@@ -720,7 +720,11 @@ function UI:OnLogin()
         if path == "bossmods.size" or path == "bossmods.warnSize" then UI:Rescale() end
     end)
     for _, m in ipairs({ "BOSSMOD_BARS", "BOSSMOD_RANGE", "BOSSMOD_FIGHT" }) do ns:On(m, function() UI:Wake() end) end
-    ns:On("DEMO_TOGGLED", function(on)
-        if on and BM() and BM():IsOn() then UI:TryIt() end
+    -- its part on the Demo page (Core/DemoParts.lua): the Gruul pull on each demo pull, boss mods on or off
+    ns:On("DEMO_PULL", function(started)
+        if started and ns.Demo:IsOn("bossmods") then UI:TryIt(ns.Demo:IsLooping()) end
+    end)
+    ns:On("DEMO_PARTS_CHANGED", function(key, on)
+        if (key == "bossmods" or key == "stop") and not on and UI:IsTrying() then UI:Preview(false) end
     end)
 end

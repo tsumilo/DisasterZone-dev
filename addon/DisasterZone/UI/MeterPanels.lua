@@ -2449,7 +2449,7 @@ end
 local function ShowWanted()
     if not Meter:IsEnabled() and not Threat:IsEnabled() then return false end
     if userHidden then return false end
-    if not Locked() or Meter:IsDemo() then return true end
+    if not Locked() or Meter:IsDemo() or Threat:IsDemo() then return true end
     local show = Setting("show", "group")
     if show == "group" and not (IsInGroup and IsInGroup()) and not Meter:GetLive() then return false end
     if show == "instance" and not (IsInInstance and IsInInstance()) then return false end
@@ -2614,7 +2614,14 @@ function MP:OnLogin()
         end
         MP:Refresh()
     end)
-    ns:On("DEMO_TOGGLED", function() if ns.MeterDemo then ns.MeterDemo:Reset() end MP:Refresh() end)
+    -- (the meters' parts on the Demo page, Core/DemoParts.lua)
+    ns:On("DEMO_PARTS_CHANGED", function(key)
+        if key == "meters" or key == "threat" or key == "stop" then
+            if ns.MeterDemo then ns.MeterDemo:Reset() end
+            MP:Refresh()
+            MP:UpdateVisibility()
+        end
+    end)
     for _, ev in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do
         ns:RegisterEvent(ev, function() MP:UpdateVisibility() end)
     end

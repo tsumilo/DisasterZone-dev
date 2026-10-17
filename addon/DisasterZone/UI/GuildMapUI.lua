@@ -1246,7 +1246,8 @@ function WorldMap:Refresh()
     local wm = WorldMapFrame
     local pins = WorldPins()
     local G = GM()
-    local show = wm and wm.IsShown and wm:IsShown() and G and G:GetShowOnWorldMap() and (G:IsSharing() or G:IsDemo())
+    local demoDots = G and G:IsDemo() and ns.Demo.IsOn and ns.Demo:IsOn("mapdots")
+    local show = wm and wm.IsShown and wm:IsShown() and G and G:GetShowOnWorldMap() and (G:IsSharing() or demoDots)
     local canvas = show and wm.GetCanvas and wm:GetCanvas()
     local mapID = show and wm.GetMapID and wm:GetMapID()
     local n = 0
@@ -1322,7 +1323,7 @@ function GuildMapUI:OnInit()
         end
         if WorldMapFrame and WorldMapFrame:IsShown() then WorldMap:Refresh() end
     end
-    for _, msg in ipairs({ "GUILDMAP_UPDATED", "SETTINGS_CHANGED", "DEMO_TOGGLED", "ROSTER_UPDATED" }) do
+    for _, msg in ipairs({ "GUILDMAP_UPDATED", "SETTINGS_CHANGED", "DEMO_TOGGLED", "DEMO_PARTS_CHANGED", "ROSTER_UPDATED" }) do
         ns:On(msg, refresh)
     end
     ns:RegisterSlash("map", function() ns.MainFrame:Open("map") end, "open Guild > Map: where guildmates who share are")

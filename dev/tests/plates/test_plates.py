@@ -402,10 +402,14 @@ def the_demo_in_every_look():
         assert c.eval("return ns.Plates:DemoRunning()") is True
         w.tick(5)
         assert c.eval("return ns.Plates:DemoRunning()") is False
-    c.eval("ns:Fire('DEMO_TOGGLED', true)")
+    # the demo guild alone plays nothing on screen; the Demo page's Nameplates part plays the council (2026-10-17)
+    c.eval("ns.Demo:SetEnabled(true)")
+    w.tick(1)
+    assert c.eval("return ns.Plates:DemoRunning()") is False
+    c.eval("ns.Demo:SetOn('plates', true)")
     w.tick(1)
     assert c.eval("return ns.Plates:DemoRunning()") is True
-    c.eval("ns:Fire('DEMO_TOGGLED', false)")
+    c.eval("ns.Demo:SetOn('plates', false)")
     assert c.eval("return ns.Plates:DemoRunning()") is False
     w.assert_no_errors()
 

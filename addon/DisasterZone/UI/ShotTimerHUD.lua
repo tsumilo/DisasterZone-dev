@@ -37,7 +37,7 @@ end
 -- Where it sits at first: the swing timer's place; in demo mode on another class's character, beside it (both show).
 function D:DefaultPos()
     local _, cls = UnitClass("player")
-    if cls ~= "HUNTER" and ns.ClassKit:IsDemo() then return 280, -170 end
+    if cls ~= "HUNTER" and ns.ClassKit:IsDemo("shot") then return 280, -170 end
     return 0, -170
 end
 function D:RestIcon() return GetInventoryItemTexture("player", 18) or ST.ICONS.auto end

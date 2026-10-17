@@ -72,7 +72,7 @@ def fake_key_with_list(c):
 def i_demo_on_council_sends_nothing_demo_related():
     w, R, C1, C2, fake = setup()
     mark, mark_chat = len(w.addon_log), len(w.chat_log)
-    C1.slash("/dz demo")
+    C1.slash("/dz demo guild")
     assert C1.eval("return ns.Demo:IsEnabled()")
     fk = fake_key_with_list(C1)
     assert fk and fk.split("-")[0] in fake, fk
@@ -102,7 +102,7 @@ def i_demo_on_council_sends_nothing_demo_related():
     assert not cl, "demo names in chat: %s" % cl[:3]
     assert not sv_leaks(C1, fake), "demo names in DisasterZoneDB: %s" % sv_leaks(C1, fake)
 
-    C1.slash("/dz demo")                             # off: demo ledger discarded, nothing flushed
+    C1.slash("/dz demo guild")                             # off: demo ledger discarded, nothing flushed
     settle(w, 10)
     assert not C1.eval("return ns.Demo:IsEnabled()")
     assert ledger_ids(C1) == led_before
@@ -119,8 +119,8 @@ def i_demo_on_council_sends_nothing_demo_related():
 @r.case
 def i_real_sync_keeps_working_while_demo_on():
     w, R, C1, C2, fake = setup()
-    C1.slash("/dz demo")
-    R.slash("/dz demo")
+    C1.slash("/dz demo guild")
+    R.slash("/dz demo guild")
     mark = len(w.addon_log)
     edit(R, 1, commit=True)
     settle(w, 10)
@@ -143,7 +143,7 @@ def i_real_drop_announce_in_demo_mode_does_not_post_fake_names():
     """A council member tries demo mode during a real raid. A REAL boss drop comes in; the drop panel shows
     demo wanters (fine, local). Clicking 'Announce' must not post demo names into raid chat."""
     w, R, C1, C2, fake = setup()
-    C1.slash("/dz demo")
+    C1.slash("/dz demo guild")
     fk, wanted = C1.eval("""
       -- a demo member of the (demo) raid with an unobtained boss item as a main pick
       for _, key in ipairs(ns.Demo:GetRaidKeys()) do
@@ -199,7 +199,7 @@ def i_council_overview_announce_in_demo_mode_does_not_post_fake_names():
     """Council overview (UI/Council.lua) item row -> right-click -> 'Announce to raid' while demo mode is on in a
     real raid: the line is built from demo wanters and posted to RAID chat."""
     w, R, C1, C2, fake = setup()
-    C1.slash("/dz demo")
+    C1.slash("/dz demo guild")
     fk, wanted = C1.eval(DEMO_WANTED_LUA)
     assert wanted, "no demo raid member wants a boss item?"
     mark_chat = len(w.chat_log)

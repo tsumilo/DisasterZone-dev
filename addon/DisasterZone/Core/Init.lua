@@ -494,6 +494,9 @@ local KNOWN_MESSAGES = {
     LIST_UPDATED = true, LISTS_RESET = true, ITEMINFO_READY = true,
     DROP = true, LEDGER_UPDATED = true, PEERS_UPDATED = true,
     SYNC_STATUS = true, SETTINGS_CHANGED = true, DEMO_TOGGLED = true,
+    -- Core/DemoParts.lua: DEMO_PARTS_CHANGED (key, on) a demo part picked or put away ("classes", "mode", "stop" too),
+    -- DEMO_PULL (started) a demo pull began / is over, DEMO_MOMENT (key | nil) a moment began / ended
+    DEMO_PARTS_CHANGED = true, DEMO_PULL = true, DEMO_MOMENT = true,
     RESERVES_CHANGED = true, RESERVES_OPENED = true, RESERVES_CLOSED = true, RESERVES_CLEARED = true,
     RESERVES_RULES = true, RESERVE_ADDED = true, RESERVE_REMOVED = true, RESERVE_DEMO_STEP = true,
     -- Core/Layout.lua: LAYOUT_CHANGED (what: "profiles" | "profile" | "items" | "hidden" | "applied"), LAYOUT_RECEIVED

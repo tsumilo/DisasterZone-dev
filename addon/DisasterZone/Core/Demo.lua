@@ -650,34 +650,4 @@ function Demo:SimulateRolls(session)
     return count
 end
 
----------------------------------------------------------------------------
--- Slash: /dz demo [on|off]
----------------------------------------------------------------------------
-
-ns:RegisterSlash("demo", function(rest)
-    local arg = type(rest) == "string" and rest:lower() or ""
-    arg = arg:gsub("^%s+", ""):gsub("%s+$", "")
-    -- (1.3.5: /dz demo <scenario>, /dz demo list)
-    if arg ~= "" and arg ~= "on" and arg ~= "off" and arg ~= "1" and arg ~= "0" and Demo.ScenarioSlash
-        and Demo:ScenarioSlash(arg) then
-        return
-    end
-    local want
-    if arg == "on" or arg == "1" then
-        want = true
-    elseif arg == "off" or arg == "0" then
-        want = false
-    else
-        want = not enabled
-    end
-    local nowOn = Demo:SetEnabled(want)
-    if nowOn ~= want then return end
-    if nowOn then
-        local raidCount = 0
-        for _ in pairs(generated.raidSet) do raidCount = raidCount + 1 end
-        ns:Print("demo mode |cff33ff33on|r: %d fake guild members with BiS lists, %d of them in your demo raid. Try /dz council. Type /dz demo again to turn it off.",
-            #generated.memberKeys, raidCount)
-    else
-        ns:Print("demo mode |cffff3333off|r.")
-    end
-end, "toggle demo data (fake guild members, lists and raid)")
+-- (/dz demo: UI/DemoList.lua, with the Demo picker's parts and moments)

@@ -4,7 +4,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/DemoScenarios.lua", ...) then
 -- list for the item (a snapshot tier), attendance, raids since loot, longest use, what they roll and who the demo
 -- council votes for. A chat line says what to look at and which Council > Rules choice changes the outcome.
 -- The overrides only touch the cast and end with the next scenario, a plain demo roll or demo mode going off.
--- Settings > Demo mode > Demo a roll (a menu) and /dz demo <scenario> run them.
+-- Settings > Help > Demo mode > Moments (Core/DemoParts.lua registers each as a moment) and /dz demo <scenario> run
+-- them.
 local addonName, ns = ...
 
 local Demo = ns.Demo

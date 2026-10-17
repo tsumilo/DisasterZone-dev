@@ -80,7 +80,8 @@ function ShotTimer:IsEnabled() return Get("enabled", false) and true or false en
 ns.ClassKit:Register({ key = "shot", label = "Shot timer", class = "HUNTER", order = 20, icon = IDS.steady })
 
 function ShotTimer:IsMine() return ns.ClassKit:IsMine("shot") end
-function ShotTimer:IsDemo() return ns.ClassKit:IsDemo() end
+function ShotTimer:IsDemo() return ns.ClassKit:IsDemo("shot") end   -- (its part picked on the Demo page)
+local function DemoPlaying() return ns.Demo and ns.Demo.IsPlaying and ns.Demo:IsPlaying("shot") or false end
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Latency (as Core/SwingTimer.lua: the world latency averaged with what we measure, here the time from pressing a
@@ -613,8 +614,10 @@ local function DemoShots(on)
 end
 
 function ShotTimer:Refresh()
-    self.active = self:IsMine() and (self:IsEnabled() or self:IsDemo())   -- (off until switched on; demo shows it)
-    DemoShots(self.active and self:IsDemo())
+    -- (off until switched on; its demo shows it while the demo's pull plays)
+    local demo = DemoPlaying()
+    self.active = self:IsMine() and (self:IsEnabled() or demo)
+    DemoShots(self.active and demo)
     ns:Fire("SHOT_STATE", self.active)
 end
 

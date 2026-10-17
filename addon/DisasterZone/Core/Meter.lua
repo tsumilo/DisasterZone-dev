@@ -127,7 +127,8 @@ end
 Meter.Setting = Setting
 
 function Meter:IsEnabled() return Setting("dmg", false) and true or false end
-function Meter:IsDemo() return Util.DemoOn() and ns.MeterDemo ~= nil end
+-- (its part picked on the Demo page, Core/DemoParts.lua: the made-up Tempest Keep night)
+function Meter:IsDemo() return ns.MeterDemo ~= nil and ns.Demo ~= nil and ns.Demo.IsOn ~= nil and ns.Demo:IsOn("meters") end
 
 local function Store()
     if type(DisasterZoneMeterDB) ~= "table" or DisasterZoneMeterDB.v ~= 1 then

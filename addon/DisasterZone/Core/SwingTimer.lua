@@ -496,13 +496,16 @@ local function DemoSwings(on)
     end
 end
 
-function SwingTimer:IsDemo() return ns.ClassKit:IsDemo() end
+-- (its part picked on the Demo page; the made-up swings play while the demo's pull does)
+function SwingTimer:IsDemo() return ns.ClassKit:IsDemo("swing") end
+local function DemoPlaying() return ns.Demo and ns.Demo.IsPlaying and ns.Demo:IsPlaying("swing") or false end
 
 -- (twist practice keeps it on while it runs, even when the swing timer itself is off)
 function SwingTimer:Refresh()
-    -- (off until switched on; demo mode shows it anyway)
-    self.active = self:IsRet() and (self:IsEnabled() or self.practice ~= nil or self:IsDemo())
-    DemoSwings(self.active and self:IsDemo() and not self.practice)
+    -- (off until switched on; its demo shows it anyway)
+    local demo = DemoPlaying()
+    self.active = self:IsRet() and (self:IsEnabled() or self.practice ~= nil or demo)
+    DemoSwings(self.active and demo and not self.practice)
     CL:SetSubscribed("swing", OnCombatLog, self.active and not self.practice)
     ns:Fire("SWING_STATE", self.active)
 end

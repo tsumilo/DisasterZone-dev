@@ -254,33 +254,63 @@ def minimap_toggle_hides_and_shows_the_button():
     no_errors(w)
 
 
+DEMO_ROW = "for _, r in ipairs(ns.SettingsUI.demo.rows) do if r.d.key == '%s' then return r.%s end end"
+DEMO_ON = "local o = {} for _, d in ipairs(ns.Demo:OnList()) do o[#o + 1] = d.key end table.sort(o) return o"
+
+
 @case
-def demo_simulate_and_demo_roll_buttons():
+def demo_page_parts_pages_moments_and_stop_all():
+    # 1.6.0: Settings > Help > Demo mode is the Demo picker (Core/DemoParts.lua, UI/DemoPage.lua)
     w, c = settings_client(guild_rank=3)
-    cb = checkbox(c, "Demo data")
-    c.click(cb)
+    c.eval("ns.SettingsUI:SelectSection('demo')")
+    w.tick(0.2)
+    assert strip_codes(c.eval("return ns.SettingsUI.demo.status.title:GetText()")) == "Nothing playing"
+    # Pages: the demo guild's switch fills the pages and says so in the window
+    c.eval("ns.SettingsUI:SetDemoTab('pages')")
+    c.click(c.eval("return ns.SettingsUI.demo.guild.switch"))
     w.tick(0.3)
     assert c.eval("return ns.Demo:IsEnabled()") is True
+    assert c.eval("return #ns.Demo:OnList()") == 0, "the demo guild put something on screen"
     status = strip_codes(c.eval("return DisasterZoneMainFrame and T_textregion(DisasterZoneMainFrame, 'Demo mode') and T_textregion(DisasterZoneMainFrame, 'Demo mode'):GetText()") or "")
     assert status.startswith("Demo mode"), status
     council = strip_codes(c.eval("return T_textregion(T_settings(), 'Loot Council.'):GetText()"))
     assert council == "You are on the Loot Council. (demo mode)", council
-    c.click(c.eval("return T_button(T_settings(), 'Simulate a boss drop')"))
-    w.tick(0.5)
-    assert c.eval("return DisasterZoneDropPanel and DisasterZoneDropPanel:IsShown()") is True
-    c.click(cb)
+    # On screen: a part's switch plays it; the status line and the demo bar say so
+    c.eval("ns.SettingsUI:SetDemoTab('screen')")
+    c.click(c.eval(DEMO_ROW % ("plates", "switch")))
     w.tick(0.3)
-    assert c.eval("return ns.Demo:IsEnabled()") is False
-    # (1.3.5: Demo a roll is a menu - a random prized drop or a loot rules scenario)
-    c.click(c.eval("return T_button(T_settings(), 'Demo a roll')"))
-    w.tick(0.2)
-    labels = menu_labels(c)
-    assert "Random prized drop" in labels and "Split vote" in labels, labels
-    menu_pick(c, "Random prized drop")
+    assert c.eval("return ns.Demo:IsOn('plates')") is True
+    assert c.eval("return ns.Plates:DemoRunning()") is True
+    assert c.eval("return DisasterZoneDemoBar ~= nil and DisasterZoneDemoBar:IsShown()") is True
+    title = strip_codes(c.eval("return ns.SettingsUI.demo.status.title:GetText()"))
+    assert title.startswith("1 on screen"), title
+    # a quick pick switches its set on and the others off
+    c.click(c.eval("for _, ch in ipairs(ns.SettingsUI.demo.chips) do if ch.key == 'combat' then return ch end end"))
+    w.tick(0.3)
+    assert c.eval_py(DEMO_ON) == ["bossmods", "meters", "plates", "sct", "threat"], c.eval_py(DEMO_ON)
+    # class tools: your class's (a Paladin here); another class shows once picked
+    c.eval("ns.SettingsUI:SetDemoTab('screen')")
+    assert c.eval("for _, r in ipairs(ns.SettingsUI.demo.rows) do if r.d.key == 'totems' then return r:IsShown() end end") is False
+    c.eval("ns.Demo:SetClassPicked('SHAMAN', true)")
+    w.tick(0.1)
+    assert c.eval("for _, r in ipairs(ns.SettingsUI.demo.rows) do if r.d.key == 'totems' then return r:IsShown() end end") is True
+    # Moments: a prized drop plays a roll the demo raid answers
+    c.eval("ns.SettingsUI:SetDemoTab('moments')")
+    c.click(c.eval(DEMO_ROW % ("roll", "play")))
     w.tick(0.5)
-    assert c.eval("return ns.Demo:IsEnabled()") is True
+    assert c.eval("return (ns.Demo:GetMoment())") == "roll"
     assert c.eval("return ns.Roll:GetActive() ~= nil") is True
     assert c.eval("return DisasterZoneRollFrame and DisasterZoneRollFrame:IsShown()") is True
+    # Stop all: every part, the moment and the demo guild off; the picks are kept for Play my picks
+    c.click(c.eval("return ns.SettingsUI.demo.status.stop"))
+    w.tick(0.3)
+    assert c.eval("return ns.Demo:IsActive()") is False
+    assert c.eval("return DisasterZoneDemoBar:IsShown()") is False
+    assert c.eval("return ns.SettingsUI.demo.status.mine:IsShown()") is True
+    c.click(c.eval("return ns.SettingsUI.demo.status.mine"))
+    w.tick(0.3)
+    assert c.eval_py(DEMO_ON) == ["bossmods", "meters", "plates", "sct", "threat"], c.eval_py(DEMO_ON)
+    c.eval("ns.Demo:StopAll(true)")
     w.tick(40)
     # about text
     about = strip_codes(c.eval("return ns.SettingsUI.aboutText:GetText()"))

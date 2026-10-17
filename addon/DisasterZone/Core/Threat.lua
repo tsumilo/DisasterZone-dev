@@ -38,7 +38,8 @@ end
 Threat.Setting = Setting
 
 function Threat:IsEnabled() return Setting("thr", false) and true or false end
-function Threat:IsDemo() return Util.DemoOn() and ns.MeterDemo ~= nil end
+-- (its part picked on the Demo page, Core/DemoParts.lua: the made-up Void Reaver pull)
+function Threat:IsDemo() return ns.MeterDemo ~= nil and ns.Demo ~= nil and ns.Demo.IsOn ~= nil and ns.Demo:IsOn("threat") end
 function Threat:OnChange(fn) listeners[#listeners + 1] = fn end
 local function Changed() for _, fn in ipairs(listeners) do pcall(fn, state) end end
 

@@ -105,17 +105,25 @@ function ClassKit:MySpecs()
     return out
 end
 
--- Demo mode (Core/Demo.lua): every class tool is on for anyone, with made-up data, to try them out.
-function ClassKit:IsDemo()
-    return ns.Util.DemoOn()
+-- Demo (Core/DemoParts.lua): a class tool plays with made-up data while its part is picked on the Demo page
+-- (key: the kit's; the part has the same key). Without a key: is any demo going (the guild, a part, a moment)?
+function ClassKit:IsDemo(key)
+    local D = ns.Demo
+    if not D then return false end
+    if key then return D.IsOn and D:IsOn(key) or false end
+    return D.IsActive and D:IsActive() or ns.Util.DemoOn()
 end
 
--- True when the kit is for this character: its class, and one of its specs (any spec when it names none); every
--- kit in demo mode.
-function ClassKit:IsMine(key)
-    local k = kits[key]
-    if not k then return false end
-    if self:IsDemo() then return true end
+-- Another class picked on the Demo page while a demo is going: its tools are listed (Settings, pages) as if mine.
+function ClassKit:IsDemoClass(cls)
+    local D = ns.Demo
+    if not (D and D.IsClassPicked) or cls == self:MyClass() then return false end
+    return D:IsClassPicked(cls) and self:IsDemo() or false
+end
+
+-- True when the kit is for this character: its class, and one of its specs (any spec when it names none); a kit
+-- playing in demo, or of a class picked on the Demo page.
+local function RealMine(self, k)
     if k.class ~= self:MyClass() then return false end
     if not k.specs then return true end
     local mine = self:MySpecs()
@@ -128,6 +136,13 @@ function ClassKit:IsMine(key)
     return false
 end
 
+function ClassKit:IsMine(key)
+    local k = kits[key]
+    if not k then return false end
+    if self:IsDemo(key) or self:IsDemoClass(k.class) then return true end
+    return RealMine(self, k)
+end
+
 -- Switched on (Settings > Class tools, the switch on each card): the setting '<key>.enabled'. Every class tool starts
 -- OFF: turning one on is the player's own choice (user, 2026-10-16). A kit that is off shows nothing (no bar, no HUD,
 -- no warnings); its planner still opens.
@@ -137,11 +152,13 @@ function ClassKit:IsOn(key)
     return v == true
 end
 
--- Shown now: the kit is for this character and switched on, or demo mode (which shows every tool, off or not, to try
--- them; nothing it does is saved or sent).
+-- Shown now: the kit is for this character and switched on, or its demo part is picked (off or not, to try it;
+-- nothing it does is saved or sent).
 function ClassKit:IsLive(key)
-    if not self:IsMine(key) then return false end
-    return self:IsDemo() or self:IsOn(key)
+    local k = kits[key]
+    if not k then return false end
+    if self:IsDemo(key) then return true end
+    return RealMine(self, k) and self:IsOn(key)
 end
 
 function ClassKit:SetOn(key, on)
@@ -166,6 +183,9 @@ function ClassKit:OnLogin()
     ns:RegisterEvent("CHARACTER_POINTS_CHANGED", changed)
     ns:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", changed)   -- skipped where the client has no dual spec
     ns:On("DEMO_TOGGLED", changed)
+    -- (a tool's part picked or put away, a class picked, a demo pull starting or over: the timers follow it)
+    ns:On("DEMO_PARTS_CHANGED", changed)
+    ns:On("DEMO_PULL", changed)
 end
 
 -- Who a kit is for, in words: "Every Paladin spec", "Retribution Paladins".

@@ -458,7 +458,7 @@ def demo_mode_solo_roll_and_award_stay_local():
     install_probes([s])
     w.tick(3)
     log0, chat0 = len(w.addon_log), len(w.chat_log)
-    s.slash("/dz demo")
+    s.slash("/dz demo guild")
     w.tick(1)
     assert s.eval("return ns.Demo:IsEnabled()")
     s.slash("/dz test")
@@ -502,7 +502,7 @@ def demo_mode_solo_roll_and_award_stay_local():
     assert bad == [], "demo roll / award traffic was sent: %r" % bad     # the normal guild HELLO is fine
     assert w.chat_log[chat0:] == [], [e["text"] for e in w.chat_log[chat0:]]
     assert any("demo: only shown to you" in l for l in printed_lines(s))
-    s.slash("/dz demo")
+    s.slash("/dz demo guild")
     w.tick(1)
     assert not s.eval("return ns.Demo:IsEnabled()")
     assert ledger_visible(s) == [], "demo awards discarded when demo mode ends"
@@ -519,7 +519,7 @@ def demo_mode_inside_a_real_raid_sends_nothing():
     w = r.w
     A = r["Alice"]
     ledger_before = ledger_raw(A)
-    A.slash("/dz demo")
+    A.slash("/dz demo guild")
     w.tick(1)
     log0, chat0 = len(w.addon_log), len(w.chat_log)
     A.slash("/dz test")

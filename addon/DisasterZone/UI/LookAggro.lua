@@ -462,6 +462,9 @@ function Aggro:OnLogin()
         end
     end)
     ns:On("UI_LOOK_CHANGED", function() Aggro:Refresh() end)
-    ns:On("DEMO_TOGGLED", function() Aggro:Refresh(); if Aggro:IsOn() then ReadAll() end end)
+    -- (the Demo page's party: its made-up members' threat drifts)
+    ns:On("DEMO_PARTS_CHANGED", function(key)
+        if key == "party" or key == "stop" then Aggro:Refresh(); if Aggro:IsOn() then ReadAll() end end
+    end)
     self:Refresh()
 end

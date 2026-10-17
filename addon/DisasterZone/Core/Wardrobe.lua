@@ -48,7 +48,12 @@ local POLES = { [6256] = true, [6365] = true, [6366] = true, [6367] = true, [122
     [19970] = true, [25978] = true }
 
 local job   -- the swap running now: { o, why, passes, failed = { [inv] = why }, moved = {}, pulled, next } (Wearing)
-local function Demo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
+-- (the demo guild, or the Demo page's outfit bar part: made-up outfits, Core/DemoParts.lua)
+local function Demo()
+    local D = ns.Demo
+    if not D then return false end
+    return (D.IsEnabled and D:IsEnabled()) or (D.IsOn and D:IsOn("outfits")) or false
+end
 W.IsDemo = Demo
 
 local function Say(text) ns:Print("%s", text) end
@@ -1020,19 +1025,18 @@ function W:DemoList()
               [7] = "keep", [8] = "keep", [11] = "keep", [12] = "keep", [13] = "keep", [14] = "keep", [18] = "keep",
               [1] = 33820, [16] = 19970, [17] = false }),
     }
-    demoList.bar = true
     return demoList
 end
 
--- The quick-swap bar's switch (per character; demo: its own, in memory).
+-- The quick-swap bar's switch (per character; demo: the Demo page's outfit bar part).
 function W:BarOn()
-    if Demo() then return self:DemoList().bar and true or false end
+    if Demo() then return ns.Demo:IsOn("outfits") end
     local st = Store(false)
     return st and st.bar and true or false
 end
 
 function W:SetBar(on)
-    if Demo() then self:DemoList().bar = on and true or false
+    if Demo() then ns.Demo:SetOn("outfits", on)
     else
         local st = Store(true)
         if not st then return end
@@ -1078,6 +1082,7 @@ function W:OnLogin()
     ns:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", mount)
     ns:RegisterEvent("UNIT_AURA", function(_, unit) if unit == "player" then mount() end end)
     ns:On("DEMO_TOGGLED", Changed)
+    ns:On("DEMO_PARTS_CHANGED", function(key) if key == "outfits" or key == "stop" then Changed() end end)
     ns.Util.After(3, function()
         W:CheckSpec(true)
         lastWorn = W:WornSlots()

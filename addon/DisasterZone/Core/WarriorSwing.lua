@@ -89,7 +89,8 @@ ns.ClassKit:Register({ key = "war", label = "Swing timer", class = "WARRIOR", sp
     icon = IDS.hs, fallback = function() return true end })
 
 function War:IsMine() return ns.ClassKit:IsMine("war") end
-function War:IsDemo() return ns.ClassKit:IsDemo() end
+function War:IsDemo() return ns.ClassKit:IsDemo("war") end   -- (its part picked on the Demo page)
+local function DemoPlaying() return ns.Demo and ns.Demo.IsPlaying and ns.Demo:IsPlaying("war") or false end
 
 -- "fury" | "arms": the talents' spec; demo mode on another class plays Fury (both hands, so every part shows).
 function War:Spec()
@@ -637,9 +638,11 @@ end
 War.DemoState = function() return demo end
 
 function War:Refresh()
-    self.active = self:IsMine() and (self:IsEnabled() or self:IsDemo())   -- (off until switched on; demo shows it)
-    DemoSwings(self.active and self:IsDemo())
-    CL:SetSubscribed("war", OnCombatLog, self.active and not self:IsDemo())
+    -- (off until switched on; its demo shows it while the demo's pull plays)
+    local demo = DemoPlaying()
+    self.active = self:IsMine() and (self:IsEnabled() or demo)
+    DemoSwings(self.active and demo)
+    CL:SetSubscribed("war", OnCombatLog, self.active and not demo)
     ns:Fire("WAR_STATE", self.active)
 end
 

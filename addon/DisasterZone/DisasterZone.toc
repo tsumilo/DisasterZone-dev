@@ -189,6 +189,7 @@ Core\WornGems.lua
 Core\Wardrobe.lua
 Core\Demo.lua
 Core\DemoScenarios.lua
+Core\DemoParts.lua
 
 # 3D rooms (Blizzard's own meshes, drawn in the UI): shared by the strategy board and the Raid Trainer
 Render3D\Room.lua
@@ -277,6 +278,9 @@ UI\Reserves.lua
 UI\Tooltip.lua
 UI\Settings.lua
 UI\BossModSettings.lua
+UI\DemoList.lua
+UI\DemoPage.lua
+UI\DemoBar.lua
 UI\Changelog.lua
 UI\Feedback.lua
 UI\FeedbackSheet.lua

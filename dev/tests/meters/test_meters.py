@@ -747,7 +747,11 @@ def the_settings_page_hides_what_is_off():
 @case
 def demo_mode_fills_both_windows():
     r = Raid(dmg=False, instance=False)
+    # (2026-10-17: the Demo page's meter parts, not demo mode itself, fill them)
     r.cl.eval("ns.Demo:SetEnabled(true)")
+    r.w.tick(1)
+    assert not r.cl.eval("local f = _G.DisasterZoneMeters; return f and f:IsShown()")
+    r.cl.eval("ns.Demo:SetOn('meters', true); ns.Demo:SetOn('threat', true)")
     r.w.tick(1)
     assert not r.cl.eval("local f = _G.DisasterZoneMeters; return f and f:IsShown()")   # only fills panels that are on
     r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true)")
@@ -891,7 +895,7 @@ def interrupts_dispels_and_active_time_have_their_own_breakdown_and_short_lists_
     """Reported 2026-10-10: those three modes opened the damage breakdown, and the death recap showed a scroll bar
     with nothing to scroll."""
     r = Raid(dmg=False, instance=False)
-    r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.Demo:SetEnabled(true)")
+    r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.Demo:SetEnabled(true); ns.Demo:SetOn('meters', true)")
     find = "local g; for k, a in pairs(ns.Meter:GetSegment('all').actors) do if a.n == '%s' then g = k end end; "
     r.cl.eval(find % "Shadowmelder" + "ns.MeterDetail:Open('all', g, 'kicks')")
     f = "_G.DisasterZoneMeterDetail"
@@ -915,7 +919,7 @@ def interrupts_dispels_and_active_time_have_their_own_breakdown_and_short_lists_
 def charts_run_from_the_first_second_to_the_last():
     """Reported 2026-10-10: the Over time line started ~2.5 s in and stopped ~1-2 s early (points at step middles)."""
     r = Raid(dmg=False, instance=False)
-    r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.Demo:SetEnabled(true)")
+    r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.Demo:SetEnabled(true); ns.Demo:SetOn('meters', true)")
     for mode, tab in (("damage", "time"), ("active", "abilities")):
         span = r.cl.eval_py("ns.MeterDetail:Open('cur', ns.MeterDemo.ME, '%s'); ns.MeterDetail:GetState().tab = '%s'; "
                             "ns.MeterDetail:Draw(); local o = _G.DisasterZoneMeterDetail.chart.opts; local p = o.series[1].points; "

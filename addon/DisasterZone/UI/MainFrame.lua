@@ -63,7 +63,8 @@ local NAV_PAGE_TIPS = {
     games   = "Bingo and the other games to play with the guild.",
 }
 -- Class tools with a window of their own (their planners): a minimap pin for the classes they are for
--- (ClassKit:IsMine; demo mode: every class). Not in the nav menus (the user, 2026-10-11). A pin opens the window.
+-- (ClassKit:IsMine; a demo: the classes picked on the Demo page too). Not in the nav menus (the user, 2026-10-11).
+-- A pin opens the window.
 local NAV_TOOLS = {
     { key = "blessings", kit = "bless", label = "Blessings",
       tip = "Pally Power: which paladin blesses which class, and the auras.",
@@ -516,7 +517,8 @@ local function UpdateStatus(instant)
     if not frame or not status then return end
     local kind, text = "none", ""
     if ns.Sync and ns.Sync.GetStatus then kind, text = ns.Sync:GetStatus() end
-    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
+    -- (the demo guild, or a demo part / moment playing: Core/DemoParts.lua)
+    local demo = ns.Demo and (ns.Demo.IsActive and ns.Demo:IsActive() or ns.Demo:IsEnabled())
     local words = {}
     if demo then words[#words + 1] = S:Wrap("WARN", "Demo mode") end
     if kind == "warn" then words[#words + 1] = S:Wrap("WARN", "Not shared yet") end
@@ -976,6 +978,8 @@ ns:On("DEMO_TOGGLED", function()
     UpdateStatus()
     MainFrame:RefreshTabs()
 end)
+ns:On("DEMO_PARTS_CHANGED", function() UpdateStatus() end)
+ns:On("DEMO_MOMENT", function() UpdateStatus() end)
 
 ns:RegisterSlash("bis", function() MainFrame:Open("mybis") end, "open My BiS")
 ns:RegisterSlash("council", function() MainFrame:Open("council") end, "open the Loot Council view")

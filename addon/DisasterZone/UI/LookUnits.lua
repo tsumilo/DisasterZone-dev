@@ -1649,10 +1649,10 @@ function Units:Setup()
     RefreshAll()
 end
 
--- Demo mode: a made-up party beside you when you're not in a group.
+-- The Demo page's party part (Core/DemoParts.lua): a made-up party beside you when you're not in a group.
 function Units:Demo()
     if not Look():IsOn("group") or not holders.party then return end
-    local on = ns.Demo and ns.Demo:IsEnabled() and not (IsInGroup and IsInGroup())
+    local on = ns.Demo and ns.Demo.IsOn and ns.Demo:IsOn("party") and not (IsInGroup and IsInGroup())
     self:ShowPreview("party", on and true or false)
 end
 
@@ -1665,7 +1665,7 @@ function Units:OnLogin()
     ns:On("UI_LOOK_CHANGED", function(part)
         if (part == "units" or part == "group") and not Look():NeedsReload(part) then Units:Restyle(part) end
     end)
-    ns:On("DEMO_TOGGLED", function() Units:Demo() end)
+    ns:On("DEMO_PARTS_CHANGED", function(key) if key == "party" or key == "stop" then Units:Demo() end end)
     -- (a main tank's shield and number on their frames)
     ns:On("TANKS_CHANGED", function() RefreshAll() end)
     self:Demo()

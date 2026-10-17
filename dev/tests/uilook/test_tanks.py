@@ -345,10 +345,14 @@ def edit_layout_and_demo_show_made_up_tanks():
                   "o[i] = { r.face.name:GetText(), r.face2.name:GetText(), r.face2.status:GetText() } end return o")
     assert r == [["Victhar", "Maulgar", "88%"], ["Ironbark", "Blindeye", "on Dreadhex"], ["Moonwhisper", "Olm", "93%"]], r
     c.eval("ns.LookTanks:ShowPreview(false)")
+    # (2026-10-17: the demo guild alone shows nothing on screen; the Demo page's Main tanks part does)
     c.eval("ns.Demo:SetEnabled(true)")
     w.tick(0.2)
+    assert c.eval("return ns.LookTanks:Preview():IsShown()") is False
+    c.eval("ns.Demo:SetOn('tanks', true)")
+    w.tick(0.2)
     assert c.eval("return ns.LookTanks:Preview():IsShown()") is True
-    c.eval("ns.Demo:SetEnabled(false)")
+    c.eval("ns.Demo:SetOn('tanks', false)")
     w.tick(0.2)
     assert c.eval("return ns.LookTanks:Preview():IsShown()") is False
     # the switch hides the block

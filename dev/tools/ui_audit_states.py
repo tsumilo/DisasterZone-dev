@@ -1781,7 +1781,7 @@ TIP_ITEM = ("local it = ns.Prized:GetItems()[1]; local id = it and it.ids[1] or 
             "GameTooltip:SetPoint('CENTER', UIParent, 'CENTER'); GameTooltip:SetItemByID(id)")
 
 MET = ("ns.Demo:SetEnabled(true); ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true); "
-       "ns.MeterPanels:ResetLayout(); ")
+       "ns.Demo:SetOn('meters', true); ns.Demo:SetOn('threat', true); ns.MeterPanels:ResetLayout(); ")
 # (the class tool bars off, so a meter render shows only the meters)
 METQ = ("ns.DB:SetSetting('meters.ooc', 'stay'); for _, k in ipairs({ 'bless', 'totems', 'swing' }) do pcall(function() ns.ClassKit:SetOn(k, false) end) end; ")
 # (I'm the tank: the demo's threat row %s is me (1 Victhar holds it, 2 Moonwhisper lost it), my role tank)
@@ -2778,6 +2778,16 @@ STATES = [
     ("Settings - Attendance (member)", opened("settings", "ns.Guild.IsGM = function() return false end; "
         "ns.SettingsUI:SelectSection('attendance'); ns.SettingsUI:Refresh()")),
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
+    # the Demo picker (Core/DemoParts.lua, UI/DemoPage.lua): parts on, another class picked, the guild's pages, moments
+    ("Settings - Demo mode (on screen)", opened("settings", "ns.DB:SetSetting('meters.dmg', true); "
+        "ns.Demo:SetOn('meters', true); ns.Demo:SetOn('plates', true); ns.Demo:SetClassPicked('SHAMAN', true); "
+        "ns.SettingsUI:SelectSection('demo'); ns.SettingsUI:SetDemoTab('screen')")),
+    ("Settings - Demo mode (pages)", opened("settings", "ns.Demo:SetEnabled(true); ns.SettingsUI:SelectSection('demo'); "
+        "ns.SettingsUI:SetDemoTab('pages')")),
+    ("Settings - Demo mode (moments)", opened("settings", "ns.SettingsUI:SelectSection('demo'); "
+        "ns.SettingsUI:SetDemoTab('moments'); ns.Demo:Play('crest')")),
+    ("Demo bar", opened("home", "ns.MainFrame:Close(); __MOCK.real_geometry = true; ns.DB:SetSetting('meters.dmg', true); ns.Demo:SetOn('meters', true); "
+        "ns.Demo:SetOn('sct', true); ns.Demo:SetOn('plates', true)")),
     ("Settings - About", opened("settings", "ns.SettingsUI:SelectSection('about')")),
     # Settings, the clean-up (mockup "B · Feature tiles"): a group's tiles, a card's page with More options, a page
     # whose master switch is off (one box), options hidden while the switch they need is off, a search result in a fold

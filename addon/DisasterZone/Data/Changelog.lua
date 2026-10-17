@@ -14,6 +14,17 @@ ns.CHANGELOG = {
               "A wipe while you were released no longer keeps the boss mods running into the next pull.",
               "Learning counts each pull once: a copy from someone who came in late is left out.",
           } },
+          { heading = "Demo mode, one part at a time", area = "other", kind = "changed", open = "settings/demo",
+            lead = "Demo mode no longer plays everything at once: pick what to try on one page.", lines = {
+              "Settings > Help > Demo mode (or /dz demo): a switch for each part on screen.",
+              "Meters, nameplates, boss mods, combat text, frames, the outfit bar and class tools.",
+              "Class tools show your class's; pick another class to try theirs.",
+              "Combat parts play one 30-second pull, or a loop. Again plays the pull once more.",
+              "The demo guild is one switch for every page, and tours turn on only that.",
+              "Moments play once and stop: loot rules scenarios, the reserves night, the crest.",
+              "A slim demo bar shows what plays: click a part to stop it, or Stop all.",
+              "/dz demo on still turns everything on; /dz demo list shows each part's word.",
+          } },
       } },
     { version = "1.5.5", date = "17 October 2026", title = "Hold the Line, Naxxramas and fixes from the raid",
       sections = {

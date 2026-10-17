@@ -103,16 +103,31 @@ def version_lists_peers():
 @case
 def demo_on_off_toggle_forms():
     w, c = solo("Alice", guild_rank=3, tick=3)
-    for arg, want in (("on", True), ("off", False), ("1", True), ("0", False), ("", True), ("", False),
-                      ("ON", True), ("Off", False)):
+    for arg, want in (("on", True), ("off", False), ("1", True), ("0", False), ("ON", True), ("Off", False)):
         n0 = len(c.chat_frame)
-        c.slash(("/dz demo " + arg).strip())
+        c.slash("/dz demo " + arg)
         assert c.eval("return ns.Demo:IsEnabled()") is want, (arg, want)
+        # (on: every part on screen too, like the one switch before 1.6.0; off: nothing)
+        assert c.eval("return #ns.Demo:OnList() > 0") is want, (arg, want)
         lines = said(c, n0)
         if want:
             assert lines and lines[0].startswith("DisasterZone: demo mode on: 18 fake guild members"), lines
         else:
             assert lines == ["DisasterZone: demo mode off."], lines
+    # 1.6.0: /dz demo alone opens the Demo page; guild toggles the demo guild alone; a part's word toggles that part
+    c.slash("/dz demo")
+    w.tick(0.3)
+    assert c.eval("return ns.SettingsUI:GetSection()") == "demo"
+    c.slash("/dz demo guild")
+    assert c.eval("return ns.Demo:IsEnabled()") is True
+    assert c.eval("return #ns.Demo:OnList()") == 0
+    c.slash("/dz demo plates")
+    assert c.eval("return ns.Demo:IsOn('plates')") is True
+    n1 = len(c.chat_frame)
+    c.slash("/dz demo nonsense")
+    assert said(c, n1) == ['DisasterZone: No demo called "nonsense". /dz demo list shows them all.'], said(c, n1)
+    c.slash("/dz demo off")
+    assert c.eval("return ns.Demo:IsActive()") is False
     no_errors(w)
 
 

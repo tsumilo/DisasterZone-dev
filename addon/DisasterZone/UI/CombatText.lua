@@ -128,7 +128,7 @@ function st:Step(dt)
     self.frame = self.frame + 1
     local q = self.queue
     while q[1] and q[1].at <= self.clock do CT:Emit(tremove(q, 1).ev) end
-    if CT.previewing and #q == 0 and self.clock >= (CT.nextLoop or 0) then CT:QueuePull(true) end
+    if (CT.previewing or CT.demoLoop) and #q == 0 and self.clock >= (CT.nextLoop or 0) then CT:QueuePull(true) end
     local list = self.sprites
     for i = 1, #list do
         local s = list[i]
@@ -238,7 +238,7 @@ local function OnUpdate(_, elapsed)
     local dt = min(0.05, elapsed or 0)
     st:Step(dt)
     st:Render(dt)
-    if #st.sprites == 0 and #st.queue == 0 and not CT.previewing then CT:Sleep() end
+    if #st.sprites == 0 and #st.queue == 0 and not (CT.previewing or CT.demoLoop) then CT:Sleep() end
 end
 
 function CT:Wake()
@@ -472,6 +472,22 @@ function CT:TryIt()
     return true
 end
 
+-- The Demo page's part: the pull once, or again and again while loop (off: stops it unless Edit layout previews).
+function CT:DemoPlay(on, loop)
+    if on then
+        self.demoLoop = loop and true or nil
+        self:Rescale()
+        st:Clear()
+        self:QueuePull(loop)
+    elseif self.demoLoop or #st.queue > 0 then
+        self.demoLoop = nil
+        if not self.previewing then
+            self.nextLoop = nil
+            st:Clear()
+        end
+    end
+end
+
 -- Edit layout's preview: the pull again and again while it is on.
 function CT:Preview(on)
     if on then
@@ -540,7 +556,11 @@ function CT:OnLogin()
     ns:On("UI_LOOK_CHANGED", function(part)
         if part == "sct" then CT:Restyle() end
     end)
-    ns:On("DEMO_TOGGLED", function(on)
-        if on and CT:IsOn() then CT:TryIt() end
+    -- its part on the Demo page (Core/DemoParts.lua): the pull on each demo pull, combat text on or off
+    ns:On("DEMO_PULL", function(started)
+        if started and ns.Demo:IsOn("sct") then CT:DemoPlay(true, ns.Demo:IsLooping()) end
+    end)
+    ns:On("DEMO_PARTS_CHANGED", function(key, on)
+        if (key == "sct" or key == "stop") and not on then CT:DemoPlay(false) end
     end)
 end
