@@ -1545,25 +1545,261 @@ local function TickTalents(dt)
     end
 end
 
--- the title: the logo over the attract run, a hero plate per class (its sprite, name and kit; it walks when you
--- point at it), the spell lab, and your record along the foot
-local HERO_W, HERO_H, LOGO_K = 236, 214, 0.86
+---------------------------------------------------------------------------
+-- the menu screens' pieces (the approved mockup: dev/art/casc/survivors_mockup/hall_design.html, cut into the kit by
+-- kit3.html): nine-sliced plates and glass, medallions, the header, the veil. Every screen is laid out in the
+-- mockup's 1148 x 646 and centred in a taller stage.
+---------------------------------------------------------------------------
+local MOCK_H = 646
+local CLS_ICON = { PALADIN = { 0, 0.25, 0.5, 0.75 }, MAGE = { 0.25, 0.5, 0, 0.25 }, WARRIOR = { 0, 0.25, 0, 0.25 } }
+local CLS_TEX = "Interface\\TargetingFrame\\UI-Classes-Circles"
+local CLS_PLATE = { PALADIN = "pal", MAGE = "mage", WARRIOR = "war" }
+local function Spaced(s) return (s:upper():gsub("([%z\1-\127\194-\244][\128-\191]*)", "%1 "):gsub(" $", "")) end
+local function ClassRGB(cls) local c = CLASSES[cls] and CLASSES[cls].color or { 0.92, 0.88, 0.81 } return c[1], c[2], c[3] end
+local function Hex(h) return tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255 end
+local function Oy() return max(0, floor((StageH() - MOCK_H) / 2)) end
+
+-- nine-slice: corners of c CSS px (+ the piece's pad) stay, edges and middle stretch; :Place(rel, x, y, w, h) by the
+-- element's box, :Kit(name) swaps the art
+local function Slice9(parent, name, layer, sub, c)
+    local o = { t = {}, name = name, c = c }
+    for i = 1, 9 do o.t[i] = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sub or 0) end
+    function o:Kit(n) self.name = n end
+    function o:Place(rel, x, y, w, h)
+        local k = K[self.name]
+        if not k then return end
+        local pad = k[8]
+        local tw, th = k[6], k[7]
+        local du, dv = (k[3] - k[2]) / tw, (k[5] - k[4]) / th
+        local cap = self.c + pad
+        local xs = { x - pad, x - pad + cap, x + w + pad - cap }
+        local ws = { cap, max(0.1, w + 2 * pad - 2 * cap), cap }
+        local ys = { y - pad, y - pad + cap, y + h + pad - cap }
+        local hs = { cap, max(0.1, h + 2 * pad - 2 * cap), cap }
+        local us = { { k[2], k[2] + cap * du }, { k[2] + cap * du, k[3] - cap * du }, { k[3] - cap * du, k[3] } }
+        local vs = { { k[4], k[4] + cap * dv }, { k[4] + cap * dv, k[5] - cap * dv }, { k[5] - cap * dv, k[5] } }
+        for r = 1, 3 do
+            for q = 1, 3 do
+                local t = self.t[(r - 1) * 3 + q]
+                t:SetTexture(k[1])
+                t:SetTexCoord(us[q][1], us[q][2], vs[r][1], vs[r][2])
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", rel, "TOPLEFT", xs[q], -ys[r])
+                t:SetSize(ws[q], hs[r])
+            end
+        end
+    end
+    function o:SetShown(on) for _, t in ipairs(self.t) do t:SetShown(on) end end
+    function o:SetAlpha(a) for _, t in ipairs(self.t) do t:SetAlpha(a) end end
+    return o
+end
+-- a medallion: the icon masked round in a gilt ring (ring "ring" | "ring_dim" | "ring_gold" | "ring_green")
+local function Medal(parent, layer, sub)
+    local m = { icon = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub or 1) }
+    m.mask = parent:CreateMaskTexture()
+    m.mask:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    m.mask:SetAllPoints(m.icon)
+    m.icon:AddMaskTexture(m.mask)
+    m.ring = KitTex(parent, "ring", layer or "ARTWORK", (sub or 1) + 1)
+    function m:Set(tex, ring, tc)
+        self.icon:SetTexture(tex)
+        if tc then self.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) else self.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
+        self.icon:SetDesaturated(ring == "ring_dim")
+        self.icon:SetVertexColor(ring == "ring_dim" and 0.6 or 1, ring == "ring_dim" and 0.6 or 1, ring == "ring_dim" and 0.6 or 1)
+        KitSet(self.ring, ring or "ring")
+    end
+    function m:Place(rel, x, y, size)
+        self.icon:ClearAllPoints() self.icon:SetPoint("TOPLEFT", rel, "TOPLEFT", x, -y) self.icon:SetSize(size, size)
+        KitAtK(self.ring, rel, x, y, size / 64)
+    end
+    function m:SetShown(on) self.icon:SetShown(on) self.ring:SetShown(on) end
+    return m
+end
+local function ClassIcon(m, cls, ring) m:Set(CLS_TEX, ring, CLS_ICON[cls] or CLS_ICON.PALADIN) end
+local function Rect(parent, layer, r, g, b, a, sub)
+    local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sub or 0)
+    t:SetColorTexture(r, g, b, a)
+    return t
+end
+local function Txt(parent, size, font, r, g, b)
+    local fs = Words(parent, size, font)
+    if r then fs:SetTextColor(r, g, b) end
+    return fs
+end
+local function At(fs, rel, point, x, y) fs:ClearAllPoints() fs:SetPoint(point or "TOPLEFT", rel, "TOPLEFT", x, -y) end
+-- the veil over the world (the mockup's: a dark ring round a lit middle, darker above and below)
+local function Veil(f)
+    f.dim = Rect(f, "BACKGROUND", 8 / 255, 6 / 255, 11 / 255, 0.62, -8)
+    f.dim:SetAllPoints()
+    f.vig = f:CreateTexture(nil, "BACKGROUND", nil, -7) f.vig:SetTexture(D.MEDIA .. "UI\\dark_hole") f.vig:SetVertexColor(6 / 255, 4 / 255, 10 / 255, 0.86)
+    f.vtop = Rect(f, "BACKGROUND", 1, 1, 1, 1, -6) f.vbot = Rect(f, "BACKGROUND", 1, 1, 1, 1, -6)
+end
+local function LayoutVeil(f)
+    local H = StageH()
+    f.vig:ClearAllPoints() f.vig:SetPoint("CENTER", f, "TOPLEFT", OV_W / 2, -H * 0.4) f.vig:SetSize(OV_W * 1.5, H * 1.5)
+    f.vtop:ClearAllPoints() f.vtop:SetPoint("TOPLEFT") f.vtop:SetSize(OV_W, H * 0.32)
+    ns.UI:GradientRGBA(f.vtop, "VERTICAL", 6 / 255, 4 / 255, 10 / 255, 0.18, 6 / 255, 4 / 255, 10 / 255, 0.6)
+    f.vbot:ClearAllPoints() f.vbot:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -H * 0.32) f.vbot:SetSize(OV_W, H * 0.68)
+    ns.UI:GradientRGBA(f.vbot, "VERTICAL", 6 / 255, 4 / 255, 10 / 255, 0.92, 6 / 255, 4 / 255, 10 / 255, 0.18)
+end
+-- a glass pill (gb): icon (round) + label + count badge
+local function Pill(parent, onClick, opts)
+    opts = opts or {}
+    local b = CreateFrame("Button", nil, parent)
+    b.bg = Slice3(b, opts.big and "gb_big" or "gb", "BACKGROUND", 0, opts.big and 19 or 15)
+    b.label = Words(b, opts.size or 12, opts.big and MORPHEUS or nil)
+    if opts.icon then
+        b.icon = b:CreateTexture(nil, "ARTWORK") b.mask = b:CreateMaskTexture()
+        b.mask:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") b.mask:SetAllPoints(b.icon) b.icon:AddMaskTexture(b.mask)
+    end
+    b.badge = Slice3(b, "gb_n", "ARTWORK", 0, 9)
+    b.count = Words(b, 11, nil, "OVERLAY") b.count:SetTextColor(42 / 255, 22 / 255, 0) b.count:SetShadowColor(0, 0, 0, 0)
+    b:SetScript("OnEnter", function(self) self.hov = true Sound("hover", 0.03) self:Look() end)
+    b:SetScript("OnLeave", function(self) self.hov = false self:Look() end)
+    b:SetScript("OnClick", function(self) if onClick then onClick(self) end end)
+    -- (h: 30 / 26 / 38; the mockup's paddings: 12 left (8 with an icon gap), 16 right)
+    function b:Set(text, on, h, iconTex, badge, padL, padR)
+        self.on, self.h = on and true or false, h or (opts.big and 38 or 30)
+        self.label:SetText(text)
+        local x = padL or (opts.big and 26 or 12)
+        local isz = self.h <= 26 and 16 or 18
+        if self.icon then
+            self.icon:SetShown(iconTex ~= nil)
+            if iconTex then
+                if type(iconTex) == "table" then self.icon:SetTexture(CLS_TEX) self.icon:SetTexCoord(unpack(iconTex)) else self.icon:SetTexture(iconTex) self.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
+                self.icon:ClearAllPoints() self.icon:SetPoint("LEFT", self, "LEFT", x, 0) self.icon:SetSize(isz, isz)
+                x = x + isz + 8
+            end
+        end
+        self.label:ClearAllPoints() self.label:SetPoint("LEFT", self, "LEFT", x, 0)
+        x = x + (self.label:GetStringWidth() or 40)
+        self.badge:SetShown(badge ~= nil) self.count:SetShown(badge ~= nil)
+        if badge then
+            self.count:SetText(badge)
+            local bw = max(18, (self.count:GetStringWidth() or 8) + 12)
+            x = x + 8
+            self.badge:Place(self, x, (self.h - 18) / 2, bw, 18)
+            self.count:ClearAllPoints() self.count:SetPoint("CENTER", self, "TOPLEFT", x + bw / 2, -(self.h / 2) - 0.5)
+            x = x + bw
+        end
+        local w = floor(x + (padR or (opts.big and 26 or 16)) + 0.5)
+        self:SetSize(w, self.h)
+        self:Look()
+        return w
+    end
+    function b:Look()
+        local lit = self.on or self.hov
+        if opts.big then self.bg:SetKit(self.hov and "gb_bighov" or "gb_big") else self.bg:SetKit(lit and "gb_hov" or "gb") end
+        self.bg:Place(self, 0, 0, self:GetWidth(), self:GetHeight())
+        if opts.big then self.label:SetTextColor(1, 231 / 255, 168 / 255)
+        else self.label:SetTextColor(lit and 1 or 234 / 255, lit and 246 / 255 or 223 / 255, lit and 220 / 255 or 198 / 255) end
+    end
+    return b
+end
+-- the header: the glow and two gold rules (hd2), the title in gold lettering (a kit piece), the caption
+local function Header(f, ttl)
+    f.hd = KitTex(f, "hd2", "BACKGROUND", 2)
+    f.ttl = KitTex(f, ttl, "ARTWORK", 2)
+    f.cap = Txt(f, 10, nil, 234 / 255, 219 / 255, 189 / 255)
+    f.cap:SetShadowOffset(0, -1)
+end
+local function LayoutHeader(f, oy, caption)
+    KitAt(f.hd, f, OV_W / 2 - 260, oy + 14, 520, 96)
+    local k = K[f.ttl.kit]
+    local tw = k[6] - 2 * k[8]
+    KitAt(f.ttl, f, OV_W / 2 - tw / 2, oy + 28)
+    f.cap:SetText(Spaced(caption))
+    f.cap:ClearAllPoints() f.cap:SetPoint("TOP", f, "TOPLEFT", OV_W / 2, -(oy + 94))
+end
+-- a menu screen: veil, Back, header
+local function MenuScreen(ttl)
+    local f = CreateFrame("Frame", nil, stage)
+    f:SetAllPoints()
+    Veil(f)
+    Header(f, ttl)
+    f.back = Pill(f, function() ShowTitle() end)
+    f:Hide()
+    return f
+end
+local function LayoutMenu(f, caption)
+    local oy = Oy()
+    LayoutVeil(f)
+    LayoutHeader(f, 0, caption)                 -- (the header and Back sit at the top of the stage; the page itself stays centred)
+    f.back:Set("\194\171 Back", false, 30)
+    f.back:ClearAllPoints() f.back:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -22)
+    return oy
+end
+-- a tab down the left (200 x 42): medallion, label, a note on the right (when it fits)
+local function Tab(parent, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(200, 42)
+    b.bg = Slice3(b, "tab", "BACKGROUND", 0, 21)
+    b.m = Medal(b, "ARTWORK", 1)
+    b.label = Txt(b, 12)
+    b.note = Txt(b, 9, nil, 110 / 255, 100 / 255, 118 / 255)
+    b:SetScript("OnEnter", function(self) self.hov = true self:Look() end)
+    b:SetScript("OnLeave", function(self) self.hov = false self:Look() end)
+    b:SetScript("OnClick", function(self) Sound("hover", 0.03) onClick(self) end)
+    function b:Look()
+        self.bg:SetKit((self.on or self.hov) and "tab_on" or "tab")
+        self.bg:Place(self, 0, 0, 200, 42)
+        self.m:Place(self, 9, 8, 26)
+        self.label:ClearAllPoints() self.label:SetPoint("LEFT", self, "TOPLEFT", 46, -21)
+        self.label:SetTextColor(self.on and 1 or 201 / 255, self.on and 246 / 255 or 191 / 255, self.on and 220 / 255 or 208 / 255)
+        self.note:ClearAllPoints() self.note:SetPoint("RIGHT", self, "TOPLEFT", 188, -21)
+        local room = 188 - 46 - (self.note:GetStringWidth() or 0) - 8
+        self.note:SetShown((self.label:GetStringWidth() or 0) <= room)
+    end
+    return b
+end
+-- a hero's little stage inside a glass window: a lit floor, rays, the class's light, the hero (standing)
+local function Scene(parent, level)
+    local s = CreateFrame("Frame", nil, parent)
+    if level then s:SetFrameLevel(level) end
+    pcall(s.SetClipsChildren, s, true)
+    s.base = Rect(s, "BACKGROUND", 1, 1, 1, 1, 0) s.base:SetAllPoints()
+    s.light = s:CreateTexture(nil, "BACKGROUND", nil, 1) s.light:SetTexture(D.MEDIA .. "UI\\glow") s.light:SetBlendMode("ADD")
+    s.rays = KitTex(s, "rays", "BACKGROUND", 2) s.rays:SetBlendMode("ADD")
+    s.pool = s:CreateTexture(nil, "BORDER", nil, 0) s.pool:SetTexture(D.MEDIA .. "UI\\glow") s.pool:SetBlendMode("ADD")
+    s.hero = s:CreateTexture(nil, "ARTWORK", nil, 0)
+    s.glass = Slice9(s, "glass9", "OVERLAY", 7, 12)
+    -- cls: the hero; tint {r,g,b}: the class's light; base: top and bottom colours; heroH, heroBottom: the mockup's
+    function s:Set(w, h, cls, tint, base, opts)
+        self:SetSize(w, h)
+        ns.UI:GradientRGBA(self.base, "VERTICAL", base[4], base[5], base[6], 1, base[1], base[2], base[3], 1)
+        self.light:ClearAllPoints() self.light:SetPoint("CENTER", self, "BOTTOM", 0, 0) self.light:SetSize(w * 1.4, h * 1.4)
+        self.light:SetVertexColor(tint[1], tint[2], tint[3], opts.lightA or 0.35)
+        self.rays:ClearAllPoints() self.rays:SetPoint("CENTER", self, "TOPLEFT", w / 2, -(opts.raysY or 114)) self.rays:SetSize(opts.raysS or 220, opts.raysS or 220)
+        self.rays:SetVertexColor(tint[1], tint[2], tint[3], opts.raysA or 0.22)
+        self.pool:SetShown(opts.pool ~= false)
+        self.pool:ClearAllPoints() self.pool:SetPoint("CENTER", self, "BOTTOM", 0, (opts.poolY or 21)) self.pool:SetSize(150, 26)
+        self.pool:SetVertexColor(tint[1], tint[2], tint[3], 0.55)
+        local key = CLASSES[cls].sprite
+        local pg, fx, fy, fw, fh, dx, dy = Rd.Frame(key, 2, 0)
+        if pg then
+            local sc = (opts.heroH or 112) / fh
+            self.hero:SetTexture(pg[1]) self.hero:SetTexCoord(fx / pg[2], (fx + fw) / pg[2], fy / pg[3], (fy + fh) / pg[3])
+            self.hero:ClearAllPoints()
+            self.hero:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", w / 2 - fw * sc / 2, opts.heroBottom or 14)
+            self.hero:SetSize(fw * sc, fh * sc)
+            self.heroKey = key
+        end
+        self.glass:Place(self, 0, 0, w, h)
+    end
+    return s
+end
+
+-- the title (the mockup's): the logo with the legendary star behind it, three hero cards (plate, a glass window with
+-- the hero on a lit floor, name, difficulty, kit), the menu of glass pills, the week's challenge and the Argent
+-- Dawn in the corners
 local HERO_ORDER = { "PALADIN", "MAGE", "WARRIOR" }
 local DIFFICULTY, DIFF_WORD = { PALADIN = 1, MAGE = 2, WARRIOR = 3 }, { "EASY", "HARDER", "HARDEST" }
+local HERO_W, HERO_H = 232, 236
 
 local function BuildTitle()
     local f = CreateFrame("Frame", nil, stage)
     f:SetAllPoints()
-    f.night = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-    f.night:SetAllPoints() f.night:SetColorTexture(1, 1, 1, 1)
-    ns.UI:GradientRGBA(f.night, "VERTICAL", 4 / 255, 3 / 255, 7 / 255, 1, 18 / 255, 12 / 255, 24 / 255, 1)
-    f.vig = f:CreateTexture(nil, "BACKGROUND", nil, 0)
-    f.vig:SetTexture(D.MEDIA .. "UI\\dark_hole")
-    f.vig:SetVertexColor(4 / 255, 3 / 255, 8 / 255, 0.85)
-    f.shade = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f.shade:SetColorTexture(1, 1, 1, 1)
-    f.foot = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f.foot:SetColorTexture(1, 1, 1, 1)
+    Veil(f)
     f.glow = LegendGlow(f, "BACKGROUND", 3)
     f.logo = KitTex(f, "logo_main", "ARTWORK")
     f.heroes = {}
@@ -1572,86 +1808,63 @@ local function BuildTitle()
         local b = CreateFrame("Button", nil, f)
         b:SetSize(HERO_W, HERO_H)
         b.cls = cls
-        b.plate = KitTex(b, "hero", "BACKGROUND")
-        b.floor = KitTex(b, "hero_floor", "BORDER")
-        b.floor:SetBlendMode("ADD")
-        b.floor:SetVertexColor(C.color[1], C.color[2], C.color[3], 0.5)
-        KitAt(b.floor, b, HERO_W / 2 - 75, 104, 150, 46)
-        b.sprite = b:CreateTexture(nil, "ARTWORK")
-        b.name = Words(b, 26, MORPHEUS)
-        b.name:SetText(C.name) b.name:SetTextColor(C.color[1], C.color[2], C.color[3])
-        b.name:SetShadowOffset(0, -2)
-        b.name:SetPoint("TOP", b, "TOPLEFT", HERO_W / 2, -142)
-        -- how hard it is: lit gems, and the word
-        b.diff = {}
-        local dn = DIFFICULTY[cls] or 1
-        for g = 1, 3 do
-            local t = KitTex(b, g <= dn and "gem_on" or "gem_off", "ARTWORK", 3)
-            KitAt(t, b, HERO_W - 14 - 46 + (g - 1) * 15, 16, 8, 8)
-            b.diff[g] = t
-        end
-        b.diffL = Words(b, 9) b.diffL:SetText(DIFF_WORD[dn]) b.diffL:SetTextColor(0.62, 0.58, 0.66)
-        b.diffL:SetPoint("TOPRIGHT", b, "TOPLEFT", HERO_W - 14, -28)
+        b.plate = Slice9(b, "pl_" .. CLS_PLATE[cls], "BACKGROUND", 0, 18)
+        b.scene = Scene(b, b:GetFrameLevel() + 1)
+        b.scene:SetPoint("TOPLEFT", b, "TOPLEFT", 10, -10)
+        b.top = CreateFrame("Frame", nil, b) b.top:SetAllPoints() b.top:SetFrameLevel(b:GetFrameLevel() + 6)
+        b.nmGlow = b.top:CreateTexture(nil, "BACKGROUND") b.nmGlow:SetTexture(D.MEDIA .. "UI\\glow") b.nmGlow:SetBlendMode("ADD")
+        b.nmGlow:SetVertexColor(C.color[1], C.color[2], C.color[3], 0.3) b.nmGlow:SetPoint("CENTER", b, "TOPLEFT", HERO_W / 2, -163) b.nmGlow:SetSize(150, 44)
+        b.name = Txt(b.top, 25, MORPHEUS, C.color[1], C.color[2], C.color[3]) b.name:SetText(C.name) b.name:SetShadowOffset(0, -2)
+        b.name:SetPoint("TOP", b, "TOPLEFT", HERO_W / 2, -148)
+        local dn = DIFFICULTY[cls]
+        b.df = Txt(b.top, 9, nil, MUTE[1], MUTE[2], MUTE[3]) b.df:SetText(Spaced(DIFF_WORD[dn]))
+        local dw = (b.df:GetStringWidth() or 40)
+        local rowW = 3 * 8 + 2 * 6 + 8 + dw
+        local x0 = HERO_W / 2 - rowW / 2
+        b.gems = {}
+        for g = 1, 3 do local t = KitTex(b.top, g <= dn and "gem_on" or "gem_off", "ARTWORK", 3) KitAt(t, b, x0 + (g - 1) * 14, 181, 8, 8) b.gems[g] = t end
+        b.df:SetPoint("LEFT", b, "TOPLEFT", x0 + 3 * 8 + 2 * 6 + 8, -185.5)
         b.kit = {}
         local ids = {}
         for _, id in ipairs(D.SPELL_ORDER) do if SPELLS[id].cls == cls then ids[#ids + 1] = id end end
-        local x0 = HERO_W / 2 - (#ids * 24 + (#ids - 1) * 6) / 2
+        local kx = HERO_W / 2 - (#ids * 22 + (#ids - 1) * 9) / 2
         for k, id in ipairs(ids) do
-            local edge = b:CreateTexture(nil, "ARTWORK", nil, 0)
-            edge:SetColorTexture(109 / 255, 90 / 255, 58 / 255, 1)
-            edge:SetPoint("TOPLEFT", b, "TOPLEFT", x0 + (k - 1) * 30 - 2, -(176 - 2)) edge:SetSize(28, 28)
-            local inner = b:CreateTexture(nil, "ARTWORK", nil, 1)
-            inner:SetColorTexture(0, 0, 0, 1)
-            inner:SetPoint("TOPLEFT", edge, "TOPLEFT", 1, -1) inner:SetSize(26, 26)
-            local t = b:CreateTexture(nil, "ARTWORK", nil, 2)
-            t:SetTexture(Icon(SPELLS[id].icon)) t:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-            t:SetPoint("TOPLEFT", edge, "TOPLEFT", 2, -2) t:SetSize(24, 24)
-            b.kit[k] = t
+            local m = Medal(b.top, "ARTWORK", 1)
+            m:Set(Icon(SPELLS[id].icon), "ring")
+            m:Place(b, kx + (k - 1) * 31, 200, 22)
+            b.kit[k] = m
         end
         b:SetScript("OnEnter", function(self) self.hov = true Sound("hover", 0.03) self:Look() end)
         b:SetScript("OnLeave", function(self) self.hov = false self:Look() end)
         b:SetScript("OnClick", function() UI.Start(cls) end)
         function b:Look()
-            KitSet(self.plate, self.hov and "hero_hov" or "hero")
-            KitAt(self.plate, self, 0, 0, HERO_W, HERO_H)
-            self.floor:SetAlpha(self.hov and 1 or 0.6)
+            self.plate:Kit((self.hov and "pl_lit_" or "pl_") .. CLS_PLATE[self.cls])
+            self.plate:Place(self, 0, 0, HERO_W, HERO_H)
+            self.scene:Set(212, 132, self.cls, CLASSES[self.cls].color, { 26 / 255, 20 / 255, 32 / 255, 11 / 255, 9 / 255, 16 / 255 }, { heroH = 112, heroBottom = 14, raysY = 106, poolY = 21 })
         end
-        b:Look()
         f.heroes[i] = b
     end
-    f.lab = CreateFrame("Button", nil, f)
-    f.lab.bg = Slice3(f.lab, "gb", "BACKGROUND", 0, 15)
-    f.lab.label = Words(f.lab, 12) f.lab.label:SetText("Spell lab") f.lab.label:SetPoint("CENTER", 0, 0)
-    f.lab:SetScript("OnEnter", function(self) self.hov = true Sound("hover", 0.03) self:Look() end)
-    f.lab:SetScript("OnLeave", function(self) self.hov = false self:Look() end)
-    f.lab:SetScript("OnClick", function() OpenLab(Class()) end)
-    function f.lab:Look()
-        self.bg:SetKit(self.hov and "gb_hov" or "gb")
-        self.bg:Place(self, 0, 0, self:GetWidth(), 30)
-        self.label:SetTextColor(self.hov and 1 or 234 / 255, self.hov and 246 / 255 or 223 / 255, self.hov and 220 / 255 or 198 / 255)
+    f.menu = {}
+    for _, def in ipairs({ { "talents", "Talents", "spell_holy_sealofmight", function() UI.ShowTalents() end },
+                           { "board", "Leaderboard", "spell_holy_holybolt", function() UI.ShowBoard() end },
+                           { "ach", "Achievements", "spell_holy_avenginewrath", function() UI.ShowAch() end },
+                           { "dawn", "Argent Dawn", "inv_misc_token_argentdawn3", function() UI.ShowDawn() end },
+                           { "lab", "Spell lab", "spell_holy_innerfire", function() OpenLab(Class()) end } }) do
+        local p = Pill(f, def[4], { icon = true })
+        p.key, p.text, p.iconTex = def[1], def[2], Icon(def[3])
+        f.menu[#f.menu + 1] = p
     end
-    f.tal = CreateFrame("Button", nil, f)
-    f.tal.bg = Slice3(f.tal, "gb", "BACKGROUND", 0, 15)
-    f.tal.label = Words(f.tal, 12) f.tal.label:SetPoint("CENTER", 0, 0)
-    f.tal:SetScript("OnEnter", function(self) self.hov = true Sound("hover", 0.03) self:Look() end)
-    f.tal:SetScript("OnLeave", function(self) self.hov = false self:Look() end)
-    f.tal:SetScript("OnClick", function() UI.ShowTalents() end)
-    f.tal.Look = f.lab.Look
-    f.menu = { f.tal }
-    for _, def in ipairs({ { "Leaderboard", function() UI.ShowBoard() end }, { "Achievements", function() UI.ShowAch() end }, { "Argent Dawn", function() UI.ShowDawn() end } }) do
-        local b = CreateFrame("Button", nil, f)
-        b.bg = Slice3(b, "gb", "BACKGROUND", 0, 15)
-        b.label = Words(b, 12) b.label:SetPoint("CENTER", 0, 0) b.label:SetText(def[1])
-        b:SetScript("OnEnter", function(self) self.hov = true Sound("hover", 0.03) self:Look() end)
-        b:SetScript("OnLeave", function(self) self.hov = false self:Look() end)
-        b:SetScript("OnClick", def[2])
-        b.Look = f.lab.Look
-        f.menu[#f.menu + 1] = b
-    end
-    f.menu[#f.menu + 1] = f.lab
-    f.left = Words(f, 11) f.left:SetTextColor(157 / 255, 147 / 255, 163 / 255) f.left:SetJustifyH("LEFT")
-    f.right = Words(f, 11) f.right:SetTextColor(157 / 255, 147 / 255, 163 / 255) f.right:SetJustifyH("RIGHT")
-    f.right:SetText("WASD to move" .. DOT .. "spells cast themselves" .. DOT .. "Esc pauses")
+    -- the corners: this week's challenge, your standing
+    f.chStrip = Slice3(f, "strip", "ARTWORK", 0, 20)
+    f.chMedal = Medal(f, "ARTWORK", 2)
+    f.chText = Txt(f, 11, nil, MUTE[1], MUTE[2], MUTE[3])
+    f.chBtn = CreateFrame("Button", nil, f) f.chBtn:SetScript("OnClick", function() UI.ShowBoard() end)
+    f.adStrip = Slice3(f, "strip", "ARTWORK", 0, 20)
+    f.adMedal = Medal(f, "ARTWORK", 2)
+    f.adText = Txt(f, 11, nil, MUTE[1], MUTE[2], MUTE[3])
+    f.adBar = KitTex(f, "barbg", "ARTWORK", 3)
+    f.adFill = KitTex(f, "fill_g", "ARTWORK", 4)
+    f.adBtn = CreateFrame("Button", nil, f) f.adBtn:SetScript("OnClick", function() UI.ShowDawn() end)
     f:Hide()
     return f
 end
@@ -1662,62 +1875,68 @@ local function TickTitle(dt)
     if not f:IsShown() then return end
     titleT = titleT + dt
     f.glow:Tick(titleT, Easing(min(1, titleT / 0.9)), 0.9)
-    f.night:SetAlpha(1 - view.scaler:GetAlpha())
     for _, b in ipairs(f.heroes) do
-        local key = CLASSES[b.cls].sprite
-        local U = A.UNITS[key]
-        local col = b.hov and floor(titleT * 9) % U.walk or 0
-        local pg, fx, fy, fw, fh, dx, dy = Rd.Frame(key, 2, col)
-        if pg then
-            local s = 2.3
-            b.sprite:SetTexture(pg[1])
-            b.sprite:SetTexCoord(fx / pg[2], (fx + fw) / pg[2], fy / pg[3], (fy + fh) / pg[3])
-            b.sprite:ClearAllPoints()
-            b.sprite:SetPoint("TOPLEFT", b, "TOPLEFT", HERO_W / 2 + dx * s, -(124 + dy * s))
-            b.sprite:SetSize(fw * s, fh * s)
+        if b.hov and b.scene.heroKey then          -- (the hero walks in place while you point at it)
+            local U = A.UNITS[b.scene.heroKey]
+            local pg, fx, fy, fw, fh = Rd.Frame(b.scene.heroKey, 2, floor(titleT * 9) % U.walk)
+            if pg then b.scene.hero:SetTexCoord(fx / pg[2], (fx + fw) / pg[2], fy / pg[3], (fy + fh) / pg[3]) end
         end
     end
 end
 
 local function LayoutTitle()
     local f = ov.title
-    local H = StageH()
-    f.vig:ClearAllPoints() f.vig:SetPoint("CENTER", f, "TOPLEFT", OV_W / 2, -H * 0.42) f.vig:SetSize(OV_W * 1.5, H * 1.6)
-    f.shade:ClearAllPoints() f.shade:SetPoint("TOPLEFT") f.shade:SetSize(OV_W, H * 0.3)
-    ns.UI:GradientRGBA(f.shade, "VERTICAL", 6 / 255, 4 / 255, 10 / 255, 0, 6 / 255, 4 / 255, 10 / 255, 0.55)
-    f.foot:ClearAllPoints() f.foot:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -H * 0.62) f.foot:SetSize(OV_W, H * 0.38)
-    ns.UI:GradientRGBA(f.foot, "VERTICAL", 6 / 255, 4 / 255, 10 / 255, 0.92, 6 / 255, 4 / 255, 10 / 255, 0)
-    local lw, lh = 760 * LOGO_K, 330 * LOGO_K
-    local blockH = lh + 14 + HERO_H + 26 + 30
-    local y = max(6, (H - 30) / 2 - blockH / 2)
-    f.glow:Place(OV_W / 2, y + 112 * LOGO_K, 400)
-    KitAtK(f.logo, f, OV_W / 2 - lw / 2, y, LOGO_K)
-    y = y + lh + 14
+    local oy = Oy()
+    LayoutVeil(f)
+    local lk = 610 / K.logo_main[6]
+    local ly = oy - 6 + K.logo_main[8] * lk
+    KitAtK(f.logo, f, OV_W / 2 - 305 + K.logo_main[8] * lk, ly, lk)
+    f.glow:Place(OV_W / 2, ly + 112 * lk, 400 * lk / 0.86)       -- (round the crest, as before)
     for i, b in ipairs(f.heroes) do
-        b.hov = false b:Look()
-        local n = #f.heroes
-        b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", OV_W / 2 - (n * HERO_W + (n - 1) * 22) / 2 + (i - 1) * (HERO_W + 22), -y)
+        b.hov = false
+        b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", 204 + (i - 1) * 254, -(oy + 290))
+        b:Look()
     end
-    y = y + HERO_H + 26
-    local bank = ns.HTLGame and ns.HTLGame.Data().bank or 0
-    f.tal.label:SetText(string.format("Talents    |T%s:12:12|t %d", "Interface\\MoneyFrame\\UI-GoldIcon", bank))
+    -- the menu
+    local S, d = ns.HTLSocial, ns.HTLGame and ns.HTLGame.Data() or {}
     local ws, tot = {}, 0
-    for i, b in ipairs(f.menu) do ws[i] = floor((b.label:GetStringWidth() or 60) + 36) tot = tot + ws[i] + (i > 1 and 8 or 0) end
-    local bx = OV_W / 2 - tot / 2
-    for i, b in ipairs(f.menu) do
-        b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", bx, -y) b:SetSize(ws[i], 30)
-        b.hov = false b:Look()
-        bx = bx + ws[i] + 8
+    local got = S and select(1, S:Count()) or 0
+    for i, p in ipairs(f.menu) do
+        local badge = p.key == "talents" and (BreakUpLargeNumbers and BreakUpLargeNumbers(d.bank or 0) or tostring(d.bank or 0)) or p.key == "ach" and tostring(got) or nil
+        ws[i] = p:Set(p.text, false, 30, p.iconTex, badge)
+        tot = tot + ws[i] + (i > 1 and 10 or 0)
     end
-    local d = ns.HTLGame and ns.HTLGame.Data() or { runs = 0, wins = 0, best = 0, rep = 0 }
-    local standing = "Neutral"
-    for _, s in ipairs(STANDING) do if (d.rep or 0) >= s[1] then standing = s[2] break end end
-    f.left:SetText(d.runs > 0 and ("Best |cfff4cf6a" .. Rd.Clock(d.best) .. "|r" .. DOT .. d.wins .. (d.wins == 1 and " win" or " wins") .. DOT .. d.runs .. (d.runs == 1 and " run" or " runs") .. DOT .. "Argent Dawn |cfff4cf6a" .. standing .. "|r")
-        or "Fifteen minutes. One class. The whole Scourge.")
-    f.left:ClearAllPoints() f.left:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 22, 14)
-    f.right:ClearAllPoints() f.right:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -22, 14)
+    local x = OV_W / 2 - tot / 2
+    for i, p in ipairs(f.menu) do p:ClearAllPoints() p:SetPoint("TOPLEFT", f, "TOPLEFT", x, -(oy + 544)) x = x + ws[i] + 10 end
+    -- the corners
+    local y = StageH() - 22 - 40                -- (the corners: 22 from the bottom, as from the sides)
+    if S then
+        local ch = S:Challenge()
+        local left = S:WeekLeft()
+        f.chText:SetText("Weekly challenge \194\183 |cffebe1cf" .. ch.name .. "|r \194\183 |cfff4cf6a" .. floor(left / 86400) .. "d " .. floor(left % 86400 / 3600) .. "h|r")
+        ClassIcon(f.chMedal, ch.cls or Class(), "ring")
+        local w = 6 + 28 + 10 + (f.chText:GetStringWidth() or 200) + 14
+        f.chStrip:Place(f, 22, y, w, 40)
+        f.chMedal:Place(f, 22 + 6, y + 6, 28)
+        f.chText:ClearAllPoints() f.chText:SetPoint("LEFT", f, "TOPLEFT", 22 + 44, -(y + 20))
+        f.chBtn:ClearAllPoints() f.chBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -y) f.chBtn:SetSize(w, 40)
+        local st, _, nxt = S:Standing(d.rep or 0)
+        f.adText:SetText("Argent Dawn |cfff4cf6a" .. st.name .. "|r")
+        f.adMedal:Set(Icon("inv_misc_token_argentdawn3"), "ring")
+        local aw = 6 + 28 + 10 + (f.adText:GetStringWidth() or 120) + 10 + 90 + 14
+        local ax = OV_W - 22 - aw
+        f.adStrip:Place(f, ax, y, aw, 40)
+        f.adMedal:Place(f, ax + 6, y + 6, 28)
+        f.adText:ClearAllPoints() f.adText:SetPoint("LEFT", f, "TOPLEFT", ax + 44, -(y + 20))
+        local bx = ax + aw - 14 - 90
+        KitAt(f.adBar, f, bx, y + 16.5, 90, 7)
+        local k = nxt and min(1, ((d.rep or 0) - st.at) / max(1, nxt.at - st.at)) or 1
+        KitAt(f.adFill, f, bx, y + 16.5, max(0.1, 90 * k), 7)
+        f.adBtn:ClearAllPoints() f.adBtn:SetPoint("TOPLEFT", f, "TOPLEFT", ax, -y) f.adBtn:SetSize(aw, 40)
+    end
 end
 UI.LayoutTitle = LayoutTitle
+
 ShowTitle = function()
     Attract()
     overlay = "title"
@@ -1899,138 +2118,20 @@ end
 UI.OpenLab = function(cls) OpenLab(cls) end
 
 ---------------------------------------------------------------------------
--- the guild hall: the leaderboard (with the week's challenge), achievements, the Argent Dawn; and the toast that
--- slides in when an achievement is earned mid-run. Laid out as the mockup (dev: the Guild Hall artifact).
+-- the guild hall: leaderboard (and the week's challenge), achievements, the Argent Dawn - the mockup's, piece by piece
 ---------------------------------------------------------------------------
-local CLS_ICON = { PALADIN = { 0, 0.25, 0.5, 0.75 }, MAGE = { 0.25, 0.5, 0, 0.25 }, WARRIOR = { 0, 0.25, 0, 0.25 } }
-local CLS_TEX = "Interface\\TargetingFrame\\UI-Classes-Circles"
-local METAL = { { 1, 0.86, 0.45 }, { 0.82, 0.86, 0.92 }, { 0.86, 0.56, 0.29 } }
-local function Spaced(s) return (s:upper():gsub("([%z\1-\127\194-\244][\128-\191]*)", "%1 "):gsub(" $", "")) end     -- (letter by letter, whole UTF-8 characters)
-local function ClassIcon(t, cls)
-    local tc = CLS_ICON[cls] or CLS_ICON.PALADIN
-    t:SetTexture(CLS_TEX) t:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
-end
-local function ClassRGB(cls) local c = CLASSES[cls] and CLASSES[cls].color or { 0.92, 0.88, 0.81 } return c[1], c[2], c[3] end
-local function Rect(parent, layer, r, g, b, a, sub)
-    local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sub or 0)
-    t:SetColorTexture(r, g, b, a)
-    return t
-end
--- a dark panel with a thin gilt edge (the mockup's .frame)
-local function Panel(parent, level)
-    local f = CreateFrame("Frame", nil, parent)
-    if level then f:SetFrameLevel(level) end
-    f.bg = Rect(f, "BACKGROUND", 1, 1, 1, 1)
-    f.bg:SetAllPoints()
-    ns.UI:GradientRGBA(f.bg, "VERTICAL", 10 / 255, 8 / 255, 14 / 255, 0.94, 26 / 255, 20 / 255, 32 / 255, 0.9)
-    f.edge = {}
-    for i = 1, 4 do f.edge[i] = Rect(f, "BORDER", 93 / 255, 74 / 255, 42 / 255, 1) end
-    f.edge[1]:SetPoint("TOPLEFT") f.edge[1]:SetPoint("TOPRIGHT") f.edge[1]:SetHeight(1)
-    f.edge[2]:SetPoint("BOTTOMLEFT") f.edge[2]:SetPoint("BOTTOMRIGHT") f.edge[2]:SetHeight(1)
-    f.edge[3]:SetPoint("TOPLEFT") f.edge[3]:SetPoint("BOTTOMLEFT") f.edge[3]:SetWidth(1)
-    f.edge[4]:SetPoint("TOPRIGHT") f.edge[4]:SetPoint("BOTTOMRIGHT") f.edge[4]:SetWidth(1)
-    return f
-end
--- a glass pill button (gb), its look kept by :Look()
-local function Pill(parent, label, onClick, icon)
-    local b = CreateFrame("Button", nil, parent)
-    b.bg = Slice3(b, "gb", "BACKGROUND", 0, 15)
-    b.label = Words(b, 11)
-    if icon then b.icon = b:CreateTexture(nil, "ARTWORK") b.icon:SetSize(16, 16) end
-    b:SetScript("OnEnter", function(self) self.hov = true Sound("hover", 0.03) self:Look() end)
-    b:SetScript("OnLeave", function(self) self.hov = false self:Look() end)
-    b:SetScript("OnClick", function(self) if onClick then onClick(self) end end)
-    function b:Set(text, on, h)
-        self.on = on and true or false
-        self.label:SetText(text)
-        local ix = 12
-        if self.icon then self.icon:ClearAllPoints() self.icon:SetPoint("LEFT", self, "LEFT", 10, 0) ix = 32 end
-        self.label:ClearAllPoints() self.label:SetPoint("LEFT", self, "LEFT", ix, 0)
-        local w = floor(ix + (self.label:GetStringWidth() or 40) + 12 + 0.5)
-        self:SetSize(w, h or 26)
-        self:Look()
-        return w
-    end
-    function b:Look()
-        self.bg:SetKit((self.on or self.hov) and "gb_hov" or "gb")
-        self.bg:Place(self, 0, 0, self:GetWidth(), self:GetHeight())
-        local lit = self.on or self.hov
-        self.label:SetTextColor(lit and 1 or 0.85, lit and 0.96 or 0.8, lit and 0.86 or 0.71)
-    end
-    return b
-end
--- a screen of the hall: night, the header's rules, the title and its caption, a Back button
-local function HallScreen(title)
-    local f = CreateFrame("Frame", nil, stage)
-    f:SetAllPoints()
-    f.night = Rect(f, "BACKGROUND", 1, 1, 1, 1, -8)
-    f.night:SetAllPoints()
-    ns.UI:GradientRGBA(f.night, "VERTICAL", 4 / 255, 3 / 255, 7 / 255, 0.97, 14 / 255, 10 / 255, 20 / 255, 0.9)
-    f.head = KitTex(f, "hd_frame", "BACKGROUND", 1)
-    f.title = Words(f, 32, MORPHEUS) f.title:SetText(title) f.title:SetTextColor(1, 0.86, 0.45) f.title:SetShadowOffset(0, -2)
-    f.sub = Words(f, 10) f.sub:SetTextColor(234 / 255, 219 / 255, 189 / 255)
-    f.back = Pill(f, "Back", function() ShowTitle() end)
-    f:Hide()
-    return f
-end
-local function LayoutHead(f, sub)
-    KitAt(f.head, f, OV_W / 2 - 260, 2, 520, 112)
-    f.title:ClearAllPoints() f.title:SetPoint("TOP", f, "TOPLEFT", OV_W / 2, -26)
-    f.sub:SetText(Spaced(sub))
-    f.sub:ClearAllPoints() f.sub:SetPoint("TOP", f, "TOPLEFT", OV_W / 2, -94)
-    f.back:Set("Back", false, 28)
-    f.back:ClearAllPoints() f.back:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -22)
-end
--- a tab down the left: icon, label, a small note on the right
-local function Tab(parent, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(196, 36)
-    b.bg = Rect(b, "BACKGROUND", 1, 1, 1, 0.03) b.bg:SetAllPoints()
-    b.edge = {}
-    for i = 1, 4 do b.edge[i] = Rect(b, "BORDER", 46 / 255, 38 / 255, 54 / 255, 1) end
-    b.edge[1]:SetPoint("TOPLEFT") b.edge[1]:SetPoint("TOPRIGHT") b.edge[1]:SetHeight(1)
-    b.edge[2]:SetPoint("BOTTOMLEFT") b.edge[2]:SetPoint("BOTTOMRIGHT") b.edge[2]:SetHeight(1)
-    b.edge[3]:SetPoint("TOPLEFT") b.edge[3]:SetPoint("BOTTOMLEFT") b.edge[3]:SetWidth(1)
-    b.edge[4]:SetPoint("TOPRIGHT") b.edge[4]:SetPoint("BOTTOMRIGHT") b.edge[4]:SetWidth(1)
-    b.icon = b:CreateTexture(nil, "ARTWORK") b.icon:SetSize(24, 24) b.icon:SetPoint("LEFT", 8, 0)
-    b.label = Words(b, 12) b.label:SetPoint("LEFT", b.icon, "RIGHT", 9, 0)
-    b.note = Words(b, 9) b.note:SetPoint("RIGHT", b, "RIGHT", -10, 0) b.note:SetTextColor(110 / 255, 100 / 255, 118 / 255)
-    b:SetScript("OnEnter", function(self) self.hov = true self:Look() end)
-    b:SetScript("OnLeave", function(self) self.hov = false self:Look() end)
-    b:SetScript("OnClick", function(self) Sound("hover", 0.03) onClick(self) end)
-    function b:Look()
-        local on = self.on
-        -- the note on the right only when the label leaves room for it
-        local room = 196 - 41 - 10 - (self.note:GetStringWidth() or 0) - 10
-        self.note:SetShown((self.label:GetStringWidth() or 0) <= room)
-        self.bg:SetColorTexture(1, 0.81, 0.42, on and 0.12 or (self.hov and 0.06 or 0.03))
-        for _, e in ipairs(self.edge) do e:SetColorTexture(on and 0.95 or 0.18, on and 0.81 or 0.15, on and 0.48 or 0.21, 1) end
-        self.label:SetTextColor(on and 1 or 0.66, on and 0.96 or 0.61, on and 0.86 or 0.69)
-    end
-    return b
-end
+local function Num(n) return BreakUpLargeNumbers and BreakUpLargeNumbers(n) or tostring(n) end
 
--- the toast: an achievement earned mid-run (or anywhere), sliding up at the bottom, three seconds
+-- the toast: an achievement earned (mid-run too), sliding up at the bottom for three seconds
 local toast
 local function BuildToast()
     local f = CreateFrame("Frame", nil, ov)
     f:SetFrameLevel(ov:GetFrameLevel() + 40)
     f:SetSize(380, 74)
-    f.bg = Rect(f, "BACKGROUND", 1, 1, 1, 1) f.bg:SetAllPoints()
-    ns.UI:GradientRGBA(f.bg, "VERTICAL", 18 / 255, 12 / 255, 6 / 255, 0.97, 42 / 255, 29 / 255, 12 / 255, 0.97)
-    for i = 1, 4 do
-        local e = Rect(f, "BORDER", 226 / 255, 182 / 255, 90 / 255, 1)
-        if i == 1 then e:SetPoint("TOPLEFT") e:SetPoint("TOPRIGHT") e:SetHeight(2)
-        elseif i == 2 then e:SetPoint("BOTTOMLEFT") e:SetPoint("BOTTOMRIGHT") e:SetHeight(2)
-        elseif i == 3 then e:SetPoint("TOPLEFT") e:SetPoint("BOTTOMLEFT") e:SetWidth(2)
-        else e:SetPoint("TOPRIGHT") e:SetPoint("BOTTOMRIGHT") e:SetWidth(2) end
-    end
-    f.glow = f:CreateTexture(nil, "BACKGROUND", nil, -1) f.glow:SetTexture(D.MEDIA .. "UI\\glow") f.glow:SetBlendMode("ADD")
-    f.glow:SetVertexColor(1, 0.75, 0.3, 0.5) f.glow:SetPoint("CENTER") f.glow:SetSize(520, 200)
-    f.icon = f:CreateTexture(nil, "ARTWORK") f.icon:SetSize(50, 50) f.icon:SetPoint("LEFT", 14, 0) f.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    f.eb = Words(f, 9) f.eb:SetText(Spaced("Achievement earned")) f.eb:SetTextColor(230 / 255, 192 / 255, 106 / 255)
-    f.eb:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 12, -6)
-    f.name = Words(f, 20, MORPHEUS) f.name:SetTextColor(1, 0.95, 0.81) f.name:SetPoint("TOPLEFT", f.eb, "BOTTOMLEFT", 0, -4)
+    f.plate = Slice9(f, "pl_done", "BACKGROUND", 0, 18)
+    f.m = Medal(f, "ARTWORK", 1)
+    f.eb = Txt(f, 9, nil, 230 / 255, 192 / 255, 106 / 255) f.eb:SetText(Spaced("Achievement earned"))
+    f.name = Txt(f, 20, MORPHEUS, 1, 0.89, 0.6) f.name:SetShadowOffset(0, -2)
     f.sh = KitTex(f, "sh_gold_10", "ARTWORK", 2)
     f:Hide()
     return f
@@ -2038,10 +2139,14 @@ end
 local function ShowToast(id)
     local a = D.ACH[id]
     if not a or not toast then return end
-    toast.icon:SetTexture(Icon(a.icon))
-    toast.name:SetText(a.name)
-    FitLine(toast.name, MORPHEUS, 20, 12, 230)
+    toast.plate:Kit(a.feat and "pl_feat" or "pl_done")
+    toast.plate:Place(toast, 0, 0, 380, 74)
+    toast.m:Set(Icon(a.icon), "ring") toast.m:Place(toast, 14, 11, 52)
+    toast.eb:ClearAllPoints() toast.eb:SetPoint("TOPLEFT", toast, "TOPLEFT", 80, -16)
+    toast.name:SetText(a.name) FitLine(toast.name, MORPHEUS, 20, 12, 220)
+    toast.name:ClearAllPoints() toast.name:SetPoint("TOPLEFT", toast, "TOPLEFT", 80, -30)
     KitSet(toast.sh, a.feat and "sh_feat" or ("sh_gold_" .. a.pts))
+    KitAt(toast.sh, toast, 380 - 16 - 46, 11, 46, 52)
     toast.t = 0
     toast:Show()
     Sound("rep")
@@ -2055,12 +2160,10 @@ local function TickToast(dt)
     local t = toast.t
     local k = t < 0.35 and Easing(t / 0.35) or t > 3.2 and max(0, 1 - (t - 3.2) / 0.35) or 1
     local sk = StageScale()
-    local W = root:GetWidth() or 786
     toast:SetScale(sk)
     toast:ClearAllPoints()
-    toast:SetPoint("BOTTOM", ov, "BOTTOMLEFT", W / 2 / sk, (16 + (1 - k) * -40) / 1)
+    toast:SetPoint("BOTTOM", ov, "BOTTOMLEFT", (root:GetWidth() or 786) / 2 / sk, 16 - (1 - k) * 40)
     toast:SetAlpha(k)
-    KitAt(toast.sh, toast, 380 - 14 - 46, 11, 46, 52)
     if t > 3.55 then toast:Hide() end
 end
 UI._TickToast = TickToast
@@ -2069,102 +2172,102 @@ UI._TickToast = TickToast
 -- the leaderboard
 ---------------------------------------------------------------------------
 local BOARDS = {
-    { "time", "Longest held", "spell_holy_holybolt", "time" },
-    { "kills", "Most slain", "inv_misc_bone_humanskull_01", "one run" },
-    { "level", "Highest level", "spell_holy_championsbond", "one run" },
-    { "gold", "Gold carried home", "inv_misc_coin_02", "week" },
-    { "points", "Achievement points", "spell_holy_avenginewrath", "points" },
-    { "rep", "Argent Dawn", "inv_misc_token_argentdawn3", "reputation" },
+    { "time", "Longest held", "spell_holy_holybolt" }, { "kills", "Most slain", "inv_misc_bone_humanskull_01" },
+    { "level", "Highest level", "spell_holy_championsbond" }, { "gold", "Gold home", "inv_misc_coin_02" },
+    { "points", "Points", "spell_holy_avenginewrath" }, { "rep", "Argent Dawn", "inv_misc_token_argentdawn3" },
 }
 local lbState = { kind = "time", period = "week", cls = nil }
-local LB_X, LB_R = 236, 286
+local PL, PR = 244, 290                       -- the middle column's edges
+local function Metal(name, hex, pool) local r, g, b = Hex(hex) return { name, r, g, b, pool } end
+local METAL = { Metal("silver", "e6ecf6", { 0.78, 0.84, 1, 0.35 }), Metal("gold", "ffe39a", { 1, 0.78, 0.35, 0.55 }), Metal("bronze", "f0b070", { 0.9, 0.55, 0.24, 0.4 }) }
 local function BoardValue(kind, row)
-    if kind == "time" then return Rd.Clock(floor(row.v / 1000000)) end
-    if kind == "challenge" then return Rd.Clock(floor(row.v / 1000000)) end
-    return BreakUpLargeNumbers and BreakUpLargeNumbers(row.v) or tostring(row.v)
+    if kind == "time" or kind == "challenge" then return Rd.Clock(floor(row.v / 1000000)):gsub("^0", "") end
+    return Num(row.v)
 end
 local function BoardSub(kind, row)
     local b = row.b
     if kind == "gold" or kind == "rep" or kind == "points" then return row.e.ti or "" end
     if not b then return "" end
-    return string.format("Level %d \194\183 %s slain", b.l or 0, BreakUpLargeNumbers and BreakUpLargeNumbers(b.k or 0) or tostring(b.k or 0))
+    if (b.w or 0) > 0 and floor(row.v / 1000000) >= 900 then return "Victory \194\183 Level " .. (b.l or 0) end
+    return string.format("Level %d \194\183 %s slain", b.l or 0, Num(b.k or 0))
 end
 
 local function BuildBoard()
-    local f = HallScreen("Hall of the Line")
+    local f = MenuScreen("ttl_hall")
     f.tabs = {}
     for i, def in ipairs(BOARDS) do
         local t = Tab(f, function() lbState.kind = def[1] UI.ShowBoard() end)
-        t.icon:SetTexture(Icon(def[3])) t.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        t.label:SetText(def[2]) t.note:SetText(def[4])
+        t.m:Set(Icon(def[3]), "ring") t.label:SetText(def[2])
         t.kind = def[1]
-        t:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -(112 + (i - 1) * 42))
         f.tabs[i] = t
     end
-    f.period = {
-        Pill(f, "This week", function() lbState.period = "week" UI.ShowBoard() end),
-        Pill(f, "All time", function() lbState.period = "all" UI.ShowBoard() end),
-    }
+    f.period = { Pill(f, function() lbState.period = "week" UI.ShowBoard() end), Pill(f, function() lbState.period = "all" UI.ShowBoard() end) }
     f.clsb = {}
     for i, c in ipairs({ false, "PALADIN", "MAGE", "WARRIOR" }) do
-        local b = Pill(f, nil, function() lbState.cls = c or nil UI.ShowBoard() end, c and true)
-        if c then ClassIcon(b.icon, c) end
+        local b = Pill(f, function() lbState.cls = c or nil UI.ShowBoard() end, { icon = c and true, size = 11 })
         b.cls = c
         f.clsb[i] = b
     end
-    -- the podium: three places, each a hero on a pool of light, its medal, name, value
+    -- the podium: places 2, 1, 3
     f.pods = {}
-    for i = 1, 3 do
+    for slot = 1, 3 do
         local p = CreateFrame("Frame", nil, f)
+        p:SetAllPoints()
+        p.beam = KitTex(p, "beam", "BACKGROUND", 1) p.beam:SetBlendMode("ADD")
         p.pool = p:CreateTexture(nil, "BACKGROUND", nil, 2) p.pool:SetTexture(D.MEDIA .. "UI\\glow") p.pool:SetBlendMode("ADD")
-        p.shadow = p:CreateTexture(nil, "BACKGROUND", nil, 3) p.shadow:SetTexture(D.MEDIA .. "UI\\shadow")
         p.hero = p:CreateTexture(nil, "ARTWORK", nil, 1)
-        p.medal = KitTex(p, "md_" .. i, "ARTWORK", 3)
-        p.name = Words(p, 18, MORPHEUS)
-        p.v = Words(p, i == 1 and 38 or 30, MORPHEUS) p.v:SetShadowOffset(0, -2)
-        p.sub = Words(p, 10) p.sub:SetTextColor(MUTE[1], MUTE[2], MUTE[3])
-        p.rule = p:CreateTexture(nil, "ARTWORK") p.rule:SetColorTexture(1, 1, 1, 1)
-        f.pods[i] = p
+        p.md = KitTex(p, "md_1", "ARTWORK", 3)
+        p.name = Txt(p, 17, MORPHEUS) p.name:SetShadowOffset(0, -2)
+        p.v = Txt(p, slot == 2 and 38 or 30, MORPHEUS) p.v:SetShadowOffset(0, -2)
+        p.sb = Txt(p, 10, nil, MUTE[1], MUTE[2], MUTE[3])
+        f.pods[slot] = p
     end
-    f.beam = f:CreateTexture(nil, "BACKGROUND", nil, 1) f.beam:SetTexture(D.MEDIA .. "UI\\glow") f.beam:SetBlendMode("ADD")
     f.rows = {}
     for i = 1, 5 do
         local r = CreateFrame("Frame", nil, f)
-        r:SetSize(OV_W - LB_X - LB_R, 31)
-        r.bg = Rect(r, "BACKGROUND", 1, 1, 1, 0.025) r.bg:SetAllPoints()
-        r.rk = Words(r, 16, MORPHEUS) r.rk:SetPoint("CENTER", r, "LEFT", 22, 0)
-        r.ic = r:CreateTexture(nil, "ARTWORK") r.ic:SetSize(20, 20) r.ic:SetPoint("LEFT", 44, 0)
-        r.name = Words(r, 13) r.name:SetPoint("LEFT", r.ic, "RIGHT", 8, 0)
-        r.you = Words(r, 9) r.you:SetPoint("LEFT", r.name, "RIGHT", 8, 0) r.you:SetTextColor(110 / 255, 100 / 255, 118 / 255)
-        r.sub = Words(r, 11) r.sub:SetPoint("RIGHT", r, "RIGHT", -90, 0) r.sub:SetTextColor(MUTE[1], MUTE[2], MUTE[3])
-        r.v = Words(r, 18, MORPHEUS) r.v:SetPoint("RIGHT", r, "RIGHT", -12, 0) r.v:SetTextColor(1, 1, 1)
+        r:SetSize(OV_W - PL - PR, 34)
+        r.bg = Slice3(r, "lrow", "BACKGROUND", 0, 17)
+        r.rk = KitTex(r, "rk", "ARTWORK", 1)
+        r.rkN = Txt(r, 14, MORPHEUS)
+        r.ic = Medal(r, "ARTWORK", 2)
+        r.name = Txt(r, 13) r.you = Txt(r, 10, nil, 110 / 255, 100 / 255, 118 / 255)
+        r.meta = Txt(r, 11, nil, MUTE[1], MUTE[2], MUTE[3])
+        r.v = Txt(r, 19, MORPHEUS, 1, 1, 1)
         f.rows[i] = r
     end
-    f.empty = Words(f, 13) f.empty:SetTextColor(MUTE[1], MUTE[2], MUTE[3]) f.empty:SetWidth(520)
-    -- the week's challenge
-    local c = Panel(f)
-    c.eb = Words(c, 9) c.eb:SetText(Spaced("Weekly challenge")) c.eb:SetTextColor(166 / 255, 216 / 255, 115 / 255) c.eb:SetPoint("TOPLEFT", 16, -16)
-    c.name = Words(c, 22, MORPHEUS) c.name:SetPoint("TOPLEFT", c.eb, "BOTTOMLEFT", 0, -6) c.name:SetWidth(216) c.name:SetJustifyH("LEFT")
-    c.desc = Words(c, 11) c.desc:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -6) c.desc:SetWidth(216) c.desc:SetJustifyH("LEFT") c.desc:SetSpacing(2)
-    c.desc:SetTextColor(MUTE[1], MUTE[2], MUTE[3])
-    c.clock = {}
+    f.empty = Txt(f, 13, nil, MUTE[1], MUTE[2], MUTE[3]) f.empty:SetWidth(520)
+    -- the week's challenge: a plate, a window onto its hero, the name, the clock, the leaders, the reward, the button
+    local c = CreateFrame("Frame", nil, f)
+    c:SetSize(252, 508)
+    c.plate = Slice9(c, "pl_war", "BACKGROUND", 0, 18)
+    c.scene = Scene(c, c:GetFrameLevel() + 1)
+    c.scene:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -10)
+    c.top = CreateFrame("Frame", nil, c) c.top:SetAllPoints() c.top:SetFrameLevel(c:GetFrameLevel() + 6)
+    c.eb = Txt(c.top, 9, nil, Hex("a6d873")) c.eb:SetText(Spaced("Weekly challenge")) c.eb:SetPoint("TOP", c, "TOPLEFT", 126, -136)
+    c.name = Txt(c.top, 25, MORPHEUS) c.name:SetShadowOffset(0, -2) c.name:SetPoint("TOP", c, "TOPLEFT", 126, -150)
+    c.desc = Txt(c.top, 11.5, nil, MUTE[1], MUTE[2], MUTE[3]) c.desc:SetWidth(216) c.desc:SetSpacing(2) c.desc:SetPoint("TOP", c, "TOPLEFT", 126, -184)
+    c.tiles = {}
     for i, l in ipairs({ "DAYS", "HOURS", "MIN" }) do
-        local box = CreateFrame("Frame", nil, c) box:SetSize(66, 40)
-        box.bg = Rect(box, "BACKGROUND", 0, 0, 0, 0.45) box.bg:SetAllPoints()
-        box.v = Words(box, 18, MORPHEUS) box.v:SetPoint("TOP", 0, -4) box.v:SetTextColor(1, 1, 1)
-        box.l = Words(box, 8) box.l:SetPoint("BOTTOM", 0, 4) box.l:SetText(l) box.l:SetTextColor(110 / 255, 100 / 255, 118 / 255)
-        c.clock[i] = box
+        local t = { bg = KitTex(c.top, "tile", "ARTWORK", 0), v = Txt(c.top, 22, MORPHEUS, 1, 1, 1), l = Txt(c.top, 8, nil, 110 / 255, 100 / 255, 118 / 255) }
+        t.l:SetText(Spaced(l))
+        local tx = 18 + (i - 1) * (216 + 8) / 3
+        KitAt(t.bg, c, tx, 232, (216 - 16) / 3, 40)
+        t.v:SetPoint("TOP", c, "TOPLEFT", tx + (216 - 16) / 6, -236)
+        t.l:SetPoint("TOP", c, "TOPLEFT", tx + (216 - 16) / 6, -261)
+        c.tiles[i] = t
     end
     c.mini = {}
     for i = 1, 3 do
-        local m = { ic = c:CreateTexture(nil, "ARTWORK"), name = Words(c, 12), v = Words(c, 15, MORPHEUS) }
-        m.ic:SetSize(18, 18) m.v:SetTextColor(1, 1, 1)
+        local m = { n = Txt(c.top, 12, MORPHEUS, 0.96, 0.81, 0.42), ic = Medal(c.top, "ARTWORK", 2), name = Txt(c.top, 12), v = Txt(c.top, 16, MORPHEUS, 1, 1, 1) }
+        m.n:SetText(i)
         c.mini[i] = m
     end
-    c.reward = Words(c, 11) c.reward:SetWidth(176) c.reward:SetJustifyH("LEFT") c.reward:SetSpacing(2)
-    c.rewardIcon = c:CreateTexture(nil, "ARTWORK") c.rewardIcon:SetSize(30, 30) c.rewardIcon:SetTexture(Icon("inv_misc_token_argentdawn2"))
-    c.go = Pill(c, "Take the challenge", function() UI.StartChallenge() end)
+    c.reward = Slice9(c.top, "reward", "ARTWORK", 0, 10)
+    c.rewardM = Medal(c.top, "ARTWORK", 2)
+    c.rewardT = Txt(c.top, 11) c.rewardT:SetWidth(166) c.rewardT:SetJustifyH("LEFT")
+    c.go = Pill(c.top, function() UI.StartChallenge() end, { big = true, size = 16 })
     f.chal = c
+    f:Hide()
     return f
 end
 
@@ -2174,115 +2277,115 @@ function UI.ShowBoard()
     local f, S = ov.board, ns.HTLSocial
     f:Show()
     if S then S:Settle() S:Ask() end
-    LayoutHead(f, "Casual Disaster \194\183 week of " .. (S and S:Week() or ""))
-    for _, t in ipairs(f.tabs) do t.on = t.kind == lbState.kind t:Look() end
-    -- period + class filters
-    local x = LB_X
-    f.period[1]:Set("This week", lbState.period == "week") f.period[2]:Set("All time", lbState.period == "all")
-    for _, b in ipairs(f.period) do b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -112) x = x + b:GetWidth() + 6 end
+    local wk = S and S:Week() or ""
+    local y0, m0, d0 = wk:match("(%d+)%-(%d+)%-(%d+)")
+    local oy = LayoutMenu(f, "Casual Disaster \194\183 week of " .. (d0 and (tonumber(d0) .. " " .. date("%B", time({ year = tonumber(y0), month = tonumber(m0), day = tonumber(d0), hour = 12 }))) or wk))
+    if IsInGuild and GetGuildInfo then local g = GetGuildInfo("player") if g then f.cap:SetText(Spaced(g .. " \194\183 week of " .. (d0 and (tonumber(d0) .. " " .. date("%B", time({ year = tonumber(y0), month = tonumber(m0), day = tonumber(d0), hour = 12 }))) or wk))) end end
+    for i, t in ipairs(f.tabs) do
+        t:ClearAllPoints() t:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -(oy + 116 + (i - 1) * 50))
+        t.on = t.kind == lbState.kind t:Look()
+    end
+    -- filters
+    local x = PL
+    local pw = { f.period[1]:Set("This week", lbState.period == "week", 26, nil, nil, 11, 11), f.period[2]:Set("All time", lbState.period == "all", 26, nil, nil, 11, 11) }
+    for i, b in ipairs(f.period) do b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -(oy + 118)) x = x + pw[i] + 6 end
     local names = { "All", "Paladin", "Mage", "Warrior" }
-    local wsum = 0
-    for i, b in ipairs(f.clsb) do wsum = wsum + b:Set(names[i], (b.cls or nil) == lbState.cls) + 6 end
-    x = OV_W - LB_R - wsum + 6
-    for _, b in ipairs(f.clsb) do b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -112) x = x + b:GetWidth() + 6 end
+    local cw, tot = {}, 0
+    for i, b in ipairs(f.clsb) do cw[i] = b:Set(names[i], (b.cls or nil) == lbState.cls, 26, b.cls and CLS_ICON[b.cls] or nil, nil, 11, 11) tot = tot + cw[i] + (i > 1 and 6 or 0) end
+    x = OV_W - PR - tot
+    for i, b in ipairs(f.clsb) do b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -(oy + 118)) x = x + cw[i] + 6 end
     local list = S and S:Board(lbState.kind, lbState.period, lbState.cls) or {}
-    -- the podium: 2, 1, 3 left to right; first a step up, in a light from above
-    local colW = (OV_W - LB_X - LB_R - 20) / 3
-    local order = { 2, 1, 3 }
-    for slot, place in ipairs(order) do
-        local p, row = f.pods[place], list[place]
+    -- the podium (the mockup's grid: 1fr 1.18fr 1fr, gap 10; places sit at 8 / 26 / 0 above the bottom)
+    local W = OV_W - PL - PR
+    local unit = (W - 20) / 3.18
+    local cols = { { PL + unit / 2, 2 }, { PL + unit + 10 + unit * 1.18 / 2, 1 }, { PL + unit * 2.18 + 20 + unit / 2, 3 } }
+    for slot, col in ipairs(cols) do
+        local p, place = f.pods[slot], col[2]
+        local row = list[place]
         p:SetShown(row ~= nil)
         if row then
-            local cx = LB_X + (slot - 1) * (colW + 10) + colW / 2
-            local lift = place == 1 and 30 or place == 2 and 10 or 0
-            local feet = 262 - lift                        -- the heroes' feet
-            local m = METAL[place]
+            local cx = col[1]
+            local mt = METAL[place == 1 and 2 or place == 2 and 1 or 3]
+            local bottom = oy + 154 + 240 - (place == 1 and 26 or place == 2 and 8 or 0)
+            local vH = place == 1 and 38 or 30
+            local mdW = place == 1 and 44 or 38
+            local sbTop = bottom - 15
+            local vTop = sbTop - 3 - vH
+            local nmTop = vTop - 25.5
+            local mdTop = nmTop - mdW * 58 / 48 + 2
+            local feet = mdTop + 8
+            p.sb:SetText(BoardSub(lbState.kind, row)) p.sb:ClearAllPoints() p.sb:SetPoint("TOP", f, "TOPLEFT", cx, -sbTop)
+            p.v:SetText(BoardValue(lbState.kind, row)) p.v:SetTextColor(mt[2], mt[3], mt[4]) p.v:ClearAllPoints() p.v:SetPoint("TOP", f, "TOPLEFT", cx, -vTop)
+            p.name:SetText(row.name) p.name:SetTextColor(ClassRGB(row.cls)) p.name:ClearAllPoints() p.name:SetPoint("TOP", f, "TOPLEFT", cx, -nmTop)
+            KitSet(p.md, "md_" .. place) KitAtK(p.md, f, cx - mdW / 2, mdTop, mdW / 48)
             local key = CLASSES[row.cls or "PALADIN"].sprite
             local pg, fx, fy, fw, fh, dx, dy = Rd.Frame(key, 2, 0)
-            local s = place == 1 and 2.7 or 2.25
             if pg then
+                local sc = (place == 1 and 102 or 84) / fh
                 p.hero:SetTexture(pg[1]) p.hero:SetTexCoord(fx / pg[2], (fx + fw) / pg[2], fy / pg[3], (fy + fh) / pg[3])
-                p.hero:ClearAllPoints() p.hero:SetPoint("TOPLEFT", f, "TOPLEFT", cx + dx * s, -(feet + dy * s)) p.hero:SetSize(fw * s, fh * s)
+                p.hero:ClearAllPoints() p.hero:SetPoint("TOPLEFT", f, "TOPLEFT", cx - fw * sc / 2, -(feet - fh * sc)) p.hero:SetSize(fw * sc, fh * sc)
             end
-            p.pool:ClearAllPoints() p.pool:SetPoint("CENTER", f, "TOPLEFT", cx, -(feet + 2)) p.pool:SetSize(176, 40) p.pool:SetVertexColor(m[1], m[2], m[3], place == 1 and 0.55 or 0.35)
-            p.shadow:ClearAllPoints() p.shadow:SetPoint("CENTER", f, "TOPLEFT", cx, -(feet + 1)) p.shadow:SetSize(60, 12) p.shadow:SetVertexColor(1, 1, 1, 0.8)
-            local my = feet + 6
-            local mw = place == 1 and 46 or 40
-            p.medal:ClearAllPoints()
-            KitAtK(p.medal, f, cx - mw / 2, my, mw / 48)
-            local ty = my + mw * 58 / 48 - 4
-            p.name:SetText(row.name) p.name:SetTextColor(ClassRGB(row.cls))
-            p.name:ClearAllPoints() p.name:SetPoint("TOP", f, "TOPLEFT", cx, -ty)
-            p.v:SetText(BoardValue(lbState.kind, row)) p.v:SetTextColor(m[1], m[2], m[3])
-            p.v:ClearAllPoints() p.v:SetPoint("TOP", p.name, "BOTTOM", 0, -1)
-            p.sub:SetText(BoardSub(lbState.kind, row))
-            p.sub:ClearAllPoints() p.sub:SetPoint("TOP", p.v, "BOTTOM", 0, -2)
-            p.rule:ClearAllPoints() p.rule:SetPoint("TOP", p.sub, "BOTTOM", 0, -7) p.rule:SetSize(colW * 0.76, 1)
-            ns.UI:GradientRGBA(p.rule, "HORIZONTAL", m[1], m[2], m[3], 0.5, m[1], m[2], m[3], 0.5)
+            p.pool:ClearAllPoints() p.pool:SetPoint("CENTER", f, "TOPLEFT", cx, -(feet - 5)) p.pool:SetSize(170, 34) p.pool:SetVertexColor(mt[5][1], mt[5][2], mt[5][3], mt[5][4])
+            p.beam:SetShown(place == 1)
+            KitAt(p.beam, f, cx - 60, feet + 10 - 230, 120, 230)
         end
     end
-    f.beam:SetShown(list[1] ~= nil)
-    f.beam:ClearAllPoints() f.beam:SetPoint("CENTER", f, "TOPLEFT", LB_X + colW + 10 + colW / 2, -200) f.beam:SetSize(260, 300) f.beam:SetVertexColor(1, 0.82, 0.45, 0.35)
-    -- the rest: 4.. and you
-    local y = 414
-    local meIn = false
-    for i = 1, 3 do if list[i] and list[i].me then meIn = true end end
-    local shown = 0
-    for i, r in ipairs(f.rows) do r:Hide() end
+    -- the rows: 4.. and you
+    local y = oy + 410
+    for _, r in ipairs(f.rows) do r:Hide() end
     local function Row(r, rank, row)
-        r:ClearAllPoints() r:SetPoint("TOPLEFT", f, "TOPLEFT", LB_X, -y)
-        r.rk:SetText(rank) r.rk:SetTextColor(row.me and 1 or 0.43, row.me and 0.82 or 0.39, row.me and 0.42 or 0.46)
-        ClassIcon(r.ic, row.cls or "PALADIN")
-        r.name:SetText(row.name) r.name:SetTextColor(ClassRGB(row.cls))
-        r.you:SetText(row.me and "you" or "")
-        r.sub:SetText(BoardSub(lbState.kind, row))
-        r.v:SetText(BoardValue(lbState.kind, row))
-        r.bg:SetColorTexture(1, 0.81, 0.42, row.me and 0.12 or 0.025)
+        r:ClearAllPoints() r:SetPoint("TOPLEFT", f, "TOPLEFT", PL, -y)
+        r.bg:SetKit(row.me and "lrow_me" or "lrow") r.bg:Place(r, 0, 0, W, 34)
+        KitSet(r.rk, row.me and "rk_me" or "rk") KitAt(r.rk, r, 8, 4, 26, 26)
+        r.rkN:SetText(rank) r.rkN:SetTextColor(row.me and 42 / 255 or 216 / 255, row.me and 22 / 255 or 200 / 255, row.me and 0 or 168 / 255)
+        r.rkN:ClearAllPoints() r.rkN:SetPoint("CENTER", r, "TOPLEFT", 21, -17)
+        ClassIcon(r.ic, row.cls or "PALADIN", "ring") r.ic:Place(r, 46, 6, 22)
+        r.name:SetText(row.name) r.name:SetTextColor(ClassRGB(row.cls)) r.name:ClearAllPoints() r.name:SetPoint("LEFT", r, "TOPLEFT", 77, -17)
+        r.you:SetText(row.me and "you" or "") r.you:ClearAllPoints() r.you:SetPoint("LEFT", r.name, "RIGHT", 8, 0)
+        r.meta:SetText(BoardSub(lbState.kind, row)) r.meta:ClearAllPoints() r.meta:SetPoint("RIGHT", r, "TOPLEFT", W - 14 - 60 - 10, -17)
+        r.v:SetText(BoardValue(lbState.kind, row)) r.v:ClearAllPoints() r.v:SetPoint("RIGHT", r, "TOPLEFT", W - 14, -17)
         r:Show()
-        y = y + 34
+        y = y + 41
     end
-    for i = 4, min(#list, 7) do
-        if list[i].me then meIn = true end
-        shown = shown + 1
-        Row(f.rows[shown], i, list[i])
-    end
-    if not meIn then
-        for i = 8, #list do if list[i].me then y = y + 8 shown = shown + 1 Row(f.rows[min(5, shown)], i, list[i]) break end end
-    end
+    local shown, meIn = 0, false
+    for i = 1, min(3, #list) do if list[i].me then meIn = true end end
+    for i = 4, min(#list, 6) do if list[i].me then meIn = true end shown = shown + 1 Row(f.rows[shown], i, list[i]) end
+    if not meIn then for i = 7, #list do if list[i].me then shown = shown + 1 Row(f.rows[shown], i, list[i]) break end end end
     f.empty:SetShown(#list == 0)
     f.empty:SetText("No runs on this board yet. Finish a run and the guild sees it here.")
-    f.empty:ClearAllPoints() f.empty:SetPoint("TOP", f, "TOPLEFT", LB_X + (OV_W - LB_X - LB_R) / 2, -260)
+    f.empty:ClearAllPoints() f.empty:SetPoint("TOP", f, "TOPLEFT", PL + W / 2, -(oy + 260))
     -- the challenge
     local c = f.chal
+    c:ClearAllPoints() c:SetPoint("TOPLEFT", f, "TOPLEFT", OV_W - 22 - 252, -(oy + 116))
+    c.plate:Place(c, 0, 0, 252, 508)
     local ch = S and S:Challenge()
-    c:ClearAllPoints() c:SetPoint("TOPLEFT", f, "TOPLEFT", OV_W - 22 - 248, -112) c:SetSize(248, StageH() - 112 - 22)
     if ch then
-        c.name:SetText(ch.name) c.name:SetTextColor(ClassRGB(ch.cls))
+        local cls = ch.cls or Class()
+        c.scene:Set(232, 116, cls, { 1, 0.59, 0.31 }, { 36 / 255, 20 / 255, 14 / 255, 11 / 255, 8 / 255, 6 / 255 }, { heroH = 96, heroBottom = 8, raysY = 100, raysS = 240, raysA = 0.18, lightA = 0.4, pool = false })
+        c.name:SetText(ch.name) c.name:SetTextColor(ClassRGB(cls))
         c.desc:SetText(ch.desc)
         local left = S:WeekLeft()
         local vals = { floor(left / 86400), floor(left % 86400 / 3600), floor(left % 3600 / 60) }
-        local cy = 16 + 9 + 6 + 26 + 6 + (c.desc:GetStringHeight() or 40) + 12
-        for i, box in ipairs(c.clock) do box:ClearAllPoints() box:SetPoint("TOPLEFT", c, "TOPLEFT", 16 + (i - 1) * 75, -cy) box.v:SetText(vals[i]) end
-        cy = cy + 52
+        for i, t in ipairs(c.tiles) do t.v:SetText(vals[i]) end
         local top = S:Board("challenge", "week")
         for i, m in ipairs(c.mini) do
             local row = top[i]
-            m.ic:SetShown(row ~= nil) m.name:SetShown(row ~= nil) m.v:SetShown(row ~= nil)
+            local ry = 296 + (i - 1) * 26
+            for _, w in ipairs({ m.n, m.name, m.v }) do w:SetShown(row ~= nil) end
+            m.ic:SetShown(row ~= nil)
             if row then
-                ClassIcon(m.ic, row.cls)
-                m.ic:ClearAllPoints() m.ic:SetPoint("TOPLEFT", c, "TOPLEFT", 16, -(cy + (i - 1) * 24))
-                m.name:SetText(row.name) m.name:SetTextColor(ClassRGB(row.cls))
-                m.name:ClearAllPoints() m.name:SetPoint("LEFT", m.ic, "RIGHT", 7, 0)
-                m.v:SetText(Rd.Clock(floor(row.v / 1000000)))
-                m.v:ClearAllPoints() m.v:SetPoint("RIGHT", c, "TOPLEFT", 232, -(cy + (i - 1) * 24 + 9))
+                m.n:ClearAllPoints() m.n:SetPoint("LEFT", c, "TOPLEFT", 18, -(ry + 10))
+                ClassIcon(m.ic, row.cls, "ring") m.ic:Place(c, 38, ry, 20)
+                m.name:SetText(row.name) m.name:SetTextColor(ClassRGB(row.cls)) m.name:ClearAllPoints() m.name:SetPoint("LEFT", c, "TOPLEFT", 66, -(ry + 10))
+                m.v:SetText(Rd.Clock(floor(row.v / 1000000)):gsub("^0", "")) m.v:ClearAllPoints() m.v:SetPoint("RIGHT", c, "TOPLEFT", 234, -(ry + 10))
             end
         end
-        cy = cy + (#top > 0 and min(3, #top) * 24 + 10 or 0)
-        c.rewardIcon:ClearAllPoints() c.rewardIcon:SetPoint("TOPLEFT", c, "TOPLEFT", 16, -cy)
-        c.reward:SetText("Winner: |cffa6d873+" .. D.CHALLENGE_REP .. " Argent Dawn|r and the title |cfff4cf6a" .. D.CHALLENGE_TITLE .. "|r until next week.")
-        c.reward:ClearAllPoints() c.reward:SetPoint("TOPLEFT", c.rewardIcon, "TOPRIGHT", 9, 0)
-        local gw = c.go:Set("Take the challenge", true, 30)
-        c.go:ClearAllPoints() c.go:SetPoint("TOPLEFT", c, "TOPLEFT", 124 - gw / 2, -(cy + 48))
+        c.reward:Place(c, 14, 386, 224, 46)
+        c.rewardM:Set(Icon("inv_misc_token_argentdawn2"), "ring") c.rewardM:Place(c, 24, 394, 30)
+        c.rewardT:SetText("Winner: |cffa6d873+" .. Num(D.CHALLENGE_REP) .. " Argent Dawn|r and the title |cfff4cf6a" .. D.CHALLENGE_TITLE .. "|r")
+        c.rewardT:ClearAllPoints() c.rewardT:SetPoint("LEFT", c, "TOPLEFT", 64, -409)
+        local gw = c.go:Set("Take the challenge", false, 38)
+        c.go:ClearAllPoints() c.go:SetPoint("TOPLEFT", c, "TOPLEFT", 126 - gw / 2, -448)
     end
 end
 
@@ -2291,49 +2394,47 @@ end
 ---------------------------------------------------------------------------
 local achCat = nil
 local function BuildAch()
-    local f = HallScreen("Deeds of the Line")
+    local f = MenuScreen("ttl_deeds")
     f.tabs = {}
     local cats = { { id = false, name = "Summary", icon = "spell_holy_championsbond" } }
-    for _, c in ipairs(D.ACH_CATS) do cats[#cats + 1] = c end
+    for _, c in ipairs(D.ACH_CATS) do cats[#cats + 1] = { id = c.id, name = c.id == "feats" and "Feats" or c.name, icon = c.icon } end
     for i, c in ipairs(cats) do
         local t = Tab(f, function() achCat = c.id or nil UI.ShowAch() end)
-        t.icon:SetTexture(Icon(c.icon)) t.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        t.label:SetText(c.name) t.cat = c.id
-        t:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -(112 + (i - 1) * 42))
+        t.m:Set(Icon(c.icon), "ring") t.label:SetText(c.name) t.cat = c.id
         f.tabs[i] = t
     end
     f.big = KitTex(f, "sh_big", "ARTWORK", 1)
     f.digits = {}
     for i = 1, 4 do f.digits[i] = KitTex(f, "shd_0", "ARTWORK", 3) end
-    f.ptsL = Words(f, 26, MORPHEUS) f.ptsL:SetTextColor(1, 1, 1)
-    f.ptsS = Words(f, 9) f.ptsS:SetTextColor(MUTE[1], MUTE[2], MUTE[3])
-    f.barBg = Rect(f, "ARTWORK", 0, 0, 0, 0.6)
-    f.bar = Rect(f, "ARTWORK", 1, 1, 1, 1, 1)
-    ns.UI:GradientRGBA(f.bar, "VERTICAL", 0.25, 0.54, 0.16, 1, 0.65, 0.91, 0.42, 1)
-    f.barL = Words(f, 11) f.barL:SetTextColor(MUTE[1], MUTE[2], MUTE[3])
+    f.ptsL = Txt(f, 30, MORPHEUS, 1, 1, 1) f.ptsL:SetShadowOffset(0, -2)
+    f.ptsS = Txt(f, 9, nil, MUTE[1], MUTE[2], MUTE[3])
+    f.sumL = Txt(f, 11, nil, MUTE[1], MUTE[2], MUTE[3]) f.sumL:SetText("Progress")
+    f.sumR = Txt(f, 11, nil, MUTE[1], MUTE[2], MUTE[3])
+    f.barBg = Slice3(f, "barbg", "ARTWORK", 0, 5)
+    f.bar = Slice3(f, "fill", "ARTWORK", 1, 5)
     f.cards = {}
     for i = 1, 8 do
-        local c = Panel(f)
-        c:SetSize(0, 62)
-        c.icon = c:CreateTexture(nil, "ARTWORK") c.icon:SetSize(42, 42) c.icon:SetPoint("LEFT", 11, 0) c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        c.name = Words(c, 16, MORPHEUS) c.name:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 11, 1) c.name:SetJustifyH("LEFT")
-        c.desc = Words(c, 11) c.desc:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -2) c.desc:SetJustifyH("LEFT") c.desc:SetTextColor(216 / 255, 204 / 255, 178 / 255)
-        c.note = Words(c, 10) c.note:SetJustifyH("LEFT") c.note:SetTextColor(110 / 255, 100 / 255, 118 / 255)
-        c.pbg = Rect(c, "ARTWORK", 0, 0, 0, 0.6) c.pbar = Rect(c, "ARTWORK", 1, 1, 1, 1, 1)
-        ns.UI:GradientRGBA(c.pbar, "VERTICAL", 0.25, 0.54, 0.16, 1, 0.65, 0.91, 0.42, 1)
+        local c = CreateFrame("Frame", nil, f)
+        c.plate = Slice9(c, "pl_done", "BACKGROUND", 0, 18)
+        c.m = Medal(c, "ARTWORK", 1)
+        c.name = Txt(c, 18, MORPHEUS) c.name:SetShadowOffset(0, -2) c.name:SetJustifyH("LEFT")
+        c.desc = Txt(c, 11.5, nil, 216 / 255, 204 / 255, 178 / 255) c.desc:SetJustifyH("LEFT") c.desc:SetSpacing(1.5)
+        c.note = Txt(c, 10, nil, 110 / 255, 100 / 255, 118 / 255) c.note:SetJustifyH("LEFT")
+        c.pbg = Slice3(c, "barbg", "ARTWORK", 0, 4) c.pbar = Slice3(c, "fill_g", "ARTWORK", 1, 4)
         c.sh = KitTex(c, "sh_gold_10", "ARTWORK", 2)
         c.first = KitTex(c, "c2_new", "ARTWORK", 3)
-        c.firstL = Words(c, 8, nil, "OVERLAY") c.firstL:SetText("G U I L D   F I R S T") c.firstL:SetTextColor(42 / 255, 22 / 255, 0) c.firstL:SetShadowColor(0, 0, 0, 0)
+        c.firstL = Txt(c, 8) c.firstL:SetText(Spaced("Guild first")) c.firstL:SetTextColor(42 / 255, 22 / 255, 0) c.firstL:SetShadowColor(0, 0, 0, 0)
+        c.firstL:SetDrawLayer("OVERLAY", 7)
         f.cards[i] = c
     end
     return f
 end
-local function SetPoints(f, n, x, y)
+local function SetPoints(f, n, cx, y)
     local s = tostring(n)
+    local k = #s > 3 and 0.6 or 0.7
     local ws, tot = {}, 0
-    local k = #s > 3 and 0.62 or 0.72
     for i = 1, #s do local e = K["shd_" .. s:sub(i, i)] ws[i] = (e[6] - 2 * e[8]) * k tot = tot + ws[i] - 1 end
-    local dx = x - tot / 2
+    local dx = cx - tot / 2
     for i, t in ipairs(f.digits) do
         local ch = s:sub(i, i)
         if ch ~= "" then KitSet(t, "shd_" .. ch) KitAtK(t, f, dx, y, k) dx = dx + ws[i] - 1 t:Show() else t:Hide() end
@@ -2345,63 +2446,72 @@ function UI.ShowAch()
     local f, S = ov.ach, ns.HTLSocial
     f:Show()
     if S then S:CheckProfile() end
-    local have, all = 0, 0
-    local got, total = 0, #D.ACHIEVEMENTS
-    if S then have, all = S:Points() got, total = S:Count() end
-    local firsts = 0
-    if S then for _, v in pairs(S.Data().firsts) do if ns.Util.IsMe(v.who) then firsts = firsts + 1 end end end
-    LayoutHead(f, got .. " of " .. total .. " earned \194\183 " .. firsts .. " guild first" .. (firsts == 1 and "" or "s"))
-    for _, t in ipairs(f.tabs) do t.on = (t.cat or nil) == achCat t:Look() end
-    -- the points: a big shield, the number in its lettering, the total beside it
-    KitAt(f.big, f, OV_W - 24 - 64, 22, 64, 72)
-    SetPoints(f, have, OV_W - 24 - 32, 22 + 18)
-    f.ptsL:SetText(BreakUpLargeNumbers and BreakUpLargeNumbers(have) or tostring(have))
-    f.ptsL:ClearAllPoints() f.ptsL:SetPoint("TOPRIGHT", f, "TOPLEFT", OV_W - 24 - 64 - 12, -34)
-    f.ptsS:SetText(Spaced("of " .. all .. " points"))
-    f.ptsS:ClearAllPoints() f.ptsS:SetPoint("TOPRIGHT", f.ptsL, "BOTTOMRIGHT", 0, -2)
+    local have, all, got, total, firsts = 0, 0, 0, #D.ACHIEVEMENTS, 0
+    if S then
+        have, all = S:Points() got, total = S:Count()
+        for _, v in pairs(S.Data().firsts) do if ns.Util.IsMe(v.who) then firsts = firsts + 1 end end
+    end
+    local oy = LayoutMenu(f, got .. " of " .. total .. " earned \194\183 " .. firsts .. " guild first" .. (firsts == 1 and "" or "s"))
+    local counts = {}
+    if S then for _, row in ipairs(S:List()) do local c = row.a.cat counts[c] = counts[c] or { 0, 0 } counts[c][2] = counts[c][2] + 1 if row.earned then counts[c][1] = counts[c][1] + 1 end end end
+    for i, t in ipairs(f.tabs) do
+        t:ClearAllPoints() t:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -(oy + 116 + (i - 1) * 50))
+        local c = t.cat and counts[t.cat] or { got, total }
+        t.note:SetText(c and (c[1] .. "/" .. c[2]) or "")
+        t.on = (t.cat or nil) == achCat t:Look()
+    end
+    -- the points: the big shield and its number, the total beside it
+    KitAtK(f.big, f, OV_W - 26 - 60, 20, 60 / 64)
+    SetPoints(f, have, OV_W - 26 - 30, 20 + 17)
+    f.ptsL:SetText(Num(have)) f.ptsL:ClearAllPoints() f.ptsL:SetPoint("TOPRIGHT", f, "TOPLEFT", OV_W - 26 - 60 - 12, -(oy + 26))
+    f.ptsS:SetText(Spaced("of " .. Num(all) .. " points")) f.ptsS:ClearAllPoints() f.ptsS:SetPoint("TOPRIGHT", f.ptsL, "BOTTOMRIGHT", 0, -2)
     -- progress
-    local bw = OV_W - 236 - 22 - 70
-    f.barBg:ClearAllPoints() f.barBg:SetPoint("TOPLEFT", f, "TOPLEFT", 236, -118) f.barBg:SetSize(bw, 8)
-    f.bar:ClearAllPoints() f.bar:SetPoint("TOPLEFT", f, "TOPLEFT", 236, -118) f.bar:SetSize(max(0.1, bw * got / max(1, total)), 8)
-    f.barL:SetText(got .. " / " .. total)
-    f.barL:ClearAllPoints() f.barL:SetPoint("LEFT", f.barBg, "RIGHT", 10, 0)
-    -- the cards: two columns
+    f.sumL:ClearAllPoints() f.sumL:SetPoint("LEFT", f, "TOPLEFT", PL, -(oy + 125))
+    f.sumR:SetText(got .. " / " .. total) f.sumR:ClearAllPoints() f.sumR:SetPoint("RIGHT", f, "TOPLEFT", OV_W - 26, -(oy + 125))
+    local bx = PL + (f.sumL:GetStringWidth() or 50) + 12
+    local bw = OV_W - 26 - (f.sumR:GetStringWidth() or 40) - 12 - bx
+    f.barBg:Place(f, bx, oy + 120, bw, 10)
+    f.bar:Place(f, bx, oy + 120, max(10, bw * got / max(1, total)), 10)
+    -- the cards: two columns of 104-high plates
     local list = S and S:List(achCat) or {}
-    local cw = (OV_W - 236 - 22 - 8) / 2
+    local cw = (OV_W - PL - 26 - 16) / 2
     for i, c in ipairs(f.cards) do
         local row = list[i]
         c:SetShown(row ~= nil)
         if row then
             local a = row.a
+            local kind = a.feat and "feat" or row.earned and "done" or "todo"
             local col, line = (i - 1) % 2, floor((i - 1) / 2)
-            c:ClearAllPoints() c:SetPoint("TOPLEFT", f, "TOPLEFT", 236 + col * (cw + 8), -(140 + line * 70)) c:SetSize(cw, 62)
-            c.icon:SetTexture(Icon(a.icon)) c.icon:SetDesaturated(not row.earned)
-            c.name:SetText(a.name) c.name:SetWidth(cw - 130) FitLine(c.name, MORPHEUS, 16, 11, cw - 130)
-            if a.feat then c.name:SetTextColor(1, 0.57, 0.16) elseif row.earned then c.name:SetTextColor(1, 0.89, 0.6) else c.name:SetTextColor(0.92, 0.88, 0.81) end
-            c.desc:SetText(a.desc) c.desc:SetWidth(cw - 130)
+            c:ClearAllPoints() c:SetPoint("TOPLEFT", f, "TOPLEFT", PL + col * (cw + 16), -(oy + 146 + line * 118)) c:SetSize(cw, 104)
+            c.plate:Kit("pl_" .. kind) c.plate:Place(c, 0, 0, cw, 104)
+            c.m:Set(Icon(a.icon), kind == "todo" and "ring_dim" or "ring") c.m:Place(c, 18, 24, 56)
+            local mine = row.earned and row.first and ns.Util.IsMe(row.first.who)
+            c.name:SetText(a.name) FitLine(c.name, MORPHEUS, 18, 12, cw - 92 - 76 - (mine and 84 or 0))
+            if kind == "feat" then c.name:SetTextColor(1, 0.57, 0.16) elseif kind == "done" then c.name:SetTextColor(1, 0.89, 0.6) else c.name:SetTextColor(0.92, 0.88, 0.81) end
+            c.name:ClearAllPoints() c.name:SetPoint("TOPLEFT", c, "TOPLEFT", 92, -18)
+            c.desc:SetText(a.desc) c.desc:SetWidth(cw - 92 - 76) c.desc:ClearAllPoints() c.desc:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -4)
             local note
-            if row.earned then note = "Earned " .. date("%d %B", row.earned)
-            elseif row.first then note = "First in guild: " .. (ns.Util.ShortName(row.first.who) or row.first.who) .. ", " .. date("%d %B", row.first.t)
-            elseif row.need then note = (BreakUpLargeNumbers and BreakUpLargeNumbers(row.have or 0) or tostring(row.have or 0)) .. " / " .. (BreakUpLargeNumbers and BreakUpLargeNumbers(row.need) or tostring(row.need))
+            if row.earned then note = "Earned " .. date("%d %B", row.earned):gsub("^0", "")
+            elseif kind == "feat" and row.first then note = (ns.Util.ShortName(row.first.who) or row.first.who) .. " \194\183 " .. date("%d %B", row.first.t):gsub("^0", "")
+            elseif row.need and row.need > 1 then note = Num(row.have or 0) .. " / " .. Num(row.need)
+            elseif row.first then note = "First in guild: " .. (ns.Util.ShortName(row.first.who) or row.first.who)
             else note = "No one in the guild yet" end
             local showBar = not row.earned and row.need and row.need > 1
             c.pbg:SetShown(showBar) c.pbar:SetShown(showBar)
             if showBar then
-                c.pbg:ClearAllPoints() c.pbg:SetPoint("TOPLEFT", c.desc, "BOTTOMLEFT", 0, -4) c.pbg:SetSize(cw - 140, 6)
-                c.pbar:ClearAllPoints() c.pbar:SetPoint("TOPLEFT", c.pbg, "TOPLEFT") c.pbar:SetSize(max(0.1, (cw - 140) * min(1, (row.have or 0) / row.need)), 6)
-                c.note:ClearAllPoints() c.note:SetPoint("TOPLEFT", c.pbg, "BOTTOMLEFT", 0, -2)
+                local dh = c.desc:GetStringHeight() or 14
+                local by = 18 + 22 + 4 + dh + 7
+                c.pbg:Place(c, 92, by, cw - 92 - 76, 8)
+                c.pbar:Place(c, 92, by, max(8, (cw - 92 - 76) * min(1, (row.have or 0) / row.need)), 8)
+                c.note:ClearAllPoints() c.note:SetPoint("TOPLEFT", c, "TOPLEFT", 92, -(by + 8 + 5))
             else
-                c.note:ClearAllPoints() c.note:SetPoint("TOPLEFT", c.desc, "BOTTOMLEFT", 0, -3)
+                c.note:ClearAllPoints() c.note:SetPoint("TOPLEFT", c.desc, "BOTTOMLEFT", 0, -5)
             end
             c.note:SetText(note)
             KitSet(c.sh, a.feat and "sh_feat" or ((row.earned and "sh_gold_" or "sh_grey_") .. a.pts))
-            KitAt(c.sh, c, cw - 12 - 46, 5, 46, 52)
-            local mine = row.earned and row.first and ns.Util.IsMe(row.first.who)
+            KitAtK(c.sh, c, cw - 18 - 48, 22, 48 / 46)
             c.first:SetShown(mine and true or false) c.firstL:SetShown(mine and true or false)
-            if mine then KitAtK(c.first, c, cw - 64 - 92, 7, 92 / 60) c.firstL:ClearAllPoints() c.firstL:SetPoint("LEFT", c, "TOPLEFT", cw - 64 - 84, -22.5) end
-            for _, e in ipairs(c.edge) do
-                if a.feat then e:SetColorTexture(1, 0.57, 0.16, 1) elseif row.earned then e:SetColorTexture(106 / 255, 83 / 255, 40 / 255, 1) else e:SetColorTexture(58 / 255, 48 / 255, 66 / 255, 1) end
-            end
+            if mine then KitAt(c.first, c, cw - 72 - 80, 12, 80, 16) c.firstL:ClearAllPoints() c.firstL:SetPoint("LEFT", c, "TOPLEFT", cw - 72 - 74, -20.5) end
         end
     end
 end
@@ -2410,54 +2520,68 @@ end
 -- the Argent Dawn
 ---------------------------------------------------------------------------
 local function BuildDawn()
-    local f = HallScreen("The Argent Dawn")
-    f.seal = f:CreateTexture(nil, "ARTWORK", nil, 1) f.seal:SetTexture(Icon("inv_misc_token_argentdawn3"))
-    f.sealMask = f:CreateMaskTexture() f.sealMask:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") f.sealMask:SetAllPoints(f.seal) f.seal:AddMaskTexture(f.sealMask)
-    f.ring = KitTex(f, "c2_ring_uncommon", "ARTWORK", 2)
-    f.sealGlow = f:CreateTexture(nil, "BACKGROUND", nil, 2) f.sealGlow:SetTexture(D.MEDIA .. "UI\\glow") f.sealGlow:SetBlendMode("ADD") f.sealGlow:SetVertexColor(0.65, 0.85, 0.45, 0.6)
-    f.faction = Words(f, 28, MORPHEUS) f.faction:SetText("Argent Dawn") f.faction:SetTextColor(0.65, 0.85, 0.45)
-    f.standing = Words(f, 18, MORPHEUS) f.standing:SetTextColor(1, 0.81, 0.42)
-    f.barEdge = Rect(f, "ARTWORK", 93 / 255, 74 / 255, 42 / 255, 1, -1)
-    f.barBg = Rect(f, "ARTWORK", 0, 0, 0, 0.75)
-    f.bar = Rect(f, "ARTWORK", 1, 1, 1, 1, 1)
-    ns.UI:GradientRGBA(f.bar, "VERTICAL", 0.12, 0.42, 0.09, 1, 0.37, 0.76, 0.24, 1)
-    f.barL = Words(f, 10, nil, "OVERLAY") f.barL:SetTextColor(1, 1, 1)
-    f.next = Words(f, 11) f.next:SetTextColor(MUTE[1], MUTE[2], MUTE[3])
-    f.ways = {}
+    local f = MenuScreen("ttl_dawn")
+    local cr = CreateFrame("Frame", nil, f)
+    cr:SetSize(330, 516)
+    cr.plate = Slice9(cr, "pl_green", "BACKGROUND", 0, 18)
+    cr.star = cr:CreateTexture(nil, "BACKGROUND", nil, 2) cr.star:SetTexture(LTOAST) cr.star:SetTexCoord(LT_STAR[1], LT_STAR[3], LT_STAR[2], LT_STAR[4]) cr.star:SetBlendMode("ADD")
+    cr.starMask = cr:CreateMaskTexture() cr.starMask:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") cr.starMask:SetAllPoints(cr.star) cr.star:AddMaskTexture(cr.starMask)
+    cr.star:SetPoint("CENTER", cr, "TOPLEFT", 165, -130) cr.star:SetSize(300, 300) cr.star:SetVertexColor(0.55, 1, 0.45, 0.6)
+    cr.seal = Medal(cr, "ARTWORK", 1) cr.seal:Set(Icon("inv_misc_token_argentdawn3"), "ring_green") cr.seal:Place(cr, 165 - 46, 40, 92)
+    cr.name = KitTex(cr, "ttl_ad", "ARTWORK", 2)
+    local k = K.ttl_ad
+    KitAt(cr.name, cr, 165 - (k[6] - 2 * k[8]) / 2, 140)
+    cr.st = Txt(cr, 19, MORPHEUS, 0.96, 0.81, 0.42) cr.st:SetShadowOffset(0, -2) cr.st:SetPoint("TOP", cr, "TOPLEFT", 165, -182)
+    cr.barBg = Slice3(cr, "barbg14", "ARTWORK", 0, 7) cr.barBg:Place(cr, 24, 220, 282, 14)
+    cr.bar = Slice3(cr, "fill_g", "ARTWORK", 1, 5)
+    cr.num = Txt(cr, 10, nil, 1, 1, 1) cr.num:SetDrawLayer("OVERLAY", 7) cr.num:SetPoint("CENTER", cr, "TOPLEFT", 165, -227)
+    cr.tl = Txt(cr, 9, nil, 110 / 255, 100 / 255, 118 / 255) cr.tl:SetPoint("TOPLEFT", cr, "TOPLEFT", 24, -238)
+    cr.tr = Txt(cr, 9, nil, 110 / 255, 100 / 255, 118 / 255) cr.tr:SetPoint("TOPRIGHT", cr, "TOPLEFT", 306, -238)
+    cr.ways = {}
     for i, w in ipairs({ { "spell_holy_holybolt", "Every minute held", "+54" }, { "inv_misc_bone_humanskull_01", "Scourgestones from elites", "+" .. D.STONE_REP .. " each" },
-                         { "spell_shadow_deathcoil", "Bosses slain", "+150" }, { "inv_misc_token_argentdawn2", "Weekly challenge win", "+" .. D.CHALLENGE_REP } }) do
-        local r = CreateFrame("Frame", nil, f) r:SetSize(300, 30)
-        r.bg = Rect(r, "BACKGROUND", 1, 1, 1, 0.03) r.bg:SetAllPoints()
-        r.ic = r:CreateTexture(nil, "ARTWORK") r.ic:SetSize(22, 22) r.ic:SetPoint("LEFT", 6, 0) r.ic:SetTexture(Icon(w[1])) r.ic:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        r.l = Words(r, 11) r.l:SetPoint("LEFT", r.ic, "RIGHT", 8, 0) r.l:SetText(w[2]) r.l:SetTextColor(216 / 255, 204 / 255, 178 / 255)
-        r.v = Words(r, 11) r.v:SetPoint("RIGHT", -8, 0) r.v:SetText(w[3]) r.v:SetTextColor(0.65, 0.85, 0.45)
-        f.ways[i] = r
+                         { "spell_shadow_deathcoil", "Bosses slain", "+150" }, { "inv_misc_token_argentdawn2", "Weekly challenge win", "+" .. Num(D.CHALLENGE_REP) } }) do
+        local wy = 270 + (i - 1) * 48
+        local r = { bg = Slice3(cr, "lrow", "ARTWORK", 0, 17), m = Medal(cr, "ARTWORK", 2), l = Txt(cr, 11.5, nil, 216 / 255, 204 / 255, 178 / 255), v = Txt(cr, 11.5, nil, Hex("a6d873")) }
+        r.bg:Place(cr, 18, wy, 294, 40)
+        r.m:Set(Icon(w[1]), "ring") r.m:Place(cr, 24, wy + 6, 28)
+        r.l:SetText(w[2]) r.l:SetPoint("LEFT", cr, "TOPLEFT", 62, -(wy + 20))
+        r.v:SetText(w[3]) r.v:SetPoint("RIGHT", cr, "TOPLEFT", 298, -(wy + 20))
+        cr.ways[i] = r
     end
-    f.rungs = {}
+    f.crest = cr
+    -- the ladder: a spine of light, a medallion per standing, its rewards as small plates
+    local ld = CreateFrame("Frame", nil, f)
+    ld:SetSize(730, 516)
+    ld.spineA = Rect(ld, "BACKGROUND", 1, 1, 1, 1, 1) ld.spineB = Rect(ld, "BACKGROUND", 1, 1, 1, 1, 1)
+    ld.spineGlow = ld:CreateTexture(nil, "BACKGROUND", nil, 0) ld.spineGlow:SetTexture(D.MEDIA .. "UI\\glow") ld.spineGlow:SetBlendMode("ADD")
+    ld.rungs = {}
     for i = 2, #D.STANDINGS do
         local st = D.STANDINGS[i]
-        local r = { box = Panel(f), cards = {} }
-        r.name = Words(r.box, 18, MORPHEUS) r.name:SetPoint("TOPLEFT", 12, -12) r.name:SetText(st.name)
-        r.at = Words(r.box, 10) r.at:SetPoint("TOPLEFT", r.name, "BOTTOMLEFT", 0, -2) r.at:SetTextColor(110 / 255, 100 / 255, 118 / 255)
-        for k, rw in ipairs(st.rewards or {}) do
-            local c = Panel(f)
-            c.icon = c:CreateTexture(nil, "ARTWORK") c.icon:SetSize(40, 40) c.icon:SetPoint("LEFT", 10, 0) c.icon:SetTexture(Icon(rw.icon)) c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-            c.tag = Words(c, 8) c.tag:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 9, 2) c.tag:SetTextColor(0.65, 0.85, 0.45)
-            c.tag:SetText(Spaced((rw.kind == "stage" and "New stage" or rw.kind == "perk" and "Every run" or rw.kind == "look" and "Look" or "Title") .. (rw.soon and " \194\183 soon" or "")))
-            c.name = Words(c, 15, MORPHEUS) c.name:SetPoint("TOPLEFT", c.tag, "BOTTOMLEFT", 0, -2) c.name:SetText(rw.name) c.name:SetJustifyH("LEFT")
-            c.desc = Words(c, 10) c.desc:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -1) c.desc:SetText(rw.desc) c.desc:SetJustifyH("LEFT") c.desc:SetTextColor(MUTE[1], MUTE[2], MUTE[3])
+        local r = { node = Medal(ld, "ARTWORK", 3), name = Txt(ld, 16, MORPHEUS), at = Txt(ld, 9, nil, 110 / 255, 100 / 255, 118 / 255), cards = {} }
+        r.name:SetText(st.name) r.name:SetShadowOffset(0, -2)
+        r.at:SetJustifyH("CENTER") r.at:SetWidth(82)
+        for kk, rw in ipairs(st.rewards or {}) do
+            local c = CreateFrame("Frame", nil, ld)
+            c:SetSize(314, 94)
+            c.plate = Slice9(c, "pl_grey", "BACKGROUND", 0, 18)
+            c.m = Medal(c, "ARTWORK", 1)
+            c.tg = Txt(c, 8) c.tg:SetText(Spaced((rw.kind == "stage" and "New stage" or rw.kind == "perk" and "Every run" or rw.kind == "look" and "Look" or "Title") .. (rw.soon and " \194\183 soon" or "")))
+            c.tg:SetPoint("TOPLEFT", c, "TOPLEFT", 82, -14)
+            c.name = Txt(c, 17, MORPHEUS) c.name:SetShadowOffset(0, -2) c.name:SetJustifyH("LEFT") c.name:SetText(rw.name) c.name:SetPoint("TOPLEFT", c, "TOPLEFT", 82, -28)
+            c.desc = Txt(c, 10.5, nil, MUTE[1], MUTE[2], MUTE[3]) c.desc:SetJustifyH("LEFT") c.desc:SetWidth(314 - 94) c.desc:SetText(rw.desc) c.desc:SetPoint("TOPLEFT", c, "TOPLEFT", 82, -50)
             if rw.kind == "look" then
-                c.wear = Pill(c, "Wear", function()
+                c.wear = Pill(c, function()
                     local d = ns.HTLSocial.Data()
                     d.look[rw.id] = d.look[rw.id] == false and true or false
                     UI.ShowDawn()
-                end)
+                end, { size = 10 })
             end
             c.rw = rw
-            r.cards[k] = c
+            r.cards[kk] = c
         end
-        f.rungs[#f.rungs + 1] = r
+        ld.rungs[#ld.rungs + 1] = r
     end
+    f.ladder = ld
     return f
 end
 function UI.ShowDawn()
@@ -2469,45 +2593,49 @@ function UI.ShowDawn()
     local rep = d.rep or 0
     local cur, ci, nxt = D.STANDINGS[1], 1, D.STANDINGS[2]
     if S then cur, ci, nxt = S:Standing(rep) end
-    LayoutHead(f, "Light's Hope Chapel \194\183 quartermaster")
-    local cx = 40 + 150
-    f.sealGlow:ClearAllPoints() f.sealGlow:SetPoint("CENTER", f, "TOPLEFT", cx, -150) f.sealGlow:SetSize(150, 150)
-    f.seal:ClearAllPoints() f.seal:SetPoint("CENTER", f, "TOPLEFT", cx, -150) f.seal:SetSize(62, 62)
-    KitAtK(f.ring, f, cx - 34, 150 - 34, 68 / 72)
-    f.faction:ClearAllPoints() f.faction:SetPoint("TOP", f, "TOPLEFT", cx, -194)
-    f.standing:SetText(cur.name) f.standing:ClearAllPoints() f.standing:SetPoint("TOP", f.faction, "BOTTOM", 0, -2)
+    local oy = LayoutMenu(f, "Light's Hope Chapel \194\183 quartermaster")
+    local cr = f.crest
+    cr:ClearAllPoints() cr:SetPoint("TOPLEFT", f, "TOPLEFT", 30, -(oy + 108))
+    cr.plate:Place(cr, 0, 0, 330, 516)
+    cr.st:SetText(cur.name)
     local lo, hi = cur.at, nxt and nxt.at or cur.at
     local k = nxt and min(1, (rep - lo) / max(1, hi - lo)) or 1
-    f.barEdge:ClearAllPoints() f.barEdge:SetPoint("TOPLEFT", f, "TOPLEFT", 40, -(254 - 1)) f.barEdge:SetSize(302, 16)
-    f.barBg:ClearAllPoints() f.barBg:SetPoint("TOPLEFT", f, "TOPLEFT", 41, -254) f.barBg:SetSize(300, 14)
-    f.bar:ClearAllPoints() f.bar:SetPoint("TOPLEFT", f, "TOPLEFT", 41, -254) f.bar:SetSize(max(0.1, 300 * k), 14)
-    f.barL:SetText(nxt and ((BreakUpLargeNumbers and BreakUpLargeNumbers(rep - lo) or (rep - lo)) .. " / " .. (BreakUpLargeNumbers and BreakUpLargeNumbers(hi - lo) or (hi - lo))) or "Exalted")
-    f.barL:ClearAllPoints() f.barL:SetPoint("CENTER", f.barBg, "CENTER")
-    f.next:SetText(nxt and ("Next: |cffebe1cf" .. nxt.name .. "|r") or "The Dawn has nothing more to give.")
-    f.next:ClearAllPoints() f.next:SetPoint("TOP", f, "TOPLEFT", cx, -276)
-    for i, r in ipairs(f.ways) do r:ClearAllPoints() r:SetPoint("TOPLEFT", f, "TOPLEFT", 40, -(300 + (i - 1) * 34)) end
+    cr.bar:Place(cr, 24, 222, max(10, 282 * k), 10)
+    cr.num:SetText(nxt and (Num(rep - lo) .. " / " .. Num(hi - lo)) or "Exalted")
+    cr.tl:SetText(Spaced(cur.name)) cr.tr:SetText(nxt and Spaced(nxt.name) or "")
     -- the ladder
-    local x0, cw = 372, (OV_W - 372 - 22 - 120 - 16) / 2
-    for i, r in ipairs(f.rungs) do
+    local ld = f.ladder
+    ld:ClearAllPoints() ld:SetPoint("TOPLEFT", f, "TOPLEFT", 392, -(oy + 108))
+    local split = 30 + (ci - 2 + 0.5) * 128 + 23
+    ld.spineA:ClearAllPoints() ld.spineA:SetPoint("TOPLEFT", ld, "TOPLEFT", 34, -30) ld.spineA:SetSize(2, max(0.1, split - 30))
+    ns.UI:GradientRGBA(ld.spineA, "VERTICAL", 0.96, 0.81, 0.42, 0.9, 0.65, 0.85, 0.45, 0.9)
+    ld.spineB:ClearAllPoints() ld.spineB:SetPoint("TOPLEFT", ld, "TOPLEFT", 34, -split) ld.spineB:SetSize(2, max(0.1, 516 - 40 - split))
+    ns.UI:GradientRGBA(ld.spineB, "VERTICAL", 0.43, 0.39, 0.46, 0.2, 0.43, 0.39, 0.46, 0.45)
+    ld.spineGlow:ClearAllPoints() ld.spineGlow:SetPoint("CENTER", ld, "TOPLEFT", 35, -(30 + split) / 2) ld.spineGlow:SetSize(26, split) ld.spineGlow:SetVertexColor(0.65, 0.85, 0.45, 0.35)
+    for i, r in ipairs(ld.rungs) do
         local st = D.STANDINGS[i + 1]
-        local reached = rep >= st.at
-        local here = ci == i + 1
-        local y = 112 + (i - 1) * 74
-        r.box:ClearAllPoints() r.box:SetPoint("TOPLEFT", f, "TOPLEFT", x0, -y) r.box:SetSize(110, 66)
-        r.at:SetText(here and (BreakUpLargeNumbers and BreakUpLargeNumbers(st.at) or st.at) .. " \194\183 you are here" or (BreakUpLargeNumbers and BreakUpLargeNumbers(st.at) or tostring(st.at)))
-        r.name:SetTextColor(here and 1 or reached and 0.65 or 0.92, here and 0.81 or reached and 0.85 or 0.88, here and 0.42 or reached and 0.45 or 0.81)
-        for _, e in ipairs(r.box.edge) do e:SetColorTexture(here and 0.95 or reached and 0.65 or 0.18, here and 0.81 or reached and 0.85 or 0.15, here and 0.48 or reached and 0.45 or 0.21, 1) end
-        for k2, c in ipairs(r.cards) do
-            c:ClearAllPoints() c:SetPoint("TOPLEFT", f, "TOPLEFT", x0 + 120 + (k2 - 1) * (cw + 8), -y) c:SetSize(cw, 66)
-            c.name:SetWidth(cw - 70) FitLine(c.name, MORPHEUS, 15, 11, cw - (c.wear and 130 or 70))
-            c.desc:SetWidth(cw - 70)
-            c:SetAlpha(reached and 1 or 0.6)
-            c.icon:SetDesaturated(not reached)
+        local state = rep >= st.at and (ci == i + 1 and "now" or "done") or (ci == i and "next" or "later")
+        local ry = (i - 1) * 128
+        local dim = state == "next" or state == "later"
+        r.node:Set(Icon(i == 1 and "inv_misc_token_argentdawn" or i == 2 and "inv_misc_token_argentdawn2" or i == 3 and "inv_misc_token_argentdawn3" or "spell_holy_championsbond"), state == "now" and "ring_gold" or dim and "ring_dim" or "ring")
+        r.node:Place(ld, 12, ry + 22, 46)
+        r.name:ClearAllPoints() r.name:SetPoint("TOP", ld, "TOPLEFT", 35, -(ry + 74))
+        r.name:SetTextColor(state == "done" and 0.65 or state == "now" and 0.96 or 0.92, state == "done" and 0.85 or state == "now" and 0.81 or 0.88, state == "done" and 0.45 or state == "now" and 0.42 or 0.81)
+        r.at:SetText(Num(st.at) .. (state == "now" and "\n|cfff4cf6ayou are here|r" or ""))
+        r.at:ClearAllPoints() r.at:SetPoint("TOP", r.name, "BOTTOM", 0, -1)
+        for kk, c in ipairs(r.cards) do
+            c:ClearAllPoints() c:SetPoint("TOPLEFT", ld, "TOPLEFT", 90 + (kk - 1) * (314 + 12), -(ry + 6))
+            c.plate:Kit(dim and "pl_grey" or "pl_done") c.plate:Place(c, 0, 0, 314, 94)
+            c.m:Set(Icon(c.rw.icon), dim and "ring_dim" or "ring") c.m:Place(c, 16, 20, 50)
+            c.tg:SetTextColor(c.rw.soon and 110 / 255 or 0.65, c.rw.soon and 100 / 255 or 0.85, c.rw.soon and 118 / 255 or 0.45)
+            c.name:SetTextColor(dim and 0.92 or 1, dim and 0.88 or 0.89, dim and 0.81 or 0.6)
+            FitLine(c.name, MORPHEUS, 17, 12, 314 - 94 - (c.wear and 80 or 0))
+            c:SetAlpha(state == "later" and 0.55 or 1)
             if c.wear then
-                local on = reached and d.look[c.rw.id] ~= false
-                c.wear:SetShown(reached)
-                local w = c.wear:Set(on and "Wearing" or "Hidden", on, 22)
-                c.wear:ClearAllPoints() c.wear:SetPoint("TOPRIGHT", c, "TOPRIGHT", -8, -8)
+                local on = not dim and d.look[c.rw.id] ~= false
+                c.wear:SetShown(not dim)
+                local w = c.wear:Set(on and "Wearing" or "Hidden", on, 22, nil, nil, 10, 10)
+                c.wear:ClearAllPoints() c.wear:SetPoint("TOPLEFT", c, "TOPLEFT", 314 - 12 - w, -10)
             end
         end
     end
@@ -2520,7 +2648,6 @@ function UI.StartChallenge()
     local ch, seed = S:Challenge()
     UI.Start(ch.cls or Class(), { rules = ch, seed = seed, challenge = S:Week() })
 end
-
 
 ---------------------------------------------------------------------------
 -- the loop, keys and focus

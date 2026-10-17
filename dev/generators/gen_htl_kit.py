@@ -59,6 +59,13 @@ def main():
             print("poster logo letters box l, t, r, b =", solid)
             break
     pieces += p2
+    # kit 3: the title and the guild hall, cut from the approved mockup (hall_design.html's own rules)
+    hall = (MOCK / "hall_design.html").read_text(encoding="utf-8")
+    hcss = re.search(r"<style>(.*?)</style>", hall, re.S).group(1)
+    html3 = (MOCK / "kit3.html").read_text(encoding="utf-8").replace("/*HALLCSS*/", hcss)
+    p3, man3 = shoot(html3, "kit3", 2400)
+    pieces += p3
+    man.update(man3)
     man.update(man2)
     pk = M.Packer()
     at = pk.pack(pieces)
