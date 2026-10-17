@@ -106,7 +106,7 @@ function G:Started(run)
 end
 
 function G:Finished(run, won, rep)
-    if run.recorded then return end
+    if run.recorded or run.dev then return end           -- (a dev scenario is never recorded)
     run.recorded = true
     local d = Data()
     if (run.stage or "epl") == "epl" then d.best = math.max(d.best, math.floor(run.t)) end
@@ -188,5 +188,8 @@ function G:OnInit()
             return "|cff888888Not played yet|r"
         end,
     })
-    ns:RegisterSlash("htl", function() ns.Games:Open(GAME_ID) end, "htl - Hold the Line")
+    ns:RegisterSlash("htl", function(rest)
+        ns.Games:Open(GAME_ID)
+        if rest and rest:lower():match("^%s*dev") and ns.HTLUI and ns.HTLUI.ShowDev then ns.HTLUI.ShowDev() end   -- (a development copy only)
+    end, "htl - Hold the Line")
 end

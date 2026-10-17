@@ -81,6 +81,12 @@ ns.CHANGELOG = {
               "Much less memory churn while you play, so fewer hitches when the game tidies up.",
               "The screen no longer keeps shaking while the game is paused.",
           } },
+          { heading = "Hold the Line: boss warnings", area = "games", kind = "fixed", open = "games", lines = {
+              "Circle warnings (the Abomination's slam, the Lich's nova) no longer show a black box.",
+              "The slam's warning fills toward the moment it lands; its rim flares just before.",
+              "The slam lands hard: a flash, a shockwave, thrown rock, rolling dust, a cracked crater.",
+              "Skeletons, grenades and cauldrons no longer throw dark squares; braziers glow again.",
+          } },
       } },
     { version = "1.5.5", date = "17 October 2026", title = "Hold the Line, Naxxramas and fixes from the raid",
       sections = {

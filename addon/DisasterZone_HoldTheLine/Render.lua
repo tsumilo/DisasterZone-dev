@@ -454,6 +454,7 @@ local function DrawDecals(run)
 end
 
 local RED50 = { 1, 50 / 255, 30 / 255 }
+local RIMC = { 1, 1, 1 }                  -- (a telegraph rim's colour this frame)
 local function FillLine(pool, x0, y0, x1, y1, w, c, a)
     local l = Take(V.pools[pool])
     Fill(l, c[1], c[2], c[3], a)
@@ -491,18 +492,32 @@ local function DrawGroundFx(run)
             LineAt(l, t.x + cos(t.ang) * t.r / 2, t.y + sin(t.ang) * t.r / 2 / 1.3, t.r, t.r * t.spread * 2.2, t.ang)
         elseif t.t0 and t.enemy and t.shape == "ringwarn" then
             local f = 1 - t.t / t.t0
-            Tex("tele", "ring_thin", t.x, t.y, t.r * 2 * (0.3 + 0.7 * f), t.r * 2 * (0.3 + 0.7 * f) / 1.3, 0.9, run.t, c)
+            Tex("glow", "ring_thin", t.x, t.y, t.r * 2 * (0.3 + 0.7 * f), t.r * 2 * (0.3 + 0.7 * f) / 1.3, 0.9, run.t, c)
         elseif t.t0 and t.enemy then
+            -- a circle that will be hit: the ground darkens, the hit part fills out from the middle behind a glowing
+            -- front (the time left), the rim pulses faster as it comes and flares white at the end. (The glowing
+            -- pictures are black-backed: they go in the additive "glow" pool, never in "tele".)
             local f = 1 - t.t / t.t0
+            local x, y, r = t.x, t.y, t.r
             local a = Take(V.pools.tele)
             File(a, CIRCLE) TC(a, 0, 1, 0, 1)
-            VC(a, c[1], c[2], c[3], 0.12 + f * 0.18)
-            At(a, t.x, t.y, t.r * 2, t.r * 2 / 1.3)
+            VC(a, c[1] * 0.45, c[2] * 0.45, c[3] * 0.45, 0.22 + f * 0.16)
+            At(a, x, y, r * 2, r * 2 / 1.3)
             local b = Take(V.pools.tele)
             File(b, CIRCLE) TC(b, 0, 1, 0, 1)
-            VC(b, c[1], c[2], c[3], 0.25 + f * 0.25)
-            At(b, t.x, t.y, t.r * 2 * f, t.r * 2 * f / 1.3)
-            Tex("tele", "ring_thin", t.x, t.y, t.r * 2.08, t.r * 2.08 / 1.3, 0.9, 0, c)
+            VC(b, c[1], c[2], c[3], 0.16 + f * 0.24)
+            At(b, x, y, r * 2 * f, r * 2 * f / 1.3)
+            local hot = f > 0.8 and (f - 0.8) / 0.2 or 0
+            local pulse = 0.5 + 0.5 * sin(run.t * (8 + 16 * f))
+            if t.kind == "slam" then          -- (the Abomination: the ground cracks open under the blow to come)
+                Tex("glow", "rf_ring", x, y, r * 2.1, r * 2.1 / 1.3, (0.15 + 0.5 * f) * (0.8 + 0.2 * pulse), run.t * 0.15, c)
+            end
+            local fr = r * 2 * f / 0.78                                        -- (ring_soft's ring sits at 78% of the picture)
+            if f > 0.04 then Tex("glow", "ring_soft", x, y, fr, fr / 1.3, 0.3 + 0.3 * f, 0, c) end
+            Tex("glow", "ring_wide", x, y, r * 2.5, r * 2.5 / 1.3, 0.1 + 0.08 * pulse + 0.3 * hot, 0, c)
+            local w = hot * 0.75
+            RIMC[1], RIMC[2], RIMC[3] = c[1] + (1 - c[1]) * w, c[2] + (1 - c[2]) * w, c[3] + (1 - c[3]) * w
+            Tex("glow", "ring_thin", x, y, r * 2.04, r * 2.04 / 1.3, 0.65 + 0.25 * pulse + 0.1 * hot, 0, RIMC)
         end
     end
 end
@@ -795,7 +810,7 @@ local function DrawPick(run, k)
     local bob = sin(k.t * 3) * 2
     local bp, sub = Band(k.y)
     if k.kind == "eggsac" or k.kind == "spore" or k.kind == "brazier" then
-        local t = Take(bp.spr) Layer(t, sub)
+        local t = Take(k.kind == "brazier" and bp.add or bp.spr) Layer(t, sub)      -- (the flame is black-backed: additive)
         local g = Take(bp.glow) File(g, GLOWF) TC(g, 0, 1, 0, 1)
         if k.kind == "eggsac" then
             File(t, FxFile("webspin")) Rot(t, sin(k.t * 2) * 0.05) VC(t, 0.9, 0.95, 0.85, 1) At(t, k.x, k.y - 16, 30 + sin(k.t * 4) * 2, 34)

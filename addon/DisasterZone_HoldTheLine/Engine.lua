@@ -511,7 +511,7 @@ deathFx = function(e, M, o)
     if M.ichor == "bone" then
         for _ = 1, floor(6 * big) do
             local q = q0()
-            q.img, q.tint, q.add, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.drag = "ice_chunks2", g, false, x, y, 18, vr(-90, 90), vr(-60, 60), vr(60, 200), 520, 0.6
+            q.img, q.tint, q.add, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.drag = "dust", g, false, x, y, 18, vr(-90, 90), vr(-60, 60), vr(60, 200), 520, 0.6
             q.life, q.s0, q.s1, q.a0, q.a1, q.ease, q.rot, q.vr, q.bounce = vr(0.7, 1.2), vr(7, 12), 6, 1, 0, "late", "rnd", vr(-9, 9), 0.35
             emit(q)
         end
@@ -612,6 +612,45 @@ local function consecrationAmbient(s, dt, L)
     end
 end
 
+-- The Abomination's slam lands: a hot flash and a fast shockwave, a crater of cracked ground that fades, rock thrown
+-- up and bouncing, dust rolling out from the rim along the ground.
+local SLAM_HOT, SLAM_SMOKE = { 1, 0.55, 0.25 }, { 150 / 255, 200 / 255, 90 / 255 }
+local SLAM_DUST, SLAM_ROCK, SLAM_CRATER = { 0.62, 0.56, 0.46 }, { 0.66, 0.58, 0.47 }, { 0.42, 0.35, 0.3 }
+local SLAM_PUFF, SLAM_PUFF_O, SLAM_FLASH_O, SLAM_SCORCH = { 70 / 255, 80 / 255, 50 / 255 }, { a = 0.5, s0 = 30, s1 = 80, spread = 3 }, { a = 0.95, light = 320 }, { 30 / 255, 26 / 255, 20 / 255 }
+local function slamHit(t)
+    local x, y, r = t.x, t.y, t.r
+    flash("starburst", x, y - 8, 170, SLAM_HOT, 0.24, SLAM_FLASH_O)
+    flash("red_burst", x, y - 6, 120, nil, 0.3, { a = 0.8 })
+    flash("white_orb", x, y, r * 2.2, SLAM_HOT, 0.4, { a = 0.75, flat = true, from = 0.7 })    -- the ground lit by the blow
+    ring("ring_wide", x, y, r * 0.5, r * 1.45, 0.45, SLAM_HOT, 1)
+    ring("ring_shards", x, y, r * 0.4, r * 1.25, 0.4, SLAM_HOT, 0.8)
+    ring("ring_smoke", x, y, 20, r * 1.2, 0.6, SLAM_SMOKE, 0.7)
+    local q = q0()                                  -- the crater (on the ground, under the bodies)
+    q.img, q.tint, q.x, q.y, q.life, q.s0, q.s1, q.a0, q.a1, q.ease, q.flat, q.add, q.rot = "meteor_rock", SLAM_CRATER, x, y, 3.2, r * 1.2, r * 1.26, 1, 0, "late", true, false, "rnd"
+    emit(q)
+    q = q0()                                        -- a ring of dust thrown out along the ground
+    q.img, q.tint, q.x, q.y, q.life, q.s0, q.s1, q.a0, q.a1, q.flat, q.add, q.rot = "rf_ring", SLAM_DUST, x, y, 0.7, 60, r * 2.9, 0.75, 0, true, false, "rnd"
+    emit(q)
+    for _ = 1, 16 do                                -- rock thrown up
+        local a, sp = random() * TAU, vr(90, 260)
+        q = q0()
+        q.img, q.tint, q.add, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.drag = "dust", SLAM_ROCK, false, x + cos(a) * r * 0.3, y + sin(a) * r * 0.23, 8, cos(a) * sp, sin(a) * sp * 0.75, vr(160, 360), 760, 0.5
+        q.life, q.s0, q.s1, q.a0, q.a1, q.ease, q.rot, q.vr, q.bounce = vr(0.8, 1.3), vr(9, 16), 8, 1, 0, "late", "rnd", vr(-8, 8), 0.35
+        emit(q)
+    end
+    for k = 0, 9 do                                 -- dust rolling out from the rim
+        local a = k / 10 * TAU + random() * 0.4
+        q = q0()
+        q.img, q.tint, q.add, q.x, q.y, q.z = "cloud", SLAM_DUST, false, x + cos(a) * r * 0.75, y + sin(a) * r * 0.75 / 1.3, 6
+        q.vx, q.vy, q.vz, q.drag, q.life = cos(a) * 70, sin(a) * 50, vr(8, 26), 1.4, vr(0.9, 1.4)
+        q.s0, q.s1, q.a0, q.a1, q.fi, q.rot, q.vr = 40, 110, 0.75, 0, 0.08, "rnd", vr(-0.6, 0.6)
+        emit(q)
+    end
+    puff(x, y, 8, SLAM_PUFF, SLAM_PUFF_O)
+    shake(0.55) stop(0.07) sound("meteor")
+    addDecal(x, y, r * 0.8, SLAM_SCORCH, "scorch")
+end
+
 local function exorcismHit(t)
     local x, y = t.e.dead and t.x or t.e.x, t.e.dead and t.y or t.e.y
     R.fx[#R.fx + 1] = { kind = "pillar", x = x, y = y, t = 0, dur = 0.75 }
@@ -645,7 +684,7 @@ local function explode(x, y, r, dmg)
     flash("flame", x, y - 20, r * 2, nil, 0.4)
     ring("ring_smoke", x, y, 10, r * 1.2, 0.45, C.FIRE, 0.9)
     puff(x, y, 7, { 50 / 255, 42 / 255, 36 / 255 }, { a = 0.6, s0 = 20, s1 = 70, spread = 2.2, life = 1.3 })
-    for _ = 1, 9 do emit({ img = "ice_chunks2", tint = { 70 / 255, 56 / 255, 40 / 255 }, add = false, x = x, y = y, z = 10, vx = vr(-160, 160), vy = vr(-120, 120), vz = vr(100, 260), g = 600, life = 0.8, s0 = 7, s1 = 6, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = vr(-10, 10), bounce = 0.3 }) end
+    for _ = 1, 9 do emit({ img = "dust", tint = { 70 / 255, 56 / 255, 40 / 255 }, add = false, x = x, y = y, z = 10, vx = vr(-160, 160), vy = vr(-120, 120), vz = vr(100, 260), g = 600, life = 0.8, s0 = 7, s1 = 6, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = vr(-10, 10), bounce = 0.3 }) end
     sparks(x, y, 14, C.EMBER, { v0 = 100, v1 = 340, light = 20 })
     addDecal(x, y, r * 0.7, { 20 / 255, 16 / 255, 14 / 255 }, "scorch")
     for _, e in ipairs(R.en) do if not e.dead and hyp(e.x - x, (e.y - y) * 1.3) < r then hurt(e, dmg, { kb = 70, fx = x, fy = y, school = "fire" }) end end
@@ -1168,10 +1207,7 @@ local function updateProj(dt)
             elseif t.kind == "pillar" then exorcismHit(t)
             elseif t.kind == "flamestrike" then flamestrikeHit(t)
             elseif t.kind == "slam" then
-                ring("ring_smoke", t.x, t.y, 20, t.r * 1.2, 0.6, { 150 / 255, 200 / 255, 90 / 255 }, 1)
-                puff(t.x, t.y, 12, { 70 / 255, 80 / 255, 50 / 255 }, { a = 0.6, s0 = 30, s1 = 80, spread = 3 })
-                shake(0.5) stop(0.06) sound("meteor")
-                addDecal(t.x, t.y, t.r * 0.8, { 30 / 255, 26 / 255, 20 / 255 }, "scorch")
+                slamHit(t)
                 if hyp(p.x - t.x, (p.y - t.y) * 1.3) < t.r then hurtPlayer(30, { M = MOBS.abom }) end
             elseif t.kind == "fnova" then
                 ring("nova_ring", t.x, t.y, 20, t.r, 0.45, { 190 / 255, 150 / 255, 1 }, 1)
@@ -1468,7 +1504,7 @@ local function updatePickups(dt)
             if k.hp <= 0 then
                 got = true
                 flash("white_orb", k.x, k.y - 20, 80, C.GREEN, 0.4, { light = 160 })
-                for _ = 1, 10 do emit({ img = "ice_chunks2", tint = { 120 / 255, 110 / 255, 100 / 255 }, add = false, x = k.x, y = k.y, z = 20, vx = vr(-140, 140), vy = vr(-100, 100), vz = vr(80, 240), g = 600, life = 0.9, s0 = 9, s1 = 7, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = 8, bounce = 0.3 }) end
+                for _ = 1, 10 do emit({ img = "dust", tint = { 120 / 255, 110 / 255, 100 / 255 }, add = false, x = k.x, y = k.y, z = 20, vx = vr(-140, 140), vy = vr(-100, 100), vz = vr(80, 240), g = 600, life = 0.9, s0 = 9, s1 = 7, a0 = 1, a1 = 0, ease = "late", rot = "rnd", vr = 8, bounce = 0.3 }) end
                 puff(k.x, k.y, 6, { 100 / 255, 150 / 255, 70 / 255 }, { a = 0.5, s0 = 20, s1 = 60, spread = 2 })
                 sound("fireimpact2", 0.05, 0.6)
                 local roll = rnd()
@@ -1842,6 +1878,40 @@ function E.FastForward(run, secs, bot)
     end
     run.bot, run.ff = b, nil
     run.pending = 0
+end
+
+-- Dev scenarios (UI.lua, a development copy only). DevJump moves the clock to t at once, as if the run had come
+-- that far: the stage's events before t are passed (their bosses never came) and the crowd for t closes in round the
+-- hero; play from there is the real thing. DevLevels gives n level-ups, each picked as the bot picks.
+function E.DevJump(run, t)
+    E.Use(run)
+    local EV, k = R.ST.events or D.EVENTS, R.rules.rush or 1
+    R.t = max(R.t, t)
+    while R.evI <= #EV and EV[R.evI].t * k <= R.t do R.evI = R.evI + 1 end
+    local n, want = 0, floor(R.ST.target(R.t) * 1.1)
+    for _, e in ipairs(R.en) do if not e.dead then n = n + 1 end end
+    for _ = n + 1, want do
+        local a, d = rnd() * TAU, rr(160, 560)
+        local x, y = R.p.x + cos(a) * d, R.p.y + sin(a) * d * 0.72
+        spawn(pickW(waveAt(R.t)), x, y, { dir = dirOf(R.p.x - x, R.p.y - y) })
+    end
+end
+function E.DevLevels(run, n)
+    E.Use(run)
+    for _ = 1, n do
+        R.level = R.level + 1
+        R.xpNext = floor(6 + R.level * 4 + max(0, R.level - 20) * 6 + 0.5)
+        local c = choices(3)
+        local pick = c[1]
+        for _, o in ipairs(c) do if o.kind == "spell" and SPELLS[o.id].cls then pick = o break end end
+        if pick then apply(pick) end
+    end
+    R.xp = 0
+end
+-- the next event of the run's stage after its clock (for the dev bar's Next)
+function E.DevNext(run)
+    local EV = run.ST.events or D.EVENTS
+    return EV[run.evI], (run.rules.rush or 1)
 end
 
 -- relics that tick (in E.Step, the run in R)

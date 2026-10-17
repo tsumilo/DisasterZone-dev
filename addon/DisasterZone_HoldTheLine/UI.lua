@@ -211,13 +211,13 @@ local function NewRun(cls, opts)
         local nx = ns.HTLGame:RunNaxx(cls)
         opts.frostRes, opts.t3n, opts.ktSlain = nx.frostRes, nx.t3n, nx.ktSlain
         if nx.t3Look and opts.perks then opts.perks.t3 = true end
-        if opts.stage and not ns.HTLGame:StageOpen(opts.stage) and not opts.challenge then opts.stage = nil end
+        if opts.stage and not ns.HTLGame:StageOpen(opts.stage) and not opts.challenge and not opts.dev then opts.stage = nil end
     end
     opts.seed = opts.seed or floor(((time and time() or 1) * 7 + math.random(1, 100000)) % 2000000000)
     run = Hook(E.New(opts))
     acc = 0
     if not opts.attract and view then view.scaler:SetAlpha(1) end
-    if ns.HTLGame and not opts.attract and not opts.lab then ns.HTLGame:Started(run) end
+    if ns.HTLGame and not opts.attract and not opts.lab and not opts.dev then ns.HTLGame:Started(run) end
     return run
 end
 
@@ -2054,6 +2054,7 @@ ShowTitle = function()
     if UI.lab then UI.lab:Hide() end
     titleT = 0
     LayoutTitle()
+    UI.DevTitlePill()
 end
 
 CloseOv = function(resume)
@@ -2225,6 +2226,205 @@ OpenLab = function(cls)
     UI.SetFocus(true)
 end
 UI.OpenLab = function(cls) OpenLab(cls) end
+
+---------------------------------------------------------------------------
+-- Dev scenarios (a development copy only: DisasterZoneBoot.isDev, never a release). Pick a class, a level and god
+-- mode, a stage and one of its moments - the start, a boss, an elite, the ring - and the run starts 5 s before it
+-- (Engine's DevJump: the clock moved on, the crowd for that time round the hero, levels picked as the bot picks). A dev
+-- run is never recorded: no stats, gold, clears, tokens, achievements or boards. Under a dev run the dev bar jumps to
+-- the next moment, gives levels, toggles god mode. Opened from the title's pill or /dz htl dev.
+-- (UI.lua's main chunk is at Lua's 200-local limit: all of this lives in UI fields.)
+---------------------------------------------------------------------------
+UI.dev = { stage = "epl", level = "auto", god = false }
+UI.DEV_KIND = { ring = "The dead encircle", brood = "Spider brood", swarm = "Bat swarm", dark = "Darkness", storm = "Storm", reaper = "The Pale Rider" }
+function UI.IsDev() return DisasterZoneBoot ~= nil and DisasterZoneBoot.isDev == true end
+function UI.DevLabel(ev)
+    local M = ev.mob and D.MOBS[ev.mob]
+    local name = M and M.name or UI.DEV_KIND[ev.kind] or ev.msg or ev.kind
+    if M and (ev.n or 1) > 1 then name = name .. " x" .. ev.n end
+    return Rd.Clock(ev.t) .. "  " .. name
+end
+function UI.DevStages()
+    local out = { "epl" }
+    if D.STAGES and ns.HTLGame and ns.HTLGame:NaxxReady() then
+        for _, k in ipairs({ "arachnid", "plague", "military", "construct", "frost" }) do if D.STAGES[k] then out[#out + 1] = k end end
+    end
+    return out
+end
+function UI.DevMoments(key)
+    local ST = D.STAGES and D.STAGES[key]
+    local out = { { t = 0, label = "00:00  Start" } }
+    for _, ev in ipairs(ST and ST.events or D.EVENTS) do out[#out + 1] = { t = ev.t, label = UI.DevLabel(ev) } end
+    return out
+end
+function UI.DevLevelAt(t) return min(60, floor(2 + t / 18)) end         -- (Auto: about where a player stands)
+function UI.DevStart(cls, key, t)
+    if not UI.IsDev() then return end
+    local dv = UI.dev
+    if UI.lab then UI.lab:Hide() end
+    if UI.devPanel then UI.devPanel:Hide() end
+    CloseOv()
+    NewRun(cls or dv.cls or Class(), { stage = key ~= "epl" and key or nil, dev = true, god = dv.god })
+    run.dev = true
+    local at = t > 0 and max(0, t - 5) or 0
+    if at > 0 then
+        E.DevJump(run, at)
+        run.pending, run.wantLevelUp, run.blessOnly = 0, nil, nil     -- (a start's own pick - Head Start, the Seal - is moot mid-run)
+    end
+    local lv = dv.level == "auto" and UI.DevLevelAt(at) or dv.level
+    if lv > 1 then E.DevLevels(run, lv - 1) end
+    overlay = nil
+    Sound("crusader")
+    UI.SetFocus(true)
+    UI.DevBar()
+end
+
+-- the sheet: class / level / god, the stages, the chosen stage's moments
+function UI.ShowDev()
+    if not UI.IsDev() or not stage then return end
+    local f = UI.devPanel
+    if not f then
+        f = CreateFrame("Frame", nil, stage)
+        f:SetAllPoints(stage)
+        f:SetFrameLevel(stage:GetFrameLevel() + 24)
+        f:EnableMouse(true)
+        f.shade = f:CreateTexture(nil, "BACKGROUND")
+        f.shade:SetAllPoints() f.shade:SetColorTexture(1, 1, 1, 1)
+        ns.UI:GradientRGBA(f.shade, "VERTICAL", 6 / 255, 4 / 255, 10 / 255, 0.96, 6 / 255, 4 / 255, 10 / 255, 0.8)
+        f.title = Words(f, 26, MORPHEUS) f.title:SetText("Dev scenarios") f.title:SetTextColor(244 / 255, 207 / 255, 106 / 255)
+        f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 40, -34)
+        f.hint = Words(f, 11) f.hint:SetTextColor(157 / 255, 147 / 255, 163 / 255)
+        f.hint:SetText("This development copy only. A moment starts 5 seconds before it; dev runs are never recorded.")
+        f.hint:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -6)
+        f.pills, f.groups = {}, {}
+        UI.devPanel = f
+    end
+    if run and run.dev and not run.over then run.paused = true end
+    ClearOv()
+    overlay = "dev"
+    if UI.devBar then UI.devBar:Hide() end
+    f:Show()
+    UI.DevLayout()
+end
+function UI.CloseDev()
+    if UI.devPanel then UI.devPanel:Hide() end
+    if run and run.dev and not run.over then
+        overlay = nil
+        run.paused = false
+        UI.SetFocus(true)
+        UI.DevBar()
+    else
+        ShowTitle()
+    end
+end
+function UI.DevLayout()
+    local f, dv = UI.devPanel, UI.dev
+    if not f or not f:IsShown() then return end
+    local n, gi = 0, 0
+    local function Pill(label, icon, on, x, y, h, fn)
+        n = n + 1
+        local b = LabPill(f, f.pills, n)
+        b.dimOff = false
+        local w = LabLay(b, label, icon, on, false, x, y, h)
+        b:SetScript("OnClick", function() Sound("hover", 0.03) fn() end)
+        return b, w
+    end
+    local function Group(label, x, y)
+        gi = gi + 1
+        local lab = f.groups[gi] or Words(f, 9)
+        f.groups[gi] = lab
+        lab:SetText(label) lab:SetTextColor(157 / 255, 147 / 255, 163 / 255)
+        lab:ClearAllPoints() lab:SetPoint("LEFT", f, "TOPLEFT", x, -(y + 14)) lab:Show()
+        return x + (lab:GetStringWidth() or 40) + 10
+    end
+    local cls = dv.cls or Class()
+    -- the run: class, level, god mode
+    local y = 104
+    local x = Group("CLASS", 40, y)
+    for _, c in ipairs({ { "PALADIN", "Paladin" }, { "MAGE", "Mage" }, { "WARRIOR", "Warrior" } }) do
+        local _, w = Pill(c[2], nil, cls == c[1], x, y, 28, function() dv.cls = c[1] UI.DevLayout() end)
+        x = x + w + 4
+    end
+    x = Group("LEVEL", x + 26, y)
+    for _, lv in ipairs({ "auto", 1, 10, 25, 50 }) do
+        local _, w = Pill(lv == "auto" and "Auto" or tostring(lv), nil, dv.level == lv, x, y, 28, function() dv.level = lv UI.DevLayout() end)
+        x = x + w + 4
+    end
+    x = Group("GOD MODE", x + 26, y)
+    Pill(dv.god and "On" or "Off", nil, dv.god, x, y, 28, function() dv.god = not dv.god UI.DevLayout() end)
+    -- the stages
+    y = 150
+    x = Group("STAGE", 40, y)
+    for _, k in ipairs(UI.DevStages()) do
+        local ST = D.STAGES and D.STAGES[k]
+        local label = k == "epl" and "Plaguelands" or ST.short or ST.name
+        local _, w = Pill(label, k == "epl" and "spell_shadow_raisedead" or ST.icon, dv.stage == k, x, y, 30, function() dv.stage = k UI.DevLayout() end)
+        x = x + w + 4
+    end
+    -- the moments: each a pill, wrapped to the sheet
+    y = 206
+    Group("MOMENTS  \194\183  " .. (dv.stage == "epl" and "Eastern Plaguelands" or D.STAGES[dv.stage].name), 40, y)
+    y, x = y + 30, 40
+    for _, m in ipairs(UI.DevMoments(dv.stage)) do
+        local b, w = Pill(m.label, nil, false, x, y, 30, function() UI.DevStart(cls, dv.stage, m.t) end)
+        if x + w > OV_W - 40 and x > 40 then
+            x, y = 40, y + 38
+            b:ClearAllPoints() b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
+        end
+        x = x + w + 6
+    end
+    -- close (back to the paused dev run, or the title)
+    local cb, cw = Pill("Close", nil, false, 0, 0, 28, function() UI.CloseDev() end)
+    cb:ClearAllPoints() cb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -40, -38)
+    for i = n + 1, #f.pills do f.pills[i]:Hide() end
+    for i = gi + 1, #f.groups do f.groups[i]:Hide() end
+end
+
+-- the dev bar: a column of pills at the left under the slots while a dev run plays (or is paused)
+function UI.DevBar()
+    local f = UI.devBar
+    local show = run and run.dev and not run.over and (overlay == nil or overlay == "pause") and stage ~= nil
+    if not show then if f and f:IsShown() then f:Hide() end return end
+    if not f then
+        f = CreateFrame("Frame", nil, stage)
+        f:SetFrameLevel(stage:GetFrameLevel() + 20)
+        f:SetSize(10, 10)
+        f.tag = Words(f, 9) f.tag:SetText("DEV") f.tag:SetTextColor(244 / 255, 207 / 255, 106 / 255)
+        f.tag:SetPoint("TOPLEFT", f, "TOPLEFT", 2, 0)
+        f.pills = {}
+        UI.devBar = f
+    end
+    if f:IsShown() and f.run == run and f.evI == run.evI and f.god == run.god and f.lvl == run.level then return end
+    f.run, f.evI, f.god, f.lvl = run, run.evI, run.god, run.level
+    f:ClearAllPoints() f:SetPoint("TOPLEFT", stage, "TOPLEFT", 12, -166)
+    f:Show()
+    local n, y = 0, 16
+    local function Pill(label, on, fn)
+        n = n + 1
+        local b = LabPill(f, f.pills, n)
+        b.dimOff = false
+        LabLay(b, label, nil, on, false, 0, y, 26)
+        b:SetScript("OnClick", function() Sound("hover", 0.03) fn() end)
+        y = y + 30
+    end
+    Pill("Scenarios", false, function() UI.ShowDev() end)
+    local ev, k = E.DevNext(run)
+    if ev then Pill("Next: " .. UI.DevLabel(ev), false, function() E.DevJump(run, max(run.t, ev.t * k - 5)) UI.SetFocus(true) UI.DevBar() end) end
+    Pill("+5 levels  \194\183  " .. run.level, false, function() E.DevLevels(run, 5) UI.SetFocus(true) UI.DevBar() end)
+    Pill("God mode " .. (run.god and "on" or "off"), run.god, function() run.god = not run.god UI.SetFocus(true) UI.DevBar() end)
+    Pill("Leave", false, function() f:Hide() ShowTitle() end)
+    for i = n + 1, #f.pills do f.pills[i]:Hide() end
+end
+-- the title's way in (top right, a development copy only)
+function UI.DevTitlePill()
+    if not UI.IsDev() or not ov or not ov.title then return end
+    UI.devTitleList = UI.devTitleList or {}
+    local b = LabPill(ov.title, UI.devTitleList, 1)
+    b.dimOff = false
+    LabLay(b, "Dev scenarios", nil, false, false, 0, 0, 28)
+    b:ClearAllPoints() b:SetPoint("TOPRIGHT", ov.title, "TOPRIGHT", -22, -22)
+    b:SetScript("OnClick", function() Sound("hover", 0.03) UI.ShowDev() end)
+end
 
 ---------------------------------------------------------------------------
 -- the guild hall: leaderboard (and the week's challenge), achievements, the Argent Dawn - the mockup's, piece by piece
@@ -3251,13 +3451,14 @@ local function OnUpdate(_, elapsed)
     TickTitle(elapsed)
     TickTalents(elapsed)
     TickToast(elapsed)
-    if run and not run.attract and not run.lab and not run.god and not run.over and ns.HTLSocial then
+    if run and not run.attract and not run.lab and not run.god and not run.dev and not run.over and ns.HTLSocial then
         UI.achAcc = (UI.achAcc or 0) + elapsed
         if UI.achAcc >= 1 then UI.achAcc = 0 ns.HTLSocial:CheckRun(run, false) end
     end
     TickEnd(elapsed)
     TickChest(elapsed)
     TickPreviews(elapsed)
+    if UI.devBar or (run and run.dev) then UI.DevBar() end
     if overlay == nil and run and not run.attract and not focused and not run.over then UI.pausedHint:Show() else UI.pausedHint:Hide() end
 end
 
@@ -3270,6 +3471,7 @@ function UI.SetFocus(on)
 end
 local function OnKeyDown(self, key)
     if key == "ESCAPE" then
+        if overlay == "dev" then UI.CloseDev() pcall(self.SetPropagateKeyboardInput, self, false) return end
         if overlay == "pause" then ClosePause() pcall(self.SetPropagateKeyboardInput, self, false) return end
         if run and not run.attract and not run.over and overlay == nil then ShowPause() pcall(self.SetPropagateKeyboardInput, self, false) return end
         UI.SetFocus(false)
