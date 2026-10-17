@@ -941,12 +941,18 @@ local function DrawRows(menu)
             row:ClearAllPoints()
             local c, r = (slot - 1) % cols, floor((slot - 1) / cols)
             row:SetPoint("TOPLEFT", f, "TOPLEFT", 12 + c * colW, -top - r * rowH)
+            local size = it.size or 16                      -- (the move list steps a long name down a size)
+            if row.fsSize ~= size then
+                if not row.fs:SetFont(FONT, floor(size * 1.25 + 0.5), "") then row.fs:SetFont(FONT_FALLBACK, size, "") end
+                row.fsSize = size
+            end
             row.fs:SetText(it.text or "")
             row.fs:ClearAllPoints()
             local left = it.icon and (26 + rowH) or 24
             row.fs:SetPoint("LEFT", left, it.bar and 5 or 0)
-            -- long names stop short of the right-hand column (cut with "...") instead of running under it
-            local rightW = (it.right and it.right ~= "") and (TextWidth(it.right, 13) + 12) or 0
+            -- long names stop short of the right-hand column (cut with "...") instead of running under it;
+            -- rightW: room kept for something drawn there instead of text (a resting move's hourglass and pips)
+            local rightW = it.rightW or ((it.right and it.right ~= "") and (TextWidth(it.right, 13) + 12) or 0)
             row.fs:SetWidth(max(24, colW - left - 6 - rightW))
             row.fs:SetWordWrap(false)
             if it.disabled then row.fs:SetTextColor(0.66, 0.66, 0.68) else row.fs:SetTextColor(INK[1], INK[2], INK[3]) end
@@ -1070,6 +1076,7 @@ local function PopMenu(menu)
     for i = #stack, 1, -1 do
         if stack[i] == menu then
             table.remove(stack, i)
+            if menu.opts and menu.opts.onPop then menu.opts.onPop(menu) end      -- (what the menu laid over itself)
             menu.frame:Hide()
             menu.frame.menu = nil
             -- only real list menus are recycled (never the summary screen, which also sits in the stack)
@@ -2179,8 +2186,18 @@ Scr.STAT_TXT = { atk = "Attack", def = "Defense", spa = "Sp. Atk", spd = "Sp. De
 
 -- What a move does besides damage, in a few words ("" for a plain attack).
 function Scr.MoveEffectText(md)
+    local out = Scr.EffectParts(md)
+    if md.prio and md.prio > 0 and not md.role then table.insert(out, 1, "Always strikes first") end
+    if md.role then         -- (0.37 kits: the move box's line; the cooldown is on the stats line)
+        local note = Scr.MoveNote(md)
+        if note ~= "" and note ~= "No cooldown" and not (md.effect and md.effect.kind == "stat") then out[#out + 1] = note end
+    end
+    return table.concat(out, "; ")
+end
+
+-- What a move's effect does (a status or stat chance, a drain), as phrases.
+function Scr.EffectParts(md)
     local e, out = md.effect, {}
-    if md.prio and md.prio > 0 and not md.role then out[#out + 1] = "Always strikes first" end
     if e and e.kind == "status" and Scr.STATUS_TXT[e.status] then
         local t = Scr.STATUS_TXT[e.status]
         out[#out + 1] = (e.chance and e.chance < 100) and string.format("%s (%d%%)", t[2], e.chance) or t[1]
@@ -2194,11 +2211,241 @@ function Scr.MoveEffectText(md)
     elseif e and e.kind == "drain" then
         out[#out + 1] = e.pct == 50 and "Heals half the damage dealt" or string.format("Heals %d%% of the damage dealt", e.pct)
     end
-    if md.role then         -- (0.37 kits: the move box's line; the cooldown is on the stats line)
-        local note = Scr.MoveNote(md)
-        if note ~= "" and note ~= "No cooldown" and not (e and e.kind == "stat") then out[#out + 1] = note end
+    return out
+end
+
+-- The move list's description line (0.40): what a move does, as one short sentence. `mon`: the beast using it
+-- (a setup names the payoff it feeds, when this beast knows one).
+function Scr.MoveLine(md, mon)
+    local first
+    local mk = md.mark and D.MARKS[md.mark.id]
+    if md.cast then
+        first = md.unstoppable and "Lands next turn and can't be interrupted." or "Lands next turn. Guard or interrupt can stop it."
+    elseif md.guard then
+        first = string.format("Goes first. Soaks %d%% of hits for %d turns.", floor((1 - md.guard) * 100 + 0.5), md.guardTurns or 1)
+    elseif md.interrupt then
+        first = "Goes first and breaks the foe's cast."
+    elseif md.heal then
+        first = string.format("Heals %d%% of its HP%s.", floor(md.heal * 100 + 0.5),
+            mk and string.format(", then %s for %d turns", mk.short, md.mark.turns) or "")
+    elseif md.payoff and md.payoff.mark and D.MARKS[md.payoff.mark] then
+        local pm = D.MARKS[md.payoff.mark]
+        first = string.format("x%s %s %s%s.", tostring(md.payoff.mult), md.payoff.self and "once it is" or "while the foe is",
+            pm.name, md.payoff.consume and (md.payoff.self and "; uses the charge" or "; uses it up") or "")
+    elseif mk then
+        local feeds
+        for _, m in ipairs(mon and mon.moves or {}) do
+            local pd = D.moves[m.id]
+            if pd and pd.payoff and pd.payoff.mark == md.mark.id then feeds = pd break end
+        end
+        first = string.format("%s (%d turns)%s", md.mark.who == "self" and ("Gets " .. mk.short) or ("Leaves " .. mk.short), md.mark.turns,
+            feeds and string.format(": %s hits x%s.", feeds.name, tostring(feeds.payoff.mult)) or ".")
     end
-    return table.concat(out, "; ")
+    local parts = Scr.EffectParts(md)
+    if first and #parts > 0 then                         -- both, shortly: one sentence, its two halves by a ";"
+        local rest = (table.concat(parts, "; "):gsub("Heals half the damage dealt", "heals half the damage"))
+        if md.cast then return "Lands next turn. " .. (rest:gsub("^%l", string.upper)) .. "." end
+        return (first:gsub("%.$", "")) .. "; " .. (rest:gsub("^%u", string.lower)) .. "."
+    end
+    if first then return first end
+    if #parts > 0 then return table.concat(parts, "; ") .. "." end
+    if md.power > 0 then
+        local reach = md.noImmune and " It even reaches fliers." or ""       -- (Earth's thrown rocks)
+        if (md.cd or 0) == 0 then return "No rest: use it any turn." .. reach end
+        return "A heavy hit." .. reach
+    end
+    return ""
+end
+
+-- A pixel hourglass (5 x 7 blocks of `px` UI pixels) on `parent`: the rest a move takes after use.
+Scr.GLASS = { "#####", "#ooo#", ".#o#.", "..#..", ".#.#.", "#.o.#", "#####" }
+function Scr.Hourglass(parent, px)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(5 * px, 7 * px)
+    for y, row in ipairs(Scr.GLASS) do
+        for x = 1, 5 do
+            local ch = row:sub(x, x)
+            if ch ~= "." then
+                local t = f:CreateTexture(nil, "ARTWORK")
+                if ch == "#" then t:SetColorTexture(0.29, 0.33, 0.45, 1) else t:SetColorTexture(0.85, 0.64, 0.23, 1) end
+                t:SetSize(px, px)
+                t:SetPoint("TOPLEFT", (x - 1) * px, -(y - 1) * px)
+            end
+        end
+    end
+    return f
+end
+
+-- A resting move's mark (0.40): the hourglass, then one pip per turn of its rest, filled for the turns still left.
+function Scr.RestMarkWidth(total, glass) return (glass and 15 or 0) + total * 8 + (total - 1) * 3 end
+function Scr.RestMark(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(80, 14)
+    f.glass = Scr.Hourglass(f, 2)
+    f.pips = {}
+    function f:Set(total, left, glass)
+        self.total, self.left, self.withGlass = total, left, glass and true or false
+        self.glass:SetShown(glass and true or false)
+        self.glass:ClearAllPoints()
+        self.glass:SetPoint("LEFT", 0, 0)
+        local x = glass and 15 or 0
+        for i = 1, max(total, #self.pips) do
+            local p = self.pips[i]
+            if not p and i <= total then
+                p = { edge = self:CreateTexture(nil, "ARTWORK", nil, 0), core = self:CreateTexture(nil, "ARTWORK", nil, 1) }
+                p.edge:SetSize(8, 8)
+                p.core:SetSize(4, 4)
+                self.pips[i] = p
+            end
+            if p then
+                local on, show = i <= left, i <= total
+                p.edge:SetShown(show) p.core:SetShown(show)
+                if show then
+                    if on then p.edge:SetColorTexture(0.29, 0.33, 0.45, 1) p.core:SetColorTexture(0.49, 0.54, 0.69, 1)
+                    else p.edge:SetColorTexture(0.72, 0.74, 0.80, 1) p.core:SetColorTexture(0.97, 0.96, 0.93, 1) end
+                    p.edge:ClearAllPoints() p.edge:SetPoint("LEFT", x + (i - 1) * 11, 0)
+                    p.core:ClearAllPoints() p.core:SetPoint("CENTER", p.edge, "CENTER", 0, 0)
+                end
+            end
+        end
+        self:SetWidth(Scr.RestMarkWidth(total, glass))
+    end
+    return f
+end
+
+-- A row's gold glint, played once on the turn a resting move is ready again (0.40).
+function Scr.Glint(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    pcall(f.SetClipsChildren, f, true)
+    f.band = f:CreateTexture(nil, "OVERLAY")
+    f.band:SetColorTexture(1, 0.88, 0.55, 0.6)
+    f.band:SetSize(26, 10)
+    f:Hide()
+    function f:Play(row)
+        self:ClearAllPoints()
+        self:SetAllPoints(row)
+        self.t = 0
+        self:Show()
+        self:SetScript("OnUpdate", function(g, dt)
+            g.t = g.t + dt
+            local p = g.t / 0.8
+            if p >= 1 then g:SetScript("OnUpdate", nil) g:Hide() return end
+            local w, h = g:GetWidth(), g:GetHeight()
+            g.band:SetSize(26, h)
+            g.band:ClearAllPoints()
+            g.band:SetPoint("LEFT", g, "LEFT", -26 + (w + 26) * p, 0)
+            g.band:SetAlpha(p < 0.7 and 0.6 or 0.6 * (1 - (p - 0.7) / 0.3))
+        end)
+    end
+    return f
+end
+
+-- The fight menu's own layer (0.40), over its pooled menu frame while it is open: the description line under the
+-- moves (a hairline, the coach's tag, one sentence) and each resting move's mark and glint. The menu's onPop hides it.
+function Scr.FightDeco(menu)
+    local d = R.fightDeco
+    if not d then
+        d = CreateFrame("Frame", nil, screen)
+        d.rule = Tex(d, "ARTWORK")
+        d.rule:SetColorTexture(0.80, 0.85, 0.92, 1)
+        d.rule:SetHeight(2)
+        d.coach = Pill(d, 64, 18, 12)
+        d.text = Font(d, 12)
+        d.text:SetWordWrap(false)
+        d.marks, d.glints = {}, {}
+        R.fightDeco = d
+    end
+    if not menu then
+        d:Hide()
+        d.menu, d.strip = nil, nil
+        d:SetParent(screen)
+        return d
+    end
+    if d.menu ~= menu then
+        d.menu = menu
+        d:SetParent(menu.frame)
+        d:ClearAllPoints()
+        d:SetAllPoints(menu.frame)
+        d.rule:ClearAllPoints()
+        d.rule:SetPoint("TOPLEFT", 18, -78)
+        d.rule:SetPoint("TOPRIGHT", -18, -78)
+    end
+    d:SetFrameLevel(menu.frame:GetFrameLevel() + 3)
+    d:Show()
+    return d
+end
+
+-- The description line for move row `it` (the coach's sentence for its pick): one line, a size smaller before cut.
+function Scr.MoveStrip(menu, it, mon)
+    local d = Scr.FightDeco(menu)
+    local room = menu.frame:GetWidth() - 40
+    local x, text = 20, ""
+    if it.move and it.why then
+        d.coach:Set("COACH", { 0.15, 0.26, 0.55 })
+        d.coach:SetFrameLevel(d:GetFrameLevel() + 1)
+        d.coach:ClearAllPoints()
+        d.coach:SetPoint("TOPLEFT", 20, -85)
+        x, text = 20 + 64 + 8, it.why
+        d.text:SetTextColor(0.15, 0.26, 0.55)
+    else
+        d.coach:Hide()
+        text = it.move and Scr.MoveLine(D.moves[it.move.id], mon) or ""
+        d.text:SetTextColor(0.36, 0.38, 0.44)
+    end
+    local w = room - (x - 20)
+    local size = (TextWidth(text, 12) <= w) and 12 or 11
+    if not d.text:SetFont(FONT, floor(size * 1.25 + 0.5), "") then d.text:SetFont(FONT_FALLBACK, size, "") end
+    d.text:ClearAllPoints()
+    d.text:SetPoint("TOPLEFT", x, size == 12 and -86 or -87)
+    d.text:SetWidth(w)
+    d.text:SetText(text)
+    d.strip = (it.why and "Coach: " or "") .. text
+end
+
+-- Each row's right-hand mark (a resting move) and glint (ready again this turn).
+function Scr.FightMarks(menu, ready)
+    local d = Scr.FightDeco(menu)
+    for i = 1, 4 do
+        local it, row = menu.items[i], menu.frame.rows[i]
+        local m = d.marks[i]
+        if it and it.mark and row then
+            if not m then m = Scr.RestMark(d) d.marks[i] = m end
+            m:Set(it.mark.total, it.mark.left, it.mark.glass)
+            m:SetFrameLevel(d:GetFrameLevel() + 1)
+            m:ClearAllPoints()
+            m:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+            m:Show()
+        elseif m then
+            m:Hide()
+        end
+        local gl = d.glints[i]
+        if ready and ready[i] and row then
+            if not gl then gl = Scr.Glint(d) d.glints[i] = gl end
+            gl:SetFrameLevel(d:GetFrameLevel() + 2)
+            gl:Play(row)
+        elseif gl then
+            gl:Hide()
+        end
+    end
+end
+
+-- A move row's name size and right slot (0.40): the full name at its size beside its right slot when it fits;
+-- else a resting move drops the hourglass, then the name steps down to 15 or 14 (cut only past that).
+function Scr.FitMoveRow(it, colW)
+    local room = colW - 24 - 6
+    local slot = 0
+    if it.mark then
+        local full = Scr.RestMarkWidth(it.mark.total, true) + 10
+        it.mark.glass = TextWidth(it.text, 16) <= room - full
+        slot = it.mark.glass and full or (Scr.RestMarkWidth(it.mark.total, false) + 10)
+        it.rightW = slot
+    elseif it.right and it.right ~= "" then
+        slot = TextWidth(it.right, 13) + 12
+    end
+    for _, size in ipairs({ 16, 15, 14 }) do
+        it.size = size
+        if TextWidth(it.text, size) <= room - slot then break end
+    end
 end
 
 function Scr.MoveStatsText(md, pp)
@@ -2587,12 +2834,21 @@ function Scr.Coach(b)
     local md = D.moves[b.ally.mon.moves[i].id]
     local op = b.foe
     local why
-    if op.cast and (md.interrupt or md.guard) then why = md.interrupt and "Coach: break the cast" or "Coach: guard the cast"
-    elseif md.payoff and b:PayoffActive("ally", md) then why = "Coach: combo now!"
-    elseif md.role == "setup" then why = "Coach: set up the combo"
-    elseif md.heal then why = "Coach: heal up"
-    elseif md.cast then why = "Coach: cast it now"
-    else why = "Coach: best hit now" end
+    if op.cast and (md.interrupt or md.guard) then
+        why = md.interrupt and "Break the cast before it lands!" or "Guard now: the cast lands next."
+    elseif md.payoff and b:PayoffActive("ally", md) then
+        local pm = md.payoff.mark and D.MARKS[md.payoff.mark]
+        why = string.format("Combo now! %s is up: x%s.", pm and pm.short or "It", tostring(md.payoff.mult))
+    elseif md.role == "setup" then
+        local feeds
+        for _, m in ipairs(b.ally.mon.moves) do
+            local pd = D.moves[m.id]
+            if pd and pd.payoff and md.mark and pd.payoff.mark == md.mark.id then feeds = pd break end
+        end
+        why = feeds and string.format("Set up the combo for %s.", feeds.name) or "Set up the combo."
+    elseif md.heal then why = "Heal up while you can."
+    elseif md.cast then why = "Cast it now: it lands next turn."
+    else why = "Best hit right now." end
     return i, why
 end
 
@@ -2631,17 +2887,23 @@ local function OpenFightMenu()
     local mon = b.ally.mon
     local items = {}
     local coachSlot, coachWhy = Scr.Coach(b)
+    local colW = (SW - 200 - 24) / 2
+    BT.lastRest = BT.lastRest or setmetatable({}, { __mode = "k" })
+    local last = BT.lastRest[mon] or {}
+    local ready = {}                                    -- rested last time, ready again now: those rows glint
     for i = 1, 4 do
         local mv = mon.moves[i]
         if mv then
             local md = D.moves[mv.id]
-            -- one thing on the right, never two: the turns a resting move still needs, or COMBO when its mark is up
+            -- one thing on the right, never two: a resting move's hourglass and pips, or COMBO when its mark is up
             local rest = b.ally.cd and b.ally.cd[i] or 0
-            local right, rightColor
-            if rest > 0 then right, rightColor = tostring(rest), { 0.55, 0.56, 0.62 }
+            if (last[i] or 0) > 0 and rest == 0 then ready[i] = true end
+            last[i] = rest
+            local right, rightColor, mark
+            if rest > 0 then mark = { total = max(md.cd or 0, rest), left = rest }
             elseif b.PayoffActive and b:PayoffActive("ally", md) then right, rightColor = "COMBO", { 0.80, 0.55, 0.04 } end
             items[i] = { text = md.name, move = mv, right = right, rightColor = rightColor, disabled = rest > 0 or nil,
-                rest = rest, why = (i == coachSlot) and coachWhy or nil, onSelect = function(idx, menu)
+                rest = rest, mark = mark, why = (i == coachSlot) and coachWhy or nil, onSelect = function(idx, menu)
                 if mv.pp <= 0 then
                     Message("There's no PP left for this move!")
                     return
@@ -2651,10 +2913,12 @@ local function OpenFightMenu()
                 BT.lastMove[mon] = idx
                 UI:BattleAct({ kind = "move", idx = idx })
             end }
+            Scr.FitMoveRow(items[i], colW)
         else
             items[i] = { text = "-", disabled = true }
         end
     end
+    BT.lastRest[mon] = last
     local info = R.moveInfo
     -- the move list replaces FIGHT / BAG / PARTY / RUN (which comes back on cancel)
     local actionMenu = stack[#stack]
@@ -2667,13 +2931,14 @@ local function OpenFightMenu()
     if not cursor then
         for i = 1, 4 do if items[i] and items[i].move and not items[i].disabled then cursor = i break end end
     end
-    PushMenu(items, { anchor = { "BOTTOMLEFT", screen, "BOTTOMLEFT", 0, 0 }, w = SW - 200, h = BOX_H, rowH = 38, cols = 2,
-        level = 70, cursor = cursor or 1, onCancel = function(menu)
+    local fight = PushMenu(items, { anchor = { "BOTTOMLEFT", screen, "BOTTOMLEFT", 0, 0 }, w = SW - 200, h = BOX_H, rowH = 31,
+        cols = 2, level = 70, cursor = cursor or 1, onCancel = function(menu)
             PopMenu(menu)
             info:Hide()
             if actionMenu then actionMenu.frame:Show() end
             R.textbox:Show()
         end,
+        onPop = function() Scr.FightDeco(nil) end,
         onMove = function(i, menu)
             local it = menu.items[i]
             local mv = it.move
@@ -2691,13 +2956,17 @@ local function OpenFightMenu()
                 if frac <= 0.25 then info.pp:SetTextColor(0.86, 0.25, 0.2)
                 elseif frac <= 0.5 then info.pp:SetTextColor(0.9, 0.55, 0.1)
                 else info.pp:SetTextColor(INK[1], INK[2], INK[3]) end
-                -- (each item has its own place: PP | cooldown on top, type + role pills, power, effect, one note)
+                -- (each item has its own place: PP | its rest on top, type + role pills, power, effect; what it does
+                -- is the line under the moves)
+                info.glass:SetFrameLevel(lvl + 1)
                 if (it.rest or 0) > 0 then
+                    info.glass:Hide()
                     info.cd:SetText(string.format("Ready in %d", it.rest))
                     info.cd:SetTextColor(0.86, 0.45, 0.12)
                 else
-                    info.cd:SetText((md.cd or 0) > 0 and ("CD " .. md.cd) or "")
-                    info.cd:SetTextColor(0.42, 0.46, 0.56)
+                    info.glass:SetShown((md.cd or 0) > 0)
+                    info.cd:SetText((md.cd or 0) > 0 and tostring(md.cd) or "")
+                    info.cd:SetTextColor(0.29, 0.33, 0.45)
                 end
                 info.type:Set(D.types[md.type].name:upper(), D.types[md.type].color)
                 local role = md.role and Scr.ROLE[md.role]
@@ -2710,18 +2979,13 @@ local function OpenFightMenu()
                 local txt, col = KH.EffectText(md, foe and D.species[foe.sp].type)
                 info.eff:SetText(txt)
                 info.eff:SetTextColor(col[1], col[2], col[3])
-                if it.why then
-                    info.note:SetText(it.why)
-                    info.note:SetTextColor(0.15, 0.26, 0.55)
-                else
-                    info.note:SetText(Scr.MoveNote(md))
-                    info.note:SetTextColor(0.36, 0.38, 0.44)
-                end
             else
                 info.pp:SetText("") info.type:Hide() info.role:Hide() info.power:SetText("") info.cd:SetText("")
-                info.note:SetText("")
+                info.glass:Hide() info.eff:SetText("")
             end
+            Scr.MoveStrip(menu, it, mon)
         end })
+    Scr.FightMarks(fight, ready)
 end
 
 local function OpenActionMenu()
@@ -2914,6 +3178,7 @@ local function StartBattleView(b)
     ns.AzeroTaming.Reset()
     ns.AzeroTaming.Card(nil)
     BT.lastAction, BT.actionOpen, BT.prompt = nil, nil, nil
+    BT.lastRest = nil                        -- (the moves resting in the last battle: no glint for them here)
     BT.intro = 0.95
     R.battle:Show()
     world:Hide()
@@ -6327,18 +6592,17 @@ local function BuildBattle()
     R.moveInfo.pp:SetPoint("TOPLEFT", 16, -12)
     R.moveInfo.cd = Font(R.moveInfo, 12, nil, true)
     R.moveInfo.cd:SetPoint("TOPRIGHT", -16, -14)
+    R.moveInfo.glass = Scr.Hourglass(R.moveInfo, 2)                  -- its rest after use: the hourglass and the turns
+    R.moveInfo.glass:SetPoint("RIGHT", R.moveInfo.cd, "LEFT", -4, 1)
+    R.moveInfo.glass:Hide()
     R.moveInfo.type = Pill(R.moveInfo, 80, 20, 16)
     R.moveInfo.type:SetPoint("TOPLEFT", 16, -34)
     R.moveInfo.role = Pill(R.moveInfo, 84, 20, 13)
     R.moveInfo.role:SetPoint("TOPLEFT", 100, -34)
     R.moveInfo.power = Font(R.moveInfo, 13)
-    R.moveInfo.power:SetPoint("TOPLEFT", 16, -60)
+    R.moveInfo.power:SetPoint("TOPLEFT", 16, -62)
     R.moveInfo.eff = Font(R.moveInfo, 12, nil, true)            -- against this foe (KH.EffectText)
-    R.moveInfo.eff:SetPoint("TOPLEFT", 16, -76)
-    R.moveInfo.note = Font(R.moveInfo, 11, nil, true)
-    R.moveInfo.note:SetPoint("TOPLEFT", 16, -92)
-    R.moveInfo.note:SetWidth(170)
-    R.moveInfo.note:SetWordWrap(false)
+    R.moveInfo.eff:SetPoint("TOPLEFT", 16, -84)
     R.moveInfo:Hide()
 
     R.flash = Tex(b, "OVERLAY", 7)
@@ -7034,7 +7298,27 @@ UI._TextOnTop = function()
              menu = top and top.frame:GetFrameLevel() or 0, text = text.full }
 end
 UI._MoveEff = function() return R.moveInfo:IsShown() and R.moveInfo.eff:GetText() or nil end
-UI._MoveNote = function() return R.moveInfo:IsShown() and R.moveInfo.note:GetText() or nil end
+UI._MoveNote = function() return (R.fightDeco and R.fightDeco:IsShown()) and R.fightDeco.strip or nil end
+UI._MoveRows = function()                    -- the move list's rows: name size, rest marks, glints (0.40)
+    local d, out = R.fightDeco, {}
+    local menu = d and d:IsShown() and d.menu
+    if not menu then return nil end
+    for i = 1, 4 do
+        local it, m, g = menu.items[i], d.marks[i], d.glints[i]
+        out[i] = { size = it and it.size or 16, right = it and it.right,
+                   mark = (m and m:IsShown()) and { total = m.total, left = m.left, glass = m.withGlass } or false,
+                   glint = (g and g:IsShown()) and true or false }
+    end
+    return out
+end
+UI._MoveLine = function(id, kit)             -- a move's description line (kit: the moves its beast knows)
+    local moves = {}
+    for i, m in ipairs(kit or {}) do moves[i] = { id = m } end
+    return Scr.MoveLine(D.moves[id], { moves = moves })
+end
+UI._MoveRest = function()                    -- the info box's rest corner
+    return { glass = R.moveInfo.glass:IsShown(), text = R.moveInfo.cd:GetText() }
+end
 UI._Matchups = function(t) return KH.Matchups(t) end
 UI._TypeChart = function() return R.typeChart ~= nil and R.typeChart:IsShown() end
 UI._PerkLine = function() return R.money.perk:GetText() end
