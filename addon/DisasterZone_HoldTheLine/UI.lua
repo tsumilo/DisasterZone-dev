@@ -378,6 +378,12 @@ local function NewCard(parent, i)
     c.face:SetAllPoints()
     c.face:SetFrameLevel(L + 60)
     c.plate = KitTex(c.face, "c2_rare", "BACKGROUND")
+    -- (while the face turns in, its window is a dark pane of the ground that turns with the plate; the live preview,
+    -- the medal and the words fade in over it as the card opens, so the world never shows through the window)
+    c.winFill = c.face:CreateTexture(nil, "BACKGROUND", nil, -3)
+    c.winFill:SetTexture(D.MEDIA .. "ground")
+    c.winFill:SetTexCoord(0.1, 0.1 + WIN_W / 1024, 0.1, 0.1 + WIN_H / 1024)
+    c.winFill:SetVertexColor(0.34, 0.3, 0.38, 1)
     c.top = CreateFrame("Frame", nil, c.face)
     c.top:SetAllPoints()
     c.top:SetFrameLevel(L + 62)
@@ -583,11 +589,23 @@ local function AnimateCard(c, t)
     local sc = (0.82 + 0.18 * e) * (c.state == "chosen" and (1.05 + out * 0.04) or 1) * (1 - gone * 0.1)
     c:SetScale(max(0.05, sc))
     c:SetAlpha(min(1, k * 2) * (1 - gone) * (1 - out))
-    -- the face's squeeze: scale its art across (a squeezed card shows no words and no preview)
+    -- the face's squeeze: scale its art across, the window's pane with it; the words and the live preview fade in
+    -- over the last fifth of the turn (they cannot be squeezed), the pane fading out under them
     local fa = not half and w or 0
-    if fa < 0.999 or c.faSet ~= fa or c.plateDirty then KitAt(c.plate, c.face, W_CARD * (1 - fa) / 2, 0, max(0.1, W_CARD * fa), H_CARD) c.faSet = fa c.plateDirty = nil end
-    c.top:SetAlpha(fa > 0.85 and 1 or 0)
-    c.pv.frame:SetAlpha(fa > 0.85 and 1 or 0)
+    if fa < 0.999 or c.faSet ~= fa or c.plateDirty then
+        KitAt(c.plate, c.face, W_CARD * (1 - fa) / 2, 0, max(0.1, W_CARD * fa), H_CARD)
+        c.winFill:ClearAllPoints()
+        c.winFill:SetPoint("TOPLEFT", c.face, "TOPLEFT", W_CARD * (1 - fa) / 2 + WIN_X * fa, -WIN_Y)
+        c.winFill:SetSize(max(0.1, WIN_W * fa), WIN_H)
+        c.faSet = fa c.plateDirty = nil
+    end
+    local open = fa < 0.8 and 0 or Easing((fa - 0.8) / 0.2)
+    if c.openA ~= open then
+        c.openA = open
+        c.top:SetAlpha(open)
+        c.pv.frame:SetAlpha(open)
+        c.winFill:SetAlpha(1 - open)
+    end
 end
 
 local function BuildPicker()
