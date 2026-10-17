@@ -353,6 +353,14 @@ local function DrawBeast(m, side, gdx, gdy)
     local tint, shadow, rims = BeastLight(fx, fy, fy - (f[6] + fh) * k / S3 * 0.6)
     if spr.SetLight then spr:SetLight(tint[1], tint[2], tint[3]) end
     if (spr.shrink or 1) < 0.99 or (spr.flash or 0) > 0.6 then return end           -- (the taming moment)
+    -- the shadow, contact and rim are drawn on the battle layer, not on the beast's own frame: they follow how much
+    -- of the beast shows (it fades in when sent out, out when it faints or is called back, then hides)
+    local seen = 0
+    if m:IsVisible() then
+        seen = (m.GetEffectiveAlpha and m:GetEffectiveAlpha()) or m:GetAlpha() or 1
+        if spr.tex.GetAlpha then seen = seen * (spr.tex:GetAlpha() or 1) end
+    end
+    if seen < 0.05 then return end
     -- where the frame is: the model's bottom centre + the sprite's lift (UI pixels from the battle layer's top left)
     local _, _, _, mx, my = m:GetPoint(1)
     local feetX, feetY = (mx or 0) + (m.w or m:GetWidth() or 0) / 2, (my or 0) + (spr.lift or 0)
@@ -368,7 +376,7 @@ local function DrawBeast(m, side, gdx, gdy)
     c:SetSize(cw * S3, 3.2 * S3)
     c:ClearAllPoints()
     c:SetPoint("CENTER", b, "TOPLEFT", feetX, feetY)
-    c:SetVertexColor(0, 0, 0, cur.rain and 0.3 or 0.34)
+    c:SetVertexColor(0, 0, 0, (cur.rain and 0.3 or 0.34) * seen)
     c:Show()
     -- the cast shadow: one-row strips of the frame, each moved by its height over the feet
     if shadow and shadow.a > 0.01 then
@@ -389,7 +397,7 @@ local function DrawBeast(m, side, gdx, gdy)
                 t:ClearAllPoints()
                 t:SetPoint("BOTTOMLEFT", b, "TOPLEFT", feetX + (f[5] + round(hgt * shadow.kx)) * k, feetY - tr * k - (shadow.ky >= 0 and (hg - 1) * k or 0))
                 local fade = 1 - 0.55 * min(1, hgt / max(1, fh))
-                t:SetVertexColor(0, 0, 0, shadow.a * fade)
+                t:SetVertexColor(0, 0, 0, shadow.a * fade * seen)
                 t:Show()
             end
         end
@@ -407,7 +415,7 @@ local function DrawBeast(m, side, gdx, gdy)
                 for _, q in ipairs(rims) do
                     local d = px[3] * q.ux + px[4] * q.uy
                     if d > 0.25 then
-                        local s = ((d - 0.25) / 0.75) ^ 1.3 * q[6]
+                        local s = ((d - 0.25) / 0.75) ^ 1.3 * q[6] * seen
                         r_, g_, b_ = r_ + q[3] * s, g_ + q[4] * s, b_ + q[5] * s
                     end
                 end

@@ -190,5 +190,23 @@ def a_beast_outline_has_its_edges_facing_out():
     assert r and r["n"] > 40 and r["left"] > 5 and r["right"] > 5 and r["up"] > 5, r
 
 
+@case
+def a_beast_out_of_sight_leaves_no_rim_or_shadow():
+    # the beasts fade in when sent out and fade out (then hide) when they faint or are called back: what is drawn
+    # for them on the battle layer goes with them
+    w, c = battle("town", 17, 3, "wolfpup", hour=23)
+    both = stats(c)
+    assert both["contacts"] == 2 and both["rims"] > 0, both
+    c.eval("ns.AzeroUI._Model('foe'):SetAlpha(0)")
+    w.tick(0.2)
+    one = stats(c)
+    assert one["contacts"] == 1 and one["shadows"] < both["shadows"], (one, both)
+    c.eval("ns.AzeroUI._Model('ally'):Hide()")
+    w.tick(0.2)
+    none = stats(c)
+    assert none["contacts"] == 0 and none["rims"] == 0 and none["shadows"] == 0, none
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()
