@@ -85,10 +85,6 @@ local function SetChar(t, sprite, face, frame)
     t:SetTexCoord(c * 16 / 256 + E, (c + 1) * 16 / 256 - E, r * 16 / 128 + E, (r + 1) * 16 / 128 - E)
 end
 
-local function Rot(t, r)
-    if t.SetRotation then pcall(t.SetRotation, t, r) end
-end
-
 -- size is the old design size; drawn at 1.25x in the pixel font.
 local measureFs                  -- a hidden font string, to measure text (TextWidth)
 local function Font(parent, size, layer, bold)
@@ -1462,7 +1458,10 @@ local function OpenBag(ctx, onUse)
     for _, id in ipairs(D.itemOrder) do
         if (bag[id] or 0) > 0 then
             local def = D.items[id]
-            items[#items + 1] = { text = def.name, right = "x" .. bag[id], icon = def.icon, item = id,
+            local right = "x" .. bag[id]
+            local odds = ctx == "battle" and def.use == "ball" and G.battle and G.battle.wild and G.battle.TameOdds
+            if odds then right = ns.AzeroTaming.Percent(G.battle:TameOdds(id)) .. "   " .. right end   -- (to tame it now)
+            items[#items + 1] = { text = def.name, right = right, icon = def.icon, item = id,
                 onSelect = function(_, menu) onUse(id, menu) end }
         end
     end
@@ -1471,7 +1470,9 @@ local function OpenBag(ctx, onUse)
         return
     end
     local desc = R.bagDesc
-    PushMenu(items, { x = 8, y = -8, w = 320, rowH = 36, title = "BAG", level = 70, desc = true,
+    -- in a battle it covers the whole text box (the prompt behind it would show its top line cut in half)
+    desc:SetHeight(ctx == "battle" and BOX_H or 80)
+    PushMenu(items, { x = 8, y = -8, w = 380, rowH = 36, title = "BAG", level = 70, desc = true,
         onCancel = function(menu) PopMenu(menu) desc:Hide() end,
         onMove = function(i, menu)
             desc:Show()
@@ -2727,6 +2728,8 @@ local function OpenActionMenu()
     local b = G.battle
     -- kept: after a message during the choice it comes back (UpdateBattle)
     BT.prompt = string.format("What will\n%s do?", M.Name(b.ally.mon))
+    local odds = ns.AzeroTaming.PromptLine(b, G.save.bag)         -- a wild beast: your best rod's odds this turn
+    if odds then BT.prompt = BT.prompt .. "\n" .. odds end
     BT.actionOpen = true
     SetText(BT.prompt, { lines = 3 })
     text.shown = 999
@@ -2907,7 +2910,9 @@ local function StartBattleView(b)
     CloseAllMenus()
     R.money:Hide() R.bagDesc:Hide() R.moveCompare:Hide() R.log:Hide()
     BT.battle = b
-    BT.anim, BT.needShown, BT.ended, BT.snap, BT.lastNeed = nil, nil, nil, nil, nil
+    BT.anim, BT.needShown, BT.ended, BT.snap, BT.lastNeed, BT.tamed = nil, nil, nil, nil, nil, nil
+    ns.AzeroTaming.Reset()
+    ns.AzeroTaming.Card(nil)
     BT.lastAction, BT.actionOpen, BT.prompt = nil, nil, nil
     BT.intro = 0.95
     R.battle:Show()
@@ -2925,6 +2930,8 @@ end
 
 local function EndBattleView()
     BT.battle, BT.actionOpen = nil, nil
+    ns.AzeroTaming.Reset()
+    R.bagDesc:SetHeight(80)                  -- (the battle bag's was as tall as the text box)
     R.battle:Hide()
     R.moveInfo:Hide()                        -- (on the screen, not the battle layer)
     world:Show()
@@ -3018,7 +3025,7 @@ local function PlayEvent(e)
     elseif e.t == "castend" or e.t == "mark" or e.t == "guard" or e.t == "unstoppable" or e.t == "combo" then
         RefreshBattleBoxes()
     elseif e.t == "sfx" then
-        ns.AzeroSound:Play(e.sound)
+        if not (e.sound == "catch" and ns.AzeroTaming.TakeQuiet()) then ns.AzeroSound:Play(e.sound) end
     elseif e.t == "exp" then
         if e.mon == b.ally.mon then
             local from = (prev and prev.ally and prev.ally.exp) or 0
@@ -3030,40 +3037,12 @@ local function PlayEvent(e)
             end, done = function() R.allyBox.animExp = nil RefreshBattleBoxes() end }
         end
     elseif e.t == "throw" then
-        local net, fm = R.net, R.foeModel
-        net:SetVertexColor(1, 1, 1)
-        net:Show()
-        local shakes = e.shakes
-        local caught = e.caught
-        local total = 0.6 + shakes * 0.6 + 0.5
-        local shook = 0
-        ns.AzeroSound:Play("throw")
-        BT.anim = { t = 0, dur = total, fn = function(f)
-            local t = f * total
-            local n = t >= 0.6 and min(shakes, floor((t - 0.6) / 0.6) + 1) or 0
-            if n > shook then shook = n ns.AzeroSound:Play("shake") end
-            if t < 0.6 then
-                local p = t / 0.6
-                net:ClearAllPoints()
-                net:SetPoint("CENTER", R.battle, "TOPLEFT", 90 + (400 - 90) * p, -300 + (300 - 150) * p - math.sin(p * math.pi) * 120)
-                Rot(net, p * 6)
-            else
-                fm:SetAlpha(0)
-                local k = t - 0.6
-                local wob = (k < shakes * 0.6) and math.sin(k / 0.6 * math.pi * 2) * 0.5 or 0
-                Rot(net, wob)
-                net:ClearAllPoints()
-                net:SetPoint("CENTER", R.battle, "TOPLEFT", 400, -150)
-            end
-        end, done = function()
-            if caught then
-                net:SetVertexColor(0.6, 0.6, 0.6)
-            else
-                ns.AzeroSound:Play("breakfree")
-                net:Hide()
-                fm:SetAlpha(1)
-            end
-        end }
+        -- the taming moment (Taming.lua): lure, sigil, orb, one pip per check; then it locks or cracks
+        R.net:Hide()
+        BT.anim = ns.AzeroTaming.Anim(e, R.battle, R.foeModel, R.allyModel,
+            function(name) ns.AzeroSound:Play(name) end, Anim)
+    elseif e.t == "tamed" then
+        BT.tamed = e                             -- (its card shows once the battle is over)
     elseif e.t == "end" then
         BT.ended = e.result
     end
@@ -3158,6 +3137,17 @@ local function UpdateBattle(dt)
     elseif b.need == "done" then
         BT.needShown = true
         local result = BT.ended or b.result
+        local tamed = BT.tamed
+        BT.tamed = nil
+        if result == "caught" and tamed then             -- the tamed card, until A
+            ns.AzeroTaming.Card(tamed)
+            Message(ns.AzeroTaming.CardLine(tamed), function()
+                ns.AzeroTaming.Card(nil)
+                EndBattleView()
+                G:Advance(result)
+            end)
+            return
+        end
         EndBattleView()
         G:Advance(result)
     end

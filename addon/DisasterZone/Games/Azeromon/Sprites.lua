@@ -97,9 +97,12 @@ function Sprite:Set(key, view, scale, lift, glow)
     self.clips = d[self.view]
     self.glow = glow and true or false
     local art = Art()
+    self.shrink, self.flash = 1, 0
+    if self.fx then self.fx:Hide() end
     if self.file ~= d.info.tex then
         self.file = d.info.tex
         local path = art.dir .. d.info.tex
+        self.path = path
         local ok = pcall(self.tex.SetTexture, self.tex, path, nil, nil, "NEAREST")
         if not ok then self.tex:SetTexture(path) end
         if self.tex.SetSnapToPixelGrid then pcall(self.tex.SetSnapToPixelGrid, self.tex, false) end
@@ -116,6 +119,39 @@ end
 function Sprite:Hide()
     self.key, self.clips = nil, nil
     self.tex:Hide()
+    if self.fx then self.fx:Hide() end
+end
+
+-- The taming moment (Taming.lua): `shrink` (1 = full size) pulls the beast toward its middle, `flash` (0..1) lays a
+-- bright, colourless copy over it (added light), so it whitens before it is drawn into the orb.
+function Sprite:SetFx(shrink, flash)
+    self.shrink, self.flash = max(0.01, shrink or 1), flash or 0
+    if self.flash > 0 and not self.fx then
+        self.fx = self.frame:CreateTexture(nil, "OVERLAY")
+        self.fx:SetBlendMode("ADD")
+        if self.fx.SetDesaturated then self.fx:SetDesaturated(true) end
+    end
+    if self.fx then
+        if self.flash > 0 and self.key and self.path then
+            if self.fxPath ~= self.path then
+                self.fxPath = self.path
+                local ok = pcall(self.fx.SetTexture, self.fx, self.path, nil, nil, "NEAREST")
+                if not ok then self.fx:SetTexture(self.path) end
+            end
+            self.fx:SetAlpha(min(1, self.flash))
+            self.fx:Show()
+        else
+            self.fx:Hide()
+        end
+    end
+    self:Draw()
+end
+
+-- The size on screen (UI pixels) of the frame now showing, at full size.
+function Sprite:Size()
+    local f = self.cur and self.seq and self.cur.frames[self.seq[self.pos]]
+    if not f then return 0, 0 end
+    return f[3] * self.scale, f[4] * self.scale
 end
 
 function Sprite:Tint()
@@ -177,19 +213,29 @@ function Sprite:Update(dt)
     self:Draw()
 end
 
+-- one texture showing texture rectangle x, y, w, h, its bottom-left at (ox, oy) from the frame's bottom centre
+local function PlaceFrame(tex, self, x, y, w, h, ox, oy, k)
+    tex:SetTexCoord(x / self.tw, (x + w) / self.tw, y / self.th, (y + h) / self.th)
+    tex:SetSize(max(1, w * k), max(1, h * k))
+    tex:ClearAllPoints()
+    tex:SetPoint("BOTTOMLEFT", self.frame, "BOTTOM", ox, oy)
+end
+
 function Sprite:Draw()
     local f = self.cur and self.cur.frames[self.seq[self.pos]]
     if not f then return end
-    local k, tex = self.scale, self.tex
+    local s = self.shrink or 1
+    local k = self.scale * s
     local x, y, w, h, lx, bt = f[1], f[2], f[3], f[4], f[5], f[6]
-    tex:SetTexCoord(x / self.tw, (x + w) / self.tw, y / self.th, (y + h) / self.th)
-    tex:SetSize(w * k, h * k)
-    tex:ClearAllPoints()
-    tex:SetPoint("BOTTOMLEFT", self.frame, "BOTTOM", lx * k, bt * k + self.lift)
+    -- shrunk, it keeps its middle where it was (the feet rise by half the height it lost)
+    local up = (1 - s) * (bt + h / 2) * self.scale
+    PlaceFrame(self.tex, self, x, y, w, h, lx * k, bt * k + self.lift + up, k)
+    if self.fx and self.fx:IsShown() then PlaceFrame(self.fx, self, x, y, w, h, lx * k, bt * k + self.lift + up, k) end
 end
 
 -- what is on screen (tests)
 function Sprite:State()
     return { key = self.key, view = self.view, clip = self.clip, frame = self.seq and self.seq[self.pos],
-             scale = self.scale, glow = self.glow, shown = self.tex:IsShown() }
+             scale = self.scale, glow = self.glow, shown = self.tex:IsShown(), shrink = self.shrink or 1,
+             flash = self.flash or 0 }
 end

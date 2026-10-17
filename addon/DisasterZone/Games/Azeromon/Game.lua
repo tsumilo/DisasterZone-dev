@@ -757,6 +757,7 @@ function G:RunBattle(foes, trainerId, opts)
         rare = opts and opts.rare, legendary = opts and opts.legendary,
         onSeen = function(sp) s.seen[sp] = true self:Emit("seen", { sp = sp }) end,
         onCaught = function(mon) return self:AddMon(mon, "caught") end,
+        isNew = function(sp) return not s.caught[sp] end,
     })
     self.battle = b
     local result = self:Wait({ kind = "battle", battle = b }) or b.result
