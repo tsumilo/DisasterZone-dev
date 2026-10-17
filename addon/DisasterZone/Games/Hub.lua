@@ -45,10 +45,97 @@ end
 
 function Games:Get(id) return defs[id] end
 
--- Returns a copy of the ordered game list.
+-- Returns a copy of the ordered game list (the games that run here).
 function Games:GetList()
     local out = {}
     for i = 1, #list do out[i] = list[i] end
+    return out
+end
+
+---------------------------------------------------------------------------
+-- Game packs: every game, installed or not
+---------------------------------------------------------------------------
+
+-- Each game is its own addon folder, a game pack (dev/docs/GAME_PACKS.md), that members install or leave out. The
+-- hub knows them all, so a game that isn't here still has a poster that says how to get it. (name, tagline, icon
+-- and order as the game registers itself; art = the raid loading screen its poster shows meanwhile)
+local CATALOG = {
+    { id = "bingo", folder = "DisasterZone_Bingo", name = "Council Bingo", order = 10, art = "kara",
+      tagline = "Squares fill in as the raid happens.", icon = "Interface\\Icons\\INV_Misc_Note_02" },
+    { id = "trainer", folder = "DisasterZone_Trainer", name = "Raid Trainer", order = 15, art = "ssc",
+      tagline = "Practise each boss in 3D before the pull.", icon = "Interface\\Icons\\Spell_Shadow_DeathPact" },
+    { id = "azeromon", folder = "DisasterZone_Azeromon", name = "Azeromon", order = 20, art = "kara",
+      tagline = "Tame and battle the beasts of Elwynn.", icon = "Interface\\Icons\\Ability_Hunter_BeastTaming" },
+    { id = "chess", folder = "DisasterZone_Chess", name = "Karazhan Chess", order = 25, art = "kara",
+      tagline = "Play Medivh's echo, or a guildmate.", icon = "Interface\\Icons\\INV_Misc_Ogrepinata" },
+    { id = "illidan", folder = "DisasterZone_Illidan", name = "The Binding of Illidan", order = 30, art = "bt",
+      tagline = "Five floors of the Black Temple, new every run.", icon = "Interface\\Icons\\Spell_Shadow_Metamorphosis" },
+    { id = "holdtheline", folder = "DisasterZone_HoldTheLine", name = "Hold the Line", order = 40, art = "kara",
+      tagline = "Fifteen minutes. One class. The whole Scourge.", icon = "Interface\\Icons\\Spell_Holy_InnerFire" },
+}
+local byId = {}
+for _, c in ipairs(CATALOG) do byId[c.id] = c end
+Games.CATALOG = CATALOG
+function Games:Catalog(id) return byId[id] end
+Games.RELEASES = "github.com/tsumilo/DisasterZone-releases"    -- where the launcher and the release zip are
+
+local function AddOnInfo(folder)
+    local get = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo
+    if not get then return nil end
+    local ok, name, _, _, _, reason = pcall(get, folder)
+    if not ok then return nil end
+    return name, reason
+end
+
+-- Where game id stands here: "ok" (it runs), "missing" (its folder isn't installed), "off" (switched off in the
+-- AddOn list), "update" (its folder is from another release: the boot loader skipped it, Core/Boot.lua CheckPack)
+-- or "error" (installed and switched on, but it didn't start).
+function Games:PackState(id)
+    if defs[id] then return "ok" end
+    local c = byId[id]
+    if not c then return "missing" end
+    local boot = DisasterZoneBoot
+    local st = boot and boot.PackState and boot.PackState(c.folder)
+    if st and st ~= "ok" then return "update" end
+    local name, reason = AddOnInfo(c.folder)
+    if not name or reason == "MISSING" then return "missing" end
+    if reason == "DISABLED" or (type(reason) == "string" and reason:find("^DEP_")) then return "off" end
+    if reason == "INTERFACE_VERSION" then return "update" end
+    return "error"
+end
+
+-- What to do about a game that doesn't run here (its PackState), as one sentence; nil when it runs.
+function Games:HowToGet(id)
+    local c = byId[id]
+    local state = self:PackState(id)
+    if state == "ok" or not c then return nil end
+    if state == "off" then
+        return c.name .. " is switched off. Turn it on in the AddOn list, then /reload."
+    elseif state == "update" then
+        return c.name .. " is from another DisasterZone release. Update it in the DisasterZone launcher, or replace its "
+            .. c.folder .. " folder from the newest release zip, then /reload. Your progress is kept."
+    elseif state == "error" then
+        return c.name .. " is installed but didn't start. Try /reload, or reinstall it from the DisasterZone launcher."
+    end
+    return c.name .. " isn't installed. Add it on the Games tab of the DisasterZone launcher, or copy its " .. c.folder
+        .. " folder from the release zip into Interface\\AddOns, then /reload."
+end
+
+-- Every game for the hub, in order: the ones that run here (their defs) and the catalog's others as stand-ins,
+-- { id, name, tagline, desc, icon, order, art, folder, missing = PackState }.
+function Games:GetShelf()
+    local out = {}
+    for i = 1, #list do out[#out + 1] = list[i] end
+    for _, c in ipairs(CATALOG) do
+        if not defs[c.id] then
+            out[#out + 1] = { id = c.id, name = c.name, tagline = c.tagline, desc = c.tagline, icon = c.icon,
+                              order = c.order, art = c.art, folder = c.folder, missing = self:PackState(c.id) }
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return a.id < b.id
+    end)
     return out
 end
 
@@ -125,13 +212,30 @@ end
 ---------------------------------------------------------------------------
 
 function Games:OnInit()
+    -- a game that doesn't run here: what to do about it (the hub's poster opens this), with the releases address to copy
+    if ns.Popup then
+        ns.Popup:Register("DISASTERZONE_GAME_PACK", {
+            title = "Get the game", text = "%s", button1 = "Close", hideOnEscape = true,
+            hasEditBox = true, maxLetters = 80,
+            OnShow = function(d)
+                d.editBox:SetText(Games.RELEASES)
+                d.editBox:HighlightText()
+            end,
+            EditBoxOnEnterPressed = function() ns.Popup:Hide("DISASTERZONE_GAME_PACK") end,
+            EditBoxOnEscapePressed = function() ns.Popup:Hide("DISASTERZONE_GAME_PACK") end,
+        })
+    end
     ns:RegisterEvent("PLAYER_REGEN_DISABLED", function() ns:Fire("GAMES_COMBAT", true) end)
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() ns:Fire("GAMES_COMBAT", false) end)
     ns:RegisterSlash("play", function(rest)
         rest = rest and rest:match("^%s*(%S+)") or nil
         if rest and not defs[rest] then
-            ns:Print("unknown game '%s'.", rest)
-            rest = nil
+            if byId[rest] then
+                ns:Print("%s", Games:HowToGet(rest))   -- (the hub opens on its poster)
+            else
+                ns:Print("unknown game '%s'.", rest)
+                rest = nil
+            end
         end
         Games:Open(rest)
     end, "play [game] - open the minigames")

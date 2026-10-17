@@ -258,7 +258,7 @@ KINDS.recipe = function(arg)
 end
 
 KINDS.game = function(arg)
-    local def = ns.Games and ns.Games:Get(arg)
+    local def = ns.Games and (ns.Games:Get(arg) or ns.Games:Catalog(arg))   -- (a game pack that isn't installed too)
     if not def then return { icon = TexIcon(ICON.games) } end
     return { label = def.name, icon = TexIcon(def.icon or ICON.games), known = true }
 end
@@ -507,7 +507,11 @@ end
 
 OPEN.game = function(arg)
     if not OpenTab("games") then return false end
-    if not (ns.Games and ns.Games:Get(arg)) then return false, "That game isn't in your DisasterZone version." end
+    if not (ns.Games and ns.Games:Get(arg)) then
+        local how = ns.Games and ns.Games:HowToGet(arg)
+        if how then ns.GamesUI:Select(arg) end   -- (its poster comes to the front)
+        return false, how or "That game isn't in your DisasterZone version."
+    end
     ns.GamesUI:Select(arg)
     return true
 end

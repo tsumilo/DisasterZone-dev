@@ -15,7 +15,7 @@ local floor, max, min, sin, cos, sqrt, abs = math.floor, math.max, math.min, mat
 local pi, rad, tan, random = math.pi, math.rad, math.tan, math.random
 
 local P = 3                                                        -- UI pixels per game pixel
-local RADIAL = "Interface\\AddOns\\" .. addonName .. "\\Media\\MyBiS\\Radial"
+local RADIAL = ns.MEDIA .. "MyBiS\\Radial"
 local STAR = "Interface\\Cooldown\\star4"
 
 -- the mockup's colours

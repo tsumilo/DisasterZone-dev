@@ -850,6 +850,31 @@ function Chess:OnInit()
         end,
     })
     for t, fn in pairs(handlers) do ns.Comm:Register(t, fn) end
+    -- the bell: a guildmate moved in one of my games (Core/Notify.lua; here, so it is listed only when Chess is in)
+    local N = ns.Notify
+    if N and N.RegisterKind then
+        N:RegisterKind("chessTurn", {
+            section = "Games", page = "games", icon = 51, color = { 1, 0.7, 0.28 },
+            label = "Chess: your move", desc = "A guildmate moved in your Karazhan Chess game.",
+            needsYou = true, popup = false, sound = false,
+            open = function(it)
+                if ns.MainFrame then ns.MainFrame:Open("games") end
+                if ns.GamesUI and ns.GamesUI.Select then ns.GamesUI:Select(GAME_ID) end
+                local g = Chess:Get(it.key)
+                if g and ns.ChessUI and ns.ChessUI.OpenGame then ns.ChessUI:OpenGame(g) end
+            end,
+        })
+        N:RegisterSource("chessTurn", function()
+            local out = {}
+            for _, g in ipairs(Chess:List()) do
+                if g.mode ~= "ai" and Chess:MyTurn(g) then
+                    out[#out + 1] = { key = g.id, from = g.opp, title = Chess:OpponentName(g) .. " moved: your turn",
+                                      text = "Karazhan Chess", time = g.updated }
+                end
+            end
+            return out
+        end, { "CHESS_UPDATED" })
+    end
     driver = CreateFrame("Frame")
     driver:Hide()
     driver:SetScript("OnUpdate", Drive)

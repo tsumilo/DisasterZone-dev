@@ -5,6 +5,7 @@ local addonName, ns = ...
 
 DisasterZone = ns                       -- the ONE debugging global
 ns.name = addonName               -- "DisasterZone"
+ns.MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"   -- the core's art (a game pack's own art is in its folder)
 -- The boot loader (Core/Boot.lua); nil when the TOC does not list it. While an in-game update is running,
 -- ns.version is that update's version and ns.diskVersion the installed release it runs on top of.
 local Boot = DisasterZoneBoot
@@ -396,8 +397,10 @@ function ns:GetModules()
     return out
 end
 
-local function DispatchLifecycle(method)
-    for i = 1, #modules do
+local initDone, loginDone = 0, 0   -- modules[1..n] have had OnInit / OnLogin (game packs add modules later)
+
+local function DispatchLifecycle(method, from)
+    for i = from or 1, #modules do
         local M = modules[i]
         local fn = M[method]
         if type(fn) == "function" then
@@ -754,6 +757,7 @@ local function RunInit()
     -- Modules run in TOC order, so ns.DB (after Init/Util/Constants/ItemDB) sets ns.db
     -- before any later module's OnInit.
     DispatchLifecycle("OnInit")
+    initDone = #modules
     for event in pairs(skippedEvents) do
         ns:Debug("Event %s is unknown on this client (handlers skipped).", event)
     end
@@ -767,7 +771,32 @@ local function RunLogin()
     RunInit()
     ns.loggedIn = true
     DispatchLifecycle("OnLogin")
+    loginDone = #modules
     if Boot and Boot.LifecycleDone then Boot.LifecycleDone() end
+end
+
+-- Game packs (the DisasterZone_<Game> folders, dev/docs/GAME_PACKS.md) load after this addon's ADDON_LOADED, so
+-- their modules miss the OnInit above. A pack's last file (Done.lua) calls this with its own (folder, ns): the boot
+-- loader runs the files an in-game update added to the pack's end, then the pack's new modules get OnInit, and
+-- OnLogin as well when the login stage has passed already. A pack the boot loader skipped does nothing.
+ns.packs = {}   -- [folder] = true once that pack started
+function ns:PackLoaded(folder, packNs)
+    if type(folder) ~= "string" or ns.packs[folder] then return end
+    if Boot and (Boot.safeMode or Boot.dormant) then return end
+    local state = Boot and Boot.PackState and Boot.PackState(folder)
+    if state and state ~= "ok" then return end
+    if Boot and Boot.EndPack then Boot.EndPack(folder, folder, packNs) end
+    ns.packs[folder] = true
+    if ns.initialized then
+        local from = initDone + 1
+        initDone = #modules
+        DispatchLifecycle("OnInit", from)
+    end
+    if ns.loggedIn then
+        local from = loginDone + 1
+        loginDone = #modules
+        DispatchLifecycle("OnLogin", from)
+    end
 end
 
 local function OnAddonLoaded(_, loadedName)

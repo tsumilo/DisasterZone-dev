@@ -280,30 +280,7 @@ local function register()
         return out
     end, { "DUNGEON_RUNS_UPDATED", "DUNGEON_RUN_PING" })
 
-    -- Karazhan Chess: my move
-    N:RegisterKind("chessTurn", {
-        section = "Games", page = "games", icon = 51, color = { 1, 0.7, 0.28 },
-        label = "Chess: your move", desc = "A guildmate moved in your Karazhan Chess game.",
-        needsYou = true, popup = false, sound = false,
-        open = function(it)
-            openTab("games")
-            if ns.GamesUI and ns.GamesUI.Select then ns.GamesUI:Select("chess") end
-            local C = ns.Chess
-            local g = C and C.Get and C:Get(it.key)
-            if g and ns.ChessUI and ns.ChessUI.OpenGame then ns.ChessUI:OpenGame(g) end
-        end,
-    })
-    N:RegisterSource("chessTurn", function()
-        local C, out = ns.Chess, {}
-        if not (C and C.List) then return out end
-        for _, g in ipairs(C:List()) do
-            if g.mode ~= "ai" and C:MyTurn(g) then
-                out[#out + 1] = { key = g.id, from = g.opp, title = C:OpponentName(g) .. " moved: your turn",
-                                  text = "Karazhan Chess", time = g.updated }
-            end
-        end
-        return out
-    end, { "CHESS_UPDATED" })
+    -- (Karazhan Chess's "your move" is the Chess pack's own: Games/Chess/Chess.lua, Settings lists it with Chess)
 
     -- Loot: an item awarded to me (a roll or the council)
     N:RegisterKind("lootWon", {

@@ -79,8 +79,9 @@ local SKIP_FILE = { ["Core/Perf.lua"] = true, ["Core/Init.lua"] = true, ["Core/U
 local function Where()
     local stack = debugstack and debugstack(1, 12, 0)
     if type(stack) ~= "string" then return nil end
-    for file, line in stack:gmatch("AddOns[/\\]DisasterZone[/\\]([^:\"%]]-%.lua)[\"%]]*:(%d+)") do
+    for folder, file, line in stack:gmatch("AddOns[/\\](DisasterZone[%w_]*)[/\\]([^:\"%]]-%.lua)[\"%]]*:(%d+)") do
         file = file:gsub("\\", "/")
+        if folder ~= "DisasterZone" then file = folder .. "/" .. file end   -- a game pack's file: with its folder
         if not SKIP_FILE[file] then return file .. ":" .. line end
     end
     return nil

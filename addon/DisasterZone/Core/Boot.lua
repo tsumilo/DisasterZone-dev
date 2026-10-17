@@ -131,8 +131,17 @@ local SKIP = {}        -- plan value: the file was deleted by the patch
 local plan             -- [path] = compiled chunk | SKIP   (nil: no patch applies, every file runs from disk)
 local extras           -- [path] = { { path =, fn = } ... }: new files that run right before that disk file
 local tail             -- new files that run after the last disk file (Boot.End)
+local packTail         -- [folder] = new files that run after a game pack's last disk file (Boot.EndPack)
 local running          -- path of the patched file being executed (its own guard must not recurse)
 local lastError
+local packState = {}   -- [folder] = "ok" | "stale" | "unknown": a game pack checked against this build (CheckPack)
+
+-- A game pack's files (the DisasterZone_<Game> folders, dev/docs/GAME_PACKS.md) are named with their folder,
+-- "DisasterZone_Chess/Chess.lua"; the core's own files have no folder in their name.
+local function PackOf(path)
+    return type(path) == "string" and path:match("^(DisasterZone_[%w]+)/") or nil
+end
+Boot.PackOf = PackOf
 
 Boot.state = "none"    -- none | off | base | bad | malformed | rejected | applied | safemode | dormant
 Boot.detail = nil      -- why (rejected / safemode)
@@ -154,7 +163,7 @@ local function Decide()
     if p.base ~= Boot.buildId and not (try and Boot.isDev) then return "base" end
     if not loadstring then return "rejected", "loadstring is not available" end
 
-    local newPlan, newExtras, newTail = {}, {}, {}
+    local newPlan, newExtras, newTail, newPackTail = {}, {}, {}, {}
     local count = 0
     for _, e in ipairs(p.list) do
         local kind, path = type(e) == "table" and e.k, type(e) == "table" and e.p
@@ -171,7 +180,8 @@ local function Decide()
             if Adler32(src) ~= p.sums[path] then
                 return "rejected", "checksum mismatch in " .. path
             end
-            local fn, err = loadstring(src, "@Interface/AddOns/" .. tostring(addonName) .. "/" .. path)
+            local pack = PackOf(path)
+            local fn, err = loadstring(src, "@Interface/AddOns/" .. (pack and path or (tostring(addonName) .. "/" .. path)))
             if not fn then
                 return "rejected", "syntax error: " .. tostring(err)
             end
@@ -185,6 +195,10 @@ local function Decide()
                     local list = newExtras[before]
                     if not list then list = {}; newExtras[before] = list end
                     list[#list + 1] = { path = path, fn = fn }
+                elseif pack then
+                    local list = newPackTail[pack]
+                    if not list then list = {}; newPackTail[pack] = list end
+                    list[#list + 1] = { path = path, fn = fn }
                 else
                     newTail[#newTail + 1] = { path = path, fn = fn }
                 end
@@ -193,7 +207,7 @@ local function Decide()
             return "rejected", "malformed file list"
         end
     end
-    plan, extras, tail = newPlan, newExtras, newTail
+    plan, extras, tail, packTail = newPlan, newExtras, newTail, newPackTail
     Boot.applied = { seq = p.seq, version = p.version, pack = tonumber(p.pack) or 0, files = count }
     return "applied"
 end
@@ -204,7 +218,7 @@ else
     local ok, state, detail = pcall(Decide)
     if not ok then
         state, detail = "rejected", tostring(state)
-        plan, extras, tail = nil, nil, nil
+        plan, extras, tail, packTail = nil, nil, nil, nil
         Boot.applied = nil
     end
     Boot.state, Boot.detail = state, detail
@@ -242,9 +256,12 @@ local function Exec(path, fn, a1, a2)
 end
 
 -- The guard on line 1 of every DisasterZone file. True: the caller must return (its patched text ran instead, the
--- patch deleted it, the addon is in safe mode, or CDLoot is still loaded). False: the file on disk runs.
+-- patch deleted it, the addon is in safe mode, CDLoot is still loaded, or the file is in a game pack from another
+-- release). False: the file on disk runs.
 function Boot.Run(path, ...)
     if Boot.safeMode or Boot.dormant then return true end
+    local pack = PackOf(path)
+    if pack and packState[pack] and packState[pack] ~= "ok" then return true end
     if not plan then return false end
     if running == path then return false end
     local before = extras[path]
@@ -262,13 +279,69 @@ function Boot.Run(path, ...)
 end
 
 -- Called by Core/BootEnd.lua, the last file in the TOC: runs the new files that go after everything else.
+-- (Slots anchored in a game pack wait for that pack: it loads after this addon, Boot.EndPack.)
 function Boot.End(...)
     if Boot.safeMode or Boot.dormant or not plan then return end
     local rest = tail
-    for _, list in pairs(extras) do     -- slots whose anchor file never ran (should not happen)
-        for i = 1, #list do rest[#rest + 1] = list[i] end
+    for anchor, list in pairs(extras) do     -- slots whose anchor file never ran (should not happen)
+        if not PackOf(anchor) then
+            for i = 1, #list do rest[#rest + 1] = list[i] end
+            extras[anchor] = nil
+        end
     end
-    extras, tail = {}, {}
+    tail = {}
+    for i = 1, #rest do
+        if not Exec(rest[i].path, rest[i].fn, ...) then return end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Game packs (dev/docs/GAME_PACKS.md)
+---------------------------------------------------------------------------
+
+local function Meta(folder, field)
+    local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    if not get then return nil end
+    local ok, v = pcall(get, folder, field)
+    if ok then return v end
+    return nil
+end
+
+-- A game pack ships with the release it was built for: dev/tools/release.py stamps each pack's TOC (X-DZ-Build)
+-- and lists the same stamps in Core/BuildInfo.lua (packs). Called by a pack's first file (Load.lua). A pack from
+-- another release is skipped whole (every guard in it returns true) and the Games hub says it needs an update.
+-- A development copy (build "dev") runs whatever packs it finds. True when the pack runs.
+function Boot.CheckPack(folder)
+    if type(folder) ~= "string" then return false end
+    local state = "ok"
+    if not Boot.isDev then
+        local want = type(build.packs) == "table" and build.packs[folder] or nil
+        if not want then
+            state = "unknown"
+        elseif Meta(folder, "X-DZ-Build") ~= want then
+            state = "stale"
+        end
+    end
+    packState[folder] = state
+    return state == "ok"
+end
+
+-- "ok" | "stale" | "unknown" for a pack that loaded (Load.lua ran), nil for one that didn't.
+function Boot.PackState(folder) return packState[folder] end
+
+-- Called (through Core/Init.lua ns:PackLoaded) by a pack's last file (Done.lua): runs the new files an in-game
+-- update added at the end of that pack, and any whose anchor file in it never ran.
+function Boot.EndPack(folder, ...)
+    if Boot.safeMode or Boot.dormant or not plan then return end
+    if packState[folder] and packState[folder] ~= "ok" then return end
+    local rest = packTail[folder] or {}
+    packTail[folder] = nil
+    for anchor, list in pairs(extras) do
+        if PackOf(anchor) == folder then
+            for i = 1, #list do rest[#rest + 1] = list[i] end
+            extras[anchor] = nil
+        end
+    end
     for i = 1, #rest do
         if not Exec(rest[i].path, rest[i].fn, ...) then return end
     end

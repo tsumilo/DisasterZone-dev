@@ -30,8 +30,8 @@ local CODEX_ICON, CODEX_GAP = 20, 5
 local TAKEOVER_TIME = 6                      -- the legendary takeover stays this long (a click ends it sooner)
 local FONT = "Fonts\\FRIZQT__.TTF"
 local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
-local RADIAL = "Interface\\AddOns\\" .. addonName .. "\\Media\\MyBiS\\Radial"
-local SEAL = "Interface\\AddOns\\" .. addonName .. "\\Media\\Launcher\\seal"
+local RADIAL = ns.MEDIA .. "MyBiS\\Radial"
+local SEAL = ns.MEDIA .. "Launcher\\seal"
 local STAR4 = "Interface\\Cooldown\\star4"
 -- The client's loot toasts: the item-quality icon frames (1024 x 256 atlas, a 60 px frame each along its foot) and the
 -- legendary toast (the dragon frame and its starburst, 512 x 512).

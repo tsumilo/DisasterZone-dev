@@ -17,7 +17,7 @@ local atan2, pi, random, tsort = math.atan2, math.pi, math.random, table.sort
 local TAU = pi * 2
 
 local P = 3                                                       -- UI pixels per game pixel
-local RADIAL = "Interface\\AddOns\\" .. addonName .. "\\Media\\MyBiS\\Radial"
+local RADIAL = ns.MEDIA .. "MyBiS\\Radial"
 local STAR = "Interface\\Cooldown\\star4"
 local SIDES = { "foe", "ally" }
 

@@ -36,6 +36,8 @@ local ACCENT = {
     chess = { 0.74, 0.58, 1 }, illidan = { 0.65, 0.94, 0.29 }, holdtheline = { 1, 0.76, 0.32 },
 }
 local DEFAULT_ACCENT = ns.Style.C.GOLD
+local OUT_ACCENT = { 0.56, 0.55, 0.53 }            -- a game that doesn't run here (not installed, switched off, ...)
+local WARN_DOT = { 1, 0.69, 0.4 }                   -- its kicker's dot when it only needs an update
 
 -- The games' logos (dev/generators/gen_game_logos.py; Azeromon's is its title logo): the texture and its size, k =
 -- texture pixels per UI pixel, the solid letters' box inside it (l, t, r, b: what lines up with text; the glow and
@@ -45,8 +47,9 @@ local LOGOS = {
     trainer = { file = MEDIA .. "Games\\logo_trainer", tw = 512, th = 256, k = 2, l = 17, t = 17, r = 474, b = 143, pack = 14 },
     chess = { file = MEDIA .. "Games\\logo_chess", tw = 512, th = 256, k = 2, l = 16, t = 3, r = 383, b = 114, pack = 14 },
     illidan = { file = MEDIA .. "Games\\logo_illidan", tw = 512, th = 256, k = 2, l = 17, t = 6, r = 429, b = 124, pack = 14 },
-    holdtheline = { file = MEDIA .. "HoldTheLine\\logo", tw = 512, th = 256, k = 2, l = 50, t = 95, r = 466, b = 158, pack = 15 },
-    azeromon = { file = MEDIA .. "Azeromon\\title_logo", tw = 256, th = 64, k = 1, l = 1, t = 2, r = 139, b = 48, pack = 13,
+    holdtheline = { file = MEDIA .. "Games\\logo_holdtheline", tw = 512, th = 256, k = 2, l = 50, t = 95, r = 466, b = 158,
+                    pack = 16 },
+    azeromon = { file = MEDIA .. "Games\\logo_azeromon", tw = 256, th = 64, k = 1, l = 1, t = 2, r = 139, b = 48, pack = 16,
                  nearest = true },
 }
 
@@ -88,11 +91,17 @@ local root, carousel, aura, strip, stage, dots, arrows
 local posters = {}      -- in game order
 local panels = {}       -- id -> the game's frame
 local selected          -- the open game's id (nil on the carousel)
+local frontNext         -- a game that doesn't run here, asked for before the tab was built: its poster goes in front
 local cur = 1           -- the front poster's index
 local anim              -- { t, dur, kind, done }
 local W, H = FALLBACK_W, FALLBACK_H
 
-local function Accent(id) return ACCENT[id] or DEFAULT_ACCENT end
+local out = {}          -- id -> its PackState while the game doesn't run here (its poster is a stand-in)
+
+local function Accent(id)
+    if out[id] then return OUT_ACCENT end
+    return ACCENT[id] or DEFAULT_ACCENT
+end
 
 -- A game's saved table, read only (Games:GetData would create it: looking at the hub must not change saved data).
 local EMPTY = {}
@@ -1057,7 +1066,7 @@ end
 
 -- The kicker's pill: the dot (red and glowing while live, else the game's colour), the label, a value after a hairline.
 local function SetKicker(p, info)
-    local a = Accent(p.id)
+    local a = info.dot or Accent(p.id)
     p.kicker:SetText(info.kicker or "")
     local v = info.kickValue
     p.kickValue:SetText(v or "")
@@ -1288,13 +1297,19 @@ local function CreatePoster(i, def)
     p.heroL:SetTextColor(0.66, 0.65, 0.63)
     p.heroL:SetPoint("BOTTOMLEFT", p.heroV, "BOTTOMRIGHT", 6, 1)
 
-    -- the live cover
-    local make = COVERS[def.id]
+    -- the live cover (none for a game that doesn't run here: its art and logo stand in)
+    local make = not def.missing and COVERS[def.id]
+    p.stub = def.missing and true or nil
     if make then
         local ok, cover = xpcall(function() return make(p.over, p) end, geterrorhandler())
         if ok and cover then p.cover = cover end
     end
-    if not p.cover then
+    if not p.cover and p.stub then
+        local c = CreateFrame("Frame", nil, p.over)
+        function c:Layout() end
+        function c:Refresh() end
+        p.cover = c
+    elseif not p.cover then
         local c = CreateFrame("Frame", nil, p.over)
         c.icon = c:CreateTexture(nil, "ARTWORK")
         c.icon:SetPoint("CENTER")
@@ -1332,7 +1347,13 @@ local function CreatePoster(i, def)
 
     p:SetScript("OnClick", function(self)
         if anim then return end
-        if self.off == 0 then OpenGame(self.id, true) else Turn(self.index) end
+        if self.off ~= 0 then
+            Turn(self.index)
+        elseif self.stub then
+            if ns.Popup then ns.Popup:Show("DISASTERZONE_GAME_PACK", ns.Games:HowToGet(self.id) or "") end
+        else
+            OpenGame(self.id, true)
+        end
     end)
     p:SetScript("OnEnter", function(self)
         self.hover = true
@@ -1350,8 +1371,22 @@ local function CreatePoster(i, def)
     return p
 end
 
+-- A stand-in poster's words (a game that doesn't run here): what is wrong, and the click that says what to do.
+local OUT_INFO = {
+    missing = { kicker = "NOT INSTALLED", stat = "Not on this computer", cta = "How to get it" },
+    off = { kicker = "SWITCHED OFF", stat = "Off in the AddOn list", cta = "How to turn it on" },
+    update = { kicker = "UPDATE NEEDED", stat = "From another release", cta = "How to update", dot = WARN_DOT },
+    error = { kicker = "DIDN'T START", stat = "Installed, but it didn't start", cta = "What to do" },
+}
+
 local function FillPoster(p)
-    local info = Info(p.id)
+    local info
+    if p.stub then
+        local o = OUT_INFO[p.def.missing] or OUT_INFO.missing
+        info = { kicker = o.kicker, stat = o.stat, cta = o.cta, dot = o.dot, art = p.def.art }
+    else
+        info = Info(p.id)
+    end
     p.info = info
     p.live = info.live
     p.title:SetText(p.def.name)
@@ -1365,10 +1400,12 @@ local function FillPoster(p)
     p.footText:SetText(info.foot or "")
     SetFaces(p, info.faces)
     SetSideLook(p, p.side or false)
-    if p.id ~= "azeromon" then
+    if p.id ~= "azeromon" or p.stub then
         local key = info.art or "kara"
         p.art:SetTexture(LoadScreen(key) or LoadScreen("kara"))
-        p.art:SetVertexColor(0.78, 0.78, 0.8)
+        -- (a stand-in's painting goes grey and darker)
+        pcall(p.art.SetDesaturated, p.art, p.stub and true or false)
+        if p.stub then p.art:SetVertexColor(0.5, 0.5, 0.52) else p.art:SetVertexColor(0.78, 0.78, 0.8) end
         p.artKey = key
         p.art:Show()
     else
@@ -1848,9 +1885,11 @@ end
 ---------------------------------------------------------------------------
 
 local function BuildPosters()
-    local games = ns.Games:GetList()
+    local games = ns.Games:GetShelf()     -- (every game: the ones that don't run here get a stand-in poster)
+    for k in pairs(out) do out[k] = nil end
     for i, def in ipairs(games) do
-        if not posters[i] or posters[i].id ~= def.id then
+        if def.missing then out[def.id] = def.missing end
+        if not posters[i] or posters[i].id ~= def.id or posters[i].stub ~= (def.missing and true or nil) then
             if posters[i] then posters[i]:Hide() end
             posters[i] = CreatePoster(i, def)
         end
@@ -1898,15 +1937,27 @@ local function BuildPosters()
     if cur > #posters then cur = 1 end
 end
 
--- The poster in front when the tab opens: Bingo while a game runs, else the game opened last.
+-- The poster in front when the tab opens: Bingo while a game runs, else the game opened last (of those that run
+-- here), else the first that runs here.
 local function PickFront()
-    local best, bestT
+    local best, bestT, first
     for i, p in ipairs(posters) do
-        if p.id == "bingo" and ns.Bingo and ns.Bingo:IsActive() then return i end
-        local t = tonumber(Saved(p.id).opened)
+        if p.id == "bingo" and not p.stub and ns.Bingo and ns.Bingo:IsActive() then return i end
+        if not p.stub then first = first or i end
+        local t = not p.stub and tonumber(Saved(p.id).opened)
         if t and (not bestT or t > bestT) then best, bestT = i, t end
     end
-    return best or cur
+    return best or first or cur
+end
+
+-- PickFront, unless a game that doesn't run here was asked for (/dz play, a link) before the tab was built.
+local function FrontIndex()
+    local want = frontNext
+    frontNext = nil
+    for i, p in ipairs(posters) do
+        if want and p.id == want then return i end
+    end
+    return PickFront()
 end
 
 local function Refresh()
@@ -2038,20 +2089,24 @@ function GamesUI:CreatePanel(parent)
         if selected then
             ShowGamePanel(selected)
         else
-            cur = PickFront()
+            cur = FrontIndex()
             Refresh()
             SetAura(posters[cur] and posters[cur].id, true)
         end
     end
     BuildPosters()
-    cur = PickFront()
+    cur = FrontIndex()
     Refresh()
     SetAura(posters[cur] and posters[cur].id, true)
     return root
 end
 
--- Opens game id at once (links, /dz play, other tabs).
+-- Opens game id at once (links, /dz play, other tabs). A game that doesn't run here: its poster comes to the front.
 function GamesUI:Select(id)
+    if ns.Games:PackState(id) ~= "ok" then
+        if root then GamesUI:ShowFront(id) else frontNext = id end
+        return
+    end
     if not root then
         selected = id
         return
