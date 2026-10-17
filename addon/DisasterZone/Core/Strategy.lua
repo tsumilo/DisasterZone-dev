@@ -24,6 +24,7 @@ local addonName, ns = ...
 
 local Strategy = ns:NewModule("Strategy")
 local Util = ns.Util
+local AUDIT_MINE, AUDIT_PEER = { mine = true }, {}   -- (Core/Audit.lua: my own edit / a member's version)
 
 local type, pairs, ipairs, tonumber, tostring, next = type, pairs, ipairs, tonumber, tostring, next
 local floor, max, min = math.floor, math.max, math.min
@@ -819,6 +820,7 @@ local function MergeStrategy(root, cur, rec)
         end
     end
     root.B[rec.id] = rec
+    ns.AuditSaw("sb.B", cur, rec, AUDIT_PEER)
     return true
 end
 
@@ -838,7 +840,10 @@ local function MergeFill(root, cur, rec)
         return false
     end
     root.F[rec.id] = rec
-    if Trusted(rec) then NoteLast(root, rec) end
+    if Trusted(rec) then
+        NoteLast(root, rec)
+        ns.AuditSaw("sb.F", cur, rec, AUDIT_PEER)
+    end
     return true
 end
 
@@ -1220,6 +1225,7 @@ local function Commit(root, kind, rec)
     end
     root[kind][clean.id] = clean
     if kind == "F" then NoteLast(root, clean) end
+    ns.AuditSaw("sb." .. kind, cur, clean, AUDIT_MINE)
     Broadcast(kind, clean)
     Changed()
     return true, clean

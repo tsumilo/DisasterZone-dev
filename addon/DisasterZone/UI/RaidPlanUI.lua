@@ -3562,6 +3562,15 @@ function PlanUI:CreateTeams(parent)
     end, nil, { anchor = "ANCHOR_BOTTOM" })
     card.you = you
     card.changed = UI():Text(card, "body", "SUB")
+    -- (the audit log's way in: who changed the team last opens its whole story, for the council and the GM)
+    local hist = CreateFrame("Button", nil, card)
+    hist:SetPoint("TOPLEFT", card.changed, "TOPLEFT", 0, 2)
+    hist:SetPoint("BOTTOMRIGHT", card.changed, "BOTTOMRIGHT", 0, -2)
+    hist:SetScript("OnClick", function(self) if self.thing and ns.AuditUI then ns.AuditUI:Open({ thing = self.thing }) end end)
+    UI():AttachTooltip(hist, "History", { "Every change to this team: who made it, and what it was before.",
+        "Only the guild council and the Guild Master see it." })
+    hist:Hide()
+    card.history = hist
 
     -- the right: the next raid that invites the team (a click opens it), "+n more" for the others
     local nx = CreateFrame("Button", nil, card)
@@ -3872,6 +3881,10 @@ function TV.fillCard(dr, organizer)
     -- (left of the raid nights when the banner shows them: organizers always, else a team with nights)
     local room = (organizer or (dr.nights and #dr.nights > 0)) and (TV.N.X - 36) or TV.LEFT_W
     if used + 8 + (card.changed:GetStringWidth() or 0) > room then card.changed:SetText("") end
+    local Au = ns.Audit
+    card.history.thing = saved and saved.id and ("rp:T:" .. saved.id) or nil
+    card.history:SetShown(card.history.thing ~= nil and (card.changed:GetText() or "") ~= "" and not (organizer and TV.dirty())
+        and Au ~= nil and Au:CanSee())
 
     -- the right: the next raid, or what a team is for
     local nx = card.next

@@ -1139,7 +1139,9 @@ function Att:Decide(nightKey, key, d, note)
         local old = other.dc and other.dc[key]
         if old and (old.at or 0) >= at then at = old.at + 1 end
     end
+    local was = rec.dc[key]
     rec.dc[key] = { d = d or "u", by = Me(), at = at, n = d and note ~= "" and note or nil }
+    if not n.demo then ns.AuditSaw("at.D", was, rec.dc[key], { rec = rec, key = key, mine = true }) end
     Edited(rec)
     return true
 end

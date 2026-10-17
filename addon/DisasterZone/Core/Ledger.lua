@@ -548,6 +548,7 @@ function Ledger:Award(itemID, winnerKey, bossKey, note, dg, reason)
     }
     db[id] = entry
     Invalidate()
+    if not demo then ns.AuditSaw("lg.A", nil, entry, { mine = true }) end
     if gkey == false then
         pendingScope[id] = true   -- the guild name is not known yet: tagged and sent once it is
     elseif not demo then
@@ -601,6 +602,7 @@ function Ledger:RecordRollAward(sessionID, itemID, winnerKey, bossKey, note, byK
     }
     db[id] = entry
     Invalidate()
+    ns.AuditSaw("lg.A", nil, entry, {})
     if gkey == false then
         pendingScope[id] = broadcast and true or "quiet"
     elseif broadcast then
@@ -638,6 +640,7 @@ function Ledger:RecordTargetAward(itemID, winnerKey, bossKey, reason, byKey, ts)
     }
     db[id] = entry
     if gkey == false then pendingScope[id] = "quiet" end
+    ns.AuditSaw("lg.A", nil, entry, {})
     Invalidate()
     return entry
 end
@@ -649,8 +652,10 @@ function Ledger:VoidRollAward(sessionID, winnerKey)
     winnerKey = Util.NormalizeName(winnerKey)
     local e = db and winnerKey and db[RollAwardID(sessionID, winnerKey)]
     if type(e) ~= "table" or e.vd then return false end
+    local before = { vd = e.vd, vts = e.vts, r = e.r, rts = e.rts }
     e.vd = true
     e.vts = NextVoidTs(e)
+    ns.AuditSaw("lg.A", before, e, { lost = true })
     Invalidate()
     Broadcast(e)
     return true
@@ -699,7 +704,10 @@ function Ledger:Void(id, voided)
     -- 1.3.5: a voided award of a prized item leaves its public history (and its cooldown / queue / pair rules)
     local P = ns.Prized
     if value and P and P.IsPrized and P:IsPrized(e.i) and P.VoidGiven then P:VoidGiven(e.i, e.w, e.ts) end
-    return SetVoid(AutoCluster(db, e, CurrentGuildKey(), demo), value, demo)
+    local before = { vd = e.vd, vts = e.vts, r = e.r, rts = e.rts }
+    local changed = SetVoid(AutoCluster(db, e, CurrentGuildKey(), demo), value, demo)
+    if changed and not demo then ns.AuditSaw("lg.A", before, e, { mine = true }) end
+    return changed
 end
 
 -- Addendum G §40: changes the award reason of an entry (reason nil = none). Like a void, it covers the other
@@ -712,10 +720,12 @@ function Ledger:SetReason(id, reason)
     local e = db and type(id) == "string" and db[id]
     if type(e) ~= "table" or e.r == reason then return false end
     local list = AutoCluster(db, e, CurrentGuildKey(), demo)
+    local before = { vd = e.vd, vts = e.vts, r = e.r, rts = e.rts }
     for _, x in ipairs(list) do
         x.r = reason
         x.rts = NextTs(x.rts)
     end
+    if not demo then ns.AuditSaw("lg.A", before, e, { mine = true }) end
     Invalidate()
     if not demo then
         for _, x in ipairs(list) do Broadcast(x) end
@@ -805,9 +815,11 @@ function Ledger:Merge(entry, fromKey)
     if type(cur) ~= "table" then
         db[e.id] = e
         if gkey == false then pendingScope[e.id] = "quiet" end
+        ns.AuditSaw("lg.A", nil, e, { via = fromKey })
         Invalidate()
         return true
     end
+    local before = { vd = cur.vd, vts = cur.vts, r = cur.r, rts = cur.rts }   -- (the audit log's old side)
     local changed = false
     if e.dg and not cur.dg then
         cur.dg = true
@@ -836,7 +848,10 @@ function Ledger:Merge(entry, fromKey)
         cur.rts = e.rts
         changed = true
     end
-    if changed then Invalidate() end
+    if changed then
+        ns.AuditSaw("lg.A", before, cur, { via = fromKey, merged = true })
+        Invalidate()
+    end
     return changed
 end
 

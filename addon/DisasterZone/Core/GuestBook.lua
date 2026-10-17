@@ -220,6 +220,18 @@ local function SendNotes(target)
     return Send(msg, "GUILD", nil, "data")
 end
 
+-- (Core/Audit.lua) every player whose entry differs between two whole lists, as one audit change each
+local function AuditNotes(oldL, newL, ctx)
+    if not ns.AuditSaw then return end
+    oldL, newL = oldL or {}, newL or {}
+    for key, e in pairs(newL) do
+        if Util.Hash(e) ~= Util.Hash(oldL[key] or false) then ns.AuditSaw("gb.N", oldL[key], e, ctx(key)) end
+    end
+    for key, e in pairs(oldL) do
+        if newL[key] == nil then ns.AuditSaw("gb.N", e, nil, ctx(key)) end
+    end
+end
+
 local function OnNotes(sender, msg, dist)
     if (dist ~= "GUILD" and dist ~= "WHISPER") or not IsManager(sender) then return end
     if not IsInt(msg.rev, 1, Now() + FUTURE_SLACK) then return end
@@ -229,7 +241,9 @@ local function OnNotes(sender, msg, dist)
     if not rec then return end
     if msg.rev < rec.rev then return end
     if msg.rev == rec.rev and Util.Hash(l) <= Util.Hash(rec.l) then return end   -- the same rev: every client keeps one
+    local oldL = rec.l
     rec.rev, rec.l, rec.by = msg.rev, l, (msg.by ~= nil and WireKey(msg.by)) or sender
+    AuditNotes(oldL, l, function(key) return { key = key, at = msg.rev, who = rec.by, via = sender } end)
     Changed()
 end
 
@@ -316,6 +330,7 @@ function GuestBook:SetNote(name, note, recruit, classFile, sp)
     if c and classFile ~= nil then LearnSpec(key, c, spec, Now()) end
     rec.rev = max(Now(), rec.rev + 1)
     rec.by = Util.PlayerKey()
+    ns.AuditSaw("gb.N", cur, rec.l[key], { key = key, at = rec.rev, mine = true })
     SendNotes()
     Changed()
     return true, key
@@ -334,9 +349,11 @@ function GuestBook:Remove(name)
     if not rec.l[key] and CountTable(rec.l) >= MAX_NOTES then
         return false, "The guest book keeps notes on at most " .. MAX_NOTES .. " players."
     end
+    local was = rec.l[key]
     rec.l[key] = { x = Now(), by = Util.PlayerKey(), at = Now() }
     rec.rev = max(Now(), rec.rev + 1)
     rec.by = Util.PlayerKey()
+    ns.AuditSaw("gb.N", was, rec.l[key], { key = key, at = rec.rev, mine = true })
     SendNotes()
     Changed()
     return true, key

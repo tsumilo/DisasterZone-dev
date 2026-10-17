@@ -117,13 +117,17 @@ end
 
 -- A record from a member (live: their own change, checked against what is true now; else relayed from a store).
 -- Returns stored, the clean record.
-function Engine:StoreRecord(kind, r, live)
+-- (sender, optional: who sent it, for the audit log; cfg.audit = the module's audit kind prefix, Core/Audit.lua)
+function Engine:StoreRecord(kind, r, live, sender)
     if not self.kindSet[kind] then return false end
     local root = self:Root(true)
     if not root then return false end
     local rec = self.cfg.clean(kind, r)
     if not rec then return false end
-    return self.cfg.merge(root, kind, rec, live), rec
+    local prev = root[kind][rec.id]
+    local ok = self.cfg.merge(root, kind, rec, live)
+    if ok and self.cfg.audit then ns.AuditSaw(self.cfg.audit .. "." .. kind, prev, root[kind][rec.id], { via = sender }) end
+    return ok, rec
 end
 
 -- My own change: stored (merged like anyone's), then sent to the guild (XXU). Demo mode changes its own data only.
@@ -153,7 +157,9 @@ function Engine:Commit(kind, rec)
         ns:Print(cfg.tooBig)
         return false
     end
+    local prev = root[kind][clean.id]
     if not cfg.merge(root, kind, clean, true) then return false end
+    if cfg.audit then ns.AuditSaw(cfg.audit .. "." .. kind, prev, root[kind][clean.id], { mine = true }) end
     self:Send({ t = self.T.U, k = kind, r = clean }, "GUILD", nil, "data")
     cfg.changed()
     return true, clean
@@ -329,7 +335,7 @@ end
 
 -- StoreRecord for a record sender sent me (XXU / XXG); a refused copy of a grave gets the deletion back.
 function Engine:StoreFrom(sender, kind, r, live)
-    local ok, rec = self:StoreRecord(kind, r, live)
+    local ok, rec = self:StoreRecord(kind, r, live, sender)
     if not ok then self:ReturnGrave(kind, r, sender) end
     return ok, rec
 end

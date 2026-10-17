@@ -441,6 +441,7 @@ function Store:Put(key, entry, via)
         g = Guild.GetGuildName and Guild:GetGuildName() or nil,   -- which guild this copy belongs to
         rs = rs,                                                  -- (1.3: a raid council's copy for this raid session)
     }
+    ns.AuditSaw("bis.L", cur, lists[key], { key = key, via = via, locked = lockActive })
     -- Addendum F §38: the list is accepted either way (obtained / equipped updates matter).
     CheckLockChange(key, d, ts, r, prevConfirmed)
     MarkDirty()

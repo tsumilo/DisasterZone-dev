@@ -2536,6 +2536,16 @@ STATES = [
     ("Recruit - guild menu", demo("__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == 'grp:guild' then "
                                   "t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:guild') end end; "
                                   "if ns.NavMenu.Focus then ns.NavMenu:Focus('recruit') end", "members")),
+    ("Audit log - demo", demo("ns.AuditUI:Reset(); ns.AuditUI:Open({ view = 'all' })", "audit")),
+    ("Audit log - big changes", demo("ns.AuditUI:Reset(); ns.AuditUI:Open({ view = 'big' })", "audit")),
+    ("Audit log - one person", demo("ns.AuditUI:Reset(); ns.AuditUI:Open({ person = ns.Util.NormalizeName('Aldrin') })", "audit")),
+    ("Audit log - removed, put back", demo("ns.AuditUI:Reset(); ns.AuditUI:Open({ view = 'big' }); for _, e in ipairs(ns.Audit:Entries()) do if e.k == 'sb.B' and e.v == 'rem' then ns.AuditUI:Select(e.id) break end end", "audit")),
+    ("Audit log - put back dialog", demo("ns.AuditUI:Reset(); ns.AuditUI:Open({ view = 'big' }); for _, e in ipairs(ns.Audit:Entries()) do if e.k == 'rp.BL' then ns.AuditUI:Select(e.id); ns.AuditUI:ConfirmPutBack(e) break end end", "audit")),
+    ("Audit log - whole story", demo("ns.AuditUI:Reset(); ns.AuditUI:Open(); ns.AuditUI:OpenStory('rp:O:demossc')", "audit")),
+    ("Audit log - story, as it was", demo("ns.AuditUI:Reset(); ns.AuditUI:Open(); ns.AuditUI:OpenStory('rp:O:demossc'); local st = ns.AuditStory:GetState(); local list = ns.AuditStory:Entries('rp:O:demossc'); st.sel = list[3] and list[3].id; ns.AuditStory:Paint()", "audit")),
+    ("Audit log - guild menu", demo("__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == 'grp:guild' then "
+                                    "t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:guild') end end; "
+                                    "if ns.NavMenu.Focus then ns.NavMenu:Focus('audit') end", "members")),
     ("Polls - closed", polls_view("ns.PollsUI:ShowList('closed')")),
     ("Polls - answering", polls_view("local d, yn, raid, night = ...; ns.PollsUI:OpenPoll(night); ns.PollsUI:Pick(2)")),
     ("Polls - results (asker)", polls_view("local _, _, _, _, _, _, loot = ...; ns.PollsUI:OpenPoll(loot)")),

@@ -62,6 +62,7 @@ local INFO = {
     events  = { art = LS .. "NagrandArenaBattlegrounds", cx = 0.50, icon = "trophy", accent = { 0.73, 0.55, 1 } },
     polls   = { art = LS .. "WarsongGulch", cx = 0.50, icon = "poll", accent = S.C.GOLD },
     recruit = { art = 131832, cx = 0.40, icon = "team", accent = S.C.GOLD },
+    audit   = { art = 131849, cx = 0.30, icon = "notes", accent = S.C.GOLD },
     games   = { art = 131849, cx = 0.70, icon = "games", accent = { 0.31, 0.83, 0.88 } },
 }
 local DEFAULT_INFO = { art = LS .. "Outland", cx = 0.5, icon = "notes", accent = S.C.GOLD }
@@ -125,6 +126,12 @@ local VIEWS = {
     atlas = function()
         return { { key = "shop", label = "Shopping list" } }
     end,
+    audit = function()
+        local st = ns.AuditUI and ns.AuditUI.GetState and ns.AuditUI:GetState() or {}
+        return { { key = "new", label = "Since you looked", on = st.view == "new" },
+                 { key = "big", label = "Big changes", on = st.view == "big" },
+                 { key = "all", label = "Everything", on = st.view == "all" } }
+    end,
     games = function()
         local out = {}
         local Gm = ns.Games
@@ -144,6 +151,7 @@ local OPEN_VIEW = {
     members = function(v) ns.MembersUI:SetMode(v) end,
     events = function(v) ns.EventsUI:SetView(v) end,
     atlas = function() ns.AtlasUI:OpenShop() end,
+    audit = function(v) ns.AuditUI:Open({ view = v }) end,
     games = function(v) ns.GamesUI:Select(v) end,
 }
 NavMenu.VIEWS, NavMenu.OPEN_VIEW = VIEWS, OPEN_VIEW
@@ -341,6 +349,13 @@ FACTS.recruit = function()
         if (r.ja or 0) >= from then joined = joined + 1 end
     end
     return { { Count(need), Plural(need, "needs you", "need you") }, { Count(joined), "joined this month" } }
+end
+
+FACTS.audit = function()
+    local Au = ns.Audit
+    if not (Au and Au.CanSee and Au:CanSee()) then return end
+    local n, big = Au:NewCount()
+    return { { Count(n), "new for you" }, { Count(big), Plural(big, "big change", "big changes") } }
 end
 
 FACTS.games = function()

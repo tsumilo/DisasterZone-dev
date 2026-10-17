@@ -673,9 +673,12 @@ end
 local function StoreGuildList(v, by, src)
     local c = CouncilDB()
     if not c then return end
+    local prev = c.guild
     c.guild = { rev = v.rev, members = v.members, phase = v.phase, by = by, recvAt = Now(), g = GuildKey(), src = src,
                 de = v.de, bank = v.bank }
     RefreshGuildList()
+    -- (Core/Audit.lua; an unconfirmed list names nobody: left out)
+    if src ~= "tofu" then ns.AuditSaw("gd.CG", prev, c.guild, { mine = src == "self" }) end
 end
 
 -- { rev, members (set), phase, by, de, bank } of a well-formed CG, else nil.
@@ -1175,6 +1178,7 @@ local function MyVouch()
     if not cur or cur.src ~= me or not SameSet(cur.m, set) then
         rec.v[me] = { rev = min(max(floor(Now()), (cur and cur.rev or 0) + 1), MAX_REV), m = set, src = me }
         vouchedBy = nil
+        ns.AuditSaw("gd.AC", cur, rec.v[me], { key = me, mine = true })
     end
     return rec.v[me]
 end
@@ -1246,10 +1250,12 @@ local function OnAccounts(sender, msg, dist)
                     for _ in pairs(rec.v) do stored = stored + 1 end
                     if stored < MAX_VOUCHERS then
                         rec.v[voucher] = { rev = raw.v, m = set, src = sender }
+                        ns.AuditSaw("gd.AC", nil, rec.v[voucher], { key = voucher, via = sender })
                         changed = true
                     end
                 elseif raw.v > cur.rev or (raw.v == cur.rev and voucher == sender and not SameSet(cur.m, set)) then
                     rec.v[voucher] = { rev = raw.v, m = set, src = sender }
+                    ns.AuditSaw("gd.AC", cur, rec.v[voucher], { key = voucher, via = sender })
                     changed = true
                 elseif raw.v == cur.rev and SameSet(cur.m, set) and cur.src ~= voucher
                     and (voucher == sender or not CoversRoles(cur.src, voucher)) then
@@ -1582,6 +1588,18 @@ local function CleanRecruitRules(rc)
 end
 Guild.CleanRecruitRules = function(_, rc) return CleanRecruitRules(rc) end
 
+-- (Core/Audit.lua) the raid leaders record as last diffed for the audit log: a copy, since the record changes in place.
+-- nil until the guild key is known (then a change can't be told from the first look at the record).
+local auditRL
+local function AuditRL(ctx)
+    local A = ns.Audit
+    local rec = LeadersRec(false)
+    if not (A and A.Snap) or not rec then return end
+    local before = auditRL
+    auditRL = A.Snap(rec)
+    if before then ns.AuditSaw("gd.RL", before, rec, ctx) end
+end
+
 local function SendRLL(target)
     local rec = LeadersRec(false)
     if not rec or rec.rev == 0 then return false end
@@ -1589,6 +1607,7 @@ local function SendRLL(target)
                   lr = CleanLootRules(rec.lr), lrb = rec.lrBy, dc = CleanDiscord(rec.dc), dcb = rec.dcBy,
                   rc = CleanRecruitRules(rec.rc), rcb = rec.rcBy }
     if target then return Send(msg, "WHISPER", target, "ctrl") end
+    AuditRL({ mine = true })            -- (sent to the guild: after one of my own saves)
     return Send(msg, "GUILD", nil, "ctrl")
 end
 
@@ -1642,6 +1661,7 @@ local function OnRaidLeaders(sender, msg, dist)
         rec.rc, rec.rcBy = rc, rcBy or sender
         ns:Fire("RECRUIT_RULES_CHANGED")
     end
+    AuditRL({ via = sender })
     Recompute()
     ns:Fire("ATTENDANCE_RULES_CHANGED")
     ns:Fire("LOOT_RULES_CHANGED")
@@ -1918,6 +1938,14 @@ function Guild:OnLogin()
     end
     RefreshGuildName()
     RefreshGuildList()
+    -- (the audit log's first look at the raid leaders record, once the guild is known: Audit RL above)
+    local function auditLook()
+        if not GuildKey() then return end
+        local A = ns.Audit
+        auditRL = (A and A.Snap and A.Snap(LeadersRec(false))) or {}
+    end
+    auditLook()
+    ns:On("GUILD_KEY_READY", auditLook)
     local DB = ns.DB
     if DB and DB.legacyTagNotice then
         DB.legacyTagNotice = nil

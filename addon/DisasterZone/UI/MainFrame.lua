@@ -42,7 +42,7 @@ local NAV_HIDDEN = { notify = true }
 local NAV_GROUPS = {
     { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council", "lootrules", "mylog" } },
     { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "gearsim", "consumables", "wardrobe", "atlas" } },
-    { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "map", "events", "polls", "recruit", "games" } },
+    { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "map", "events", "polls", "recruit", "audit", "games" } },
 }
 -- A line under each page in a group's menu (its tooltip).
 local NAV_PAGE_TIPS = {
@@ -60,6 +60,7 @@ local NAV_PAGE_TIPS = {
     events  = "Guild events and cups (beta).",
     polls   = "Questions from the officers: answer and see results.",
     recruit = "The people you talk to about joining, and the team each one fits.",
+    audit   = "Every change in the addon: who made it, what it was before and after. The council and the GM only.",
     games   = "Bingo and the other games to play with the guild.",
 }
 -- Class tools with a window of their own (their planners): a minimap pin for the classes they are for
