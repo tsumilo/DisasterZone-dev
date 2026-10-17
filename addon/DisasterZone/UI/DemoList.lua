@@ -65,6 +65,34 @@ ClassPart("bless", "bless", "PALADIN", 31, "Blessings", "A made-up Black Temple 
 ClassPart("totems", "totems", "SHAMAN", 32, "Totems", "A made-up raid in the planner; the bar's totems tick and Windfury counts down.")
 ClassPart("shot", "shot", "HUNTER", 33, "Shot timer", "Auto Shot every 2.6 s, Steady Shot in between.", true)
 ClassPart("war", "war", "WARRIOR", 34, "Swing timer", "A Fury bot: both hands, rage and a queued Heroic Strike.", true, "warrior")
+
+-- Situations (Core/Situation.lua): a pack or a player played on your class's timer (a Warrior's for everyone else;
+-- Ret has no pack, so a Paladin's pack pull shows the Warrior's too). One pull; nothing is cast.
+local SIT_TIMER = { WARRIOR = "war", PALADIN = "swing", HUNTER = "shot" }
+local function PlaySituation(sit, noRet)
+    local _, cls = UnitClass("player")
+    local key = SIT_TIMER[cls]
+    if not key or (noRet and key == "swing") then
+        key = "war"
+        if cls ~= "WARRIOR" then Demo:SetClassPicked("WARRIOR", true) end
+    end
+    if not Demo:SetOn(key, true) and not Demo:IsOn(key) then return false, "the class timer could not start" end
+    ns.Situation:SetDemo(sit)
+    Demo:StartPull()
+    return true
+end
+local function StopSituation() if ns.Situation then ns.Situation:SetDemo(nil) end end
+Demo:RegisterPart({ key = "sitpack", word = "pack", kind = "moment", group = "class", order = 85, guild = false,
+    label = "A pack pull", icon = 12328, dur = Demo.PULL,
+    desc = "Four enemies in reach: your timer plays its pack presses (Warriors: Sweeping Strikes, Whirlwind, Cleave).",
+    play = function() return PlaySituation({ kind = "pack", n = 4 }, true) end, stop = StopSituation })
+Demo:RegisterPart({ key = "sitduel", word = "duel", kind = "moment", group = "class", order = 86, guild = false,
+    label = "A duel", icon = "Interface\\Icons\\Achievement_Arena_2v2_7", dur = Demo.PULL,
+    desc = "Your target is a Rogue: your timer plays its presses against a player.",
+    play = function()
+        local who = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE.ROGUE or "Rogue"
+        return PlaySituation({ kind = "player", cls = "ROGUE", who = who })
+    end, stop = StopSituation })
 -- guild
 Demo:RegisterPart({ key = "tracker", group = "guild", order = 40, label = "Event tracker", icon = 50, guild = true,
     desc = "The demo guild's duel cup in progress, its goals ticking up." })

@@ -30,7 +30,7 @@ local pairs, ipairs, tonumber, type = pairs, ipairs, tonumber, type
 
 local GCD = 1.5
 local WINDUP = 0.5               -- Auto Shot's windup before haste (attack.go RangedSwingWindup)
-local CAST = { steady = 1.5, multi = 0.5 }
+local CAST = { steady = 1.5, multi = 0.5, aimed = 2.5, volley = 6 }   -- (Volley: a 6 s channel)
 local SLACK = 0.12               -- a shot this late still counts as on time (server ticks, jitter)
 local REPORTS_MAX = 10
 
@@ -40,6 +40,8 @@ ShotTimer.GCD, ShotTimer.WINDUP, ShotTimer.CAST = GCD, WINDUP, CAST
 -- highest rank the hunter knows)
 local IDS = {
     auto = 75, steady = 34120, multi = 27021, arcane = 27019, kc = 34026, hawk = 27044, viper = 34074,
+    -- (a pack and a player, Core/Situation.lua: rank 1 ids, known by everyone who has the spell)
+    volley = 1510, etrap = 13813, conc = 5116, aimed = 19434, vsting = 3034, ssting = 3043, wclip = 2974,
 }
 ShotTimer.IDS = IDS
 local ICONS = {
@@ -47,7 +49,15 @@ local ICONS = {
     multi = "Interface\\Icons\\Ability_UpgradeMoonGlaive", arcane = "Interface\\Icons\\Ability_ImpalingBolt",
     kc = "Interface\\Icons\\Ability_Hunter_KillCommand", hawk = "Interface\\Icons\\Spell_Nature_RavenForm",
     viper = "Interface\\Icons\\Ability_Hunter_AspectoftheViper", wait = "Interface\\Icons\\INV_Misc_PocketWatch_01",
+    volley = "Interface\\Icons\\Ability_Marksmanship", etrap = "Interface\\Icons\\Spell_Fire_SelfDestruct",
+    conc = "Interface\\Icons\\Spell_Frost_Stun", aimed = "Interface\\Icons\\INV_Spear_07",
+    vsting = "Interface\\Icons\\Ability_Hunter_AimedShot", ssting = "Interface\\Icons\\Ability_Hunter_CriticalShot",
+    wclip = "Interface\\Icons\\Ability_Rogue_Trip",
 }
+-- How long each lasts on the target (the TBC tooltips): Concussive Shot's daze, Aimed Shot's healing cut, the
+-- stings, Wing Clip's slow.
+local LASTS = { conc = 4, aimed = 10, vsting = 8, ssting = 20, wclip = 10 }
+ShotTimer.LASTS = LASTS
 
 local names = {}                 -- key -> localized spell name
 local function NameOf(key)
@@ -78,6 +88,11 @@ function ShotTimer:IsEnabled() return Get("enabled", false) and true or false en
 -- A class tool (Core/ClassKit.lua) for every Hunter: all three specs live on Steady Shot. Its Settings card comes
 -- from UI/ShotTimerHUD.lua.
 ns.ClassKit:Register({ key = "shot", label = "Shot timer", class = "HUNTER", order = 20, icon = IDS.steady })
+
+-- Situations (Core/Situation.lua): a pack from 3 within 28 yards, counted from the plates and from what Multi-Shot
+-- and Volley hit (Multi-Shot already fires on cooldown; a pack adds Volley and Explosive Trap when picked); a player.
+ns.Situation:Register("shot", { kinds = { pack = true, player = true }, packFrom = 3, reach = "28", melee = IDS.wclip,
+    aoe = { IDS.multi, IDS.volley }, active = function() return ShotTimer.active and true or false end })
 
 function ShotTimer:IsMine() return ns.ClassKit:IsMine("shot") end
 function ShotTimer:IsDemo() return ns.ClassKit:IsDemo("shot") end   -- (its part picked on the Demo page)
@@ -240,7 +255,7 @@ ShotTimer.ScanAspect = ScanAspect
 
 -- Durations as the client reports them, kept from the last time each was seen running (talents and sets included).
 state.gcd, state.gcdEnd = GCD, 0
-state.cd = { multi = 10, arcane = 6, kc = 5 }
+state.cd = { multi = 10, arcane = 6, kc = 5, volley = 60, etrap = 30, conc = 12, aimed = 6, vsting = 15 }
 
 local function GcdLeft(now)
     if demo then state.gcdEnd = demo.gcd return max(0, demo.gcd - now) end
@@ -283,6 +298,23 @@ local function KillCommandUp(now)
     return IsUsableSpell(n) and CdLeft("kc", now) == 0 or false
 end
 
+-- Seconds left on a debuff of ours on the target, by key (0 = not on).
+local function TargetLeft(key, now)
+    if demo then return max(0, ((demo.deb or {})[key] or 0) - now) end
+    local n = NameOf(key)
+    if not n or not UnitDebuff or not (UnitExists and UnitExists("target")) then return 0 end
+    for i = 1, 40 do
+        local dn, _, _, _, _, expires, src = UnitDebuff("target", i)
+        if not dn then break end
+        if dn == n and (src == nil or src == "player") then
+            expires = tonumber(expires) or 0
+            return expires > 0 and max(0, expires - now) or huge
+        end
+    end
+    return 0
+end
+ShotTimer.TargetLeft = TargetLeft
+
 -- The rotation's input, from the live client.
 function ShotTimer:Snapshot(now)
     now = now or GetTime()
@@ -298,16 +330,47 @@ function ShotTimer:Snapshot(now)
         aspect = Get("aspects", true) and Known("viper") and Known("hawk"),
         viperStart = tonumber(Get("viperStart", 5)) or 5, viperStop = tonumber(Get("viperStop", 25)) or 25,
     }
+    -- a pack: Volley and Explosive Trap when picked; a player: Concussive Shot before Steady, Aimed Shot, a sting,
+    -- Wing Clip in melee range (each only when known); crowd control in reach: nothing that hits more than the target
+    local sit = ns.Situation:Info("shot", now)
+    local kind = sit.kind
+    use.volley = kind == "pack" and Get("volley", false) and Known("volley") or false
+    use.etrap = kind == "pack" and Get("etrap", false) and Known("etrap") or false
+    use.conc = kind == "player" and Get("conc", true) and Known("conc") or false
+    use.aimed = kind == "player" and Get("aimed", true) and Known("aimed") or false
+    use.wclip = kind == "player" and Get("wclip", true) and Known("wclip") or false
+    local sting = kind == "player" and Get("sting", "viper") or "off"
+    local manaUser = demo and true or (UnitPowerType and UnitPowerType("target") == 0) or false
+    if sting == "viper" or sting == "both" then
+        if manaUser and Known("vsting") then use.sting = "vsting"
+        elseif sting == "both" and Known("ssting") then use.sting = "ssting" end
+    end
+    if sit.held then use.multi, use.volley, use.etrap = false, false, false end
+    local inMelee = false
+    if use.wclip and not demo and IsSpellInRange and NameOf("wclip") then
+        inMelee = IsSpellInRange(NameOf("wclip"), "target") == 1
+    end
+    local aimedCast = CAST.aimed / h
+    if not demo and GetSpellInfo and NameOf("aimed") then
+        local ms = select(4, GetSpellInfo(NameOf("aimed")))
+        if tonumber(ms) and ms > 0 then aimedCast = ms / 1000 end
+    end
     return {
         now = now, nextStart = self:NextStart(now), lastShot = state.last, speed = sp,
         cycle = state.cycle or sp, haste = h, windup = WINDUP / h, buffer = min(0.5, 0.25 * sp),
-        ct = { steady = CAST.steady / h, multi = CAST.multi / h }, lat = self:Latency(),
+        ct = { steady = CAST.steady / h, multi = CAST.multi / h, aimed = aimedCast, volley = CAST.volley },
+        lat = self:Latency(), sit = sit, kind = kind, inMelee = inMelee,
+        left = { conc = TargetLeft("conc", now), aimed = TargetLeft("aimed", now), wclip = TargetLeft("wclip", now),
+                 sting = use.sting and TargetLeft(use.sting, now) or 0 },
         react = (tonumber(Get("reactMs", 250)) or 250) / 1000,
         gcdReady = now + GcdLeft(now), busyUntil = max(now, state.castEnd), gcd = state.gcd, cd = state.cd,
         -- since when a press has been possible (the last shot, GCD or cast, whichever ended last): a due press's
         -- window starts there, not at now
         readySince = min(now, max(state.last or 0, state.gcdEnd or 0, state.castEnd or 0)),
-        ready = { multi = now + CdLeft("multi", now), arcane = now + CdLeft("arcane", now) },
+        ready = { multi = now + CdLeft("multi", now), arcane = now + CdLeft("arcane", now),
+                  volley = now + CdLeft("volley", now), etrap = now + CdLeft("etrap", now),
+                  conc = now + CdLeft("conc", now), aimed = now + CdLeft("aimed", now),
+                  vsting = now + CdLeft("vsting", now), ssting = now },
         kc = Get("use.kc", true) and KillCommandUp(now), use = use,
         mana = manaMax > 0 and mana / manaMax * 100 or 100, aspect = demo and "hawk" or state.aspect,
     }
@@ -327,6 +390,11 @@ end
 -- with a human reaction to spare (setting shot.reactMs, 0.25 s; 0 = WoWSims' bot, which reacts in no time): a cast
 -- (or an instant) whose chance lasts less than that is not suggested, so the plan never shows a Multi-Shot that lights up for a tenth
 -- of a second and is gone; it says "Steady at the next shot" at once instead.
+-- A pack (Core/Situation.lua): Multi-Shot already fires on cooldown; Volley (a 6 s channel, 1 min cooldown) and
+-- Explosive Trap (30 s) come first when picked. A player (ours, from the TBC tooltips): Wing Clip while they are in
+-- melee range (60% slower for 10 s), Concussive Shot before Steady (Steady does 175 more to a Dazed target), Aimed
+-- Shot (healing -50% for 10 s; a cast that may push the next Auto Shot), a sting (Viper on mana users, else Scorpid
+-- when picked); then the rotation above. Crowd control in reach: no Multi-Shot, Volley or trap (Snapshot).
 -- Run(snap) plays the rules forward from now (as if each press is made on time) and returns the presses and the
 -- Auto Shots: steps = { { key, at (our clock), cast, latest (the last moment it still fits), off (off the GCD) } },
 -- shots = { the times the next Auto Shots leave }; the first step at or before now is the press to make.
@@ -342,6 +410,9 @@ function ShotTimer.Run(snap, horizon)
     local aspect = snap.aspect
     local react = snap.react or 0
     local steps, shots = {}, {}
+    local L = snap.left or {}
+    local ends = { conc = t + (L.conc or 0), aimed = t + (L.aimed or 0), wclip = t + (L.wclip or 0),
+                   sting = t + (L.sting or 0) }
     if snap.kc then steps[1] = { key = "kc", at = t, off = true } end
     for _ = 1, 60 do
         if t > horizon then break end
@@ -358,9 +429,17 @@ function ShotTimer.Run(snap, horizon)
             local r = react
             if t <= snap.now + 0.001 and snap.readySince then r = max(0, react - (snap.now - snap.readySince)) end
             local left = nxt - (t + lat) + buf - r
+            local inst = nxt - (t + lat) >= r          -- (an instant, but not into the windup)
             local act, ct
             if use.aspect and aspect ~= "viper" and snap.mana < use.viperStart then act = "viper"
             elseif use.aspect and aspect ~= "hawk" and snap.mana >= use.viperStop then act = "hawk"
+            elseif use.wclip and snap.inMelee and ends.wclip <= t and inst then act = "wclip"
+            elseif use.volley and t >= rd.volley - 0.001 then act, ct = "volley", snap.ct.volley
+            elseif use.etrap and t >= rd.etrap - 0.001 and inst then act = "etrap"
+            elseif use.conc and t >= rd.conc - 0.001 and ends.conc <= t and inst then act = "conc"
+            elseif use.aimed and t >= rd.aimed - 0.001 and ends.aimed <= t + snap.ct.aimed then
+                act, ct = "aimed", snap.ct.aimed
+            elseif use.sting and ends.sting <= t and t >= (rd[use.sting] or t) - 0.001 and inst then act = use.sting
             elseif use.steady and snap.ct.steady <= left then act, ct = "steady", snap.ct.steady
             elseif use.multi and t >= rd.multi - 0.001 and snap.ct.multi <= left then act, ct = "multi", snap.ct.multi
             elseif use.arcane and t >= rd.arcane - 0.001 and nxt - (t + lat) >= r then
@@ -372,6 +451,8 @@ function ShotTimer.Run(snap, horizon)
                 gcd = t + G
                 if act == "viper" or act == "hawk" then aspect = act end
                 if CD[act] then rd[act] = t + CD[act] end
+                if act == "vsting" or act == "ssting" then ends.sting = t + LASTS[act]
+                elseif LASTS[act] then ends[act] = t + (ct or 0) + LASTS[act] end
                 if ct then
                     st.latest = nxt + buf - ct - lat
                     busy = t + ct
@@ -383,6 +464,10 @@ function ShotTimer.Run(snap, horizon)
                 local nt = nxt
                 if use.arcane and rd.arcane > t and rd.arcane < nt then nt = rd.arcane end
                 if use.multi and rd.multi > t and rd.multi < nt then nt = rd.multi end
+                for _, k in ipairs({ "volley", "etrap", "conc", "aimed" }) do
+                    if use[k] and rd[k] > t and rd[k] < nt then nt = rd[k] end
+                end
+                for _, e in pairs(ends) do if e > t and e < nt then nt = e end end
                 t = nt
             end
         end
@@ -595,6 +680,10 @@ local function DemoShots(on)
                 else
                     demo.gcd = now + GCD
                     if state.cd[st.key] then demo.ready[st.key] = now + state.cd[st.key] end
+                    if LASTS[st.key] then
+                        demo.deb = demo.deb or {}
+                        demo.deb[st.key] = now + (st.cast or 0) + LASTS[st.key]
+                    end
                     if st.cast then
                         state.castEnd = now + st.cast
                         local e = now + cur.snap.lat + st.cast

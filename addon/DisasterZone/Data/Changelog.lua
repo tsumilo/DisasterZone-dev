@@ -8,6 +8,18 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.6.0", date = "22 October 2026", title = "Class tools for every fight",
       sections = {
+          { heading = "One target, a pack, a player", area = "class", kind = "new", hi = true, open = "settings/classtools",
+            lead = "The Warrior, Ret and Hunter timers now see what you are fighting and change their presses.", lines = {
+              { "A pack or an enemy player switches the next presses on their own, and back.", fb = { 30 }, by = { "Släy" }, k = "idea" },
+              "Warriors in a pack: WoWSims' own rotation, with Sweeping Strikes, Whirlwind and Cleave.",
+              "Against players: Hamstring kept on, Overpower after a dodge, the stance it needs shown.",
+              "Ret against players: Seal of Command's Judgement on a stunned target, for double damage.",
+              "Hunters: Volley and Explosive Trap in a pack, if picked; Concussive and stings on players.",
+              "A sheep, sap or trap within reach holds back the presses that would break it.",
+              "A small plate under the ring says which. A switch key picks one for the rest of the fight.",
+              "Every number and press is a setting: Settings > Class tools, under More options.",
+              "Try it from the Demo page: a pack pull and a duel play on your timer.",
+          } },
           { heading = "The Audit log", area = "guild", kind = "new", open = "audit",
             lead = "For the GM and the guild council: every change in the addon, who made it, and when.", lines = {
               "Raids, sign-ups, loot, strategies, notes, guests, roles and rules: before and after.",
