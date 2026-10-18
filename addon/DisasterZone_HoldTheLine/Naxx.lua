@@ -58,7 +58,7 @@ mob("n_guardian", { name = "Guardian of Icecrown", hp = 2400, spd = 52, dmg = 30
 local function boss(k, t) t.boss = true t.mass = t.mass or 40 mob(k, t) end
 boss("n_anub", { name = "Anub'Rekhan", hp = 4800, spd = 40, dmg = 22, r = 30, xp = 200, ichor = "rot" })
 boss("n_faerlina", { name = "Grand Widow Faerlina", hp = 7000, spd = 44, dmg = 20, r = 16, xp = 250, ichor = "blood" })
-boss("n_maexxna", { name = "Maexxna", hp = 15000, spd = 50, dmg = 26, r = 30, xp = 400, ichor = "rot", finale = true })
+boss("n_maexxna", { name = "Maexxna", hp = 26000, spd = 50, dmg = 26, r = 30, xp = 400, ichor = "rot", finale = true })
 boss("n_noth", { name = "Noth the Plaguebringer", hp = 4600, spd = 42, dmg = 20, r = 14, xp = 200, ichor = "blood" })
 boss("n_heigan", { name = "Heigan the Unclean", hp = 7200, spd = 40, dmg = 22, r = 14, xp = 250, ichor = "blood" })
 boss("n_loatheb", { name = "Loatheb", hp = 12500, spd = 28, dmg = 26, r = 40, xp = 400, ichor = "rot", finale = true })
@@ -73,7 +73,7 @@ boss("n_grobbulus", { name = "Grobbulus", hp = 6200, spd = 34, dmg = 22, r = 30,
 boss("n_gluth", { name = "Gluth", hp = 7000, spd = 46, dmg = 24, r = 30, xp = 250, ichor = "blood" })
 boss("n_stalagg", { name = "Stalagg", hp = 2400, spd = 34, dmg = 24, r = 28, xp = 150, ichor = "rot", finale = true })
 boss("n_feugen", { name = "Feugen", sprite = "n_stalagg", hp = 2400, spd = 34, dmg = 24, r = 28, xp = 150, ichor = "rot", finale = true, tint = c(150, 200, 255) })
-boss("n_thaddius", { name = "Thaddius", hp = 14000, spd = 38, dmg = 30, r = 34, xp = 500, ichor = "rot", finale = true })
+boss("n_thaddius", { name = "Thaddius", hp = 10000, spd = 38, dmg = 30, r = 34, xp = 500, ichor = "rot", finale = true })
 boss("n_sapphiron", { name = "Sapphiron", hp = 12000, spd = 44, dmg = 28, r = 40, xp = 500, ichor = "bone" })
 boss("n_kelthuzad", { name = "Kel'Thuzad", hp = 18000, spd = 38, dmg = 30, r = 20, xp = 800, ichor = "spirit", finale = true })
 

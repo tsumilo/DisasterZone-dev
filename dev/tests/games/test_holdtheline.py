@@ -6,7 +6,9 @@ level-ups open the picker with three cards whose previews run, a pick adds the s
 the bar; a coffer from an elite opens and its legendary can be taken; a bot plays 15 minutes with god mode to the
 end without an error; the panel: title, class pick, keys move, Esc pauses, the spell lab (and leaving it); talents bought with banked
 gold, carried into runs, refunded; the dev scenarios (a development copy only) jump to a stage's moment and are never
-recorded.
+recorded. The late game: levels come at a pace (XP waits on the bar), a full build turns levels into Paragon, four spell
+and four blessing slots, every path and legendary casts and hurts, rank 3 opens the path screen, a new legendary is
+revealed by name.
 
 Run: luaenv\Scripts\python.exe tests\games\test_holdtheline.py [-k name]
 """
@@ -363,6 +365,217 @@ def dev_scenarios_jump_to_a_moment_and_are_never_recorded():
     after = c.eval_py("local d = ns.Games:GetData('holdtheline') return { d.runs, d.kills, d.bank, d.wins }")
     assert after == before, (before, after)
     no_errors(w)
+
+
+@case
+def the_late_game_paces_levels_and_a_full_build_turns_to_paragon():
+    w, c = boot("MAGE")
+    c.eval("ns.Games:Open('holdtheline')")
+    w.tick(1.0)
+    r = c.eval_py(r"""
+      local E, D = ns.HTL, ns.HTLData
+      local r = E.New({ cls = 'MAGE', seed = 4, god = true, bot = true })
+      r.level, r.xpNext, r.xp = 30, 200, 5000         -- (a pile of XP at level 30: D.PACE's gap between levels)
+      local levels = {}
+      for i = 1, 40 * 30 do
+        local L = r.level
+        E.Step(r, 1 / 30, 0, 0)
+        r.wantLevelUp, r.chest = nil, nil
+        if r.level > L then levels[#levels + 1] = r.t end
+      end
+      local gaps = {}
+      for k = 2, #levels do gaps[#gaps + 1] = levels[k] - levels[k - 1] end
+      local waiting = E.Waiting(r)
+      -- a full build: four spells and four blessings at rank 5; waiting levels become Paragon, +1% damage each
+      local f = E.New({ cls = 'MAGE', seed = 4, god = true })
+      for _, id in ipairs({ 'frostbolt', 'arcane', 'nova', 'blizzard' }) do for _ = 1, 5 do E.AddSpell(f, id) end end
+      for _, id in ipairs({ 'might', 'intellect', 'crusader', 'motw' }) do for _ = 1, 5 do E.AddPassive(f, id) end end
+      local full = E.BuildFull(f)
+      local m0 = f.st.might
+      f.pending = 2
+      E.Step(f, 1 / 30, 0, 0)
+      f.xp = f.xpNext * 3
+      ns.HTLRender.DrawHud(ns.HTLUI._View(), f)
+      return { n = #levels, gmin = #gaps > 0 and math.min(unpack(gaps)) or -1, gap = E.PaceGap(30), waiting = waiting, full = full, paragon = f.paragon or 0,
+        pending = f.pending, k = f.st.might / m0, choices = E.Choices(f, 3)[1].kind }
+    """)
+    no_errors(w)
+    assert r["n"] >= 2 and r["gap"] > 5 and r["gmin"] >= r["gap"] - 0.1, r       # (one level at a time, the gap kept)
+    assert r["waiting"] >= 5, r                        # (the rest waits on the bar)
+    assert r["full"] and r["paragon"] == 2 and r["pending"] == 0, r
+    assert abs(r["k"] - 1.02) < 1e-6 and r["choices"] == "gold", r
+
+
+@case
+def four_spell_and_four_blessing_slots():
+    w, c = boot("PALADIN")
+    r = c.eval_py(r"""
+      local E, D = ns.HTL, ns.HTLData
+      local r = E.New({ cls = 'PALADIN', seed = 2, god = true })
+      for _, id in ipairs({ 'avenger', 'exorcism', 'grenade' }) do E.AddSpell(r, id) end
+      for _, id in ipairs({ 'might', 'fortitude', 'cheetah', 'motw' }) do E.AddPassive(r, id) end
+      local newSpell, newBless = 0, 0
+      for _ = 1, 300 do
+        for _, o in ipairs(E.Choices(r, 3)) do
+          if o.kind == 'spell' and not r.spells[o.id] then newSpell = newSpell + 1 end
+          if o.kind == 'passive' and not r.passives[o.id] then newBless = newBless + 1 end
+        end
+      end
+      return { spells = #r.order, newSpell = newSpell, newBless = newBless, slots = D.SLOTS.spells .. '/' .. D.SLOTS.blessings }
+    """)
+    no_errors(w)
+    assert r == {"spells": 4, "newSpell": 0, "newBless": 0, "slots": "4/4"}, r
+
+
+@case
+def every_path_and_legendary_casts_and_hurts():
+    w, c = boot()
+    r = c.eval_py(r"""
+      local E, D, bad = ns.HTL, ns.HTLData, {}
+      local seen = {}
+      for _, id in ipairs(D.SPELL_ORDER) do
+        for _, path in ipairs({ 'a', 'b' }) do
+          for _, leg in ipairs({ false, true }) do
+            local cls = D.SPELLS[id].cls or 'PALADIN'
+            local r = E.New({ cls = cls, seed = 9, god = true, lab = true, noStart = true })
+            r.labN = 40
+            for _ = 1, 5 do E.AddSpell(r, id) end
+            r.spells[id].path = path
+            if leg then r.legend[id] = true end
+            local kid, mini, fel = false, false, 0
+            for _ = 1, 6 * 30 do
+              E.Step(r, 1 / 30, 0, 0)
+              for _, b in ipairs(r.proj) do kid, mini = kid or b.kid == true, mini or b.mini == true end
+              local n = 0 for _, a in ipairs(r.areas) do if a.kind == 'felfire' then n = n + 1 end end
+              fel = math.max(fel, n)
+            end
+            if r.kills == 0 then bad[#bad + 1] = id .. path .. (leg and 'L' or '') end
+            if leg and id == 'avenger' then seen.absorb = (r.p.absorb or 0) > 0 end
+            if leg and id == 'blizzard' then for _, a in ipairs(r.areas) do if a.endless then seen.storm = true end end end
+            if leg and id == 'dragonling' then seen.whelps = r.spells.dragonling.wh and #r.spells.dragonling.wh end
+            if path == 'a' and not leg and id == 'frostbolt' then seen.split = kid end
+            if path == 'a' and not leg and id == 'grenade' then seen.cluster = mini end
+            if leg and id == 'charge' then seen.fel = fel end
+          end
+        end
+      end
+      seen.bad = table.concat(bad, ',')
+      return seen
+    """)
+    no_errors(w)
+    assert r["bad"] == "", "no kills: " + r["bad"]
+    assert r.get("absorb") and r.get("storm") and r.get("whelps") == 3, r
+    assert r.get("split") and r.get("cluster") and r.get("fel", 0) >= 2, r
+
+
+@case
+def rank_three_is_a_path_chosen_on_its_own_screen():
+    w, c = boot()
+    c.eval("ns.Games:Open('holdtheline')")
+    w.tick(1.0)
+    c.eval("ns.HTLUI.Start('PALADIN')")
+    w.tick(0.5)
+    c.eval("local r = ns.HTLUI._Run() ns.HTL.AddSpell(r, 'consecration') r.pending = 1")
+    w.tick(1.5)
+    assert c.eval_py("return ns.HTLUI._Overlay()") == "level"
+    c.eval("local r = ns.HTLUI._Run() r.lvlOpts[1] = { kind = 'spell', id = 'consecration', r = 3, fork = true }")
+    c.eval("ns.HTLUI.TakeLevel(1)")
+    w.tick(1.0)
+    no_errors(w)
+    r = c.eval_py("local r = ns.HTLUI._Run() return { ov = ns.HTLUI._Overlay(), n = #r.lvlOpts, k = r.lvlOpts[1].kind, rank = r.spells.consecration.r }")
+    assert r == {"ov": "level", "n": 2, "k": "path", "rank": 2}, r
+    c.eval("ns.HTLUI.TakeLevel(3)")                     # (two cards: key 3 does nothing)
+    assert c.eval_py("return ns.HTLUI._Overlay()") == "level"
+    c.eval("ns.HTLUI.TakeLevel(2)")
+    w.tick(1.5)
+    no_errors(w)
+    r = c.eval_py("local r = ns.HTLUI._Run() local s = r.spells.consecration return { ov = ns.HTLUI._Overlay() or 'none', r = s.r, path = s.path }")
+    assert r == {"ov": "none", "r": 3, "path": "b"}, r
+
+
+@case
+def a_new_legendary_is_revealed_by_name_and_taken():
+    w, c = boot()
+    c.eval("ns.Games:Open('holdtheline')")
+    w.tick(1.0)
+    c.eval("ns.HTLUI.Start('PALADIN')")
+    w.tick(0.3)
+    c.eval(r"""
+      local r = ns.HTLUI._Run()
+      for _ = 1, 5 do ns.HTL.AddSpell(r, 'avenger') end
+      ns.HTL.AddPassive(r, 'fortitude')
+      ns.HTL.OpenChest(r, true)
+    """)
+    w.tick(2.0)
+    no_errors(w)
+    assert c.eval_py("return ns.HTLUI._Overlay()") == "legend"
+    c.eval("ns.HTLUI.TakeLegend()")
+    w.tick(0.5)
+    assert c.eval_py("return ns.HTLUI._Run().legend.avenger == true")
+    no_errors(w)
+
+
+@case
+def the_plaguelands_start_with_a_trickle_and_small_encounters_come_between_events():
+    w, c = boot("MAGE")
+    r = c.eval_py(r"""
+      local E, D = ns.HTL, ns.HTLData
+      local r = E.New({ cls = 'MAGE', seed = 5, god = true, bot = true })
+      r.ff = true
+      local msgs, enc, at15, at200, last = {}, {}, nil, nil, nil
+      for _, en in pairs(E.ENCOUNTERS) do msgs[en.msg] = true end
+      for i = 1, 600 * 30 do
+        E.Step(r, 1 / 30, 0, 0)
+        r.wantLevelUp, r.chest = nil, nil
+        local n = 0 for _, e in ipairs(r.en) do if not e.dead then n = n + 1 end end
+        if not at15 and r.t >= 15 then at15 = n end
+        if not at200 and r.t >= 200 then at200 = n end
+        if r.warn and r.warn.msg ~= last then last = r.warn.msg if msgs[last] then enc[#enc + 1] = math.floor(r.t) end end
+      end
+      local near = 0      -- (none from 25 s before a clock event to 15 s after it)
+      for _, t in ipairs(enc) do for _, ev in ipairs(D.EVENTS) do if t > ev.t - 25 and t < ev.t + 15 then near = near + 1 end end end
+      return { at15 = at15, at200 = at200, n = #enc, first = enc[1] or -1, near = near }
+    """)
+    no_errors(w)
+    assert r["at15"] <= 16 and r["at200"] >= 100, r       # (a trickle, then the full crowd by 2:00)
+    assert r["n"] >= 4 and 0 < r["first"] <= 70 and r["near"] == 0, r
+
+
+@case
+def every_small_encounter_plays_and_a_caught_courier_spills_its_satchel():
+    w, c = boot()
+    r = c.eval_py(r"""
+      local E = ns.HTL
+      local out = {}
+      local function fresh(t)
+        local r = E.New({ cls = 'PALADIN', seed = 3, god = true })
+        r.calm, r.t, r.evI, r.encT = true, t, 99, nil     -- (no crowd, clock events or own encounters)
+        E.Use(r)
+        return r
+      end
+      for _, id in ipairs({ 'courier', 'bones', 'rats', 'hounds', 'packleader' }) do
+        local r = fresh(200)
+        E.ENCOUNTERS[id].run(r)
+        for _ = 1, 3 * 30 do E.Step(r, 1 / 30, 0, 0) r.wantLevelUp = nil end
+        local n = 0 for _, e in ipairs(r.en) do if not e.dead then n = n + 1 end end
+        out[id] = n
+      end
+      local function gold(r) local g = 0 for _, k in ipairs(r.pick) do if k.kind == 'gold' then g = g + 1 end end return g end
+      local r = fresh(100)
+      E.ENCOUNTERS.courier.run(r)
+      E.Kill(r, r.courier)
+      E.Step(r, 1 / 30, 0, 0)
+      out.caughtGold, out.caughtGems, out.caughtGone = gold(r), #r.gems, r.courier == nil
+      r = fresh(100)
+      E.ENCOUNTERS.courier.run(r)
+      for _ = 1, 20 * 30 do E.Step(r, 1 / 30, 0, 0) r.wantLevelUp = nil end
+      out.fledGold, out.fledGone = gold(r), r.courier == nil
+      return out
+    """)
+    no_errors(w)
+    assert r["courier"] == 1 and r["bones"] >= 6 and r["rats"] >= 18 and r["hounds"] >= 4 and r["packleader"] >= 4, r
+    assert r["caughtGold"] >= 1 and r["caughtGems"] >= 8 and r["caughtGone"], r
+    assert r["fledGold"] == 0 and r["fledGone"], r
 
 
 if __name__ == "__main__":

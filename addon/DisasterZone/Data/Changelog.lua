@@ -46,13 +46,14 @@ ns.CHANGELOG = {
               "Only the council and the GM keep it, by whisper between them, for 90 days.",
               "Guild > Audit log, or /dz audit. Big changes can pop up too (Settings > Alerts).",
           } },
-          { heading = "Azeromon: light, battles and water", area = "games", kind = "new", open = "games",
-            lead = "Shadows and lamplight on everyone, battles set where you stood, lakes that mirror.", lines = {
+          { heading = "Azeromon: light, battles, water and footsteps", area = "games", kind = "new", open = "games",
+            lead = "Shadows and lamplight on everyone, battles set where you stood, lakes that mirror, steps you hear.", lines = {
               "People cast shadows in their own shape, from the sun or every lit lamp near them.",
               "The side facing a lamp catches its light; guards' lanterns light the people they pass.",
               "Fights take their scene from where you stood: Goldshire's pond, road, houses, Lakeshire.",
               "Battles keep the hour and the weather; at night the street lamp lights the beasts.",
               "Lakes and ponds mirror the shore and ripple; wade into the shallows; rain leaves puddles.",
+              "Footsteps sound of the ground under you: grass, roads, docks, inn floors; mud in the rain.",
               "CONTROLS > Lights and shadows switches it off; /dz azeromon sky night tries any hour.",
           } },
           { heading = "Boss mods", area = "raids", kind = "fixed", open = "settings/bossmods", lines = {
@@ -80,6 +81,26 @@ ns.CHANGELOG = {
               "Fast screens (120 Hz and up) no longer draw the same picture twice between steps.",
               "Much less memory churn while you play, so fewer hitches when the game tidies up.",
               "The screen no longer keeps shaking while the game is paused.",
+          } },
+          { heading = "Hold the Line: the late game", area = "games", kind = "new", hi = true, open = "games",
+            lead = "Fewer slots and real choices: every spell forks at rank 3, and each has a legendary.", lines = {
+              "Four spell slots and four blessing slots. A card for a new one says which slot it takes.",
+              "Rank 3 of every spell is a path: one of two, picked on its own screen, kept for the run.",
+              "Every spell has a legendary now: its rank 5 and its blessing in a slot, then a coffer.",
+              "From level 10 the levels come at a pace; XP past it waits on the bar for the next ones.",
+              "A full build gets no more cards: every level is a Paragon level, +1% damage.",
+              "The spell lab has a Path switch, to try either path of every spell.",
+              "Balance: Warriors deal 20% more damage, Mages 10% less; Exorcism hits bosses harder.",
+              "Maexxna is tougher (26,000 health) and Thaddius softer (10,000).",
+              "Exorcism reaches a Naxxramas boss half a screen past the edge, and skips one that can't be hurt.",
+          } },
+          { heading = "Hold the Line: a slower start, small encounters", area = "games", kind = "changed", open = "games",
+            lead = "The Plaguelands open with a trickle, and something small happens every minute or so.", lines = {
+              "The dead come a few at a time at first and build up to the full crowd by 2:00.",
+              "A Plagued Courier runs off with a satchel: catch it for gold and runes, an arrow shows it.",
+              "Bones claw out of the earth around you, a tide of rats runs past, a hound pack comes in.",
+              "A Ravener Packleader brings its pack, and a purse.",
+              "They come between the clock's events, never on top of a boss, and grow as the run goes.",
           } },
           { heading = "Hold the Line: fixes", area = "games", kind = "fixed", open = "games", lines = {
               "Circle warnings (the Abomination's slam, the Lich's nova) no longer show a black box.",

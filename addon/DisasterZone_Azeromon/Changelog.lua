@@ -6,12 +6,21 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/Changelog.lu
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.47", date = "18 October 2026", title = "Footsteps",
+      lines = {
+          "Every step sounds of the ground it lands on.",
+          "Grass, tall grass, roads, sand, docks and the shallows.",
+          "Inn floors, rugs, flagstones and cave floors inside.",
+          "In the rain, roads and grass squelch with mud.",
+          "Stepping into the shallows splashes.",
+          "CONTROLS > Footsteps switches them off.",
+      } },
     { version = "0.46", date = "18 October 2026", title = "Water that reflects",
       lines = {
           "Lakes and ponds mirror the trees and houses on the shore.",
           "Things further back show further out, and it all ripples.",
-          "Stand at a shore or on a dock and you show in the water.",
-          "Wade into the shallows of Goldshire's pond or Lakeshire.",
+          "Walk up to a shore or a dock and you fade in on the water.",
+          "Wade step by step into the shallows at Goldshire or Lakeshire.",
           "Rain rings the water and leaves puddles on the roads.",
           "At night the moon lays a glitter path across the water.",
       } },

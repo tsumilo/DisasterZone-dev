@@ -70,6 +70,7 @@ local function stats()
     s.regen = 0.3 * (P.motw or 0) + 0.2 * (T.loh or 0)
     s.armor = 0.03 * (P.motw or 0) + 0.02 * (T.devotion or 0) + (Cl.armor or 0)
     s.crit = 0.08 + 0.03 * (T.crit or 0)
+    if Cl.dmg then s.might = s.might * Cl.dmg end                      -- (a class's own damage, from the balance pass)
     if (R.t3n or 0) >= 3 then s.might = s.might * 1.05 end          -- Tier 3: +5% damage at three pieces, +15 health at six
     if (R.t3n or 0) >= 6 then s.maxHp = s.maxHp + 15 end
     local Rl = R.relics or {}
@@ -79,6 +80,7 @@ local function stats()
     s.critMul = Rl.reflection and 2.4 or 2
     if R.rules.hpMul then s.maxHp = floor(s.maxHp * R.rules.hpMul) end
     if R.rules.dmgMul then s.might = s.might * R.rules.dmgMul end
+    if (R.paragon or 0) > 0 then s.might = s.might * (1 + (D.PARAGON or 0.01) * R.paragon) end      -- (Paragon: a full build's levels)
     return s
 end
 
@@ -307,7 +309,7 @@ end
 ---------------------------------------------------------------------------
 local function spawn(mtype, x, y, extra)
     local M = MOBS[mtype]
-    local k = R.preview and 5 or ((M.boss or M.elite or M.reaper) and 1 or 1 + R.t / 300 * 0.55)
+    local k = R.preview and 5 or ((M.boss or M.elite or M.reaper) and 1 or 1 + R.t / 300 * (D.HP_GROW or 0.55))
     local e = { type = mtype, M = M, x = x, y = y, vx = 0, vy = 0, dir = 2, anim = rnd() * 8, hp = M.hp * k, maxHp = M.hp * k, flash = 0, slow = 0, frz = 0, frzMax = 0,
         stun = 0, sq = 0, hitT = 0, cd1 = 3, cd2 = 5, cd3 = 8, cast = nil, atkT = 0, fixed = nil, wob = rnd() * TAU, kb = 0, kx = 0, ky = 0, spawnT = 0 }
     if extra then for kk, v in pairs(extra) do e[kk] = v end end
@@ -419,6 +421,7 @@ local function hurt(e, dmg, o)
     if R.essenceOn then dmg = dmg * 1.3 end
     if Rl.righteye and o.school == "frost" then dmg = dmg * 1.2 end
     if Rl.hungering and e.frz > 0 then dmg = dmg * 2 end
+    if e.frz > 0 then local nv = R.spells.nova if nv and nv.path == "a" then dmg = dmg * 1.5 end end    -- (Deep Freeze)
     dmg = dmg * (e.dmgTakenMul or 1) * (R.dmgMul or 1)
     if Rl.menethil and not e.M.boss and e.hp - dmg < e.maxHp * 0.45 then if e.M.elite then dmg = dmg * 2 else dmg = max(dmg, e.hp) end end
     e.hp = e.hp - dmg
@@ -454,6 +457,13 @@ kill = function(e, silent, o)
     deathFx(e, M, o)
     if not silent then
         R.kills = R.kills + 1
+        if e.frz > 0 and R.legend.nova and not M.boss then             -- (Heart of Northrend: shattered next step)
+            local sq = R.shatQ or {}
+            R.shatQ = sq
+            if #sq < 40 then sq[#sq + 1] = e.x sq[#sq + 1] = e.y end
+        end
+        local ex = R.spells.execute                                      -- (Sudden Death: 1 in 6 kills ready Execute)
+        if ex and ex.path == "a" and ex.cd > 0.15 and rnd() < 1 / 6 then ex.cd = 0.15 end
         if not (o and o.purge) then addDecal(e.x, e.y, M.r * (1.3 + rnd() * 0.6), D.ICHOR[M.ichor], nil) end
         if M.xp > 0 then R.gems[#R.gems + 1] = { x = e.x, y = e.y, v = M.xp, t = rnd() * 6, m = false, pop = 0.35, vx = rr(-40, 40), vy = rr(-30, 30) } end
         if rnd() < 0.01 * (1 + 0.25 * (R.tal.lucky or 0)) then R.pick[#R.pick + 1] = { kind = "gold", x = e.x + 8, y = e.y, v = 5 + floor(rnd() * 10), t = 0 } end
@@ -539,10 +549,34 @@ deathFx = function(e, M, o)
     if big > 2 then puff(x, y, 10, BIG_PUFF, BIG_PUFF_O) sparks(x, y, 20, C.GOLD, BIG_SPARK_O) end
 end
 
+-- burns and bleeds (the paths' and legendaries'): one per enemy, the strongest; a tick every 0.5 s (updateEnemies)
+local function dot(e, dur, dps, school)
+    if e.dead or e.M.reaper then return end
+    if dps >= (e.dotD or 0) or (e.dotT or 0) <= 0 then e.dotD, e.dotS = dps, school end
+    e.dotT = max(e.dotT or 0, dur)
+end
+local DOT_O = {}
+local function dotTick(e)
+    DOT_O.dot, DOT_O.school = true, e.dotS
+    hurt(e, e.dotD * 0.5, DOT_O)
+    if R.ff or random() < 0.3 then return end
+    local q = q0()
+    if e.dotS == "phys" then
+        q.img, q.tint, q.add, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.life, q.s0, q.s1, q.a0, q.a1, q.stretch, q.bounce = "blood", C.BLOOD, false, e.x + vr(-6, 6), e.y, 16, vr(-30, 30), vr(-20, 20), vr(30, 90), 500, 0.5, 6, 4, 1, 0.5, 0.5, 0
+    else
+        q.img, q.x, q.y, q.z, q.vz, q.life, q.s0, q.s1, q.a0, q.a1, q.rot, q.light = "flame", e.x + vr(-8, 8), e.y - vr(4, 18), 6, vr(30, 70), vr(0.35, 0.6), vr(16, 24), 4, 0.9, 0, vr(-0.3, 0.3), 30
+    end
+    emit(q)
+end
+
 local HURT_FLASH = { 0.63, 0, 0 }
 local function hurtPlayer(dmg, src)
     local p = R.p
     local reaper = src and src.M and src.M.reaper
+    if not p.dead and p.inv <= 0 and not reaper then                   -- (Ice Barrier: a hit sets off the nova, once in 4 s)
+        local nv = R.spells.nova
+        if nv and nv.path == "b" and R.t >= (R.barrierT or 0) then R.barrierT, R.novaQ = R.t + 4, true end
+    end
     if p.inv > 0 or p.dead or (R.god and not reaper) then if R.god and not reaper then p.hurtT = 0.1 end return end
     if R.relics.bearer and (R.blockCd or 0) <= 0 and not reaper then             -- The Plague Bearer: a hit blocked
         R.blockCd = 10
@@ -553,6 +587,7 @@ local function hurtPlayer(dmg, src)
     if src and src.tag then R.nx[src.tag] = true end
     dmg = dmg * (1 - R.st.armor) * (R.dmgTakenMul or 1)
     if R.tal.ardent and p.hp < p.maxHp * 0.3 then dmg = dmg * (1 - 0.15 * R.tal.ardent) end
+    if (p.absorb or 0) > 0 then local a = min(p.absorb, dmg) p.absorb, dmg = p.absorb - a, dmg - a end     -- (Bulwark of Azzinoth)
     p.hp = p.hp - dmg
     if not R.firstHit then R.firstHit = R.t end
     if R.t >= 600 and p.hp > 0 and p.hp < p.maxHp * 0.15 then R.thread = true end
@@ -660,7 +695,9 @@ local function exorcismHit(t)
     for _ = 1, 18 do local a = random() * TAU emit({ img = "sparkle", tint = C.GOLD, x = x, y = y, z = vr(0, 40), vx = cos(a) * vr(40, 180), vy = sin(a) * vr(30, 120), vz = vr(60, 260), g = 300, drag = 1.5, life = vr(0.5, 1), s0 = vr(8, 13), s1 = 2, bounce = 0.2 }) end
     puff(x, y, 4, { 190 / 255, 170 / 255, 130 / 255 }, { a = 0.35, s0 = 20, s1 = 60, spread = 2 })
     addDecal(x, y, 34, { 60 / 255, 46 / 255, 16 / 255 }, "gold")
-    if not t.e.dead then hurt(t.e, t.dmg, { stun = 0.35, school = "holy" }) end
+    if not t.e.dead then hurt(t.e, t.dmg * (t.e.M.boss and SPELLS.exorcism.boss or 1), { stun = 0.35, school = "holy" }) end     -- (bosses: SPELLS.exorcism.boss)
+    if (t.hallow or 0) > 0 then R.areas[#R.areas + 1] = { kind = "hallow", school = "holy", x = x, y = y, r = 42, t = 0, dur = t.hallow, acc = 0, dmg = t.dmg * 0.12, emitAcc = 0 } end
+    if t.heal then local p = R.p if (p.noHeal or 0) <= 0 and not R.healLock then p.hp = min(p.maxHp, p.hp + t.heal) end end
     shake(0.28) stop(0.055) sound("exorcism", 0.08)
 end
 
@@ -673,13 +710,21 @@ local function flamestrikeHit(t)
     for _ = 1, 26 do local a = random() * TAU emit({ img = "sparkle", tint = C.EMBER, x = t.x, y = t.y, z = 10, vx = cos(a) * vr(60, 260), vy = sin(a) * vr(40, 180), vz = vr(120, 380), g = 380, drag = 0.8, life = vr(0.6, 1.3), s0 = vr(7, 12), s1 = 2, stretch = 0.6, bounce = 0.25, light = 30 }) end
     for _ = 1, 10 do puff(t.x + vr(-t.r, t.r) * 0.6, t.y + vr(-t.r, t.r) * 0.4, 1, { 40 / 255, 32 / 255, 28 / 255 }, { a = 0.65, s0 = 30, s1 = 90, life = 1.6, z = 30 }) end
     addDecal(t.x, t.y, t.r, { 24 / 255, 14 / 255, 10 / 255 }, "scorch")
-    areaPush({ kind = "burn", x = t.x, y = t.y, r = t.r * 0.8, t = 0, dur = 2.2, acc = 0, dmg = 4, emitAcc = 0 })
-    for _, e in ipairs(R.en) do if not e.dead and hyp(e.x - t.x, (e.y - t.y) * 1.3) < t.r then hurt(e, t.dmg, { school = "fire", kb = 60, fx = t.x, fy = t.y }) end end
+    areaPush({ kind = "burn", x = t.x, y = t.y, r = t.r * (t.wild and 1.28 or 0.8), t = 0, dur = t.wild and 4.4 or 2.2, acc = 0, dmg = 4, emitAcc = 0 })
+    for _, e in ipairs(R.en) do if not e.dead and hyp(e.x - t.x, (e.y - t.y) * 1.3) < t.r then hurt(e, t.dmg, { school = "fire", kb = 60, fx = t.x, fy = t.y, stun = t.stun }) end end
     shake(0.38) stop(0.05) sound("flamestrike", 0.1)
 end
 areaPush = function(a) R.areas[#R.areas + 1] = a end
 
-local function explode(x, y, r, dmg)
+local function explode(x, y, r, dmg, mini)
+    if mini then                                     -- (a Cluster Bomb's little one: a pop, not the whole show)
+        flash("fire_core", x, y - 10, r * 2.2, nil, 0.25, { light = r * 2 })
+        ring("ring_smoke", x, y, 6, r * 1.1, 0.35, C.FIRE, 0.8)
+        sparks(x, y, 6, C.EMBER, { v0 = 80, v1 = 220 })
+        for _, e in ipairs(R.en) do if not e.dead and hyp(e.x - x, (e.y - y) * 1.3) < r then hurt(e, dmg, { kb = 40, fx = x, fy = y, school = "fire" }) end end
+        sound("fireimpact2", 0.08, 0.6)
+        return
+    end
     flash("fire_core", x, y - 14, r * 2.2, nil, 0.35, { light = r * 3 })
     flash("flame", x, y - 20, r * 2, nil, 0.4)
     ring("ring_smoke", x, y, 10, r * 1.2, 0.45, C.FIRE, 0.9)
@@ -716,19 +761,66 @@ local function chain(from, n, dmg)
     end
     sound("lightning", 0.18, 0.6)
 end
+local FEL = { 0.45, 1, 0.3 }
 local function chargeLand(d)
     local p = R.p
-    local rad = 80 * R.st.area
+    local rad = 80 * R.st.area * (d.jug and 1.25 or 1)
+    if d.fel then                                      -- (the Warglaive: fel fire burns along the way)
+        local L = hyp(d.x1 - d.x0, d.y1 - d.y0)
+        local n = max(1, floor(L / 64))
+        for k = 1, n do
+            local f = (k - 0.5) / n
+            R.areas[#R.areas + 1] = { kind = "felfire", school = "fire", tint = FEL, x = d.x0 + (d.x1 - d.x0) * f, y = d.y0 + (d.y1 - d.y0) * f, r = 34, t = 0, dur = 2.5, acc = 0, dmg = 5 + 2 * d.r, emitAcc = 0 }
+        end
+    end
     ring("ring_smoke", p.x, p.y, 10, rad * 1.4, 0.5, C.DUST, 0.9)
     ring("nova_ring", p.x, p.y, 10, rad, 0.3, { 1, 0.9, 0.7 }, 0.8)
     puff(p.x, p.y, 8, { 0.42, 0.36, 0.28 }, { a = 0.6, s0 = 20, s1 = 70, spread = 1.8, life = 1 })
     for _, e in ipairs(R.en) do
         if not e.dead and hyp(e.x - p.x, (e.y - p.y) * 1.3) < rad + e.M.r then
-            hurt(e, 20 + 8 * d.r, { stun = 0.6 + 0.1 * d.r, kb = 60, fx = p.x, fy = p.y, school = "phys" })
+            hurt(e, (20 + 8 * d.r) * (d.jug and 1.3 or 1), { stun = 0.6 + 0.1 * d.r, kb = d.jug and 160 or 60, fx = p.x, fy = p.y, school = "phys" })
             puff(e.x, e.y - 6, 1, C.BLOOD, { a = 0.7, s0 = 8, s1 = 24, life = 0.45, z = 14, spread = 1.4 })
         end
     end
-    shake(0.35) stop(0.06) sound("axehit", 0.05) sound("strike", 0.05)
+    if d.jug then ring("ring_shards", p.x, p.y, 10, rad * 1.2, 0.4, C.DUST, 0.9) flash("starburst", p.x, p.y - 10, 110, { 1, 0.85, 0.6 }, 0.2) end
+    shake(d.jug and 0.5 or 0.35) stop(0.06) sound("axehit", 0.05) sound("strike", 0.05)
+end
+
+-- Earthshaker: the second ring of stone (a circle, or a cone for Shockwave)
+local function quakeEnd(t)
+    local x, y = t.x, t.y
+    if t.cone then
+        R.fx[#R.fx + 1] = { kind = "cone", x = x, y = y, a = t.ga, r = t.r, spread = t.cone, t = 0, dur = 0.45, col = "stone" }
+    else
+        ring("ring_shards", x, y, t.r * 0.5, t.r, 0.45, C.DUST, 1)
+        ring("rf_ring", x, y, t.r * 0.3, t.r * 1.05, 0.6, { 0.62, 0.56, 0.46 }, 0.8)
+    end
+    for _ = 1, 10 do
+        local a, d = t.cone and (t.ga + vr(-t.cone, t.cone)) or random() * TAU, vr(0.4, 1) * t.r
+        local q = q0()
+        q.img, q.tint, q.add, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.g, q.drag = "dust", { 0.62, 0.56, 0.46 }, false, x + cos(a) * d, y + sin(a) * d / 1.3, 6, vr(-40, 40), vr(-30, 30), vr(120, 260), 700, 0.5
+        q.life, q.s0, q.s1, q.a0, q.a1, q.ease, q.rot, q.vr, q.bounce = vr(0.6, 1), vr(8, 14), 7, 1, 0, "late", "rnd", vr(-8, 8), 0.3
+        emit(q)
+    end
+    for _, e in ipairs(R.en) do
+        if not e.dead and not e.M.reaper then
+            local dx, dy = e.x - x, (e.y - y) * 1.3
+            local d = hyp(dx, dy)
+            if d < t.r + e.M.r and (not t.cone or d < 28 or abs((atan2(dy, dx) - t.a + pi) % TAU - pi) < t.cone) then
+                hurt(e, t.dmg, { stun = 1.2, kb = 40, fx = x, fy = y, school = "phys" })
+            end
+        end
+    end
+    addDecal(x, y, t.r * 0.35, { 30 / 255, 24 / 255, 18 / 255 }, "scorch")
+    shake(0.3) sound("thunderclap", 0.1, 0.7)
+end
+
+-- Ember of Al'ar: a phoenix through the pack
+local function phoenixCan(b, e) return not e.dead and not b.hit[e] and not e.M.reaper and hyp(e.x - b.x, e.y - 20 - b.y) < e.M.r + 30 end
+local function phoenixHit(b, e)
+    b.hit[e] = true
+    hurt(e, b.dmg, { school = "fire", kb = 50, fx = b.x - b.vx, fy = b.y - b.vy })
+    dot(e, 3, b.burn, "fire")
 end
 
 local function fire(id, s, r, L)
@@ -739,11 +831,20 @@ local function fire(id, s, r, L)
         local t = nearest(p.x, p.y, rad + 30)
         if not t then s.cd = 0.12 return end
         local a = atan2((t.y - p.y) * 1.3, t.x - p.x)
-        local hits = swingHits(p.x, p.y, a, rad, L and 1.3 or 1.0)
-        R.fx[#R.fx + 1] = { kind = "slash", x = p.x, y = p.y - 16, a = atan2(t.y - p.y, t.x - p.x), r = rad, t = 0, dur = 0.24, legend = L }
+        local pa, full = s.path, false
+        if pa == "a" then s.sw = (s.sw or 0) + 1 full = s.sw % 3 == 0 end        -- (Sweeping Strikes: every third swing)
+        local hits = swingHits(p.x, p.y, a, rad, full and pi + 0.01 or (L and 1.3 or 1.0))
+        local ga = atan2(t.y - p.y, t.x - p.x)
+        R.fx[#R.fx + 1] = { kind = "slash", x = p.x, y = p.y - 16, a = ga, r = rad, t = 0, dur = 0.24, legend = L }
+        if full then
+            R.fx[#R.fx + 1] = { kind = "slash", x = p.x, y = p.y - 16, a = ga + 2.1, r = rad, t = -0.04, dur = 0.24, legend = L }
+            R.fx[#R.fx + 1] = { kind = "slash", x = p.x, y = p.y - 16, a = ga - 2.1, r = rad, t = -0.08, dur = 0.24, legend = L }
+            ring("ring_soft", p.x, p.y, rad * 0.4, rad, 0.3, { 1, 0.93, 0.8 }, 0.6)
+        end
         p.atkT, p.atkDir = 0.36, dirOf(t.x - p.x, t.y - p.y)
         for i, e in ipairs(hits) do
             hurt(e, (12 + 5 * r) * (L and 1.2 or 1), { kb = 35, fx = p.x, fy = p.y, school = L and "nature" or "phys" })
+            if pa == "b" then dot(e, 3, (12 + 5 * r) * 0.2, "phys") end                -- (Deep Wounds)
             if i <= 8 then puff(e.x, e.y - 6, 1, C.BLOOD, { a = 0.7, s0 = 8, s1 = 24, life = 0.45, z = 14, spread = 1.4 }) end
         end
         if L and hits[1] then chain(hits[1], 3 + floor(r / 2), 14 + 4 * r) end
@@ -751,7 +852,31 @@ local function fire(id, s, r, L)
         if #hits > 0 then sound("axehit", 0.09, 0.8) stop(0.025) shake(min(0.16, 0.03 * #hits)) end
         cd(1.4 - 0.07 * r)
     elseif id == "thunderclap" then
-        local rad = (100 + 10 * r) * st.area
+        local pa = s.path
+        local rad = (100 + 10 * r) * st.area * (pa == "a" and 1.4 or 1)
+        if pa == "b" then                                    -- Shockwave: a wave in front, twice the reach, a stun
+            local reach = rad * 2
+            local t = nearest(p.x, p.y, reach)
+            if not t then s.cd = 0.2 return end
+            local a = atan2((t.y - p.y) * 1.3, t.x - p.x)
+            local hits = swingHits(p.x, p.y, a, reach, 0.55)
+            local n = 0
+            for _, e in ipairs(hits) do n = n + ((e.M.boss or e.M.elite) and 3 or 1) end
+            if n < 3 then s.cd = 0.2 return end
+            local ga = atan2(t.y - p.y, t.x - p.x)
+            R.fx[#R.fx + 1] = { kind = "cone", x = p.x, y = p.y, a = ga, r = reach, spread = 0.55, t = 0, dur = 0.4, col = "stone" }
+            for _ = 1, 12 do
+                local aa, d = ga + vr(-0.45, 0.45), vr(0.2, 1) * reach
+                puff(p.x + cos(aa) * d, p.y + sin(aa) * d / 1.3, 1, { 0.45, 0.4, 0.32 }, { a = 0.5, s0 = 24, s1 = 64, life = 0.8, spread = 1.5 })
+            end
+            flash("sun_ring", p.x, p.y - 10, 110, { 1, 0.92, 0.7 }, 0.22, { light = 200 })
+            for _, e in ipairs(hits) do hurt(e, 8 + 3 * r, { slow = 2.5 + 0.3 * r, stun = 1, kb = 60, fx = p.x, fy = p.y, school = "phys" }) end
+            if L then R.tele[#R.tele + 1] = { kind = "quake", x = p.x, y = p.y, a = a, ga = ga, cone = 0.55, r = reach * 1.4, t = 0.35, t0 = 0.35, dmg = 8 + 3 * r, onEnd = quakeEnd } end
+            p.atkT, p.atkDir = 0.36, dirOf(t.x - p.x, t.y - p.y)
+            shake(0.3) stop(0.05) sound("thunderclap")
+            cd(7 - 0.45 * r)
+            return
+        end
         local n = 0                                          -- (it waits for a crowd: three in reach, or anything big)
         for _, e in ipairs(R.en) do if not e.dead and hyp(e.x - p.x, (e.y - p.y) * 1.3) < rad + e.M.r then n = n + ((e.M.boss or e.M.elite) and 3 or 1) end end
         if n < 3 then s.cd = 0.2 return end
@@ -764,6 +889,7 @@ local function fire(id, s, r, L)
         for _, e in ipairs(R.en) do
             if not e.dead and hyp(e.x - p.x, (e.y - p.y) * 1.3) < rad + e.M.r then hurt(e, 8 + 3 * r, { slow = 2.5 + 0.3 * r, kb = 30, fx = p.x, fy = p.y, school = "phys" }) end
         end
+        if L then R.tele[#R.tele + 1] = { kind = "quake", x = p.x, y = p.y, r = rad * 1.5, t = 0.35, t0 = 0.35, dmg = 8 + 3 * r, onEnd = quakeEnd } end
         p.atkT, p.atkDir = 0.36, p.dir
         shake(0.3) stop(0.05) sound("thunderclap")
         cd(7 - 0.45 * r)
@@ -782,10 +908,13 @@ local function fire(id, s, r, L)
             end
         end
         if not best then s.cd = 0.4 return end
-        p.dash = { x0 = p.x, y0 = p.y, x1 = best.x, y1 = best.y, t = 0, dur = 0.22, r = r }
+        local pa = s.path
+        p.dash = { x0 = p.x, y0 = p.y, x1 = best.x, y1 = best.y, t = 0, dur = 0.22, r = r, jug = pa == "b" or nil, fel = L or nil }
         p.inv = max(p.inv, 0.22)
         sound("swing2", 0.1)
-        cd(7 - 0.6 * r)
+        -- Intercept and the Warglaive each add a charge in a row before the cooldown
+        s.chainN = (s.chainN or 0) + 1
+        if s.chainN < 1 + (pa == "a" and 1 or 0) + (L and 1 or 0) then s.cd = 0.35 else s.chainN = 0 cd(7 - 0.6 * r) end
     elseif id == "execute" then
         -- the most wounded in reach first; under 35% health they are finished outright
         local list = {}
@@ -800,64 +929,85 @@ local function fire(id, s, r, L)
             R.fx[#R.fx + 1] = { kind = "slash", x = e.x, y = e.y - 18, a = a + 0.9, r = 34 + e.M.r, t = 0, dur = 0.26, exec = true }
             R.fx[#R.fx + 1] = { kind = "slash", x = e.x, y = e.y - 18, a = a - 0.9 + pi, r = 34 + e.M.r, t = -0.05, dur = 0.26, exec = true }
             puff(e.x, e.y - 10, 4, C.BLOOD, { a = 0.7, s0 = 14, s1 = 40, spread = 1.4, life = 0.7 })
-            local low = R.preview or e.hp < e.maxHp * 0.35
+            local low = R.preview or e.hp < e.maxHp * (L and 0.5 or 0.35)
             if not low then hurt(e, 24 + 8 * r, { kb = 50, fx = p.x, fy = p.y, school = "phys" })
             elseif e.M.boss or e.M.elite then hurt(e, 60 + 25 * r, { kb = 60, fx = p.x, fy = p.y, school = "phys" })
             else e.hp = 0 kill(e, false, { kb = 90, fx = p.x, fy = p.y }) end
         end
         p.atkT, p.atkDir = 0.36, dirOf(list[1].x - p.x, list[1].y - p.y)
+        if s.path == "b" and (p.noHeal or 0) <= 0 and not R.healLock and p.hp < p.maxHp then         -- (Bloodthirst)
+            local h = p.maxHp * 0.03
+            p.hp = min(p.maxHp, p.hp + h)
+            if not R.ff then emit({ img = "white_orb", tint = C.GREEN, x = p.x, y = p.y - 20, life = 0.3, s0 = 30, s1 = 50, a0 = 0.5, a1 = 0 }) end
+        end
         stop(0.07) shake(0.2) sound("axehit", 0.06) sound("strike", 0.06)
-        cd(2.6 - 0.2 * r)
+        cd((2.6 - 0.2 * r) * (L and 0.5 or 1))
     elseif id == "avenger" then
         local t = nearest(p.x, p.y, 380)
         if not t then s.cd = 0.3 return end
         local hx, hy = hand()
-        local a = atan2(t.y - 16 - hy, t.x - hx)
-        R.proj[#R.proj + 1] = { kind = "shield", x = hx, y = hy, vx = cos(a) * 600, vy = sin(a) * 600, tgt = t, bounces = 2 + r, dmg = 18 + 6 * r, life = 4, hit = {}, spin = 0, trail = {}, lastX = hx, lastY = hy }
+        local pa = s.path
+        for k = 1, L and 2 or 1 do                      -- (the Bulwark: a second shield, at the next nearest)
+            if k == 2 then t = nearest(p.x, p.y, 380, { [t] = true }) or t end
+            local a = atan2(t.y - 16 - hy, t.x - hx) + (k == 2 and 0.3 or 0)
+            R.proj[#R.proj + 1] = { kind = "shield", x = hx, y = hy, vx = cos(a) * 600, vy = sin(a) * 600, tgt = t, bounces = 2 + r + (pa == "a" and 2 or pa == "b" and -1 or 0), dmg = (18 + 6 * r) * (pa == "a" and 0.8 or 1), life = pa == "a" and 6 or 4, hit = {},
+                spin = 0, trail = {}, lastX = hx, lastY = hy, leap = pa == "a" and 390 or 260, burst = pa == "b" or nil, bulwark = L or nil }
+        end
         flash("holy_star2", hx, hy, 42, C.GOLD, 0.2, { light = 80 })
         sound("fist")
         cd(2.4 - 0.15 * r)
     elseif id == "exorcism" then
-        local n = 1 + floor(r / 2)
+        local pa = s.path
+        local n = 1 + floor(r / 2) + (pa == "b" and 2 or 0)
         local vis = visible()
+        for _, e in ipairs(R.en) do      -- (a necropolis master half a screen past the edge is still in sight: Loatheb and the twins stand rooted)
+            if e.M.boss and e.M.naxx and not e.dead and not onScreen(e) and abs(e.x - p.x) < VW and abs(e.y - p.y) < VH then vis[#vis + 1] = e end
+        end
+        for i = #vis, 1, -1 do if vis[i].immune then remove(vis, i) end end     -- (no pillar on what can't be hurt: Heigan channelling, Noth away)
         table.sort(vis, function(a, b) return a.hp > b.hp end)
         if #vis == 0 then s.cd = 0.4 return end
         for i = 1, min(n, #vis) do
             local e = vis[i]
             local dl = 0.42 + (i - 1) * 0.07
-            R.tele[#R.tele + 1] = { kind = "pillar", e = e, x = e.x, y = e.y, t = dl, t0 = dl, dmg = 44 + 16 * r }
+            R.tele[#R.tele + 1] = { kind = "pillar", e = e, x = e.x, y = e.y, t = dl, t0 = dl, dmg = (44 + 16 * r) * (pa == "b" and 0.7 or 1), hallow = (pa == "a" and 1.5 or 0) + (L and 2 or 0), heal = L and 2 or nil }
             emit({ img = "rune_circle", tint = C.GOLD, x = e.x, y = e.y, follow = e, life = 0.5 + (i - 1) * 0.07, s0 = 20, s1 = 74, a0 = 0.95, a1 = 0.6, flat = true, rot = "rnd", vr = 3, fi = 0.2 })
             for _ = 1, 4 do emit({ img = "glow_dot", tint = C.HOLY, x = e.x + vr(-20, 20), y = e.y, z = vr(120, 200), vz = -vr(260, 360), life = 0.42, s0 = 10, s1 = 4, a0 = 0, a1 = 1, light = 40 }) end
         end
         cd(3.4 - 0.25 * r)
     elseif id == "holywrath" then
         local rad = (200 + 20 * r) * st.area
-        R.fx[#R.fx + 1] = { kind = "wave", x = p.x, y = p.y, t = 0, dur = 0.55, r = rad, hit = {}, dmg = 12 + 6 * r }
-        flash("sun_ring", p.x, p.y - 20, 150, C.HOLY, 0.35, { light = 260 })
-        flash("holy_star", p.x, p.y - 26, 110, C.GOLD, 0.25)
-        ring("ring_shards", p.x, p.y, 30, rad, 0.55, C.HOLY, 0.9)
-        ring("ring_smoke", p.x, p.y, 20, rad * 1.02, 0.6, C.GOLD, 0.8)
+        local pa = s.path
+        R.fx[#R.fx + 1] = { kind = "wave", x = p.x, y = p.y, t = 0, dur = 0.55, r = rad, hit = {}, dmg = 12 + 6 * r, kb = pa == "a" and 260 or 130, stun = pa == "a" and 1.1 or 0.6,
+            hammer = pa == "b" or nil, fire = L or nil, burn = L and (12 + 6 * r) * 0.4 or nil }
+        flash("sun_ring", p.x, p.y - 20, 150, L and C.FIRE or C.HOLY, 0.35, { light = 260 })
+        flash(L and "fire_core" or "holy_star", p.x, p.y - 26, 110, not L and C.GOLD or nil, 0.25)
+        ring(L and "fire_ring" or "ring_shards", p.x, p.y, 30, rad, 0.55, not L and C.HOLY or nil, 0.9)
+        ring("ring_smoke", p.x, p.y, 20, rad * 1.02, 0.6, L and C.EMBER or C.GOLD, 0.8)
         shake(0.22) stop(0.03) sound("wrath")
         cd(7 - 0.6 * r)
     elseif id == "frostbolt" then
         local t = nearest(p.x, p.y, 520)
         if not t then s.cd = 0.2 return end
         local hx, hy = hand()
-        local n, base = 1 + floor((r - 1) / 2), atan2(t.y - 16 - hy, t.x - hx)
+        local n, base = L and 5 or 1 + floor((r - 1) / 2), atan2(t.y - 16 - hy, t.x - hx)
+        local pa = s.path
         for i = 0, n - 1 do
-            local a = base + (i - (n - 1) / 2) * 0.16
-            R.proj[#R.proj + 1] = { kind = "frost", x = hx, y = hy, vx = cos(a) * 430, vy = sin(a) * 430, pierce = 1 + floor(r / 3), dmg = 12 + 5 * r, life = 1.6, hit = {}, spin = random() * 6 }
+            local a = base + (i - (n - 1) / 2) * (L and 0.2 or 0.16)
+            R.proj[#R.proj + 1] = { kind = "frost", x = hx, y = hy, vx = cos(a) * 430, vy = sin(a) * 430, pierce = 1 + floor(r / 3), dmg = 12 + 5 * r, life = 1.6, hit = {}, spin = random() * 6,
+                split = pa == "a" or nil, shatter = pa == "b" or nil, frz = L and 1.2 or nil }
         end
         flash("blue_star", hx, hy, 44, C.ICE, 0.18, { light = 70 })
         sparks(hx, hy, 4, C.FROST, { dir = base, spread = 0.5, z = 26, g = 0, v0 = 60, v1 = 160, s = 7 })
         sound("frostprecast", 0.25, 0.6)
         cd(1.05 - 0.07 * r)
     elseif id == "arcane" then
-        local n = L and 2 or 3 + r
+        local pa = s.path
+        local n = L and (pa == "a" and 3 or 2) or 3 + r + (pa == "a" and 3 or 0)
         local ox, oy = L and (p.x - PORTAL[p.dir + 1] * 2.6) or p.x, L and p.y - 60 or p.y - 46
         for i = 0, n - 1 do
-            local a = -pi / 2 + (i - (n - 1) / 2) * 0.45 + vr(-0.2, 0.2)
-            R.proj[#R.proj + 1] = { kind = "arcane", x = ox, y = oy, vx = cos(a) * 230, vy = sin(a) * 230, dmg = 6 + 2 * r, life = 2.4, delay = i * 0.07, ox = ox, oy = oy, trail = {} }
+            local a = -pi / 2 + (i - (n - 1) / 2) * (pa == "a" and not L and 0.3 or 0.45) + rr(-0.2, 0.2)       -- (seeded: the missiles' paths decide hits)
+            R.proj[#R.proj + 1] = { kind = "arcane", x = ox, y = oy, vx = cos(a) * 230, vy = sin(a) * 230, dmg = 6 + 2 * r, life = pa == "a" and 1.45 or 2.4, delay = i * (pa == "a" and 0.045 or 0.07), ox = ox, oy = oy, trail = {},
+                focus = pa == "b" or nil }
         end
         if not L then emit({ img = "arcane_circle", tint = C.ARC, x = p.x, y = p.y - 46, life = 0.65, s0 = 20, s1 = 52, sy = 0.45, a0 = 1, a1 = 0, rot = "rnd", vr = 4, fi = 0.15, light = 90 }) sound("arcaneprecast", 0.4, 0.7) end
         cd(L and 0.2 or 2.0)
@@ -877,14 +1027,15 @@ local function fire(id, s, r, L)
         shake(0.25) stop(0.04) sound("frostnova")
         cd(6 - 0.5 * r)
     elseif id == "blizzard" then
-        for _ = 1, 1 + floor(r / 2) do
+        local pa = s.path
+        for _ = 1, pa == "b" and 1 or 1 + floor(r / 2) do
             local vis = visible()
             local tx, ty
             if #vis > 0 then local e = vis[floor(rnd() * #vis) + 1] tx, ty = e.x, e.y else tx, ty = p.x + rr(-200, 200), p.y + rr(-120, 120) end
-            areaPush({ kind = "blizzard", x = tx, y = ty, r = (70 + 8 * r) * st.area, t = 0, dur = 3.2, acc = 0, dmg = 5 + 2 * r, emitAcc = 0 })
+            areaPush({ kind = "blizzard", x = tx, y = ty, r = (70 + 8 * r) * st.area * (pa == "b" and 2 or 1), t = 0, dur = 3.2, acc = 0, dmg = 5 + 2 * r, emitAcc = 0, drift = pa == "a" or nil })
         end
         sound("coneofcold", 0.3)
-        cd(5 - 0.4 * r)
+        cd((5 - 0.4 * r) * (pa == "b" and 1.5 or 1))
     elseif id == "flamestrike" then
         local best, bn = nil, -1
         for _ = 1, 14 do
@@ -897,18 +1048,37 @@ local function fire(id, s, r, L)
         end
         if not best then s.cd = 0.4 return end
         local rad = (80 + 10 * r) * st.area
-        R.tele[#R.tele + 1] = { kind = "flamestrike", x = best.x, y = best.y, t = 0.65, t0 = 0.65, r = rad, dmg = 30 + 12 * r }
+        local pa = s.path
+        R.tele[#R.tele + 1] = { kind = "flamestrike", x = best.x, y = best.y, t = 0.65, t0 = 0.65, r = rad, dmg = 30 + 12 * r, stun = pa == "a" and 1 or nil, wild = pa == "b" or nil }
+        if L then                                        -- (Ember of Al'ar: a phoenix dives through the pack)
+            local a, d = atan2(best.y - p.y, best.x - p.x), hyp(best.x - p.x, best.y - p.y)
+            R.proj[#R.proj + 1] = { kind = "phoenix", x = p.x, y = p.y - 30, vx = cos(a) * 520, vy = sin(a) * 520, dmg = 30 + 8 * r, burn = 10 + 3 * r, life = (d + 240) / 520, hit = {}, trail = {} }
+            sound("firenova", 0.3, 0.7)
+        end
         emit({ img = "rune_circle", tint = { 1, 120 / 255, 40 / 255 }, x = best.x, y = best.y, life = 0.7, s0 = rad * 0.5, s1 = rad * 2.2, a0 = 0.2, a1 = 1, flat = true, rot = "rnd", vr = 5, light = 120 })
         emit({ img = "fire_ring", tint = C.FIRE, x = best.x, y = best.y, life = 0.68, s0 = rad * 2.5, s1 = rad * 2, a0 = 0.3, a1 = 1, flat = true, rot = "rnd", vr = -2 })
         cd(4.5 - 0.35 * r)
     elseif id == "grenade" then
-        for i = 0, floor(r / 2) do
+        local pa = s.path
+        if L then                                        -- the Gnomish Death Ray: a beam swept through the nearest pack
+            local t = nearest(p.x, p.y, 340)
+            if not t then s.cd = 0.3 return end
+            local a, w = atan2(t.y - p.y, t.x - p.x), pa == "a" and 0.9 or 0.6
+            if rnd() < 0.5 then w = -w end
+            R.fx[#R.fx + 1] = { kind = "ray", x = p.x, y = p.y - 24, a0 = a - w, a1 = a + w, len = 340 * st.area, t = 0, dur = 1, acc = 0, hitAt = {},
+                dmg = (20 + 8 * r) * 1.5 * (pa == "b" and 1.8 or 1), width = pa == "b" and 30 or 18 }
+            sound("lightning", 0.2, 0.6)
+            cd((3 - 0.25 * r) * (pa == "b" and 1.5 or 1))
+            return
+        end
+        for i = 0, pa == "b" and 0 or floor(r / 2) do
             local vis = visible()
             if #vis == 0 then break end
             local t = vis[floor(rnd() * #vis) + 1]
-            R.proj[#R.proj + 1] = { kind = "grenade", x = p.x, y = p.y - 20, sx = p.x, sy = p.y - 20, tx = t.x, ty = t.y, t = -i * 0.12, dur = 0.6, dmg = 20 + 8 * r, r = (60 + 6 * r) * st.area, life = 2, spin = 0, gx = p.x, gy = p.y }
+            R.proj[#R.proj + 1] = { kind = "grenade", x = p.x, y = p.y - 20, sx = p.x, sy = p.y - 20, tx = t.x, ty = t.y, t = -i * 0.12, dur = 0.6, dmg = (20 + 8 * r) * (pa == "b" and 2.2 or 1),
+                r = (60 + 6 * r) * st.area * (pa == "b" and 1.8 or 1), life = 2, spin = 0, gx = p.x, gy = p.y, cluster = pa == "a" or nil, big = pa == "b" or nil }
         end
-        cd(3 - 0.25 * r)
+        cd((3 - 0.25 * r) * (pa == "b" and 2 or 1))
     end
 end
 
@@ -921,8 +1091,17 @@ local function castSpells(dt)
         local r, L = s.r, R.legend[id]
         s.cd = s.cd - dt * (((R.kfOn or 0) > 0) and 2 or 1)
         s.a = s.a + dt
+        if L and id == "blizzard" then                    -- (the Staff of Endless Winter: one storm that goes with you)
+            local a = s.storm
+            if not a or a.t >= a.dur then
+                a = { kind = "blizzard", x = p.x, y = p.y, r = 0, t = 0, dur = 1e9, acc = 0, dmg = 0, emitAcc = 0, follow = true, endless = true }
+                s.storm = a
+                R.areas[#R.areas + 1] = a
+            end
+            a.r, a.dmg = (110 + 10 * r) * st.area, 4 + 2 * r
+        end
         if id == "consecration" then
-            local rad = (L and 128 + 10 * r or 64 + 8 * r) * st.area
+            local rad = (L and 128 + 10 * r or 64 + 8 * r) * st.area * (s.path == "a" and 1.25 or 1)
             s.rad = s.rad and lerp(s.rad, rad, min(1, dt * 4)) or rad
             s.acc = s.acc + dt
             local tick = L and 0.32 or 0.45
@@ -936,7 +1115,13 @@ local function castSpells(dt)
                         if L and not e.M.boss and not e.M.reaper and e.hp < e.maxHp * 0.2 then
                             kill(e, false, { purge = true }) sound("holybolt", 0.09)
                         else
-                            hurt(e, L and 14 + 5 * r or 5 + 3 * r, { school = "holy" })
+                            local k = s.path == "a" and 0.75 or 1           -- (Hallowed Ground: wider, softer)
+                            if s.path == "b" then                -- (Searing Ground: +15% a second inside, up to +150%)
+                                if R.t - (e.searAt or -9) > 1 then e.sear = 0 end
+                                e.sear, e.searAt = min(10, (e.sear or 0) + tick), R.t
+                                k = 1 + 0.15 * e.sear
+                            end
+                            hurt(e, (L and 14 + 5 * r or 5 + 3 * r) * k, { school = "holy" })
                             n = n + 1
                             if n <= 14 then emit({ img = "holy_flare", tint = C.GOLD, x = e.x + vr(-6, 6), y = e.y, z = vr(4, 20), vz = 40, life = 0.3, s0 = 18, s1 = 6, a0 = 0.9, a1 = 0 }) end
                         end
@@ -945,6 +1130,11 @@ local function castSpells(dt)
             end
         elseif id == "dragonling" then
             if not s.init then s.init = true sound("firenova") end
+        elseif id == "nova" and R.novaQ then
+            R.novaQ = nil
+            local cd0, cm0 = s.cd, s.cdMax
+            fire(id, s, r, L)
+            if cd0 > 0 then s.cd, s.cdMax = cd0, cm0 end
         elseif s.cd <= 0 then
             fire(id, s, r, L)
         end
@@ -954,9 +1144,20 @@ end
 local function areaFx(a, dt)
     a.emitAcc = a.emitAcc + dt
     local f = min(1, (a.dur - a.t) / 0.4)
+    if a.kind == "hallow" then
+        while a.emitAcc > 0.05 do
+            a.emitAcc = a.emitAcc - 0.05
+            local ang, d = random() * TAU, sqrt(random()) * a.r
+            local q = o0()
+            q.img, q.tint, q.x, q.y, q.z, q.vz, q.life, q.s0, q.s1, q.a0, q.a1, q.fi = "sparkle", C.GOLD, a.x + cos(ang) * d, a.y + sin(ang) * d / 1.3, 2, vr(40, 90), vr(0.5, 0.9), vr(6, 10), 1, 0.9 * f, 0, 0.2
+            emit(q)
+        end
+        return
+    end
     if a.kind == "blizzard" then
-        while a.emitAcc > 0.022 do
-            a.emitAcc = a.emitAcc - 0.022
+        local every = a.endless and 0.014 or 0.022
+        while a.emitAcc > every do
+            a.emitAcc = a.emitAcc - every
             if f >= 0.5 then
                 local ang, d = random() * TAU, sqrt(random()) * a.r
                 local gx, gy, fall = a.x + cos(ang) * d, a.y + sin(ang) * d / 1.3, vr(0.32, 0.42)
@@ -972,11 +1173,12 @@ local function areaFx(a, dt)
             emit(q)
         end
     else
-        while a.emitAcc > 0.03 do
-            a.emitAcc = a.emitAcc - 0.03
+        local every = a.tint and 0.06 or 0.03
+        while a.emitAcc > every do
+            a.emitAcc = a.emitAcc - every
             local ang, d = random() * TAU, sqrt(random()) * a.r
             local q = o0()
-            q.img, q.x, q.y, q.z, q.vz, q.life, q.s0, q.s1, q.a0, q.a1, q.rot, q.light = "flame", a.x + cos(ang) * d, a.y + sin(ang) * d / 1.3, 4, vr(20, 60), vr(0.3, 0.55), vr(14, 24) * f, 4, 0.85, 0, vr(-0.3, 0.3), 40
+            q.img, q.tint, q.x, q.y, q.z, q.vz, q.life, q.s0, q.s1, q.a0, q.a1, q.rot, q.light = "flame", a.tint, a.x + cos(ang) * d, a.y + sin(ang) * d / 1.3, 4, vr(20, 60), vr(0.3, 0.55), vr(14, 24) * f, 4, 0.85, 0, vr(-0.3, 0.3), 40
             emit(q)
         end
     end
@@ -1027,7 +1229,15 @@ local function shieldCan(b, e) return not e.dead and not b.hit[e] and not e.M.re
 local function frostCan(b, e) return not e.dead and not b.hit[e] and not e.M.reaper and hyp(e.x - b.x, e.y - 18 - b.y) < e.M.r + 6 end
 local function frostHit(b, e)              -- (true: the bolt is spent)
     b.hit[e] = true
-    hurt(e, b.dmg, { slow = 1.6, school = "frost", kb = 25, fx = b.x - b.vx, fy = b.y - b.vy })
+    hurt(e, b.dmg * (b.shatter and e.frz > 0 and 3 or 1), { slow = 1.6, frz = b.frz, school = "frost", kb = 25, fx = b.x - b.vx, fy = b.y - b.vy })
+    if b.split then                       -- (Splitting Ice: two more bolts off the first hit)
+        b.split = nil
+        local a = atan2(b.vy, b.vx)
+        for k = -1, 1, 2 do
+            local a2 = a + k * 0.55
+            R.proj[#R.proj + 1] = { kind = "frost", x = b.x, y = b.y, vx = cos(a2) * 430, vy = sin(a2) * 430, pierce = 0, dmg = b.dmg * 0.6, life = 0.8, hit = { [e] = true }, spin = random() * 6, frz = b.frz, shatter = b.shatter, kid = true }
+        end
+    end
     flash("frost_burst", b.x, b.y, 46, C.ICE, 0.25, { light = 90 })
     flash("blue_star", b.x, b.y, 54, C.FROST, 0.18)
     for _ = 1, 5 do
@@ -1048,6 +1258,28 @@ local function dragonHit(e, x, y, dmg)
     sound("fireimpact2", 0.12, 0.5)
 end
 local MIST_EPROJ, SMOKE_HAZ = { 140 / 255, 90 / 255, 200 / 255 }, { 90 / 255, 150 / 255, 50 / 255 }
+-- a breath of fire from o (an orb, a whelp): its clock in c.br; the nearest within seek, a cone reach long
+local function breathe(o, c, dt, seek, reach, half, every, dmg, burn)
+    if not o then return end
+    c.br = (c.br or every) - dt
+    if c.br > 0 then return end
+    local t = nearest(o.x, o.y + 16, seek)
+    if not t then c.br = 0.2 return end
+    c.br = every
+    local a = atan2((t.y - o.y - 16) * 1.3, t.x - o.x)
+    local ga = atan2(t.y - o.y - 16, t.x - o.x)
+    R.fx[#R.fx + 1] = { kind = "cone", x = o.x, y = o.y + 16, a = ga, r = reach, spread = half, t = 0, dur = 0.35, col = "fire" }
+    if not R.ff then
+        for _ = 1, 6 do
+            local aa, sp = ga + vr(-half, half) * 0.8, vr(200, 360)
+            local q = q0()
+            q.img, q.x, q.y, q.z, q.vx, q.vy, q.drag, q.life, q.s0, q.s1, q.a0, q.a1, q.rot, q.light = "flame", o.x, o.y + 6, 10, cos(aa) * sp, sin(aa) * sp / 1.3, 1.5, vr(0.3, 0.45), 10, 30, 0.9, 0, vr(-0.4, 0.4), 30
+            emit(q)
+        end
+    end
+    for _, e in ipairs(swingHits(o.x, o.y + 16, a, reach, half)) do hurt(e, dmg, { school = "fire", kb = 25, fx = o.x, fy = o.y }) dot(e, 2, burn, "fire") end
+    sound("fireimpact2", 0.15, 0.4)
+end
 
 local function updateProj(dt)
     local p = R.p
@@ -1080,6 +1312,11 @@ local function updateProj(dt)
                 if e then
                     b.hit[e] = true
                     hurt(e, b.dmg, { kb = 80, fx = b.x - b.vx * 0.05, fy = b.y - b.vy * 0.05, school = "holy" })
+                    if b.burst then                      -- (Shield Burst: 25% to all within 60)
+                        for _, o in ipairs(R.en) do if o ~= e and not o.dead and hyp(o.x - e.x, (o.y - e.y) * 1.3) < 60 + o.M.r then hurt(o, b.dmg * 0.25, { school = "holy", kb = 30, fx = e.x, fy = e.y }) end end
+                        ring("ring_soft", e.x, e.y, 10, 64, 0.3, C.HOLY, 0.7)
+                    end
+                    if b.bulwark then local pp = R.p pp.absorb = min(pp.maxHp * 0.3, (pp.absorb or 0) + b.dmg * R.st.might * 0.1) end
                     R.arcs[#R.arcs + 1] = { x0 = b.lastX, y0 = b.lastY, x1 = b.x, y1 = b.y, t = 0, life = 0.28 }
                     b.lastX, b.lastY = b.x, b.y
                     flash("holy_star", b.x, b.y, 64, C.HOLY, 0.22, { light = 120 })
@@ -1087,7 +1324,7 @@ local function updateProj(dt)
                     sparks(b.x, b.y, 9, C.GOLD, { dir = atan2(b.vy, b.vx), spread = 0.9, z = 16, v0 = 120, v1 = 320 })
                     stop(0.022) kick(b.vx, b.vy, 1.2) sound("strike", 0.06)
                     b.bounces = b.bounces - 1
-                    b.tgt = b.bounces > 0 and nearest(b.x, b.y, 260, b.hit) or nil
+                    b.tgt = b.bounces > 0 and nearest(b.x, b.y, b.leap or 260, b.hit) or nil
                     if not b.tgt then b.ret = true end
                 end
                 if b.ret then
@@ -1095,7 +1332,7 @@ local function updateProj(dt)
                     b.vx, b.vy = cos(a) * 700, sin(a) * 700
                     if hyp(p.x - b.x, p.y - 22 - b.y) < 18 then b.life = 0 flash("holy_star2", b.x, b.y, 30, C.GOLD, 0.15) end
                 elseif b.tgt and b.tgt.dead then
-                    b.tgt = nearest(b.x, b.y, 260, b.hit)
+                    b.tgt = nearest(b.x, b.y, b.leap or 260, b.hit)
                     if not b.tgt then b.ret = true end
                 end
             elseif b.kind == "frost" then
@@ -1114,7 +1351,14 @@ local function updateProj(dt)
                 for j = 1, n do local e = QB[j] if frostCan(b, e) and frostHit(b, e) then spent = true break end end
                 if not spent then local en, j = R.en, qBuilt + 1 while en[j] do local e = en[j] if frostCan(b, e) and frostHit(b, e) then break end j = j + 1 end end
             elseif b.kind == "arcane" then
-                if not b.tgt or b.tgt.dead then local vis = visible() b.tgt = #vis > 0 and vis[floor(rnd() * #vis) + 1] or nil end
+                if not b.tgt or b.tgt.dead then
+                    local vis = visible()
+                    if b.focus then                      -- (Arcane Focus: the toughest in sight)
+                        local best, bh = nil, -1
+                        for k = 1, #vis do local e = vis[k] if e.hp > bh then bh, best = e.hp, e end end
+                        b.tgt = best
+                    else b.tgt = #vis > 0 and vis[floor(rnd() * #vis) + 1] or nil end
+                end
                 if b.tgt then
                     local a = atan2(b.tgt.y - 18 - b.y, b.tgt.x - b.x)
                     local k = min(1, dt * 5.5)
@@ -1141,14 +1385,39 @@ local function updateProj(dt)
                 else
                     local f = min(1, b.t / b.dur)
                     b.gx, b.gy = b.sx + (b.tx - b.sx) * f, b.sy + 20 + (b.ty - b.sy - 20) * f
-                    b.x, b.y = b.gx, b.gy - 20 * (1 - f) - sin(f * pi) * 110
+                    b.x, b.y = b.gx, b.gy - 20 * (1 - f) - sin(f * pi) * (b.arc or 110)
                     if random() < 0.8 then
                         local q = q0()
                         q.img, q.tint, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1 = "sparkle", C.EMBER, b.x + 5, b.y - 7, vr(-30, 30), vr(-40, 0), 0.3, 6, 1
                         emit(q)
                     end
-                    if f >= 1 then b.life = 0 explode(b.tx, b.ty, b.r, b.dmg) end
+                    if f >= 1 then
+                        b.life = 0
+                        explode(b.tx, b.ty, b.r, b.dmg, b.mini)
+                        if b.cluster then                -- (Cluster Bomb: three little ones thrown on)
+                            for k = 0, 2 do
+                                local a, d = rnd() * TAU, rr(50, 95)
+                                local tx, ty = b.tx + cos(a) * d, b.ty + sin(a) * d * 0.75
+                                R.proj[#R.proj + 1] = { kind = "grenade", x = b.tx, y = b.ty - 20, sx = b.tx, sy = b.ty - 20, tx = tx, ty = ty, t = 0, dur = 0.3 + 0.06 * k, dmg = b.dmg * 0.4, r = min(45, b.r * 0.5),
+                                    life = 2, spin = 0, gx = b.tx, gy = b.ty, arc = 50, mini = true }
+                            end
+                        end
+                    end
                 end
+            elseif b.kind == "phoenix" then
+                b.x, b.y = b.x + b.vx * dt, b.y + b.vy * dt
+                if not R.ff then
+                    for _ = 1, 2 do
+                        local q = q0()
+                        q.img, q.x, q.y, q.z, q.vx, q.vy, q.vz, q.life, q.s0, q.s1, q.a0, q.a1, q.rot, q.light = "flame", b.x + vr(-8, 8), b.y + vr(-6, 6), 0, -b.vx * 0.1 + vr(-20, 20), -b.vy * 0.1 + vr(-20, 20), vr(10, 40), vr(0.3, 0.5), vr(22, 34), 6, 0.9, 0, vr(-0.4, 0.4), 40
+                        emit(q)
+                    end
+                end
+                local n = qNear(QB, b.x, b.y + 20, 30)
+                for j = 1, n do local e = QB[j] if phoenixCan(b, e) then phoenixHit(b, e) end end
+                local en, j = R.en, qBuilt + 1
+                while en[j] do local e = en[j] if phoenixCan(b, e) then phoenixHit(b, e) end j = j + 1 end
+                if b.life <= dt then flash("fire_core", b.x, b.y, 90, nil, 0.3, { light = 160 }) end
             end
         end
         if b.life <= 0 then remove(R.proj, i) else i = i + 1 end
@@ -1157,7 +1426,9 @@ local function updateProj(dt)
     -- dragonlings (orbiters)
     local dr = R.spells.dragonling
     if dr then
-        local n = 1 + floor(dr.r / 2)
+        local pa = dr.path
+        local n = pa == "b" and 1 or 1 + floor(dr.r / 2) + (pa == "a" and 2 or 0)
+        local odmg = (8 + 4 * dr.r) * (pa == "a" and 0.7 or 1)
         dr.orbs = dr.orbs or {}
         for k = 1, n do
             local a, rad = dr.a * 2.4 + (k - 1) / n * TAU, 92 * R.st.area
@@ -1169,11 +1440,22 @@ local function updateProj(dt)
             q.img, q.x, q.y, q.vx, q.vy, q.life, q.s0, q.s1, q.a0, q.a1, q.rot = "flame", x, y, -sin(a) * 30, vr(-30, -10), 0.35, 22, 6, 0.8, 0, "rnd"
             emit(q)
             local n = qNear(QC, x, y + 16, 14)
-            for j = 1, n do local e = QC[j] if dragonCan(e, x, y) then dragonHit(e, x, y, 8 + 4 * dr.r) end end
+            for j = 1, n do local e = QC[j] if dragonCan(e, x, y) then dragonHit(e, x, y, odmg) end end
             local en, j = R.en, qBuilt + 1
-            while en[j] do local e = en[j] if dragonCan(e, x, y) then dragonHit(e, x, y, 8 + 4 * dr.r) end j = j + 1 end
+            while en[j] do local e = en[j] if dragonCan(e, x, y) then dragonHit(e, x, y, odmg) end j = j + 1 end
         end
         for k = n + 1, #dr.orbs do dr.orbs[k] = nil end
+        if pa == "b" then breathe(dr.orbs[1], dr, dt, 190, 170, 0.45, 1.2, (8 + 4 * dr.r) * 1.6, 4 + dr.r) end      -- (Dragon's Breath)
+        if R.legend.dragonling then                     -- (Onyxia's Brood: three whelps, close round you)
+            dr.wh = dr.wh or {}
+            for k = 1, 3 do
+                local w = dr.wh[k] or { br = k * 0.3 }
+                dr.wh[k] = w
+                local a = -dr.a * 1.7 + (k - 1) / 3 * TAU
+                w.x, w.y, w.a = p.x + cos(a) * 58, p.y - 30 + sin(a) * 36, a
+                breathe(w, w, dt, 150, 120, 0.4, 1, 10 + 3 * dr.r, 3 + dr.r)
+            end
+        end
     end
 
     i = 1
@@ -1224,12 +1506,14 @@ local function updateProj(dt)
     while i <= #R.areas do
         local a = R.areas[i]
         a.t, a.acc = a.t + dt, a.acc + dt
+        if a.follow then a.x, a.y = p.x, p.y
+        elseif a.drift then local dx, dy = p.x - a.x, p.y - a.y local d = hyp(dx, dy) if d > 20 then a.x, a.y = a.x + dx / d * 70 * dt, a.y + dy / d * 70 * dt end end
         areaFx(a, dt)
         if a.acc >= 0.3 then
             a.acc = a.acc - 0.3
             for _, e in ipairs(R.en) do
                 if not e.dead and hyp(e.x - a.x, (e.y - a.y) * 1.3) < a.r then
-                    if a.kind == "blizzard" then hurt(e, a.dmg, { slow = 0.6, school = "frost" }) else hurt(e, a.dmg, { school = "fire" }) end
+                    if a.kind == "blizzard" then hurt(e, a.dmg, { slow = 0.6, school = "frost" }) else hurt(e, a.dmg, { school = a.school or "fire" }) end
                 end
             end
         end
@@ -1259,13 +1543,41 @@ local function updateProj(dt)
             for _ = 1, 10 do
                 local a = random() * TAU
                 local q = q0()
-                q.img, q.tint, q.x, q.y, q.vz, q.life, q.s0, q.s1 = "sparkle", C.HOLY, f.x + cos(a) * rr2, f.y + sin(a) * rr2 / 1.3, vr(20, 80), 0.35, 9, 2
+                q.img, q.tint, q.x, q.y, q.vz, q.life, q.s0, q.s1 = f.fire and "flame" or "sparkle", f.fire and C.EMBER or C.HOLY, f.x + cos(a) * rr2, f.y + sin(a) * rr2 / 1.3, vr(20, 80), 0.35, f.fire and 16 or 9, 2
                 emit(q)
             end
             for _, e in ipairs(R.en) do
                 if not e.dead and not f.hit[e] and hyp(e.x - f.x, (e.y - f.y) * 1.3) < rr2 then
                     f.hit[e] = true
-                    hurt(e, f.dmg, { kb = 130, fx = f.x, fy = f.y, stun = 0.6, school = "holy" })
+                    if f.hammer and not e.M.boss and not e.M.reaper and e.hp < e.maxHp * 0.25 then       -- (Hammer of Wrath)
+                        flash("holy_star", e.x, e.y - 20, 50, C.HOLY, 0.2)
+                        if e.M.elite then hurt(e, f.dmg * 3, { school = "holy" }) else e.hp = 0 kill(e, false, { kb = 130, fx = f.x, fy = f.y }) end
+                    else
+                        hurt(e, f.dmg, { kb = f.kb or 130, fx = f.x, fy = f.y, stun = f.stun or 0.6, school = f.fire and "fire" or "holy" })
+                    end
+                    if f.burn then dot(e, 3, f.burn, "fire") end
+                end
+            end
+        elseif f.kind == "ray" then                         -- the Gnomish Death Ray sweeps from a0 to a1
+            f.x, f.y = p.x, p.y - 24
+            f.acc = f.acc + dt
+            if f.acc >= 0.06 then
+                f.acc = f.acc - 0.06
+                local a = f.a0 + (f.a1 - f.a0) * min(1, f.t / f.dur)
+                local ca, sa = cos(a), sin(a)
+                for _, e in ipairs(R.en) do
+                    if not e.dead and not e.M.reaper and R.t - (f.hitAt[e] or -9) > 0.25 then
+                        local dx, dy = e.x - f.x, e.y - 16 - f.y
+                        local along = dx * ca + dy * sa
+                        if along > 0 and along < f.len and abs(dy * ca - dx * sa) < f.width + e.M.r then
+                            f.hitAt[e] = R.t
+                            hurt(e, f.dmg, { school = "fire", kb = 20, fx = f.x, fy = f.y })
+                        end
+                    end
+                end
+                if not R.ff then
+                    local ex, ey = f.x + ca * f.len, f.y + sa * f.len
+                    sparks(ex, ey + 16, 3, C.EMBER, { v0 = 60, v1 = 200 })
                 end
             end
         end
@@ -1368,6 +1680,12 @@ local function updateEnemies(dt)
                 if e.pAcc >= 1 then e.pAcc = e.pAcc - 1 hurt(e, 6 * e.poison, { dot = true, school = "nature" }) end
                 if e.poisonT <= 0 then e.poison = 0 end
             end
+            if (e.dotT or 0) > 0 and not e.dead then                          -- (burns and bleeds: dot())
+                e.dotT = e.dotT - dt
+                e.dAcc = (e.dAcc or 0) + dt
+                if e.dAcc >= 0.5 then e.dAcc = e.dAcc - 0.5 dotTick(e) end
+                if e.dotT <= 0 then e.dotD = 0 end
+            end
             if e.berserkAt and not e.berserk and R.t >= e.berserkAt and not e.dead then
                 e.berserk = true
                 warn(M.name .. " goes berserk!", RED) sound("bosswarn") shake(0.5)
@@ -1443,15 +1761,29 @@ end
 ---------------------------------------------------------------------------
 -- pickups, xp, level-ups
 ---------------------------------------------------------------------------
+local function xpFor(L) return floor(6 + L * 4 + max(0, L - 20) * 6 + 0.5) end
 local function gainXp(v)
     R.xp = R.xp + v * R.st.xp
     R.runes = R.runes + v
-    while R.xp >= R.xpNext do
-        R.xp = R.xp - R.xpNext
-        R.level = R.level + 1
-        R.xpNext = floor(6 + R.level * 4 + max(0, R.level - 20) * 6 + 0.5)
-        R.pending = R.pending + 1
-    end
+end
+-- the pace: a level comes when its XP is there and the gap since the last one has passed (none below level 10, then
+-- 0.5 s more a level up to 12 s: D.PACE). XP over that waits on the bar and makes the next levels.
+local function paceGap(L) local P = D.PACE return min(P.cap, max(0, (L - P.from) * P.per)) end
+local function paceLevels()
+    if R.xp < R.xpNext or R.t - (R.lvT or -99) < paceGap(R.level) then return end
+    R.lvT = R.t
+    R.xp = R.xp - R.xpNext
+    R.level = R.level + 1
+    R.xpNext = xpFor(R.level)
+    R.pending = R.pending + 1
+end
+E.PaceGap = paceGap
+-- the levels waiting on the bar (whole ones), for the HUD
+function E.Waiting(run)
+    local n, x, L = 0, run.xp, run.level
+    local need = run.xpNext
+    while x >= need and n < 99 do x = x - need n = n + 1 L = L + 1 need = xpFor(L) end
+    return n
 end
 
 local openChest
@@ -1533,21 +1865,31 @@ local function updatePickups(dt)
 end
 
 local OPTS = {}
-local function choices(n)
+local function options(noFork)
     local opts = {}
     local nSp, nPa = #R.order, #R.porder
+    local SL = D.SLOTS or { spells = 6, blessings = 6 }
     for _, id in ipairs(D.SPELL_ORDER) do
         local S_ = SPELLS[id]
         if not ((S_.cls and S_.cls ~= R.cls) or R.banished[id]) then
             local s = R.spells[id]
             local shut = (not s and R.rules.oneSpell) or (R.blessOnly or 0) > 0
-            if not shut and not (s and s.r >= S_.max) and not (not s and nSp >= 6) then opts[#opts + 1] = { kind = "spell", id = id, w = S_.cls and 3 or 1.4, r = s and s.r + 1 or 1 } end
+            local fork = s and s.r == 2 and not s.path and D.PATHS and D.PATHS[id] ~= nil
+            if not shut and not (s and s.r >= S_.max) and not (not s and nSp >= SL.spells) and not (fork and noFork) then
+                opts[#opts + 1] = { kind = "spell", id = id, w = S_.cls and 3 or 1.4, r = s and s.r + 1 or 1, fork = fork or nil }
+            end
         end
     end
     for _, id in ipairs(D.PASSIVE_ORDER) do
         local r = R.passives[id] or 0
-        if not (r >= 5 or (r == 0 and nPa >= 6) or R.banished[id]) then opts[#opts + 1] = { kind = "passive", id = id, w = 1.4, r = r + 1 } end
+        if not (r >= 5 or (r == 0 and nPa >= SL.blessings) or R.banished[id]) then opts[#opts + 1] = { kind = "passive", id = id, w = 1.4, r = r + 1 } end
     end
+    return opts
+end
+-- nothing left to pick: every slot full and maxed (Paragon from here)
+local function buildFull() return (R.blessOnly or 0) <= 0 and #options() == 0 end
+local function choices(n, noFork)
+    local opts = options(noFork)
     local out = {}
     while #out < n and #opts > 0 do
         local tot = 0
@@ -1560,6 +1902,9 @@ local function choices(n)
     return out
 end
 function E.Choices(run, n) E.Use(run) return choices(n) end
+function E.BuildFull(run) E.Use(run) return buildFull() end
+-- the two paths of a spell at rank 3, as options (the path screen)
+function E.PathOptions(run, id) return { { kind = "path", id = id, path = "a", r = 3 }, { kind = "path", id = id, path = "b", r = 3 } } end
 
 legendFx = function()
     local p = R.p
@@ -1572,7 +1917,10 @@ end
 E.LegendFx = function(run) E.Use(run) legendFx() end
 
 local function apply(o)
-    if o.kind == "spell" then addSpell(o.id)
+    if o.kind == "spell" or o.kind == "path" then
+        addSpell(o.id)
+        local s = R.spells[o.id]
+        if s.r >= 3 and not s.path and D.PATHS and D.PATHS[o.id] then s.path = o.path or (rnd() < 0.5 and "a" or "b") end
     elseif o.kind == "passive" then addPassive(o.id) if R.blessOnly then R.blessOnly = max(0, R.blessOnly - 1) end
     elseif o.kind == "gold" then R.gold = R.gold + 25
     elseif o.kind == "heal" then R.p.hp = R.p.maxHp
@@ -1588,11 +1936,26 @@ function E.Apply(run, o) E.Use(run) apply(o) end
 
 local function evolvable()
     if R.rules.noLegend then return nil end
-    for _, id in ipairs({ "consecration", "arcane", "cleave" }) do
-        local s = R.spells[id]
-        if s and s.r >= SPELLS[id].max and R.passives[LEGEND[id].need] and not R.legend[id] then return id end
+    for _, id in ipairs(R.order) do
+        local s, L = R.spells[id], LEGEND[id]
+        if L and s and s.r >= SPELLS[id].max and R.passives[L.need] and not R.legend[id] then return id end
     end
 end
+-- Paragon: with a full build every level adds damage instead of a pick (a gold ring and its count over the hero)
+local PARAGON_C = { 1, 0.82, 0.3 }
+local function paragon(n)
+    if n <= 0 then return end
+    R.paragon = (R.paragon or 0) + n
+    R.st = stats()
+    local p = R.p
+    if not R.ff and not R.preview then
+        flash("sun_ring", p.x, p.y - 24, 110, C.GOLD, 0.45, { light = 160 })
+        ring("ring_wide", p.x, p.y, 10, 70, 0.4, C.GOLD, 0.8)
+        R.texts[#R.texts + 1] = { x = p.x, y = p.y - 64, vx = 0, vy = -50, v = "Paragon " .. R.paragon, t = 0, life = 1.1, col = PARAGON_C }
+        sound("levelup", 0.3, 0.5)
+    end
+end
+function E.Paragon(run, n) E.Use(run) paragon(n) end
 E.Evolvable = function(run) E.Use(run) return evolvable() end
 
 openChest = function(isBoss, src)
@@ -1603,15 +1966,14 @@ openChest = function(isBoss, src)
     local guard = 0
     while #items < n and guard < 30 do
         guard = guard + 1
-        local c = choices(1)[1]
+        local c = choices(1, true)[1]
         if not c then break end
         local dup = false
         for _, it in ipairs(items) do if it.id == c.id and c.kind ~= "gold" and c.kind ~= "heal" then dup = true end end
-        if not dup then items[#items + 1] = c end
+        if not dup then items[#items + 1] = c apply(c) end      -- (applied at once: the next draw sees the slots it took)
     end
     local gold = isBoss and 60 or 20 + floor(rnd() * 20)
     R.gold = R.gold + gold
-    for _, it in ipairs(items) do if it.kind ~= "legend" then apply(it) end end
     -- relics: a necropolis boss offers three (its own first); once Kel'Thuzad has fallen, any boss may add one of his
     local pool, own, seen = {}, R.relics, {}
     if isBoss and src and D.RELIC_FROM and D.RELIC_FROM[src] then
@@ -1813,7 +2175,9 @@ function E.Step(run, dt, ix, iy)
     castSpells(wdt)
     updateEnemies(wdt)
     updateProj(wdt)
+    if run.shatQ and run.shatQ[1] then E._shatter() end
     updatePickups(wdt)
+    if not run.preview and not run.lab then paceLevels() end
     E._relicTick(wdt)
     if run.pendingChain then local e = run.pendingChain run.pendingChain = nil if not e.dead then chain(e, 4, 20) end end
     E._allies(wdt)
@@ -1826,6 +2190,9 @@ function E.Step(run, dt, ix, iy)
     if run.lvlT >= 0 then
         run.lvlT = run.lvlT + dt
         if run.lvlT > 0.42 then run.lvlT = -1 run.wantLevelUp = true end
+    elseif run.pending > 0 and not run.wantLevelUp and not run.preview and not run.lab and buildFull() then
+        paragon(run.pending)
+        run.pending = 0
     elseif run.pending > 0 and not run.wantLevelUp then
         if run.bot or run.preview or run.lab then
             while run.pending > 0 do
@@ -1900,13 +2267,16 @@ function E.DevLevels(run, n)
     E.Use(run)
     for _ = 1, n do
         R.level = R.level + 1
-        R.xpNext = floor(6 + R.level * 4 + max(0, R.level - 20) * 6 + 0.5)
-        local c = choices(3)
-        local pick = c[1]
-        for _, o in ipairs(c) do if o.kind == "spell" and SPELLS[o.id].cls then pick = o break end end
-        if pick then apply(pick) end
+        R.xpNext = xpFor(R.level)
+        if buildFull() then paragon(1)
+        else
+            local c = choices(3)
+            local pick = c[1]
+            for _, o in ipairs(c) do if o.kind == "spell" and SPELLS[o.id].cls then pick = o break end end
+            if pick then apply(pick) end
+        end
     end
-    R.xp = 0
+    R.xp, R.lvT = 0, R.t
 end
 -- the next event of the run's stage after its clock (for the dev bar's Next)
 function E.DevNext(run)
@@ -1964,6 +2334,25 @@ function E._allies(dt)
             remove(R.allies, i)
         else i = i + 1 end
     end
+end
+
+-- Heart of Northrend: the frozen dead shatter (eight a step at most; the rest wait), hurting and freezing round them
+function E._shatter()
+    local sq, nv = R.shatQ, R.spells.nova
+    local r = nv and nv.r or 1
+    local m = #sq
+    local n = min(m, 16)
+    local pts = {}
+    for k = 1, n do pts[k] = sq[k] end
+    for k = n + 1, m do sq[k - n] = sq[k] end
+    for k = m - n + 1, m do sq[k] = nil end
+    for k = 1, n, 2 do
+        local x, y = pts[k], pts[k + 1]
+        ring("ring_shards2", x, y, 8, 70, 0.35, C.ICE, 0.9)
+        flash("frost_burst", x, y - 14, 60, C.ICE, 0.25, { light = 90 })
+        for _, e in ipairs(R.en) do if not e.dead and hyp(e.x - x, (e.y - y) * 1.3) < 70 + e.M.r then hurt(e, 20 + 4 * r, { frz = 1, school = "frost" }) end end
+    end
+    sound("icenuke", 0.12, 0.5)
 end
 
 E.Kill = function(run, e, silent) E.Use(run) kill(e, silent) end

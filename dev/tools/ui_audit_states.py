@@ -353,6 +353,11 @@ HTL_LEVEL = ("ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') for _ =
              "local r = ns.HTLUI._Run() r.level, r.pending = 7, 1 ns.HTL.AddSpell(r, 'avenger') "
              "ns.HTLUI._OpenLevelUp({ { kind = 'spell', id = 'avenger', r = 2 }, { kind = 'passive', id = 'crusader', r = 1 }, "
              "{ kind = 'passive', id = 'fortitude', r = 1 } }) ")
+# Hold the Line: a Paladin at level 12 whose Consecration is at rank 2 (its next rank is a path), a new gadget, a blessing
+HTL_FORK = ("ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
+            "local r = ns.HTLUI._Run() r.level, r.pending = 12, 1 ns.HTL.AddSpell(r, 'consecration') ns.HTL.AddSpell(r, 'avenger') "
+            "ns.HTLUI._OpenLevelUp({ { kind = 'spell', id = 'consecration', r = 3, fork = true }, { kind = 'spell', id = 'grenade', r = 1 }, "
+            "{ kind = 'passive', id = 'might', r = 1 } }) ")
 # Hold the Line: a Mage run that got somewhere (for the end screens)
 HTL_END = ("local d = ns.Games:GetData('holdtheline') d.best, d.runs, d.rep = 80, 4, 2600 "
            "ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('MAGE') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
@@ -2431,6 +2436,26 @@ STATES = [
                                           "for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end local r = ns.HTLUI._Run() "
                                           "r.chest = { items = { { kind = 'legend', id = 'consecration' }, { kind = 'gold', id = 'gold', r = 0 } }, gold = 25 } "
                                           "for _ = 1, 200 do ns.HTLUI._Tick(1 / 60) end")),
+    # (the late game: a rank-3 fork card in the hand, its path screen, a new legendary's reveal, a full build's Paragon bar)
+    ("Games - Hold the Line fork card", opened("games", HTL_FORK + "for _ = 1, 80 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line path screen", opened("games", HTL_FORK + "for _ = 1, 80 do ns.HTLUI._Tick(1 / 60) end "
+                                            "ns.HTLUI.TakeLevel(1) for _ = 1, 80 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line legendary bulwark", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') "
+                                                  "for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end local r = ns.HTLUI._Run() "
+                                                  "for _ = 1, 5 do ns.HTL.AddSpell(r, 'avenger') end r.spells.avenger.path = 'a' "
+                                                  "r.chest = { items = { { kind = 'legend', id = 'avenger' } }, gold = 25 } "
+                                                  "for _ = 1, 200 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line encounters", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
+                                         "local r, E = ns.HTLUI._Run(), ns.HTL r.god, r.t, r.evI, r.encT = true, 140, 2, nil E.Use(r) "
+                                         "E.ENCOUNTERS.packleader.run(r) E.ENCOUNTERS.courier.run(r) for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) end "
+                                         "E.Use(r) E.ENCOUNTERS.bones.run(r) for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) r.wantLevelUp, r.pending = nil, 0 end")),
+    ("Games - Hold the Line paragon", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('MAGE') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
+                                     "local r, E = ns.HTLUI._Run(), ns.HTL r.god = true "
+                                     "for _, id in ipairs({ 'arcane', 'nova', 'blizzard' }) do for _ = 1, 5 do E.AddSpell(r, id) end r.spells[id].path = 'b' end "
+                                     "for _ = 1, 4 do E.AddSpell(r, 'frostbolt') end r.spells.frostbolt.path = 'a' "
+                                     "for _, id in ipairs({ 'intellect', 'might', 'crusader', 'motw' }) do for _ = 1, 5 do E.AddPassive(r, id) end end "
+                                     "r.legend.blizzard = true r.level, r.t, r.kills, r.xpNext, r.xp = 64, 742, 9120, 526, 1900 E.Paragon(r, 14) "
+                                     "for _ = 1, 120 do ns.HTLUI._Tick(1 / 60) r.wantLevelUp, r.pending = nil, 0 end")),
     ("Games - Hold the Line title loading", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI._ShowTitle() ns.HTLUI._Tick(1 / 60)")),
     ("Games - Hold the Line died", opened("games", HTL_END + "r.killer = 'Plagued Rat' ns.HTLUI._ShowEnd('death') for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) end")),
     ("Games - Hold the Line victory", opened("games", HTL_END + "r.t, r.bossKills = 900, 3 ns.HTLUI._ShowEnd('victory') for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) end")),

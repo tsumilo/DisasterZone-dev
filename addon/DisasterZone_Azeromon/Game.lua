@@ -19,6 +19,7 @@ local A = ns.AzeroAtlas
 G.GAME_ID = "azeromon"
 G.STEP_TIME = 0.24
 G.RUN_TIME = 0.13
+G.FOOT_LAND = 0.3           -- how far into a step the foot lands (its footstep plays)
 G.TURN_DELAY = 0.09         -- a tap turns in place; holding longer walks
 G.ENCOUNTER_PCT = 12
 
@@ -95,6 +96,7 @@ local function IsDoor(kind, dx, dy)
     return false
 end
 -- Map themes swap the outdoor tile set. Westfall: dry golden grass, wheat for tall grass, olive trees.
+-- A new theme or zone: dev/docs/AZEROMON_NEW_ZONE.md lists every table and bake it needs.
 local THEMES = {
     elwynn = { grass1 = "grass1", grass2 = "grass2", tall = "tall_", path = "path_", tree = "tree" },
     westfall = { grass1 = "wgrass1", grass2 = "wgrass2", tall = "wtall_", path = "wpath_", tree = "wtree" },
@@ -1452,6 +1454,10 @@ function G:Update(dt)
     if self.moving then
         local mv = self.moving
         mv.t = mv.t + dt
+        if not mv.landed and mv.t >= mv.dur * G.FOOT_LAND then        -- (the footstep: Steps.lua)
+            mv.landed = true
+            if ns.AzeroSteps then ns.AzeroSteps.Footfall(self.save.x, self.save.y, mv.fromX, mv.fromY) end
+        end
         if mv.t >= mv.dur then
             self.moving = nil
             self:OnArrive(mv.forced, mv.fromX, mv.fromY)

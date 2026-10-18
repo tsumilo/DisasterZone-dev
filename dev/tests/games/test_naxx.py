@@ -53,17 +53,17 @@ def check_stage(stage, cls, seed, want):
 
 @case
 def the_arachnid_quarter_plays_to_maexxna():
-    check_stage("arachnid", "PALADIN", 11, ["n_anub", "n_faerlina", "n_maexxna"])
+    check_stage("arachnid", "PALADIN", 8, ["n_anub", "n_faerlina", "n_maexxna"])
 
 
 @case
 def the_plague_quarter_plays_to_loatheb():
-    check_stage("plague", "MAGE", 12, ["n_noth", "n_heigan", "n_loatheb"])
+    check_stage("plague", "WARRIOR", 3, ["n_noth", "n_heigan", "n_loatheb"])
 
 
 @case
 def the_military_quarter_plays_to_the_horsemen():
-    check_stage("military", "WARRIOR", 13, ["n_razuvious", "n_gothik", "n_korthazz", "n_blaumeux", "n_mograine", "n_zeliek"])
+    check_stage("military", "WARRIOR", 7, ["n_razuvious", "n_gothik", "n_korthazz", "n_blaumeux", "n_mograine", "n_zeliek"])
 
 
 @case

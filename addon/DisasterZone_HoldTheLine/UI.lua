@@ -264,7 +264,7 @@ local function StartPreview(pv, w, h, o)
     local r = E.New({ cls = o.cls, preview = true, god = true, noStart = true, seed = math.random(1, 1000000) })
     r.pvN, r.pvR0, r.pvR1, r.pvCamY, r.pvMove, r.pvFace = o.n or 7, o.r0, o.r1, o.camY, o.move, 2
     if o.spell then
-        r.spells[o.spell] = { r = o.r or 1, cd = 0.2, acc = 0, a = 0, cdMax = 1 }
+        r.spells[o.spell] = { r = o.r or 1, cd = 0.2, acc = 0, a = 0, cdMax = 1, path = o.path }
         r.order[#r.order + 1] = o.spell
         if o.legend then r.legend[o.spell] = true if o.spell == "consecration" then r.ashbringer = true end end
     end
@@ -333,8 +333,16 @@ local function OptInfo(o)
     if o.kind == "spell" then
         local s = SPELLS[o.id]
         local L = LEGEND[o.id]
-        return { name = s.name, icon = s.icon, desc = numbersDiff(o.r > 1 and s.desc(o.r - 1) or nil, s.desc(o.r)), r = o.r, max = s.max, isNew = o.r == 1, school = s.school,
-            sub = s.cls and (CLASSES[s.cls].name .. " spell") or "Engineering gadget", q = s.gadget and "epic" or "rare", evo = (L and not run.legend[o.id]) and L or nil, evoNeed = L and PASSIVES[L.need] }
+        local P, sp = D.PATHS and D.PATHS[o.id], run.spells[o.id]
+        local pathName = P and sp and sp.path and P[sp.path == "a" and 1 or 2].name
+        local desc = numbersDiff(o.r > 1 and s.desc(o.r - 1) or nil, s.desc(o.r))
+        if o.fork and P then desc = "Rank 3 is a path, kept for the run: |cffffffff" .. P[1].name .. "|r or |cffffffff" .. P[2].name .. "|r. Ranks 4 and 5 grow the one you choose." end
+        return { name = s.name, icon = s.icon, desc = desc, r = o.r, max = s.max, isNew = o.r == 1, school = s.school, fork = o.fork,
+            sub = pathName or (s.cls and (CLASSES[s.cls].name .. " spell") or "Engineering gadget"), q = s.gadget and "epic" or "rare", evo = (L and not run.legend[o.id]) and L or nil, evoNeed = L and PASSIVES[L.need] }
+    elseif o.kind == "path" then
+        local s = SPELLS[o.id]
+        local P = D.PATHS[o.id][o.path == "a" and 1 or 2]
+        return { name = P.name, icon = s.icon, desc = P.desc, r = 3, max = s.max, isNew = false, school = s.school, sub = s.name .. " path", q = "epic" }
     elseif o.kind == "passive" then
         local s = PASSIVES[o.id]
         local evoFor
@@ -471,8 +479,9 @@ local function FillCard(c, o)
     KitAt(c.ring, c.top, W_CARD / 2 - 36, MEDAL_Y, 72, 72)
     c.medalIcon:SetTexture(Icon(f.icon))
     c.medalIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    c.ribbon:SetShown(f.isNew and true or false)
-    c.ribbonL:SetShown(f.isNew and true or false)
+    c.ribbon:SetShown((f.isNew or f.fork) and true or false)
+    c.ribbonL:SetShown((f.isNew or f.fork) and true or false)
+    c.ribbonL:SetText(f.fork and "P A T H" or "N E W")
     -- gems: one per rank, the one this card gives lit
     local n = f.max or 0
     local gw = n * 8 + (n - 1) * 7
@@ -518,13 +527,17 @@ local function FillCard(c, o)
         c.evoN:ClearAllPoints() c.evoN:SetPoint("LEFT", c.top, "TOPLEFT", x, -y)
     end
     local chips
+    local SL = D.SLOTS or { spells = 6, blessings = 6 }
     if evoShow then chips = nil
     elseif o.kind == "spell" then
         local s = SPELLS[o.id]
         local cd = D.CD[o.id] and ("Every " .. string.format("%.1f", D.CD[o.id](o.r)) .. " s") or (o.id == "consecration" and "Aura" or "Always on")
+        if o.r == 1 then cd = "Slot " .. (#run.order + 1) .. " of " .. SL.spells end         -- (a new spell takes a slot)
         chips = { { D.SCHOOL_NAME[s.school], "c2chip_" .. s.school, true }, { cd, "c2chip_plain" } }
+    elseif o.kind == "path" then
+        chips = { { D.SCHOOL_NAME[SPELLS[o.id].school], "c2chip_" .. SPELLS[o.id].school, true }, { "Kept for the run", "c2chip_plain" } }
     elseif o.kind == "passive" then
-        chips = { { "Passive", "c2chip_pass", true }, { "Stacks to rank 5", "c2chip_plain" } }
+        chips = { { "Passive", "c2chip_pass", true }, { o.r == 1 and ("Slot " .. (#run.porder + 1) .. " of " .. SL.blessings) or "Stacks to rank 5", "c2chip_plain" } }
     end
     local tw, total = {}, 0
     for k = 1, 2 do
@@ -553,9 +566,9 @@ local function FillCard(c, o)
     end
     -- the preview
     c.pv.frame:Show()
-    if o.kind == "spell" then
+    if o.kind == "spell" or o.kind == "path" then
         local id = o.id
-        StartPreview(c.pv, WIN_W, WIN_H, { spell = id, r = o.r, cls = run.cls, n = 7, vw = 258,
+        StartPreview(c.pv, WIN_W, WIN_H, { spell = id, r = o.r, cls = run.cls, n = 7, vw = 258, path = o.path or (run.spells[id] and run.spells[id].path),
             r0 = (id == "consecration" or MELEE_PV[id]) and 40 or id == "charge" and 150 or (id == "nova" or id == "holywrath") and 55 or 80,
             r1 = (id == "consecration" or MELEE_PV[id]) and 75 or id == "charge" and 210 or (id == "nova" or id == "holywrath") and 85 or 110 })
     elseif o.kind == "passive" then
@@ -756,9 +769,33 @@ OpenLevelUp = function(preset)
         if opts[i] then FillCard(c, opts[i]) c:Show() c.key:SetText(tostring(i)) else c:Hide() c.pv.on = false end
     end
     LayoutPickerButtons(p)
+    UI.PathScreen(p)
     p.fly:Hide() p.flyRing:Hide()
     pickT = 0
     Sound("open")
+end
+
+-- the path screen: a fork card taken opens the spell's two paths (no reroll, banish or skip: a rank 3 is a path)
+function UI.OpenPaths(id)
+    ov.picker.pathFor = id
+    OpenLevelUp(E.PathOptions(run, id))
+end
+function UI.PathScreen(p)
+    local id = p.pathFor
+    p.sub:SetShown(not id)
+    for _, b in ipairs(p.btns) do b:SetShown(not id) end
+    if not p.pathSub then
+        p.pathSub = Words(p, 12, MORPHEUS)
+        p.pathSub:SetTextColor(222 / 255, 207 / 255, 170 / 255)
+    end
+    p.pathSub:SetShown(id and true or false)
+    if not id then return end
+    -- (set as the kit's own headers are: spaced capitals)
+    local function spaced(t) return (t:upper():gsub("(.)", "%1 "):gsub(" $", "")) end
+    p.pathSub:SetText(spaced("Choose a path") .. "   \194\183   " .. spaced(SPELLS[id].name))
+    p.pathSub:ClearAllPoints()
+    p.pathSub:SetPoint("TOP", p, "TOPLEFT", OV_W / 2, -(p.subY + 1))
+    for i = 1, 2 do local c = p.cards[i] c.x = c.x + (W_CARD + CARD_GAP) / 2 end
 end
 
 function UI.PickerButton(key)
@@ -777,6 +814,8 @@ local flyT, flyFrom, flyTo, chosen
 function UI.TakeLevel(i)
     if overlay ~= "level" then return end
     local p = ov.picker
+    if i > 0 and not run.lvlOpts[i] then return end           -- (the path screen has two cards: key 3 does nothing)
+    if i > 0 and not p.banishing and run.lvlOpts[i].fork and not p.pathFor then Sound("pick") UI.OpenPaths(run.lvlOpts[i].id) return end
     if p.banishing and i > 0 then        -- off the list for this run, and a new hand
         local c = p.cards[i]
         run.banished[run.lvlOpts[i].id] = true
@@ -825,7 +864,9 @@ local function FinishPick()
     for _, c in ipairs(p.cards) do c.pv.on = false end
     if chosen then E.Apply(run, chosen) end
     chosen = nil
+    p.pathFor = nil
     run.pending = max(0, run.pending - 1)
+    if run.pending > 0 and E.BuildFull(run) then E.Paragon(run, run.pending) run.pending = 0 end     -- (the build is full: Paragon)
     if run.pending > 0 then OpenLevelUp() return end
     CloseOv(true)
 end
@@ -1106,9 +1147,17 @@ local function ShowLegend(id, rest, gold)
     for _, o in ipairs(rest) do E.Apply(run, o) end
     local H = StageH()
     local cx = OV_W / 2
-    local nk = id == "consecration" and "lgname_ashbringer" or id == "cleave" and "lgname_thunderfury" or "lgname_atiesh"
-    KitSet(g.name, nk)
-    local nw, nh = K[nk][6] - 2 * K[nk][8], K[nk][7] - 2 * K[nk][8]
+    local nk = id == "consecration" and "lgname_ashbringer" or id == "cleave" and "lgname_thunderfury" or id == "arcane" and "lgname_atiesh" or nil
+    local nw, nh = 0, 40
+    if not g.nameFS then
+        g.nameFS = Words(g, 32, MORPHEUS)
+        g.nameFS:SetTextColor(1, 128 / 255, 0)
+        g.nameFS:SetShadowOffset(0, -2)
+    end
+    g.name:SetShown(nk ~= nil)
+    g.nameFS:SetShown(nk == nil)
+    if nk then KitSet(g.name, nk) nw, nh = K[nk][6] - 2 * K[nk][8], K[nk][7] - 2 * K[nk][8]
+    else g.nameFS:SetText(L.name) FitLine(g.nameFS, MORPHEUS, 32, 18, OV_W - 60) end
     g.desc:SetText(L.desc)
     local dh = g.desc:GetStringHeight() or 40
     local blockH = 96 + 22 + nh + 30 + 210 + 14 + dh + (#rest > 0 and 26 or 0) + 12 + 36
@@ -1121,14 +1170,15 @@ local function ShowLegend(id, rest, gold)
     y = y + 96 + 6
     g.eyebrow:ClearAllPoints() g.eyebrow:SetPoint("TOP", g, "TOPLEFT", cx, -y)
     y = y + 16
-    KitAt(g.name, g, cx - nw / 2, y)
+    if nk then KitAt(g.name, g, cx - nw / 2, y) else g.nameFS:ClearAllPoints() g.nameFS:SetPoint("TOP", g, "TOPLEFT", cx, -(y + 4)) end
     y = y + nh + 4
     g.recipe:SetText(string.format("|T%s:16:16|t %s rank 5   |cffd9b25e+|r   |T%s:16:16|t %s", Icon(SPELLS[id].icon), SPELLS[id].name, Icon(PASSIVES[L.need].icon), PASSIVES[L.need].name))
     g.recipe:ClearAllPoints() g.recipe:SetPoint("TOP", g, "TOPLEFT", cx, -y)
     y = y + 26
     g.pvHost:ClearAllPoints() g.pvHost:SetPoint("TOPLEFT", g, "TOPLEFT", cx - 280, -y)
     g.glass:Place(g.pvTop, 0, 0, 560, 210)
-    StartPreview(g.pv, 560, 210, { spell = id, r = 5, legend = true, cls = SPELLS[id].cls, n = 12, vw = 520, camY = 0.55, r0 = id == "cleave" and 40 or 60, r1 = id == "cleave" and 110 or 170 })
+    StartPreview(g.pv, 560, 210, { spell = id, r = 5, legend = true, cls = SPELLS[id].cls, n = 12, vw = 520, camY = 0.55, path = run.spells[id] and run.spells[id].path,
+        r0 = MELEE_PV[id] and 40 or 60, r1 = MELEE_PV[id] and 110 or 170 })
     y = y + 210 + 14
     g.desc:ClearAllPoints() g.desc:SetPoint("TOP", g, "TOPLEFT", cx, -y)
     y = y + dh + 6
@@ -1166,7 +1216,7 @@ function UI.TickLegend(dt)
     g.ring:SetAlpha(k)
     KitAtK(g.ring, g, OV_W / 2 - 46 * e, g.iconY - 46 * e, 92 / 72 * e)
     local a1, a2, a3 = at(0.45, 0.4), at(0.7, 0.45), at(0.95, 0.4)
-    g.eyebrow:SetAlpha(a1) g.name:SetAlpha(a1)
+    g.eyebrow:SetAlpha(a1) g.name:SetAlpha(a1) if g.nameFS then g.nameFS:SetAlpha(a1) end
     g.recipe:SetAlpha(a2) g.pvHost:SetAlpha(a2)
     g.desc:SetAlpha(a3) g.rest:SetAlpha(a3) g.take:SetAlpha(a3)
 end
@@ -2196,7 +2246,7 @@ ShowLab = function()
                 run.legend[id] = nil
                 if id == "consecration" then run.ashbringer = false end
             else
-                run.spells[id] = { r = run.labRank or 3, cd = 0.2, acc = 0, a = 0, cdMax = 1 }
+                run.spells[id] = { r = run.labRank or 3, cd = 0.2, acc = 0, a = 0, cdMax = 1, path = run.labPath }
                 run.order[#run.order + 1] = id
                 if run.labLegend and LEGEND[id] then run.legend[id] = true if id == "consecration" then run.ashbringer = true end end
             end
@@ -2218,6 +2268,9 @@ ShowLab = function()
                 end
             end
         end, true } } },
+        { "PATH", { { "Off", not run.labPath, function() run.labPath = nil for _, id in ipairs(run.order) do run.spells[id].path = nil end end },
+            { "A", run.labPath == "a", function() run.labPath = "a" for _, id in ipairs(run.order) do run.spells[id].path = "a" end end },
+            { "B", run.labPath == "b", function() run.labPath = "b" for _, id in ipairs(run.order) do run.spells[id].path = "b" end end } } },
         { "SCOURGE", { { "30", run.labN == 30, function() run.labN = 30 end }, { "70", run.labN == 70, function() run.labN = 70 end }, { "160", run.labN == 160, function() run.labN = 160 end } } },
         { "CLASS", { { "Paladin", run.cls == "PALADIN", function() OpenLab("PALADIN") end }, { "Mage", run.cls == "MAGE", function() OpenLab("MAGE") end }, { "Warrior", run.cls == "WARRIOR", function() OpenLab("WARRIOR") end } } },
     }
@@ -2444,6 +2497,7 @@ function UI.DevBar()
     local ev, k = E.DevNext(run)
     if ev then Pill("Next: " .. UI.DevLabel(ev), false, function() E.DevJump(run, max(run.t, ev.t * k - 5)) UI.SetFocus(true) UI.DevBar() end) end
     Pill("+5 levels  \194\183  " .. run.level, false, function() E.DevLevels(run, 5) UI.SetFocus(true) UI.DevBar() end)
+    if run.stage == "epl" and E.DevEncounter then Pill("Encounter now", false, function() E.DevEncounter(run) UI.SetFocus(true) end) end
     Pill("God mode " .. (run.god and "on" or "off"), run.god, function() run.god = not run.god UI.SetFocus(true) UI.DevBar() end)
     Pill("Leave", false, function() f:Hide() ShowTitle() end)
     for i = n + 1, #f.pills do f.pills[i]:Hide() end

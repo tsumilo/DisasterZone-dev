@@ -454,6 +454,8 @@ local function DrawDecals(run)
 end
 
 local RED50 = { 1, 50 / 255, 30 / 255 }
+local QUAKE, STONE, RAY_RED, RAY_HOT = { 0.85, 0.75, 0.55 }, { 1, 0.9, 0.7 }, { 1, 70 / 255, 40 / 255 }, { 1, 0.95, 0.8 }
+local CONE_FIRE = { 1, 150 / 255, 60 / 255 }
 local RIMC = { 1, 1, 1 }                  -- (a telegraph rim's colour this frame)
 local function FillLine(pool, x0, y0, x1, y1, w, c, a)
     local l = Take(V.pools[pool])
@@ -567,6 +569,14 @@ local function DrawGroundGlow(run)
             FlatTex("glow", "frost_disc", a.x, a.y, a.r * 1.1, 0.2 * f, a.t * 0.4, C.ICE)
             FlatTex("glow", "ring_blue", a.x, a.y, a.r * 1.05, 0.55 * f, -a.t * 0.5, C.FROST)
             FlatTex("glow", "frost_cloud", a.x, a.y, a.r * 0.9, 0.16 * f, a.t * 0.8, C.ICE)
+        elseif a.kind == "hallow" then
+            FlatTex("glow", "white_orb", a.x, a.y, a.r * 1.1, 0.22 * f, 0, C.GOLD)
+            FlatTex("glow", "exo_sigil", a.x, a.y, a.r * 1.05, 0.5 * f, run.t * 0.5, C.GOLD)
+            FlatTex("glow", "ring_soft", a.x, a.y, a.r * 1.1, 0.45 * f, 0, C.HOLY)
+        elseif a.kind == "felfire" then
+            FlatTex("glow", "lava_disc", a.x, a.y, a.r * 1.05, 0.4 * f, a.t * 0.3, a.tint)
+            FlatTex("glow", "green_ring", a.x, a.y, a.r * 1.1, 0.45 * f, -a.t * 0.3, a.tint)
+            Glow("glow", a.x, a.y, a.r, GLOWC.green, 0.24 * f)
         else
             FlatTex("glow", "lava_disc", a.x, a.y, a.r * 1.05, 0.38 * f, a.t * 0.3)
             FlatTex("glow", "fire_ring", a.x, a.y, a.r * 1.1, 0.4 * f, -a.t * 0.3)
@@ -624,6 +634,9 @@ local function DrawGroundGlow(run)
             local f = 1 - t.t / t.t0
             FlatTex("glow", "ring_soft", t.x, t.y, t.r * (1.2 - f * 0.2), 0.5 + f * 0.4, 0, C.FIRE)
             Glow("glow", t.x, t.y, t.r * f, GLOWC.fire, 0.5 * f)
+        elseif t.kind == "quake" and not t.cone then        -- (Earthshaker: the ground splits out to the second ring)
+            local f = 1 - t.t / t.t0
+            FlatTex("glow", "rf_ring", t.x, t.y, t.r * (0.4 + 0.6 * f), 0.25 + 0.4 * f, t.x, QUAKE)
         end
     end
 end
@@ -802,6 +815,13 @@ local function DrawPlayer(run)
         local t2 = Take(bp.spr) Layer(t2, 7) if p.hp / p.maxHp > 0.35 then Fill(t2, 0.13, 0.76, 0.16, 1) else Fill(t2, 0.83, 0.16, 0.1, 1) end
         VC(t2, 1, 1, 1, 1)
         AtTL(t2, p.x - w / 2 + 1, p.y + 8, max(0.1, (w - 2) * p.hp / p.maxHp), 3)
+        if (p.absorb or 0) > 0 then
+            local k0, k1 = p.hp / p.maxHp, min(1, (p.hp + p.absorb) / p.maxHp)
+            if k1 > k0 then
+                local t3 = Take(bp.spr) Layer(t3, 7) Fill(t3, 1, 0.92, 0.6, 0.85) VC(t3, 1, 1, 1, 1)
+                AtTL(t3, p.x - w / 2 + 1 + (w - 2) * k0, p.y + 8, max(0.1, (w - 2) * (k1 - k0)), 3)
+            end
+        end
     end
 end
 
@@ -956,7 +976,7 @@ local function DrawAirFx(run)
         if not (b.delay and b.delay > 0) then
             local tr = b.trail
             if tr and #tr > 4 then
-                local col, w0 = b.kind == "shield" and TRAIL_GOLD or TRAIL_ARC, b.kind == "shield" and 9 or 5
+                local col, w0 = b.kind == "shield" and TRAIL_GOLD or b.kind == "phoenix" and GLOWC.fire or TRAIL_ARC, b.kind == "shield" and 9 or b.kind == "phoenix" and 16 or 5
                 for i = 3, #tr - 1, 2 do
                     local k = i / #tr
                     ColLine("trail", tr[i - 2], tr[i - 1], tr[i], tr[i + 1], w0 * k, col, k * 0.7)
@@ -981,14 +1001,39 @@ local function DrawAirFx(run)
                 Tex("add", "arcane_orbit", b.x, b.y, 18, 18, 0.8, run.t * 9, C.ARC)
                 Glow("add", b.x, b.y, 20, GLOWC.violet, 0.7)
             elseif b.kind == "grenade" and b.t >= 0 then
-                local sh = Take(V.pools.addN) File(sh, SHADOW) TC(sh, 0, 1, 0, 1) VC(sh, 1, 1, 1, 0.5) AtTL(sh, b.gx - 7, b.gy - 3, 14, 6)
-                local bomb = Take(V.pools.addN) File(bomb, D.ICON("inv_misc_bomb_08")) Rot(bomb, b.spin, 8 / 64, 8 / 64, 56 / 64, 56 / 64) VC(bomb, 1, 1, 1, 1) At(bomb, b.x, b.y, 16, 16)
-                Tex("add", "sparkle", b.x + 6, b.y - 7, 14, 14, 0.9, run.t * 10, C.EMBER)
+                local z = b.mini and 10 or b.big and 26 or 16
+                local sh = Take(V.pools.addN) File(sh, SHADOW) TC(sh, 0, 1, 0, 1) VC(sh, 1, 1, 1, 0.5) AtTL(sh, b.gx - z * 0.45, b.gy - 3, z * 0.9, 6)
+                local bomb = Take(V.pools.addN) File(bomb, D.ICON("inv_misc_bomb_08")) Rot(bomb, b.spin, 8 / 64, 8 / 64, 56 / 64, 56 / 64) VC(bomb, 1, 1, 1, 1) At(bomb, b.x, b.y, z, z)
+                Tex("add", "sparkle", b.x + z * 0.38, b.y - z * 0.44, z * 0.9, z * 0.9, 0.9, run.t * 10, C.EMBER)
+            elseif b.kind == "phoenix" then                -- (Ember of Al'ar: a bird of flame, its fire streaming behind)
+                local a = atan2(b.vy, b.vx)
+                local l = Take(V.pools.addL)
+                File(l, FxFile("flame_trail")) TC(l, 1, 0, 0, 1)
+                VC(l, 1, 1, 1, 0.95)
+                LineAt(l, b.x - cos(a) * 30, b.y - sin(a) * 30, 96, 44, a)
+                Tex("add", "fire_core", b.x, b.y, 56, 56, 1, run.t * 4)
+                Tex("add", "flame", b.x - cos(a) * 8, b.y - 14, 46, 46, 0.9, b.x * 0.01)
+                Tex("add", "levelup_rays", b.x, b.y - 6, 40, 64, 0.5, a + pi / 2, C.EMBER)
+                Glow("add", b.x, b.y, 60, GLOWC.fire, 0.8)
             end
         end
     end
     local dr = run.spells.dragonling
     if dr and dr.orbs then for _, o in ipairs(dr.orbs) do Tex("add", "fire_core", o.x, o.y, 40, 40, 0.9, run.t * 3) Glow("add", o.x, o.y, 30, GLOWC.fire, 0.7) end end
+    if dr and dr.wh and run.legend.dragonling then           -- (Onyxia's Brood: three whelps of flame round the hero)
+        for _, w in ipairs(dr.wh) do
+            local flap = 0.75 + 0.25 * sin(run.t * 18 + w.a * 3)
+            Tex("add", "flame", w.x, w.y - 4, 34 * flap, 30, 0.85, w.a)
+            Tex("add", "fire_core", w.x, w.y, 24, 24, 1, -run.t * 5)
+            Tex("add", "sparkle", w.x + 6, w.y - 6, 10, 10, 0.9, 0, C.EMBER)
+            Glow("add", w.x, w.y, 26, GLOWC.red, 0.6)
+        end
+    end
+    if (p.absorb or 0) > 0 and not p.dead then                -- (Bulwark of Azzinoth: the shield it builds)
+        local k = min(1, p.absorb / max(1, p.maxHp * 0.3))
+        Tex("add", "ring_thin", p.x, p.y - 26, 64, 70, 0.25 + 0.45 * k, run.t * 0.5, C.GOLD)
+        Glow("add", p.x, p.y - 26, 36, GLOWC.gold, 0.12 + 0.2 * k)
+    end
     for _, b in ipairs(run.eproj) do local s = b.size or 24 Tex("add", b.img or "shadow_glyph", b.x, b.y, s, s, 0.9, run.t * 4, b.tint) Glow("add", b.x, b.y, s * 0.85, b.glow or GLOWC.violet, 0.6) end
     if run.gateX and not run.gateOpen then                  -- (Gothik's gate: a wall of violet light)
         local a = 0.55 + 0.2 * sin(run.t * 5)
@@ -1030,7 +1075,25 @@ local function DrawAirFx(run)
             Tex("add", "flame", f.x, f.y - r * 0.4, r * 2.2 * (0.7 + k * 0.5), r * 2.2 * (0.7 + k * 0.5), inv, f.x)
             Glow("add", f.x, f.y, r * 1.4, GLOWC.fire, inv)
         elseif f.kind == "wave" then
-            Glow("add", f.x, f.y, f.r * 0.8 * easeOut(min(1, k * 1.1)), GLOWC.gold, inv * 0.3)
+            Glow("add", f.x, f.y, f.r * 0.8 * easeOut(min(1, k * 1.1)), f.fire and GLOWC.fire or GLOWC.gold, inv * (f.fire and 0.45 or 0.3))
+        elseif f.kind == "cone" then                     -- a breath of fire, Shockwave's stone: a cone thrown out from x, y
+            local l = Take(V.pools.addL)
+            File(l, FxFile("cone")) TC(l, 1, 0, 0, 1)
+            local fire = f.col == "fire"
+            Col(l, fire and CONE_FIRE or STONE, inv * (fire and 0.85 or 0.6))
+            local rr = f.r * (0.55 + 0.45 * easeOut(min(1, k * 2)))
+            LineAt(l, f.x + cos(f.a) * rr / 2, f.y + sin(f.a) * rr / 2 / 1.3, rr, rr * f.spread * 2.2, f.a)
+            if fire then Glow("add", f.x + cos(f.a) * rr * 0.4, f.y + sin(f.a) * rr * 0.3, rr * 0.45, GLOWC.fire, inv * 0.5) end
+        elseif f.kind == "ray" then                      -- the Gnomish Death Ray: a hot red beam sweeping from the hero
+            local a = f.a0 + (f.a1 - f.a0) * min(1, k)
+            local x1, y1 = f.x + cos(a) * f.len, f.y + sin(a) * f.len
+            local al = min(1, k * 8) * min(1, inv * 6)
+            ColLine("trail", f.x, f.y, x1, y1, f.width * 1.6, RAY_RED, 0.55 * al)
+            ColLine("addL", f.x, f.y, x1, y1, f.width * 0.5, RAY_RED, 0.9 * al)
+            ColLine("addL", f.x, f.y, x1, y1, 3, RAY_HOT, al)
+            Tex("add", "fire_core", x1, y1, 46, 46, al, run.t * 6)
+            Glow("add", x1, y1, 40, GLOWC.red, 0.8 * al)
+            Glow("add", f.x, f.y, 22, GLOWC.red, 0.7 * al)
         elseif f.kind == "slash" and k >= 0 then       -- a weapon's swing: a crescent sweeping through its arc
             local col = f.legend and C.STORM or f.exec and { 1, 0.28, 0.22 } or { 1, 0.93, 0.8 }
             local sw = f.r * 2.15 * (0.88 + 0.2 * easeOut(k))
