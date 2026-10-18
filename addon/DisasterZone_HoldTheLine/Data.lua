@@ -79,8 +79,8 @@ D.SPELLS = {
         desc = function(r) return "Holy ground follows you, searing the dead for " .. W .. (5 + 3 * r) .. Y .. " every half second. Radius " .. W .. (64 + 8 * r) .. Y .. "." end },
     avenger = { name = "Avenger's Shield", cls = "PALADIN", school = "holy", icon = "spell_holy_avengersshield", max = 5,
         desc = function(r) return "Hurls a blazing shield that ricochets through " .. W .. (2 + r) .. Y .. " enemies for " .. W .. (18 + 6 * r) .. Y .. " each, then returns." end },
-    exorcism = { name = "Exorcism", cls = "PALADIN", school = "holy", icon = "spell_holy_excorcism_02", max = 5,
-        desc = function(r) return "A pillar of Light smites the " .. W .. (1 + math.floor(r / 2)) .. Y .. " strongest undead for " .. W .. (44 + 16 * r) .. Y .. "." end },
+    exorcism = { name = "Exorcism", cls = "PALADIN", school = "holy", icon = "spell_holy_excorcism_02", max = 5, boss = 1.5,
+        desc = function(r) return "A pillar of Light smites the " .. W .. (1 + math.floor(r / 2)) .. Y .. " strongest undead for " .. W .. (44 + 16 * r) .. Y .. ", half again on a boss." end },
     holywrath = { name = "Holy Wrath", cls = "PALADIN", school = "holy", icon = "spell_holy_excorcism", max = 5,
         desc = function(r) return "Every " .. W .. fx1(7 - 0.6 * r) .. Y .. " s a wave of Light hurls the dead back and stuns them for " .. W .. (12 + 6 * r) .. Y .. "." end },
     frostbolt = { name = "Frostbolt", cls = "MAGE", school = "frost", icon = "spell_frost_frostbolt02", max = 5,
@@ -132,11 +132,80 @@ D.LEGEND = {
     arcane = { need = "intellect", name = "Atiesh, Greatstaff of the Guardian", icon = "inv_staff_medivh",
         desc = "Arcane Missiles never stop: a Karazhan portal opens behind you and pours out a missile every 0.2 s." },
 }
+-- every spell has a legendary: its spell at rank 5 and its blessing in a slot, then a coffer offers it
+D.LEGEND.avenger = { need = "fortitude", name = "Bulwark of Azzinoth", icon = "inv_shield_52",
+    desc = "Avenger's Shield throws two shields at once, and every hit shields you for 10% of the damage it deals." }
+D.LEGEND.exorcism = { need = "intellect", name = "Benediction", icon = "inv_staff_30",
+    desc = "Every pillar leaves holy ground behind it for two seconds that burns the dead, and each one heals you a little." }
+D.LEGEND.holywrath = { need = "might", name = "Sulfuras, Hand of Ragnaros", icon = "inv_hammer_unique_sulfuras",
+    desc = "Holy Wrath's wave becomes a ring of fire: everything it pushes back burns for three seconds." }
+D.LEGEND.frostbolt = { need = "crusader", name = "Tear of the Frozen Throne", icon = "inv_wand_22",
+    desc = "Frostbolt fires a fan of five, and every bolt freezes what it pierces." }
+D.LEGEND.nova = { need = "fortitude", name = "Heart of Northrend", icon = "inv_misc_orb_05",
+    desc = "Frozen enemies shatter when they die, hurting and freezing the dead around them." }
+D.LEGEND.blizzard = { need = "motw", name = "Staff of Endless Winter", icon = "inv_staff_13",
+    desc = "One great blizzard travels with you wherever you go." }
+D.LEGEND.flamestrike = { need = "might", name = "Ember of Al'ar", icon = "inv_staff_54",
+    desc = "Every Flamestrike calls a phoenix that dives through the densest pack and sets it alight." }
+D.LEGEND.thunderclap = { need = "fortitude", name = "Earthshaker", icon = "inv_hammer_04",
+    desc = "Every Thunder Clap cracks the ground: a second ring of stone follows and stuns everything it reaches." }
+D.LEGEND.charge = { need = "cheetah", name = "Warglaive of Azzinoth", icon = "inv_weapon_glave_01",
+    desc = "Charge twice in a row, leaving fel fire burning along the way." }
+D.LEGEND.execute = { need = "crusader", name = "Gorehowl", icon = "inv_axe_62",
+    desc = "Every execute gives back half its cooldown, and the dead under 50% health die outright." }
+D.LEGEND.grenade = { need = "lootarang", name = "Gnomish Death Ray", icon = "inv_gizmo_09",
+    desc = "A death ray sweeps through the nearest pack in place of grenades." }
+D.LEGEND.dragonling = { need = "motw", name = "Onyxia's Brood", icon = "inv_misc_head_dragon_01",
+    desc = "Three whelps fly with you and breathe fire on whatever comes close." }
+
+-- the late game: 4 spell and 4 blessing slots; a level waits min(cap, (level - from) * per) s after the last one (the
+-- XP meanwhile waits on the bar); with a full build every level is a Paragon level (+1% damage, no picker)
+D.SLOTS = { spells = 4, blessings = 4 }
+D.PACE = { from = 10, per = 0.5, cap = 12 }
+D.PARAGON = 0.01
+D.HP_GROW = 0.55             -- (the dead's health grows by this share every 5 minutes of a run)
+
+-- rank 3 of every spell is a path: one of two, kept for the run (ranks 4 and 5 grow it). [1] = path "a", [2] = "b".
+D.PATHS = {
+    consecration = { { name = "Hallowed Ground", desc = "The holy ground spreads " .. W .. "25%" .. Y .. " wider, and burns " .. W .. "25%" .. Y .. " softer." },
+        { name = "Searing Ground", desc = "Every second an enemy stays in it, it burns " .. W .. "15%" .. Y .. " harder (up to " .. W .. "+150%" .. Y .. ")." } },
+    avenger = { { name = "Ricochet", desc = W .. "+2" .. Y .. " bounces and half again the leap, each hit " .. W .. "20%" .. Y .. " lighter." },
+        { name = "Shield Burst", desc = "Every hit bursts in Light: " .. W .. "25%" .. Y .. " of it to all within " .. W .. "60" .. Y .. "; one bounce less." } },
+    exorcism = { { name = "Lingering Light", desc = "Pillars stay " .. W .. "1.5" .. Y .. " s and burn whatever walks into them." },
+        { name = "Many Pillars", desc = W .. "+2" .. Y .. " pillars, each " .. W .. "30%" .. Y .. " weaker." } },
+    holywrath = { { name = "Righteous Wave", desc = "Pushes twice as far and stuns " .. W .. "0.5" .. Y .. " s longer." },
+        { name = "Hammer of Wrath", desc = "Anything but a boss under " .. W .. "25%" .. Y .. " health that the wave touches dies." } },
+    frostbolt = { { name = "Splitting Ice", desc = "On its first hit a bolt splits into " .. W .. "three" .. Y .. "." },
+        { name = "Shatter", desc = "Frozen targets take " .. W .. "three times" .. Y .. " the damage." } },
+    arcane = { { name = "Barrage", desc = W .. "+3" .. Y .. " missiles a volley, with a shorter reach." },
+        { name = "Arcane Focus", desc = "Every missile seeks the toughest foe in sight." } },
+    nova = { { name = "Deep Freeze", desc = "Frozen enemies take " .. W .. "50%" .. Y .. " more from everything." },
+        { name = "Ice Barrier", desc = "The nova also goes off by itself when you are hit (once every " .. W .. "4" .. Y .. " s)." } },
+    blizzard = { { name = "Arctic Winds", desc = "Blizzards drift after you." },
+        { name = "Great Blizzard", desc = "One storm twice the size, cast a little less often." } },
+    flamestrike = { { name = "Pyroclasm", desc = "Every strike stuns for " .. W .. "1" .. Y .. " s." },
+        { name = "Wildfire", desc = "The burning ground spreads wider and burns twice as long." } },
+    cleave = { { name = "Sweeping Strikes", desc = "Every third swing is a full circle." },
+        { name = "Deep Wounds", desc = "Every swing makes them bleed for " .. W .. "3" .. Y .. " s." } },
+    thunderclap = { { name = "Thunderous Reach", desc = "The clap reaches " .. W .. "40%" .. Y .. " further." },
+        { name = "Shockwave", desc = "A wave in front of you instead: twice the reach, and it stuns for " .. W .. "1" .. Y .. " s." } },
+    charge = { { name = "Intercept", desc = "Two charges before the cooldown." },
+        { name = "Juggernaut", desc = "You land with a slam that throws the pack back, " .. W .. "30%" .. Y .. " harder." } },
+    execute = { { name = "Sudden Death", desc = "A kill sometimes (" .. W .. "1 in 6" .. Y .. ") readies Execute again." },
+        { name = "Bloodthirst", desc = "Every execute heals you " .. W .. "3%" .. Y .. "." } },
+    grenade = { { name = "Cluster Bomb", desc = "Each grenade breaks into " .. W .. "three" .. Y .. " small ones." },
+        { name = "The Big One", desc = "One huge blast, half as often." } },
+    dragonling = { { name = "Brood", desc = W .. "+2" .. Y .. " orbs, each a little weaker." },
+        { name = "Dragon's Breath", desc = "A single dragonling that breathes a cone of fire every " .. W .. "1.2" .. Y .. " s." } },
+}
+
 D.CLASSES = {
     PALADIN = { name = "Paladin", sprite = "paladin", start = "consecration", color = { 0.96, 0.55, 0.73 }, hp = 140, speed = 124 },
-    MAGE = { name = "Mage", sprite = "mage", start = "frostbolt", color = { 0.41, 0.8, 0.94 }, hp = 110, speed = 132 },
+    MAGE = { name = "Mage", sprite = "mage", start = "frostbolt", color = { 0.41, 0.8, 0.94 }, hp = 110, speed = 132,
+        dmg = 0.9 },          -- (four slots focus the Mage's ranks early: -10% damage, from the balance pass)
     -- the hardest: everything it does is at arm's length, so it has to stand in the horde (plate takes 5% off)
-    WARRIOR = { name = "Warrior", sprite = "warrior", legendSprite = "warrior_tf", start = "cleave", color = { 0.78, 0.61, 0.43 }, hp = 150, speed = 118, armor = 0.05, melee = true },
+    WARRIOR = { name = "Warrior", sprite = "warrior", legendSprite = "warrior_tf", start = "cleave", color = { 0.78, 0.61, 0.43 }, hp = 150, speed = 118, armor = 0.05, melee = true,
+        dmg = 1.2 },          -- (four slots cost the melee most: +20% damage, from the balance pass)
 }
 D.STAGE = { name = "Eastern Plaguelands", tint = c(222, 212, 226), dark = c(16, 10, 26), darkA = 0.4, fog = 0.15 }
 

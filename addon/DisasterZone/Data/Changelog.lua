@@ -81,6 +81,17 @@ ns.CHANGELOG = {
               "Much less memory churn while you play, so fewer hitches when the game tidies up.",
               "The screen no longer keeps shaking while the game is paused.",
           } },
+          { heading = "Hold the Line: the late game", area = "games", kind = "new", hi = true, open = "games",
+            lead = "Fewer slots and real choices: every spell forks at rank 3, and each has a legendary.", lines = {
+              "Four spell slots and four blessing slots. A card for a new one says which slot it takes.",
+              "Rank 3 of every spell is a path: one of two, picked on its own screen, kept for the run.",
+              "Every spell has a legendary now: its rank 5 and its blessing in a slot, then a coffer.",
+              "From level 10 the levels come at a pace; XP past it waits on the bar for the next ones.",
+              "A full build gets no more cards: every level is a Paragon level, +1% damage.",
+              "The spell lab has a Path switch, to try either path of every spell.",
+              "Balance: Warriors deal 20% more damage, Mages 10% less; Exorcism hits bosses harder.",
+              "Maexxna is tougher (26,000 health) and Thaddius softer (10,000).",
+          } },
           { heading = "Hold the Line: fixes", area = "games", kind = "fixed", open = "games", lines = {
               "Circle warnings (the Abomination's slam, the Lich's nova) no longer show a black box.",
               "The slam's warning fills toward the moment it lands; its rim flares just before.",

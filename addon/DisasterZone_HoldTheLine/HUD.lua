@@ -61,7 +61,7 @@ local function Tinted(pool, file, x, y, w, h, c, a, rot)
     Place(t, x, y, w, h)
     return t
 end
-local XPGLOW = { 200 / 255, 120 / 255, 1 }
+local XPGLOW, PARGLOW, WAITC, WAITW = { 200 / 255, 120 / 255, 1 }, { 1, 200 / 255, 90 / 255 }, { 1, 226 / 255, 150 / 255, 1 }, { 1, 1, 1, 1 }
 local function Text(s, x, y, size, c, font, align, outline)
     local fs = Take(V.pools.hudText)
     local sz = floor(size + 0.5)
@@ -160,16 +160,23 @@ function Rd.DrawHud(v, run)
     V = v
     if run.attract then for _, cd in pairs(v.cdSwipe) do HideSwipe(cd) end return end
     local VW = v.VW
-    -- XP bar
+    -- XP bar: purple, gold once the build is full (Paragon levels); XP past a level waits on it (the pace)
     local bw, bx, by, bh = VW - 16, 8, 6, 12
+    local par = (run.paragon or 0) > 0
     Rect("hudBack", bx, by, bw, bh, 10 / 255, 6 / 255, 16 / 255, 0.85)
     local xw = (bw - 2) * min(1, run.xp / run.xpNext)
     if xw > 0.1 then
-        GradRect("hud", bx + 1, by + 1, xw, bh - 2, 75 / 255, 21 / 255, 128 / 255, 1, 192 / 255, 124 / 255, 1, 1)
+        if par then GradRect("hud", bx + 1, by + 1, xw, bh - 2, 140 / 255, 92 / 255, 16 / 255, 1, 1, 214 / 255, 96 / 255, 1)
+        else GradRect("hud", bx + 1, by + 1, xw, bh - 2, 75 / 255, 21 / 255, 128 / 255, 1, 192 / 255, 124 / 255, 1, 1) end
         if run.xpPulse > 0 then
-            local pu = Rect("hudGlow", bx + 1, by + 1, xw, bh - 2, 220 / 255, 160 / 255, 1, run.xpPulse * 0.5)
-            Tinted("hudGlow", GLOWFILE, bx + xw - 14, by + bh / 2 - 14, 28, 28, XPGLOW, run.xpPulse)
+            Rect("hudGlow", bx + 1, by + 1, xw, bh - 2, 220 / 255, par and 200 / 255 or 160 / 255, par and 120 / 255 or 1, run.xpPulse * 0.5)
+            Tinted("hudGlow", GLOWFILE, bx + xw - 14, by + bh / 2 - 14, 28, 28, par and PARGLOW or XPGLOW, run.xpPulse)
         end
+    end
+    local wait = run.xp >= run.xpNext and ns.HTL.Waiting(run) or 0
+    if wait > 0 then                                -- (a level is ready and waits for the pace: the bar's end breathes)
+        local a = 0.55 + 0.35 * sin(run.t * 5)
+        Tinted("hudGlow", GLOWFILE, bx + bw - 30, by + bh / 2 - 16, 32, 32, par and PARGLOW or XPGLOW, a)
     end
     Rect("hudTop", bx + 1, by + 1, bw - 2, 3, 1, 1, 1, 0.14)
     for k = 1, 19 do Rect("hudTop", bx + bw * k / 20, by + 1, 1, bh - 2, 0, 0, 0, 0.6) end
@@ -177,8 +184,14 @@ function Rd.DrawHud(v, run)
     Rect("hudTop", bx, by + bh - 1, bw, 1, 160 / 255, 138 / 255, 90 / 255)
     Rect("hudTop", bx, by, 1, bh, 160 / 255, 138 / 255, 90 / 255)
     Rect("hudTop", bx + bw - 1, by, 1, bh, 160 / 255, 138 / 255, 90 / 255)
-    if v.lvlN ~= run.level then v.lvlN, v.lvlS = run.level, "Level " .. run.level end
-    Text(v.lvlS, bx + bw - 6, by + 10, 10, WHITE, nil, "right")
+    local key = run.level * 4096 + (run.paragon or 0) * 64 + min(63, wait)
+    if v.lvlN ~= key then
+        v.lvlN = key
+        v.lvlS = par and ("Level " .. run.level .. "  \194\183  Paragon " .. run.paragon .. "  +" .. floor(run.paragon * (D.PARAGON or 0.01) * 100 + 0.5) .. "% damage") or ("Level " .. run.level)
+        v.waitS = wait > 0 and ("+" .. wait .. (wait == 1 and " level waiting" or " levels waiting")) or nil
+    end
+    Text(v.lvlS, bx + bw - 6, by + 10, 10, par and GOLD or WHITE, nil, "right")
+    if v.waitS then local wc = par and WAITW or WAITC wc[4] = 0.7 + 0.3 * sin(run.t * 5) Text(v.waitS, bx + 6, by + 10, 10, wc) end     -- (white on the gold bar)
     local late = run.ST and not run.ST.reaper and run.finaleOn or (not run.ST or run.ST.reaper) and run.t >= 840
     Text(run.lab and "Spell lab" or Clock(run.t), VW / 2, 50, 30, late and TIMER_LATE or TIMER, Rd.MORPHEUS, "center", "THICKOUTLINE")
     -- slots
