@@ -301,7 +301,7 @@ function extraRow(p) {
 // the pointer rests on it. Never with reduced motion; resting whenever the page or the window is away.
 // ---------------------------------------------------------------------------------------------------------------
 
-const FILM_QUIET = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+const FILM_QUIET = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function playFilm(id) {
   const v = $("g-film");
