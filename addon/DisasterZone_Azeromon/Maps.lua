@@ -12,6 +12,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/Maps.lua", .
 -- triggers { x, y, script = fn(G), cond = fn(G) } run when the player steps on the tile
 -- music    a Sound.lua track ("forest", "plains", "tavern", "mine", "cove", ...)
 -- Scripts run as coroutines: G:Say / G:YesNo / G:Battle ... pause until the player answers.
+-- Adding a zone: dev/docs/AZEROMON_NEW_ZONE.md (every table, bake and test, in order).
 local addonName, ns = ...
 
 local Maps = {}

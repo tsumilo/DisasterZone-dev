@@ -40,7 +40,8 @@ CDLoot-dev/
                             Chess, HoldTheLine, Illidan, Trainer; dev/docs/GAME_PACKS.md)
   dev/
     docs/         SPEC.md + SPEC_ADDENDUM_A..H.md (design), research/ (api.md = verified 2.5.6 API notes),
-                  impl/ (per-phase implementation, fix and review reports)
+                  impl/ (per-phase implementation, fix and review reports),
+                  AZEROMON_NEW_ZONE.md (adding an Azeromon zone: every table, bake and test, in order)
     tools/        check.py (static checker), harness.py + wowmock/ (Lua 5.1 mock WoW client), README.md,
                   release.py + patchlib.py (full releases, signed in-game updates), patched_run.py,
                   launchlib.py (the launcher's signed release lists), readme_art.py (this README's art)

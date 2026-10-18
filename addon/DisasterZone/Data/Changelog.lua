@@ -46,13 +46,14 @@ ns.CHANGELOG = {
               "Only the council and the GM keep it, by whisper between them, for 90 days.",
               "Guild > Audit log, or /dz audit. Big changes can pop up too (Settings > Alerts).",
           } },
-          { heading = "Azeromon: light, battles and water", area = "games", kind = "new", open = "games",
-            lead = "Shadows and lamplight on everyone, battles set where you stood, lakes that mirror.", lines = {
+          { heading = "Azeromon: light, battles, water and footsteps", area = "games", kind = "new", open = "games",
+            lead = "Shadows and lamplight on everyone, battles set where you stood, lakes that mirror, steps you hear.", lines = {
               "People cast shadows in their own shape, from the sun or every lit lamp near them.",
               "The side facing a lamp catches its light; guards' lanterns light the people they pass.",
               "Fights take their scene from where you stood: Goldshire's pond, road, houses, Lakeshire.",
               "Battles keep the hour and the weather; at night the street lamp lights the beasts.",
               "Lakes and ponds mirror the shore and ripple; wade into the shallows; rain leaves puddles.",
+              "Footsteps sound of the ground under you: grass, roads, docks, inn floors; mud in the rain.",
               "CONTROLS > Lights and shadows switches it off; /dz azeromon sky night tries any hour.",
           } },
           { heading = "Boss mods", area = "raids", kind = "fixed", open = "settings/bossmods", lines = {
