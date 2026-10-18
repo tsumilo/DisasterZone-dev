@@ -351,8 +351,8 @@ def darkshire_booty_bay_and_lakeshire_keep_their_days_too():
     p = at("darkshire", 23, 12, 14)
     assert p["ello"]["hidden"] and not p["eva"]["hidden"] and p["dsguard"]["y"] in (9, 10, 11), p
     p = at("bootybay", 12, 12, 12)
-    assert (p["heming"]["x"], p["heming"]["y"], p["heming"]["act"]) == (10, 18, "fish"), p
-    assert p["dockhand"]["y"] == 17, p
+    assert (p["heming"]["x"], p["heming"]["y"], p["heming"]["act"]) == (14, 19, "fish"), p   # the west pier's end
+    assert p["dockhand"]["x"] == 23 and 12 <= p["dockhand"]["y"] <= 19, p                     # up and down the east pier
     p = at("bootybayinn", 23, 4, 6)
     assert p["heming"]["visitor"] and p["dockhand"]["visitor"], p
     p = at("lakeshire", 12, 12, 14)

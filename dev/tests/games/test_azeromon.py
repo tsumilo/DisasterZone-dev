@@ -366,7 +366,7 @@ def an_old_save_relearns_the_type_kits():
       local function ids(mon) local out = {} for i, m in ipairs(mon.moves) do out[i] = m.id .. "/" .. m.pp end return out end
       return { v = G.save.v, party = ids(G.save.party[1]), box = ids(G.save.box[1]) }
     """)
-    assert r["v"] == 3, r
+    assert r["v"] == c.eval("return ns.AzeroData.SAVE_VERSION"), r
     # its signature Bite (10, a Shadow hit: power 60) is its filler by 20, then the kit's setup, payoff, a fourth
     assert r["party"][:3] == ["sfx_bite/35", "kfrostshock/20", "kicelance/15"] and len(r["party"]) == 4, r
     assert r["box"] == ["krockthrow/35", "kcrusharmor/20"], r
