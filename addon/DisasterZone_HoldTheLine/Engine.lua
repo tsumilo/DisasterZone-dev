@@ -960,6 +960,10 @@ local function fire(id, s, r, L)
         local pa = s.path
         local n = 1 + floor(r / 2) + (pa == "b" and 2 or 0)
         local vis = visible()
+        for _, e in ipairs(R.en) do      -- (a necropolis master half a screen past the edge is still in sight: Loatheb and the twins stand rooted)
+            if e.M.boss and e.M.naxx and not e.dead and not onScreen(e) and abs(e.x - p.x) < VW and abs(e.y - p.y) < VH then vis[#vis + 1] = e end
+        end
+        for i = #vis, 1, -1 do if vis[i].immune then remove(vis, i) end end     -- (no pillar on what can't be hurt: Heigan channelling, Noth away)
         table.sort(vis, function(a, b) return a.hp > b.hp end)
         if #vis == 0 then s.cd = 0.4 return end
         for i = 1, min(n, #vis) do
