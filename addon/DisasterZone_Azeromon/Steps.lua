@@ -26,12 +26,15 @@ function S.On()
     return ns.AzeroSound == nil or ns.AzeroSound:SfxOn()
 end
 
--- The theme floors that aren't grass: tile name prefix -> ground
-local PREFIX = {
-    { "hallfloor", "hall" }, { "carpet_", "rug" }, { "mfloor", "cave" }, { "bfloor", "cave" },
-    { "sgrass", "road" }, { "ggrass", "road" },            -- the Burning Steppes' ash, the Searing Gorge's earth
-    { "sand", "sand" }, { "floor", "floor" }, { "rug", "rug" }, { "deck", "dock" },
+-- What each theme's own floor (Game.lua THEMES grass1 / grass2) sounds of: one of the StepsArt grounds. Every
+-- theme needs an entry (test_azeromon_zones.py checks; dev/docs/AZEROMON_NEW_ZONE.md).
+S.THEME_GROUND = {
+    elwynn = "grass", westfall = "grass", duskwood = "grass", jungle = "grass", redridge = "grass",
+    steppes = "road", gorge = "road",                      -- the Burning Steppes' ash, the Searing Gorge's earth
+    mine = "cave", blackrock = "cave", arena = "sand", hall = "hall",
 }
+-- Tiles of their own, whatever the theme: tile name prefix -> ground
+local PREFIX = { { "sand", "sand" }, { "floor", "floor" }, { "rug", "rug" }, { "deck", "dock" } }
 local OUTDOOR_WET = { grass = true, tall = true, road = true, sand = true, dock = true }
 
 -- The ground at tile (x, y) of compiled map m: a StepsArt set name without its _wet / _in, or nil (none there).
@@ -47,6 +50,9 @@ function S.Ground(m, x, y)
     local th = m.theme or {}
     if th.path and base:sub(1, #th.path) == th.path then
         return (th.path == "carpet_") and "rug" or "road"
+    end
+    if m.def.theme and (base == th.grass1 or base == th.grass2) then
+        return S.THEME_GROUND[m.def.theme] or (m.def.outdoor and "grass" or "floor")
     end
     for _, p in ipairs(PREFIX) do
         if base:sub(1, #p[1]) == p[1] then return p[2] end

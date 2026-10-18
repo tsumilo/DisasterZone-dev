@@ -7637,6 +7637,9 @@ UI._Hall = function()
                  if t:IsShown() and select(2, t:GetDrawLayer()) == 3 then n = n + 1 end end return n end)() }
 end
 
+UI._ZoneTables = function()           -- the per-theme look tables (test_azeromon_zones.py: every zone has its pieces)
+    return { moods = Amb.MOODS, glint = Amb.GLINT, critters = Amb.CRITTERS, chimneys = Amb.CHIMNEY_KINDS }
+end
 UI._Ambient = function()
     local water = {}
     for _, t in ipairs(Amb.waterTex) do if t:IsShown() then water[#water + 1] = t.file end end

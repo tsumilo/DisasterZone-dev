@@ -96,6 +96,7 @@ local function IsDoor(kind, dx, dy)
     return false
 end
 -- Map themes swap the outdoor tile set. Westfall: dry golden grass, wheat for tall grass, olive trees.
+-- A new theme or zone: dev/docs/AZEROMON_NEW_ZONE.md lists every table and bake it needs.
 local THEMES = {
     elwynn = { grass1 = "grass1", grass2 = "grass2", tall = "tall_", path = "path_", tree = "tree" },
     westfall = { grass1 = "wgrass1", grass2 = "wgrass2", tall = "wtall_", path = "wpath_", tree = "wtree" },
