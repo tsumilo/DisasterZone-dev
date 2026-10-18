@@ -57,6 +57,9 @@ Settings > Discord.
 
 Build a new `dz-deploy.tar.gz`, upload it, then: `tar xzf dz-deploy.tar.gz && bash dz-deploy/update.sh`
 
+No WSL (it can fail to start its VM)? Build the same bundle from Windows in Git Bash with `bash launcher/server/deploy/build-zig.sh`
+(cargo-zigbuild with zig as the C compiler; the one-time setup is at the top of the script). A first build takes ~20 minutes.
+
 ## Testing at home first
 
     set DZ_DATA=C:\Users\emilo\DisasterZoneBot\data

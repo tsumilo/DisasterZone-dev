@@ -1,6 +1,6 @@
 [package]
 name = "dz-server"
-version = "0.1.0"
+version = "0.2.0"
 description = "DisasterZone's guild Discord bot: runs on a server, members' launchers sync the game with it"
 authors = ["tsumilo"]
 license = "MIT"
