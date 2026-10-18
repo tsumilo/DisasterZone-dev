@@ -22,6 +22,7 @@ function stateOf(p) {
   }
   if (p.action === "remove") return ["Leaves with the next update", "wait"];
   if (!p.installed && p.wanted) return ["Installs with the next update", "wait"];
+  if (!p.installed && devCopy()) return ["Not installed", ""];   // (the launcher leaves a development copy alone)
   if (!p.installed) return ["Get · " + fmtBytes(p.gz), "get"];
   if (p.action === "update") return ["Changes in " + check.version, "wait"];
   return [p.diskBytes || p.bytes ? fmtBytes(diskOf(p)) : "Installed", "ok"];
