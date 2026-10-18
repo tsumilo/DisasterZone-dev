@@ -56,6 +56,15 @@ ns.CHANGELOG = {
               "Footsteps sound of the ground under you: grass, roads, docks, inn floors; mud in the rain.",
               "CONTROLS > Lights and shadows switches it off; /dz azeromon sky night tries any hour.",
           } },
+          { heading = "Azeromon: Stranglethorn redrawn", area = "games", kind = "changed", open = "games",
+            lead = "Stranglethorn is cut out of the jungle now: winding roads, a lake, a coast, real caves.", lines = {
+              "Lake Nazferiti has an island; Bal'lal, Zul'Mamwe and Aboraz are ruins you walk round.",
+              "The Wild Shore has a beach, and the Bloodsail ship lies at anchor with a gangplank out.",
+              "Booty Bay rings its harbour, the Salty Sailor, the Baron's hall and warehouses round it.",
+              "Kurzen's Compound, the Mosh'Ogg mound and Crystalvein Mine are winding caves now.",
+              "Gryphons to Booty Bay land by Gringer, on the landing over the bay.",
+              "Standing in the vale when you update? You start on the nearest road.",
+          } },
           { heading = "Boss mods", area = "raids", kind = "fixed", open = "settings/bossmods", lines = {
               "Lurker: the submerge warning, the emerge bar and the next dive now show in the fight.",
               "Leotheras: the demon form timer now learns from your own pulls.",
