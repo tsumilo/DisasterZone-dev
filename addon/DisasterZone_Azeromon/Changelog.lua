@@ -6,6 +6,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/Changelog.lu
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.47", date = "18 October 2026", title = "Footsteps",
+      lines = {
+          "Every step sounds of the ground it lands on.",
+          "Grass, tall grass, roads, sand, docks and the shallows.",
+          "Inn floors, rugs, flagstones and cave floors inside.",
+          "In the rain, roads and grass squelch with mud.",
+          "Stepping into the shallows splashes.",
+          "CONTROLS > Footsteps switches them off.",
+      } },
     { version = "0.46", date = "18 October 2026", title = "Water that reflects",
       lines = {
           "Lakes and ponds mirror the trees and houses on the shore.",

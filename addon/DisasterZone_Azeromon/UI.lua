@@ -5907,6 +5907,11 @@ function KH.OpenControls()
         menu.items[idx].right = onOff("ambience")
         UI:RefreshMenu(menu)
     end }
+    items[#items + 1] = { text = "Footsteps", right = onOff("steps"), onSelect = function(idx, menu)
+        G:Data().steps = G:Data().steps == false
+        menu.items[idx].right = onOff("steps")
+        UI:RefreshMenu(menu)
+    end }
     items[#items + 1] = { text = "Lights and shadows", right = onOff("lights"), onSelect = function(idx, menu)
         G:Data().lights = G:Data().lights == false
         menu.items[idx].right = onOff("lights")

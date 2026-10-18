@@ -19,6 +19,7 @@ local A = ns.AzeroAtlas
 G.GAME_ID = "azeromon"
 G.STEP_TIME = 0.24
 G.RUN_TIME = 0.13
+G.FOOT_LAND = 0.3           -- how far into a step the foot lands (its footstep plays)
 G.TURN_DELAY = 0.09         -- a tap turns in place; holding longer walks
 G.ENCOUNTER_PCT = 12
 
@@ -1452,6 +1453,10 @@ function G:Update(dt)
     if self.moving then
         local mv = self.moving
         mv.t = mv.t + dt
+        if not mv.landed and mv.t >= mv.dur * G.FOOT_LAND then        -- (the footstep: Steps.lua)
+            mv.landed = true
+            if ns.AzeroSteps then ns.AzeroSteps.Footfall(self.save.x, self.save.y, mv.fromX, mv.fromY) end
+        end
         if mv.t >= mv.dur then
             self.moving = nil
             self:OnArrive(mv.forced, mv.fromX, mv.fromY)
