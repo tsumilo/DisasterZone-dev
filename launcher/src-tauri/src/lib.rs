@@ -58,7 +58,7 @@ fn autodetect(s: &mut Settings, installs: &[WowInstall]) {
     if let Some(w) = pick {
         s.wow_root = Some(w.root.clone());
         if !w.flavors.contains(&s.flavor) {
-            s.flavor = w.flavors[0].clone();
+            s.set_flavor(w.flavors[0].clone());
         }
         let _ = state::save(s);
     }
@@ -111,7 +111,7 @@ fn set_wow_path(path: String, flavor: Option<String>) -> Result<Settings> {
     let flavors = wow::flavors_in(&root);
     let mut s = state::load();
     let want = flavor.or(picked_flavor).unwrap_or_else(|| s.flavor.clone());
-    s.flavor = if flavors.contains(&want) { want } else { flavors[0].clone() };
+    s.set_flavor(if flavors.contains(&want) { want } else { flavors[0].clone() });
     s.wow_root = Some(root.to_string_lossy().to_string());
     state::save(&s)?;
     Ok(s)

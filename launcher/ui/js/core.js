@@ -126,6 +126,7 @@ async function runCheck() {
   renderAll();   // (the hero says Checking; without a list yet, the rail, cards and pages show placeholders)
   try {
     check = await api.invoke("check");
+    plainForDev();
     checkErr = null;
     checkedAt = Date.now();
   } catch (e) {
@@ -141,6 +142,14 @@ async function runCheck() {
     pickerAsked = true;
     openPicker({});
   }
+}
+
+// A development copy (build "dev" or linked folders): the launcher leaves it alone, so nothing in it changes or
+// leaves with an update; its games show as installed or not, nothing more.
+function plainForDev() {
+  if (!check || !devCopy()) return;
+  for (const p of check.packs || []) Object.assign(p, { action: p.installed ? "same" : "", wanted: !!p.installed, downloadBytes: 0, changed: 0 });
+  Object.assign(check, { upToDate: true, downloadBytes: 0, changed: 0, removed: 0, needsPick: false });
 }
 
 async function refreshAll() {
