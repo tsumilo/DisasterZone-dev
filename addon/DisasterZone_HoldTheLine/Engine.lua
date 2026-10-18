@@ -960,6 +960,10 @@ local function fire(id, s, r, L)
         local pa = s.path
         local n = 1 + floor(r / 2) + (pa == "b" and 2 or 0)
         local vis = visible()
+        for _, e in ipairs(R.en) do      -- (a necropolis master half a screen past the edge is still in sight: Loatheb and the twins stand rooted)
+            if e.M.boss and e.M.naxx and not e.dead and not onScreen(e) and abs(e.x - p.x) < VW and abs(e.y - p.y) < VH then vis[#vis + 1] = e end
+        end
+        for i = #vis, 1, -1 do if vis[i].immune then remove(vis, i) end end     -- (no pillar on what can't be hurt: Heigan channelling, Noth away)
         table.sort(vis, function(a, b) return a.hp > b.hp end)
         if #vis == 0 then s.cd = 0.4 return end
         for i = 1, min(n, #vis) do
@@ -1001,7 +1005,7 @@ local function fire(id, s, r, L)
         local n = L and (pa == "a" and 3 or 2) or 3 + r + (pa == "a" and 3 or 0)
         local ox, oy = L and (p.x - PORTAL[p.dir + 1] * 2.6) or p.x, L and p.y - 60 or p.y - 46
         for i = 0, n - 1 do
-            local a = -pi / 2 + (i - (n - 1) / 2) * (pa == "a" and not L and 0.3 or 0.45) + vr(-0.2, 0.2)
+            local a = -pi / 2 + (i - (n - 1) / 2) * (pa == "a" and not L and 0.3 or 0.45) + rr(-0.2, 0.2)       -- (seeded: the missiles' paths decide hits)
             R.proj[#R.proj + 1] = { kind = "arcane", x = ox, y = oy, vx = cos(a) * 230, vy = sin(a) * 230, dmg = 6 + 2 * r, life = pa == "a" and 1.45 or 2.4, delay = i * (pa == "a" and 0.045 or 0.07), ox = ox, oy = oy, trail = {},
                 focus = pa == "b" or nil }
         end

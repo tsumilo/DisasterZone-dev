@@ -2497,6 +2497,7 @@ function UI.DevBar()
     local ev, k = E.DevNext(run)
     if ev then Pill("Next: " .. UI.DevLabel(ev), false, function() E.DevJump(run, max(run.t, ev.t * k - 5)) UI.SetFocus(true) UI.DevBar() end) end
     Pill("+5 levels  \194\183  " .. run.level, false, function() E.DevLevels(run, 5) UI.SetFocus(true) UI.DevBar() end)
+    if run.stage == "epl" and E.DevEncounter then Pill("Encounter now", false, function() E.DevEncounter(run) UI.SetFocus(true) end) end
     Pill("God mode " .. (run.god and "on" or "off"), run.god, function() run.god = not run.god UI.SetFocus(true) UI.DevBar() end)
     Pill("Leave", false, function() f:Hide() ShowTitle() end)
     for i = n + 1, #f.pills do f.pills[i]:Hide() end
