@@ -518,9 +518,9 @@ Maps.arena = {
     -- from Sentinel Hill early on, so the roads out stay shut until the Night Watch opens the vale (or the
     -- gryphon would skip the Deadmines and Duskwood)
     edges = {
-        north = { map = "zulmamwe", dx = 4, open = function(G) return G:Flag("badge_nightwatch") end,
+        north = { map = "zulmamwe", dx = 6, open = function(G) return G:Flag("badge_nightwatch") end,
                   closed = "Arena Guard: The jungle roads are closed. Trolls on every path. Darkshire's Night Watch says when they open." },
-        south = { map = "stvsouth", dx = 4, open = function(G) return G:Flag("badge_nightwatch") end,
+        south = { map = "stvsouth", dx = 6, open = function(G) return G:Flag("badge_nightwatch") end,
                   closed = "Arena Guard: Nobody walks to Booty Bay while the jungle roads are closed. Ask Darkshire's Night Watch." },
     },
     signs = {
@@ -1505,7 +1505,7 @@ Maps.darkshire = {
         "T..........==..........T",
         "TTTTTTTTTTT==TTTTTTTTTTT",
     },
-    edges = { west = { map = "duskwood", dy = 0 }, south = { map = "rebelcamp", dx = 0 },
+    edges = { west = { map = "duskwood", dy = 0 }, south = { map = "rebelcamp", dx = 3 },
               north = { map = "threecorners", dx = -2 } },                   -- Redridge (MapsBlackrock.lua)
     triggers = {
         { x = 11, y = 1, cond = function(G) return not G:Flag("badge_blackwater") end, script = function(G) G:RedridgeGate() end },
@@ -1619,8 +1619,8 @@ Maps.darkshire = {
               end
               G.save.money = G.save.money - cost
               if to == "bootybay" then
-                  G:EnterMap("bootybay", 3, 9, "down")
-                  G:Say("You fly south over the whole of Stranglethorn, down to Booty Bay's docks.")
+                  G:EnterMap("bootybay", 22, 5, "right")             -- by Gringer, on the landing over the bay
+                  G:Say("You fly south over the whole of Stranglethorn, down to the landing over Booty Bay.")
               elseif to == "lakeshire" then
                   G:EnterMap("lakeshire", 17, 22, "right")
                   G:Say("You fly north over the forest's edge and Redridge's red hills, down by the lake at Lakeshire.")

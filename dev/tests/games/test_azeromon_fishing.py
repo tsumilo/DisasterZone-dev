@@ -123,7 +123,7 @@ def journeyman_at_75_from_lee_and_expert_from_heming():
     log = texts(c)
     assert any("Journeyman in Fishing" in t for t in log), log
     assert c.eval("return ns.AzeroCraft.Cap('fishing')") == 150
-    c.eval("ns.Azero.save.prof.fishing = 130 ns.Azero:EnterMap('bootybay', 10, 17, 'down', true) ns.Azero:PressA()")
+    c.eval("ns.Azero.save.prof.fishing = 130 ns.Azero:EnterMap('bootybay', 14, 18, 'down', true) ns.Azero:PressA()")
     texts(c)
     c.eval("ns.Azero:Advance(1)")
     log = texts(c)

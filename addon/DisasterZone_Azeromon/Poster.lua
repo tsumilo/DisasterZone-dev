@@ -23,8 +23,12 @@ P.SHOTS = {
     { map = "route1", period = "day", path = { { 14.5, 25 }, { 14.5, 15 }, { 10.5, 15 }, { 10.5, 4 } } },
     { map = "westfall", period = "dusk", path = { { 11.5, 32 }, { 11.5, 23.5 }, { 20, 23.5 } } },
     { map = "darkshire", period = "night", path = { { 11.5, 19 }, { 11.5, 9.5 }, { 22, 9.5 } } },
-    { map = "stvnorth", period = "day", path = { { 15.5, 30 }, { 15.5, 17 }, { 16, 17 }, { 16, 1 } } },
-    { map = "wildshore", period = "day", path = { { 11.5, 27 }, { 11.5, 21.5 }, { 16, 21.5 }, { 16, 2 } } },
+    -- (Stranglethorn redrawn, 0.48) up the winding road between Nesingwary's camp and Lake Nazferiti
+    { map = "stvnorth", period = "day", path = { { 13.5, 19 }, { 13.5, 18 }, { 12.5, 18 }, { 12.5, 14 }, { 13.5, 14 },
+                                                 { 13.5, 8 }, { 14.5, 8 }, { 14.5, 7 }, { 15.5, 7 }, { 15.5, 5 },
+                                                 { 16.5, 5 }, { 16.5, 1 } } },
+    -- down the road, then across the beach to the Bloodsail gangplank
+    { map = "wildshore", period = "day", path = { { 13.5, 21 }, { 13.5, 13 }, { 24, 13 } } },
 }
 
 -- the zones' moods (UI.lua Amb.MOODS: the same tints, mist and shafts)
