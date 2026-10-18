@@ -368,6 +368,53 @@ function G.MigrateGoldshire(s)
     end
 end
 
+-- Saves from before Stranglethorn was redrawn (0.48) hold spots on the old, boxy maps (MapsStranglethorn.lua, rev 2):
+-- a player standing on one goes to its nearest road or boardwalk (in a cave, to the foot of its ladder), and the
+-- Rebel Camp's revive point moves to Brother Nimetz's fire.
+G.STV_REDRAWN = { rebelcamp = true, kurzen = true, stvnorth = true, zulmamwe = true, moshogg = true, stvsouth = true,
+                  crystalvein = true, wildshore = true, bootybay = true, jaguero = true }
+
+-- The road tile of map `id` nearest (x, y) - a cave: the nearest spot a warp in lands on - or nil.
+function G.RoadSpot(id, x, y)
+    local m = G.Compile(id)
+    if not m then return nil end
+    local spots = {}
+    if m.def.cave then
+        for _, d in pairs(Maps) do
+            if type(d) == "table" then
+                for _, wp in ipairs(d.warps or {}) do
+                    if wp.map == id then spots[#spots + 1] = { wp.tx, wp.ty } end
+                end
+            end
+        end
+    else
+        for ty = 0, m.h - 1 do
+            local row = m.def.rows[ty + 1]
+            for tx = 0, m.w - 1 do
+                local ch = row:sub(tx + 1, tx + 1)
+                if (ch == "=" or ch == "D") and not m.solid[m.key(tx, ty)] then spots[#spots + 1] = { tx, ty } end
+            end
+        end
+    end
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    local best, bd
+    for _, p in ipairs(spots) do
+        local d = (p[1] - x) * (p[1] - x) + (p[2] - y) * (p[2] - y)
+        if not bd or d < bd then best, bd = p, d end
+    end
+    if best then return G.OpenSpot(m, best[1], best[2]) end
+end
+
+function G.MigrateStranglethorn(s)
+    if G.STV_REDRAWN[s.map] then
+        local x, y = G.RoadSpot(s.map, s.x, s.y)
+        if x then s.x, s.y = x, y end
+    end
+    if type(s.respawn) == "table" and s.respawn.map == "rebelcamp" then
+        s.respawn.x, s.respawn.y, s.respawn.face = 7, 9, "up"
+    end
+end
+
 -- Saves from before the battle rework (0.37): every beast relearns its type's kit (Data D.TYPE_KIT) at its level,
 -- with full PP. (Its old moves are gone from the learn lists; the Pet Trainer swaps the fourth slot.)
 function G.MigrateKits(s)
@@ -389,6 +436,7 @@ function G:Load()
     self.save = s
     if (tonumber(s.v) or 1) < 2 then G.MigrateGoldshire(s) end
     if (tonumber(s.v) or 1) < 3 then G.MigrateKits(s) end
+    if (tonumber(s.v) or 1) < 4 then G.MigrateStranglethorn(s) end
     s.v = D.SAVE_VERSION
     if ns.AzeroAftermath then ns.AzeroAftermath.Migrate() end
     local function clean(list)

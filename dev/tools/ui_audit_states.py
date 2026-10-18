@@ -2402,6 +2402,15 @@ STATES = [
     ("Games - Azeromon Darkshire", azero_at("darkshire", 7, 8)),
     # cast shadows and contact lines (2026-10-17): the Rebel Camp's tents and mine, Westfall's windmill field
     ("Games - Azeromon Rebel Camp", azero_at("rebelcamp", 16, 6, "ns.AzeroUI.tipsOff = true")),
+    # Stranglethorn redrawn (0.48): the lake, the ruins, the beach and ship, Booty Bay round its harbour, a cave
+    ("Games - Azeromon Northern Stranglethorn", azero_at("stvnorth", 14, 10, "ns.AzeroUI.tipsOff = true")),
+    ("Games - Azeromon Zul'Mamwe", azero_at("zulmamwe", 21, 19, "ns.AzeroUI.tipsOff = true")),
+    ("Games - Azeromon Wild Shore", azero_at("wildshore", 22, 13, "ns.AzeroUI.tipsOff = true")),
+    ("Games - Azeromon Booty Bay", azero_at("bootybay", 11, 13, "ns.AzeroUI.tipsOff = true")),
+    ("Games - Azeromon Booty Bay east", azero_at("bootybay", 27, 13, "ns.AzeroUI.tipsOff = true")),
+    ("Games - Azeromon Booty Bay landing", azero_at("bootybay", 18, 6, "ns.AzeroUI.tipsOff = true")),
+    ("Games - Azeromon Kurzen's Compound", azero_at("kurzen", 21, 11, "ns.AzeroUI.tipsOff = true")),
+    ("Games - Azeromon Crystalvein Mine", azero_at("crystalvein", 16, 9, "ns.AzeroUI.tipsOff = true")),
     ("Games - Azeromon Westfall windmill", azero_at("westfall", 13, 11, "ns.AzeroUI.tipsOff = true")),
     # Blackrock (0.25): Lakeshire by day, the Steppes' ash and lava, the mountain's cavern, Thorium Point
     ("Games - Azeromon Lakeshire", azero_at("lakeshire", 12, 10, "ns.Azero.clockHour = 12")),

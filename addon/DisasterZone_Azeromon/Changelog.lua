@@ -6,6 +6,17 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("DisasterZone_Azeromon/Changelog.lu
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.48", date = "18 October 2026", title = "Stranglethorn redrawn",
+      lines = {
+          "Stranglethorn's maps are cut out of the jungle, not boxes.",
+          "The roads wind; Lake Nazferiti has an island and a shore.",
+          "Ruins you walk round: Bal'lal, Zul'Mamwe, Aboraz.",
+          "The Wild Shore has a beach, the Bloodsail ship at anchor.",
+          "Booty Bay rings its harbour, houses round the boardwalk.",
+          "Kurzen's, Mosh'Ogg and Crystalvein are real caves now.",
+          "Gryphons land by Gringer, up on the landing over the bay.",
+          "Stood in the vale? You'll wake on the nearest road.",
+      } },
     { version = "0.46", date = "18 October 2026", title = "Water that reflects",
       lines = {
           "Lakes and ponds mirror the trees and houses on the shore.",
