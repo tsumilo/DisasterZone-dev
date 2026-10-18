@@ -183,9 +183,15 @@ function demoApi() {
         }
         case "backups": return backups.slice();
         case "backup_now": {
-          await wait(900);
+          await wait(1600);
           const id = backup("manual", Object.keys(disk).sort(), []);
           return id;
+        }
+        case "delete_backup": {
+          const i = backups.findIndex((x) => x.id === args.id);
+          if (i < 0) throw "that backup is not there any more";
+          backups.splice(i, 1);
+          return null;
         }
         case "restore": {
           const b = backups.find((x) => x.id === args.id);
@@ -198,6 +204,17 @@ function demoApi() {
         case "set_settings": for (const k in args) if (args[k] != null) settings[k] = args[k]; return { ...settings };
         case "set_wow_path": if (args.flavor) settings.flavor = args.flavor; return { ...settings };
         case "sync_status": return { ...demoSync };
+        case "presence": {
+          // the guild's linked launchers: four in game, a few earlier
+          const t = Math.floor(Date.now() / 1000);
+          const on = (user, character, cls, spec, mins) => ({ user, character, class: cls, spec, inGame: true, since: t - mins * 60, seen: t - 40 });
+          const off = (user, character, cls, spec, hours) => ({ user, character, class: cls, spec, inGame: false, since: 0, seen: t - hours * 3600 });
+          return { linked: demoSync.linked, now: t, error: null, people: [
+            on("Grumpy", "Grumpykat-Thunderstrike", "WARRIOR", "Protection", 132), on("Tsumi", "Tsumil-Thunderstrike", "PALADIN", "Retribution", 47),
+            on("Moon", "Moonwhisper-Thunderstrike", "DRUID", "Restoration", 21), on("vex", "Vexmage-Thunderstrike", "MAGE", "Fire", 4),
+            off("Gina", "Gina-Thunderstrike", "PRIEST", "Holy", 3), off("Shadow", "Shadowmelder-Thunderstrike", "WARLOCK", "Affliction", 26),
+            off("Lightbringer", "Lightbringer-Thunderstrike", "PALADIN", "Holy", 70)] };
+        }
         case "sync_link":
           if (args.code.toUpperCase() !== "DEMO1234") throw "That code is unknown or older than 15 minutes: type /launcher in Discord for a new one. (Demo: DEMO1234)";
           demoSync = { ...demoSync, linked: true, user: "Tsumil", last: Math.floor(Date.now() / 1000), waiting: 2 };

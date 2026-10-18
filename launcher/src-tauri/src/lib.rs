@@ -131,6 +131,7 @@ fn set_settings(
     auto_install: Option<bool>,
     autostart: Option<bool>,
     sync_server: Option<String>,
+    show_presence: Option<bool>,
 ) -> Result<Settings> {
     let mut s = state::load();
     if let Some(c) = channel {
@@ -165,6 +166,9 @@ fn set_settings(
     }
     if let Some(v) = sync_server {
         s.sync_server = v.trim().to_string();
+    }
+    if let Some(v) = show_presence {
+        s.show_presence = v;
     }
     state::save(&s)?;
     background::sync_tray(&app).map_err(|e| crate::core::Error::Msg(e.to_string()))?;
@@ -280,7 +284,7 @@ async fn check() -> Result<Check> {
     let src = Source::parse(&s.source())?;
     let key = ReleaseKey::builtin();
     let m = src.manifest(&key, &s.channel).await?;
-    let plan = install::make_plan(&lay, &m, &install::wanted(&lay, &m, &s.packs))?;
+    let plan = install::check_plan(&lay, &m, &install::wanted(&lay, &m, &s.packs))?;
     Ok(Check {
         key_id: key.id,
         packs: pack_views(&lay, &m, &s, &plan),
@@ -366,6 +370,22 @@ async fn backup_now(busy: State<'_, Busy>) -> Result<String> {
     let lay = layout(&s)?;
     let keep = s.keep_backups;
     tokio::task::spawn_blocking(move || install::backup_now(&lay, keep))
+        .await
+        .map_err(|e| crate::core::Error::Msg(e.to_string()))?
+}
+
+/// The title bar's "online now": who of the guild's linked launchers is in game (asked once a minute while shown).
+#[tauri::command]
+async fn presence() -> sync::PresenceView {
+    sync::presence().await
+}
+
+/// Backups > the trash can on a row: that backup goes for good.
+#[tauri::command]
+async fn delete_backup(id: String, busy: State<'_, Busy>) -> Result<()> {
+    let _guard = busy.0.try_lock().map_err(|_| crate::core::Error::Msg("already working".into()))?;
+    let lay = layout(&state::load())?;
+    tokio::task::spawn_blocking(move || install::delete_backup(&lay, &id))
         .await
         .map_err(|e| crate::core::Error::Msg(e.to_string()))?
 }
@@ -521,6 +541,8 @@ pub fn run() {
             update,
             backups,
             backup_now,
+            delete_backup,
+            presence,
             restore,
             set_packs,
             remove_pack,

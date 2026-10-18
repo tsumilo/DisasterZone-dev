@@ -211,6 +211,7 @@ function gameCard(p) {
   if (!look.generic) {
     art.append(img("games/" + p.id + ".jpg", "bg"), img("games/" + p.id + "-logo.png", "lg" + (look.pix ? " px" : ""), p.title));
   } else art.append(el("div", "lt", p.title));
+  if (look.film) trailerOnHover(card, art, p.id);
   if (p.installed) {
     const c = el("span", "chip ok small");
     c.append(el("span", "pip"), "Installed");
@@ -294,6 +295,61 @@ function extraRow(p) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Films: Azeromon, Hold the Line and The Binding of Illidan as their hub covers play in game (films/<id>.webm, made
+// by dev/tools/film_covers.py). Behind the game's page, over its painting once it plays; in a Library card while
+// the pointer rests on it. Never with reduced motion; resting whenever the page or the window is away.
+// ---------------------------------------------------------------------------------------------------------------
+
+const FILM_QUIET = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+function playFilm(id) {
+  const v = $("g-film");
+  v.classList.remove("on");
+  if (!id || FILM_QUIET) {
+    v.pause();
+    v.removeAttribute("src");
+    v.load();
+    return;
+  }
+  v.onplaying = () => v.classList.add("on");
+  v.src = "films/" + id + ".webm";
+  v.play().catch(() => { /* (not playable: the painting stays) */ });
+}
+
+function filmRest(rest) {
+  const v = $("g-film");
+  if (!v || !v.getAttribute("src")) return;
+  if (rest) v.pause();
+  else v.play().catch(() => {});
+}
+
+function trailerOnHover(card, art, id) {
+  if (FILM_QUIET) return;
+  let timer = null, v = null;
+  card.addEventListener("mouseenter", () => {
+    timer = setTimeout(() => {
+      v = el("video", "trailer");
+      v.muted = true;
+      v.loop = true;
+      v.playsInline = true;
+      v.setAttribute("aria-hidden", "true");
+      v.onplaying = () => v && v.classList.add("on");
+      v.src = "films/" + id + ".webm";
+      art.querySelector("img.bg").after(v);
+      v.play().catch(() => {});
+    }, 350);
+  });
+  card.addEventListener("mouseleave", () => {
+    clearTimeout(timer);
+    if (!v) return;
+    const gone = v;
+    v = null;
+    gone.classList.remove("on");
+    setTimeout(() => { gone.pause(); gone.remove(); }, 500);
+  });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // A game's page
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -310,6 +366,7 @@ function renderGame(id) {
     const art = $("g-art");
     art.src = look.generic ? "art/hero.jpg" : "games/" + p.id + ".jpg";
     art.classList.toggle("px", !!look.pix);
+    playFilm(look.film ? p.id : null);
     sprinkle($("g-motes"), 12, look.motes);
     for (const n of page.querySelectorAll(".hero-body > *")) { n.style.animation = "none"; void n.offsetWidth; n.style.animation = ""; }
   }
@@ -660,9 +717,12 @@ async function takeOut(p, done) {
     renderAll();
     toast(done + (status.wowRunning ? " It leaves the game at your next /reload." : ""), true);
     await new Promise((r) => setTimeout(r, 900));
+    // (shown as gone at once: the check after it only confirms)
+    Object.assign(p, { installed: false, wanted: false, chosen: false, action: "", diskBytes: 0 });
   }
   removing = null;
   working = false;
+  if (ok) renderAll();
   await refreshAll();
 }
 

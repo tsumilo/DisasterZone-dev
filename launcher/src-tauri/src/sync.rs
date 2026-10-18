@@ -8,7 +8,7 @@ use crate::core::bridge;
 use crate::core::error::msg;
 use crate::core::state;
 use crate::core::Result;
-use dz_proto::{LinkDown, LinkUp, SyncDown, SyncUp};
+use dz_proto::{GameNow, LinkDown, LinkUp, Presence, PresenceDown, SyncDown, SyncUp};
 use serde::Serialize;
 use std::io::Write;
 use std::sync::Mutex;
@@ -42,6 +42,8 @@ static VIEW: Mutex<Option<SyncView>> = Mutex::new(None);
 static HAVE: Mutex<String> = Mutex::new(String::new());
 /// When the game last saved, as uploaded (a check for records alone doesn't upload the same save again).
 static SENT: Mutex<Option<SystemTime>> = Mutex::new(None);
+/// The character played last, read when the game's saves change (player.rs reads the saved variables).
+static WHO: Mutex<Option<(Option<SystemTime>, GameNow)>> = Mutex::new(None);
 /// (one sync at a time: the loop and the window's buttons)
 static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -163,6 +165,7 @@ pub async fn sync_now(app: &AppHandle) -> Result<SyncView> {
         launcher: env!("CARGO_PKG_VERSION").into(),
         bridge: if fresh { bridge::read_bridge_db(&dir) } else { None },
         have,
+        game: Some(game_now(&dir, saved, s.show_presence)),
     };
     let body = gzip(&serde_json::to_vec(&up).unwrap_or_default());
     let result: Result<SyncDown> = async {
@@ -203,6 +206,57 @@ pub async fn sync_now(app: &AppHandle) -> Result<SyncView> {
             set_view(app, |v| v.error = Some(text.clone()));
             Err(e)
         }
+    }
+}
+
+/// This PC's game for the guild's "online now": running or not, as the character played last (whom the game shows
+/// at login). Hidden when the member turned "Show me as in game" off.
+fn game_now(dir: &std::path::Path, saved: Option<SystemTime>, show: bool) -> GameNow {
+    if !show {
+        return GameNow { hidden: true, ..Default::default() };
+    }
+    let mut who = WHO.lock().unwrap();
+    if who.as_ref().map(|w| w.0) != Some(saved) {
+        let c = crate::core::player::read(dir, now() as i64).character;
+        let g = GameNow {
+            character: c.as_ref().map(|c| c.key.clone()),
+            class: c.as_ref().and_then(|c| c.class.clone()),
+            spec: c.as_ref().and_then(|c| c.spec.clone()),
+            ..Default::default()
+        };
+        *who = Some((saved, g));
+    }
+    GameNow { running: crate::core::wow::running(), ..who.as_ref().unwrap().1.clone() }
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresenceView {
+    pub linked: bool,
+    pub now: u64,
+    pub people: Vec<Presence>,
+    pub error: Option<String>,
+}
+
+/// Who of the guild is in game (GET /api/presence); nothing to show while this launcher isn't linked.
+pub async fn presence() -> PresenceView {
+    let Some(k) = key() else { return PresenceView::default() };
+    let got: Result<PresenceDown> = async {
+        let r = client()?
+            .get(format!("{}/api/presence", server()))
+            .bearer_auth(&k)
+            .send()
+            .await
+            .map_err(|e| crate::core::Error::Net(format!("can't reach the bot's server: {e}")))?;
+        if !r.status().is_success() {
+            return msg(refusal(r).await);
+        }
+        r.json::<PresenceDown>().await.map_err(|e| crate::core::Error::Net(e.to_string()))
+    }
+    .await;
+    match got {
+        Ok(d) => PresenceView { linked: true, now: d.now, people: d.people, error: None },
+        Err(e) => PresenceView { linked: true, error: Some(e.to_string()), ..Default::default() },
     }
 }
 

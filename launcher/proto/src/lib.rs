@@ -118,6 +118,55 @@ pub struct SyncUp {
     /// the `hash` of the last answer this launcher wrote: an unchanged answer comes back as `same` (saves traffic)
     #[serde(default)]
     pub have: String,
+    /// is World of Warcraft running on this PC, and as whom (the character played last): the guild's "online now".
+    /// None from launchers before 0.5.0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<GameNow>,
+}
+
+/// What a launcher says about its PC's game at each sync.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GameNow {
+    pub running: bool,
+    /// "Name-Realm" of the character played last (the one who logs in next, most often)
+    #[serde(default)]
+    pub character: Option<String>,
+    /// the class file name ("PALADIN") and spec label ("Retribution") the addon saved for that character
+    #[serde(default)]
+    pub class: Option<String>,
+    #[serde(default)]
+    pub spec: Option<String>,
+    /// the member turned "Show me as in game" off: they leave the list
+    #[serde(default)]
+    pub hidden: bool,
+}
+
+/// GET /api/presence (Authorization: Bearer <member key>): who of the guild's linked launchers is in game, and when
+/// the others last were.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PresenceDown {
+    pub now: u64,
+    pub people: Vec<Presence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Presence {
+    /// the Discord name the launcher is linked to
+    pub user: String,
+    #[serde(default)]
+    pub character: Option<String>,
+    #[serde(default)]
+    pub class: Option<String>,
+    #[serde(default)]
+    pub spec: Option<String>,
+    pub in_game: bool,
+    /// in game: since when (unix seconds); else 0
+    pub since: u64,
+    /// the last time the game was seen running (0: never)
+    pub seen: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

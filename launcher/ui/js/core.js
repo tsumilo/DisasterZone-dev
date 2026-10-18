@@ -62,20 +62,28 @@ function confirmBox(title, body, okText, danger) {
 const navHist = { stack: [{ page: "home", arg: null }], at: 0 };
 function here() { return navHist.stack[navHist.at]; }
 
+// (a page opened anew starts at its top; back and forward bring back where it was scrolled to)
+function scroller(page) { const p = $("page-" + page); return p ? p.querySelector(".scroll") : null; }
+function keepScroll() { const s = scroller(here().page); if (s) here().scroll = s.scrollTop; }
+function putScroll(y) { const s = scroller(here().page); if (s) s.scrollTop = y || 0; }
+
 function go(page, arg) {
   const cur = here();
   if (cur.page === page && (cur.arg || null) === (arg || null)) { showPage(page, arg); return; }
+  keepScroll();
   navHist.stack = navHist.stack.slice(0, navHist.at + 1);
   navHist.stack.push({ page, arg: arg || null });
   if (navHist.stack.length > 60) navHist.stack.shift();
   navHist.at = navHist.stack.length - 1;
   showPage(page, arg);
+  putScroll(0);
 }
-function goBack() { if (navHist.at > 0) { navHist.at--; showPage(here().page, here().arg); } }
-function goForward() { if (navHist.at < navHist.stack.length - 1) { navHist.at++; showPage(here().page, here().arg); } }
+function goBack() { if (navHist.at > 0) { keepScroll(); navHist.at--; showPage(here().page, here().arg); putScroll(here().scroll); } }
+function goForward() { if (navHist.at < navHist.stack.length - 1) { keepScroll(); navHist.at++; showPage(here().page, here().arg); putScroll(here().scroll); } }
 
 function showPage(page, arg) {
   for (const p of document.querySelectorAll(".page")) p.classList.toggle("active", p.id === "page-" + page);
+  filmRest(page !== "game");
   for (const b of document.querySelectorAll(".nav [data-go]")) b.classList.toggle("on", b.dataset.go === page);
   for (const b of document.querySelectorAll(".foot [data-go]")) b.classList.toggle("on", b.dataset.go === page);
   $("nav-back").disabled = navHist.at === 0;
@@ -88,7 +96,7 @@ function showPage(page, arg) {
   }
   if (page === "game") renderGame(arg);
   if (page === "notes") openNotes(arg);
-  if (page === "backups") renderBackups();
+  if (page === "backups") { backupsEnter = true; renderBackups(); }
   if (page === "settings") { renderSettings(); if (arg) showSection(arg); settingsSpy(); }
 }
 
@@ -183,9 +191,9 @@ function renderMe() {
 // ---------------------------------------------------------------------------------------------------------------
 
 const GAME_LOOK = {
-  azeromon: { kicker: "Adventure", accent: "134, 216, 107", pix: true, cmd: "/dz azeromon", motes: ["au", "", "au"], tagline: "Tame and battle the beasts of Elwynn." },
-  holdtheline: { kicker: "Survivors", accent: "240, 112, 52", cmd: "/dz htl", motes: ["em", "au", "em"], tagline: "Fifteen minutes. One class. The whole Scourge." },
-  illidan: { kicker: "Roguelike", accent: "120, 214, 90", cmd: "/dz illidan", motes: ["", "au"], tagline: "Five floors of the Black Temple, new every run." },
+  azeromon: { kicker: "Adventure", accent: "134, 216, 107", pix: true, film: true, cmd: "/dz azeromon", motes: ["au", "", "au"], tagline: "Tame and battle the beasts of Elwynn." },
+  holdtheline: { kicker: "Survivors", accent: "240, 112, 52", film: true, cmd: "/dz htl", motes: ["em", "au", "em"], tagline: "Fifteen minutes. One class. The whole Scourge." },
+  illidan: { kicker: "Roguelike", accent: "120, 214, 90", film: true, cmd: "/dz illidan", motes: ["", "au"], tagline: "Five floors of the Black Temple, new every run." },
   bingo: { kicker: "Raid nights", accent: "242, 196, 64", cmd: "/dz bingo", motes: ["au", "au", ""], tagline: "Squares fill in as the raid happens." },
   chess: { kicker: "The Gamesman's Hall", accent: "150, 170, 240", rooms: true, cmd: "/dz chess", motes: ["", "", "au"], tagline: "Play Medivh's echo, or a guildmate." },
   trainer: { kicker: "Practice", accent: "79, 211, 224", rooms: true, cmd: "/dz trainer", motes: ["", "au"], tagline: "Practise each boss in 3D before the pull." },
@@ -290,6 +298,7 @@ async function doUpdate() {
   working = updating = false;
   installing = null;
   endProgress();
+  if (ok) { settleUpdated(); renderAll(); }
   await refreshAll();
   // games a Get click asked for while it ran: a second update installs them (after a failed one they just stay
   // chosen, for the next update)
@@ -298,6 +307,18 @@ async function doUpdate() {
     if (ok && check && !check.upToDate && !check.needsPick) await doUpdate();
     else renderAll();
   }
+}
+
+// What a finished update is known to have done, shown at once: the check after it (the release list fetched, the
+// folders read again) only confirms it a moment later, instead of the old state lingering until it is back.
+function settleUpdated() {
+  if (!check) return;
+  for (const p of packs()) {
+    if (p.action === "install" || p.action === "update") Object.assign(p, { installed: true, wanted: true, action: "same", diskBytes: p.bytes, downloadBytes: 0, changed: 0 });
+    else if (p.action === "remove") Object.assign(p, { installed: false, wanted: false, action: "", diskBytes: 0, downloadBytes: 0 });
+  }
+  Object.assign(check, { upToDate: true, downloadBytes: 0, changed: 0, removed: 0, hold: false });
+  if (status && status.installed) Object.assign(status.installed, { present: true, version: check.version, build: check.build });
 }
 
 // Play (play.rs): the game already running comes to the front; else the chosen folder's version through Battle.net,

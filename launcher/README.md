@@ -16,6 +16,15 @@ next raid with its sign-ups: `DisasterZoneDB.launcher`, which the addon writes a
 Hold the Line's page works out the week's challenge as the game does (Social.lua), with the region from
 `WTF/Config.wtf`'s portal and the challenge names from the release's notes (`release.py` puts `htlWeekly` there).
 
+Azeromon, Hold the Line and The Binding of Illidan have films (`ui/films/<id>.webm`): their Games-hub covers as they
+play in game, drawn frame by frame in the test harness by `dev/tools/film_covers.py` (`--still` to judge one frame,
+`--encode` to encode again; about 15, 15 and 25 minutes to draw). They play behind the game's page and in its Library
+card on hover, never with reduced motion.
+
+The title bar's "online now" lists who of the guild is in game: every linked launcher tells the bot at each sync
+whether the game runs and as whom (`SyncUp.game`, Settings > Discord "Show me as in game" turns it off), the bot keeps
+a last-seen per member (`server/src/presence.rs`), and the window asks `GET /api/presence` once a minute.
+
 ## How releases reach it
 
 1. `dev\tools\release.py full` — the release zip, as before.

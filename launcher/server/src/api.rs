@@ -2,6 +2,7 @@
 //!   GET  /api/health           is the bot up, how old is its guild data, signatures left
 //!   POST /api/link  { code }   a /launcher code -> the launcher's member key
 //!   POST /api/sync             (Bearer key) the game's last save in, the signed records + channels + links out
+//!   GET  /api/presence         (Bearer key) who of the guild is in game, when the others last were (presence.rs)
 //! Behind a TLS proxy (Caddy) on the server; plain HTTP on 127.0.0.1 when testing at home.
 
 use crate::bridge;
@@ -9,7 +10,7 @@ use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use dz_proto::{LinkDown, LinkUp, SyncDown, SyncUp};
+use dz_proto::{LinkDown, LinkUp, PresenceDown, SyncDown, SyncUp};
 use serde_json::{json, Value};
 use std::io::Read;
 
@@ -27,6 +28,7 @@ pub fn router() -> Router {
         .route("/api/health", get(health))
         .route("/api/link", post(link))
         .route("/api/sync", post(sync))
+        .route("/api/presence", get(presence))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY))
 }
 
@@ -61,16 +63,31 @@ fn body_json(headers: &HeaderMap, body: &[u8]) -> Result<SyncUp, Fail> {
 /// (one upload merged at a time)
 static MERGING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-async fn sync(headers: HeaderMap, body: Bytes) -> Result<Json<SyncDown>, Fail> {
-    let now = crate::bot::unix_now();
+/// The member key of a request (Authorization: Bearer <key>), checked.
+fn member_of(headers: &HeaderMap, now: u64) -> Result<crate::members::Member, Fail> {
     let key = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or_else(|| fail(StatusCode::UNAUTHORIZED, "no member key"))?;
-    let member = crate::members::check(key, now)
-        .ok_or_else(|| fail(StatusCode::UNAUTHORIZED, "This launcher's key was removed: link it again with /launcher in Discord."))?;
+    crate::members::check(key, now)
+        .ok_or_else(|| fail(StatusCode::UNAUTHORIZED, "This launcher's key was removed: link it again with /launcher in Discord."))
+}
+
+/// Who is in game (a launcher asks once a minute while its window is open).
+async fn presence(headers: HeaderMap) -> Result<Json<PresenceDown>, Fail> {
+    let now = crate::bot::unix_now();
+    member_of(&headers, now)?;
+    Ok(Json(crate::presence::list(now)))
+}
+
+async fn sync(headers: HeaderMap, body: Bytes) -> Result<Json<SyncDown>, Fail> {
+    let now = crate::bot::unix_now();
+    let member = member_of(&headers, now)?;
     let up = body_json(&headers, &body)?;
+    if let Some(g) = up.game.as_ref() {
+        crate::presence::report(&member.user, &member.name, g, now);
+    }
     if let Some(db) = up.bridge.as_ref() {
         // what the game took leaves the queue; refusals go to whoever made them
         match bridge::take_applied(db.get("applied")) {

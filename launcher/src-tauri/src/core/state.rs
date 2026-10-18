@@ -50,6 +50,8 @@ pub struct Settings {
     pub packs: BTreeMap<String, bool>,
     /// the one-time games picker was answered (until then the tray doesn't install a release with games)
     pub packs_picked: bool,
+    /// Settings > Discord "Show me as in game": the guild's "online now" lists this PC's game (sync.rs)
+    pub show_presence: bool,
 }
 
 impl Default for Settings {
@@ -76,6 +78,7 @@ impl Default for Settings {
             sync_user: String::new(),
             packs: BTreeMap::new(),
             packs_picked: false,
+            show_presence: true,
         }
     }
 }

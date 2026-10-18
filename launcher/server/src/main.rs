@@ -21,6 +21,7 @@ mod items;
 mod members;
 mod merge;
 mod posts;
+mod presence;
 mod remind;
 mod render;
 mod signup;

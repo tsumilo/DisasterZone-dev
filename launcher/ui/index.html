@@ -52,6 +52,14 @@
       </div>
       <div class="lbar hidden" id="lbar"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg><span id="lbar-text"></span><button class="btn sm gold" id="lbar-btn">Install and restart</button></div>
       <div class="right" data-tauri-drag-region>
+        <div class="guild hidden" id="guild">
+          <button class="gpill" id="guild-pill" aria-haspopup="dialog" aria-expanded="false"><i class="dot"></i><span class="stack" id="guild-stack"></span><span id="guild-text"></span></button>
+          <div class="gpop" id="guild-pop" role="dialog" aria-label="Guild online now">
+            <div class="gp-head"><span class="label">Guild online now</span><span class="gp-count" id="guild-count"></span></div>
+            <div class="gp-list" id="guild-list"></div>
+            <div class="gp-foot">From the guild's launchers linked to Discord. <button class="link" id="guild-settings">Hide yourself in Settings</button></div>
+          </div>
+        </div>
         <div class="me hidden" id="me"><span class="av" id="me-av"></span><span class="who"><b id="me-name"></b><span id="me-spec"></span></span></div>
         <div class="wc">
           <button id="wmin" aria-label="Minimize" title="Minimize"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5.5h8"/></svg></button>
@@ -162,6 +170,7 @@
     <section class="page" id="page-game">
       <div class="hero game" id="g-hero">
         <img class="art" id="g-art" src="art/hero.jpg" alt="" draggable="false">
+        <video class="art film" id="g-film" muted loop playsinline preload="none" aria-hidden="true"></video>
         <span class="forge"></span>
         <div class="mist"><i class="m1"></i><i class="m2"></i></div>
         <div class="motes" id="g-motes"></div>
@@ -295,6 +304,10 @@
               <div class="rl disc"><span class="dlg"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v10h-9l-6 4z"/></svg></span><span><span class="rt">Guild Discord sync</span><span class="rd" id="sync-state">Not linked.</span></span></div>
               <div class="rc" id="sync-linked-btns"><button class="btn" id="btn-sync">Sync now</button><button class="btn ghost" id="btn-unlink">Unlink</button></div>
             </div>
+            <div class="row">
+              <div class="rl"><div class="rt">Show me as in game</div><div class="rd">While World of Warcraft runs, the guild's launchers show you under "online now" in their title bar, as the character you played last.</div></div>
+              <div class="rc"><button class="tgl" id="set-presence" role="switch" aria-checked="true" aria-label="Show me as in game"></button></div>
+            </div>
             <div class="row" id="row-link">
               <div class="rl"><div class="rt">Link this launcher</div><div class="rd">Type /launcher in the guild's Discord and paste the code it gives you. Your game's sign-ups, BiS lists and raids then reach Discord after each save, and what people change in Discord reaches your game at its next login or /reload.</div></div>
               <div class="rc"><input class="field" id="set-linkcode" placeholder="code" spellcheck="false" autocomplete="off" maxlength="12"><button class="btn gold" id="btn-link">Link</button></div>
@@ -356,6 +369,7 @@
 <script src="js/notes.js"></script>
 <script src="js/backups.js"></script>
 <script src="js/settings.js"></script>
+<script src="js/guild.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

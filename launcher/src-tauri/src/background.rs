@@ -231,7 +231,7 @@ async fn try_tick(app: &AppHandle, manual: bool) -> Result<()> {
     if m.seq < s.seen_seq.get(&s.channel).copied().unwrap_or(0) {
         return Ok(()); // a stale copy of the release list: the next check gets the current one
     }
-    let plan = install::make_plan(&lay, &m, &install::wanted(&lay, &m, &s.packs))?;
+    let plan = install::check_plan(&lay, &m, &install::wanted(&lay, &m, &s.packs))?;
     let notified = !manual && s.notified_seq.get(&s.channel).copied().unwrap_or(0) >= m.seq;
     let needs_pick = m.has_games() && !s.packs_picked;
     match decide(plan.up_to_date, s.hold, s.auto_install, wow::running(), notified, needs_pick) {

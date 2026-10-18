@@ -1,8 +1,14 @@
 // Backups: what every update (and every removed game) saved, newest first. Restore asks right on its card.
+// In motion, calmly: the rows rise in when the page opens, a new backup lands with a soft gold glow, Back up now and
+// Put back show their work on the page (a row being made, the card putting back), a deleted row folds away.
 "use strict";
 
 let backupsList = [];
 let backupOpen = null;      // the backup whose restore is being asked
+let backupBusy = null;      // { kind: "new" } while Back up now copies; { kind: "restore", id, names, done } putting back
+let backupsKnown = null;    // the ids drawn last (one not among them is new: it lands with the glow)
+let backupsEnter = false;   // the page just opened: the rows rise in
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function renderBackups() {
   const box = $("backups");
@@ -29,10 +35,18 @@ function drawBackups() {
   box.textContent = "";
   const total = backupsList.reduce((n, b) => n + (b.bytes || 0), 0);
   $("b-kept").textContent = backupsList.length ? backupsList.length + " · " + fmtBytes(total) : "None yet";
-  if (!backupsList.length) {
+  if (backupBusy && backupBusy.kind === "new") box.append(pendingCard());
+  else if (!backupsList.length) {
     box.append(el("div", "none", status.flavorDir ? "No backups yet. One is made before every update." : "Pick your World of Warcraft folder in Settings first."));
   }
-  backupsList.forEach((b, i) => box.append(backupCard(b, i === 0)));
+  backupsList.forEach((b, i) => {
+    const card = backupCard(b, i === 0);
+    if (backupsKnown && !backupsKnown.has(b.id)) card.classList.add("fresh");
+    else if (backupsEnter) { card.classList.add("enter"); card.style.setProperty("--i", i); }
+    box.append(card);
+  });
+  backupsKnown = new Set(backupsList.map((b) => b.id));
+  backupsEnter = false;
   const where = el("div", "where");
   where.append(icon("folder", "s"), el("span", null, "Backups live next to your addons, in"),
     el("code", null, (status.flavorDir || "…") + "\\Interface\\DZLauncher\\backups"),
@@ -68,6 +82,7 @@ function backupCard(b, newest) {
   mid.append(fol);
   const rt = el("div", "rt");
   if (b.bytes) rt.append(el("span", "sz", fmtBytes(b.bytes)));
+  const restoring = backupBusy && backupBusy.kind === "restore" && backupBusy.id === b.id;
   // (a backup from before the first install, or of a linked development folder, holds saved variables only:
   // nothing to put back, Open folder has them)
   if (!first && (b.folders || []).length && backupOpen !== b.id) {
@@ -76,9 +91,73 @@ function backupCard(b, newest) {
     btn.onclick = () => { backupOpen = b.id; drawBackups(); };
     rt.append(btn);
   }
+  if (!restoring) {
+    const bin = el("button", "ibtn bin");
+    bin.append(icon("trash", "s"));
+    bin.title = "Delete this backup";
+    bin.setAttribute("aria-label", "Delete this backup");
+    bin.disabled = working;
+    bin.onclick = () => deleteBackup(b, card, title);
+    rt.append(bin);
+  }
   card.append(when, mid, rt);
-  if (backupOpen === b.id) card.append(restoreAsk(b, newest, folders));
+  if (restoring) card.append(restoreWork(b));
+  else if (backupOpen === b.id) card.append(restoreAsk(b, newest, folders));
   return card;
+}
+
+// The row Back up now is making: it slides in at the top while the folders are copied.
+function pendingCard() {
+  const card = el("div", "bk pending");
+  const when = el("div", "when");
+  const d = new Date();
+  when.append(el("i"), el("b", null, d.toLocaleDateString(undefined, { day: "numeric", month: "short" })),
+    el("span", null, d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })));
+  const mid = el("div");
+  mid.append(el("div", "t", "Backing up…"));
+  const fol = el("div", "fol");
+  fol.append(skel("g-pill", "92px"), skel("g-pill", "74px"), skel("g-pill", "118px"));
+  mid.append(fol);
+  const rt = el("div", "rt");
+  rt.append(el("span", "sz", "Copying your folders and saved variables"), el("span", "ibar"));
+  card.append(when, mid, rt);
+  return card;
+}
+
+// A card putting its folders back: a moving bar while the files go back, then a moment of "is back".
+function restoreWork(b) {
+  const box = el("div", "confirm work" + (backupBusy.done ? " done" : ""));
+  const p = el("p");
+  const names = backupBusy.names;
+  if (backupBusy.done) {
+    p.append(icon("check", "s"), el("b", null, b.reason === "remove" ? names + (backupBusy.many ? " are" : " is") + " back" : "Back to " + (b.version || "the backup")));
+  } else {
+    p.append(el("b", null, (b.reason === "remove" ? "Putting " + names + " back" : "Going back to " + (b.version || "the backup")) + "…"),
+      " What you have now is saved first.");
+  }
+  box.append(p, el("span", "ibar"));
+  return box;
+}
+
+// The trash can: asked first, then the row folds away while the folder goes.
+async function deleteBackup(b, card, title) {
+  if (working) return;
+  const ok = await confirmBox("Delete this backup?", title + (b.bytes ? " · frees " + fmtBytes(b.bytes) : "") +
+    ". It is gone for good: it can't be put back afterwards.", "Delete", true);
+  if (!ok) return;
+  working = true;
+  card.style.height = card.offsetHeight + "px";
+  void card.offsetHeight;
+  card.classList.add("leaving");
+  try {
+    await Promise.all([api.invoke("delete_backup", { id: b.id }), pause(420)]);
+    toast("Backup deleted" + (b.bytes ? " · " + fmtBytes(b.bytes) + " freed" : "") + ".", true);
+  } catch (e) {
+    toast(e);
+  }
+  working = false;
+  if (backupOpen === b.id) backupOpen = null;
+  renderBackups();
 }
 
 // The restore question, on the card: what goes back, and that what's there now is saved first.
@@ -111,16 +190,22 @@ function restoreAsk(b, newest, folders) {
 async function restoreBackup(b) {
   if (working) return;
   working = true;
-  drawBackups();
   const names = joinNames((b.folders || []).map(titleOf));
+  backupBusy = { kind: "restore", id: b.id, names, many: (b.folders || []).length > 1, done: false };
+  drawBackups();
   try {
-    await api.invoke("restore", { id: b.id });
-    toast(b.reason === "remove" ? names + ((b.folders || []).length > 1 ? " are" : " is") + " back." : "Restored " + (b.version || "the backup") + ".", true);
+    // (putting folders back is quick: the bar gets its moment anyway)
+    await Promise.all([api.invoke("restore", { id: b.id }), pause(1000)]);
+    backupBusy.done = true;
+    drawBackups();
+    await pause(1100);
+    toast(b.reason === "remove" ? names + (backupBusy.many ? " are" : " is") + " back." : "Restored " + (b.version || "the backup") + ".", true);
   } catch (e) {
     toast(e);
   }
   working = false;
   backupOpen = null;
+  backupBusy = null;
   await refreshAll();
   renderBackups();
 }
@@ -131,10 +216,12 @@ async function backupNow() {
   working = true;
   const btn = $("btn-backup-now");
   btn.disabled = true;
+  btn.classList.add("busy");
   $("backup-now-text").textContent = "Backing up…";
+  backupBusy = { kind: "new" };
   drawBackups();
   try {
-    const id = await api.invoke("backup_now");
+    const [id] = await Promise.all([api.invoke("backup_now"), pause(900)]);
     const list = await api.invoke("backups");
     const b = list.find((x) => x.id === id);
     const what = b && b.folders.length ? joinNames(b.folders.map(titleOf)) + (b.savedVariables ? " and your saved variables" : "") : "Your saved variables";
@@ -143,7 +230,9 @@ async function backupNow() {
     toast(e);
   }
   working = false;
+  backupBusy = null;
   btn.disabled = false;
+  btn.classList.remove("busy");
   $("backup-now-text").textContent = "Back up now";
   renderBackups();
 }

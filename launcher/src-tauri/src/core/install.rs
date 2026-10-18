@@ -214,8 +214,17 @@ pub fn sha256_file(path: &Path) -> Result<(String, u64)> {
     Ok((hex::encode(h.finalize()), n))
 }
 
-/// {relative path with '/': (sha256, size)} of every file under `dir` ({} when it does not exist).
+/// {relative path with '/': (sha256, size)} of every file under `dir` ({} when it does not exist), every file read.
 pub fn scan(dir: &Path) -> Result<BTreeMap<String, (String, u64)>> {
+    scan_with(dir, false)
+}
+
+/// The hashes read so far, by path: (size, modified, sha256). A check (`trust`) reads only the files whose size or
+/// time changed since; an update reads every file, and what it reads is kept too. Checks run at every start, after
+/// every change and twice an hour: hashing a few hundred MB each time held the window's new state back for seconds.
+static HASHES: std::sync::Mutex<BTreeMap<PathBuf, (u64, SystemTime, String)>> = std::sync::Mutex::new(BTreeMap::new());
+
+fn scan_with(dir: &Path, trust: bool) -> Result<BTreeMap<String, (String, u64)>> {
     let mut out = BTreeMap::new();
     if !dir.is_dir() {
         return Ok(out);
@@ -226,7 +235,18 @@ pub fn scan(dir: &Path) -> Result<BTreeMap<String, (String, u64)>> {
             continue;
         }
         let rel = entry.path().strip_prefix(dir).unwrap().to_string_lossy().replace('\\', "/");
-        out.insert(rel, sha256_file(entry.path())?);
+        let meta = entry.metadata().map_err(|e| Error::Msg(e.to_string()))?;
+        let when = meta.modified().unwrap_or(UNIX_EPOCH);
+        if trust {
+            let known = HASHES.lock().unwrap().get(entry.path()).filter(|(n, t, _)| *n == meta.len() && *t == when).map(|x| x.2.clone());
+            if let Some(sha) = known {
+                out.insert(rel, (sha, meta.len()));
+                continue;
+            }
+        }
+        let (sha, n) = sha256_file(entry.path())?;
+        HASHES.lock().unwrap().insert(entry.path().to_path_buf(), (n, when, sha.clone()));
+        out.insert(rel, (sha, n));
     }
     Ok(out)
 }
@@ -302,8 +322,18 @@ impl Plan {
     }
 }
 
-/// What it takes to bring the `wanted` folders to the release (and to take out the installed ones that aren't).
+/// What it takes to bring the `wanted` folders to the release (and to take out the installed ones that aren't),
+/// every file read: what an update goes by.
 pub fn make_plan(layout: &Layout, m: &Manifest, wanted: &[String]) -> Result<Plan> {
+    plan_with(layout, m, wanted, false)
+}
+
+/// The same for a check: files unchanged since they were last read keep their hash (scan_with).
+pub fn check_plan(layout: &Layout, m: &Manifest, wanted: &[String]) -> Result<Plan> {
+    plan_with(layout, m, wanted, true)
+}
+
+fn plan_with(layout: &Layout, m: &Manifest, wanted: &[String], trust: bool) -> Result<Plan> {
     let mut plan =
         Plan { fetch: vec![], remove: vec![], folders: vec![], unchanged: 0, download_bytes: 0, up_to_date: false };
     let empty = BTreeMap::new();
@@ -319,7 +349,7 @@ pub fn make_plan(layout: &Layout, m: &Manifest, wanted: &[String]) -> Result<Pla
             }
             continue;
         }
-        let have = scan(&live)?;
+        let have = scan_with(&live, trust)?;
         fp.disk_bytes = have.values().map(|(_, n)| n).sum();
         let want = m.folders.get(folder).unwrap_or(&empty);
         for (rel, f) in want {
@@ -729,6 +759,15 @@ pub fn list_backups(layout: &Layout) -> Vec<BackupInfo> {
     }
     out.sort_by(|a, b| b.id.cmp(&a.id));
     out
+}
+
+/// Backups > the trash can: one backup goes for good (only an id the list shows: nothing outside backups/).
+pub fn delete_backup(layout: &Layout, id: &str) -> Result<()> {
+    if !list_backups(layout).iter().any(|b| b.id == id) {
+        return msg("that backup is not there any more");
+    }
+    fs::remove_dir_all(layout.backups().join(id))?;
+    Ok(())
 }
 
 fn prune_backups(layout: &Layout, keep: usize) -> Result<()> {
@@ -1276,6 +1315,38 @@ mod tests {
         let b = &list_backups(&fx.layout)[0];
         assert!(b.folders.is_empty() && b.saved_variables == 1, "{b:?}");
         assert!(src.join("DisasterZone.toc").is_file());
+    }
+
+    #[tokio::test]
+    async fn a_check_reads_only_files_that_changed() {
+        let mut fx = Fixture::new();
+        let m = fx.publish("1.0", "b1", &[("Core/A.lua", "a1"), ("Core/B.lua", "b1")], &[]);
+        fx.update_with(&m, &[], 3).await.unwrap();
+        let want = wanted(&fx.layout, &m, &BTreeMap::new());
+        assert!(check_plan(&fx.layout, &m, &want).unwrap().up_to_date);
+        // a file changed behind the launcher's back (same length, new time): the check still sees it
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(fx.layout.addons().join("DisasterZone/Core/A.lua"), "zz").unwrap();
+        let plan = check_plan(&fx.layout, &m, &want).unwrap();
+        assert_eq!(plan.fetch.iter().map(|(_, r, _)| r.as_str()).collect::<Vec<_>>(), vec!["Core/A.lua"]);
+        // the remembered hash is the file's own, not the release's: put back, it matches again
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(fx.layout.addons().join("DisasterZone/Core/A.lua"), "a1").unwrap();
+        assert!(check_plan(&fx.layout, &m, &want).unwrap().up_to_date);
+    }
+
+    #[tokio::test]
+    async fn a_backup_can_be_deleted_and_nothing_else() {
+        let mut fx = Fixture::new();
+        let m = fx.publish("1.0", "b1", &[("Core/A.lua", "a1")], &[]);
+        fx.update_with(&m, &[], 3).await.unwrap();
+        let id = backup_now(&fx.layout, 3).unwrap();
+        assert!(delete_backup(&fx.layout, "..").is_err());
+        assert!(delete_backup(&fx.layout, "../../Interface").is_err());
+        delete_backup(&fx.layout, &id).unwrap();
+        assert!(list_backups(&fx.layout).is_empty());
+        assert!(delete_backup(&fx.layout, &id).unwrap_err().to_string().contains("not there"));
+        assert_eq!(fx.read("DisasterZone", "Core/A.lua").as_deref(), Some("a1"));
     }
 
     #[tokio::test]

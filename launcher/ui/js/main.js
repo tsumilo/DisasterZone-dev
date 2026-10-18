@@ -24,11 +24,15 @@ async function start() {
   try { if (!localStorage.getItem("dz.gamesSeen")) $("games-new").classList.remove("hidden"); } catch (e) { /* (no badge) */ }
   sprinkle($("h-motes"), 18, ["", "", "au"]);
   // hidden in the tray or minimised: the animations rest
-  document.addEventListener("visibilitychange", () => $("win").classList.toggle("paused", document.hidden));
+  document.addEventListener("visibilitychange", () => {
+    $("win").classList.toggle("paused", document.hidden);
+    filmRest(document.hidden || here().page !== "game");
+  });
   wireSettings();
   wireSync();
   wireNotes();
   wireBackups();
+  wireGuild();
   showPage("home");
 
   await api.listen("sync-status", (e) => { sync = { ...sync, ...e.payload }; if (status) renderSync(); });
@@ -50,6 +54,7 @@ async function start() {
   await api.listen("window-shown", () => {
     $("win").classList.remove("paused");
     loadPlayer();
+    loadGuild();
     if (Date.now() - launcher.at > SHOWN_GAP_MS) checkLauncherUpdate();
   });
   try {
@@ -60,6 +65,7 @@ async function start() {
     return;
   }
   loadPlayer();
+  loadGuild();
   if (status.settings.checkOnStart || !status.installed || !status.installed.present) await runCheck();
   else renderHero();
   checkLauncherUpdate();

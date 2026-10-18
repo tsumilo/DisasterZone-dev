@@ -63,6 +63,7 @@ function renderSettings() {
   $("set-tray").setAttribute("aria-checked", String(!!s.tray));
   $("set-auto").setAttribute("aria-checked", String(!!s.autoInstall));
   $("set-autostart").setAttribute("aria-checked", String(!!s.autostart));
+  $("set-presence").setAttribute("aria-checked", String(s.showPresence !== false));
   $("row-auto").classList.toggle("off", !s.tray);           // (both need tray mode)
   $("row-autostart").classList.toggle("off", !s.tray);
   for (const [id, key] of [["set-code", "launchCode"], ["set-cmd", "playCommand"], ["set-source", "source"]]) {
@@ -97,6 +98,7 @@ function wireSettings() {
   $("btn-open-addons").onclick = () => api.invoke("open_folder", { kind: "addons" }).catch(toast);
   $("set-check").onclick = () => saveSettings({ checkOnStart: !status.settings.checkOnStart });
   $("set-tray").onclick = () => saveSettings({ tray: !status.settings.tray });
+  $("set-presence").onclick = () => saveSettings({ showPresence: status.settings.showPresence === false });
   $("set-auto").onclick = () => { if (status.settings.tray) saveSettings({ autoInstall: !status.settings.autoInstall }); };
   $("set-autostart").onclick = () => { if (status.settings.tray) saveSettings({ autostart: !status.settings.autostart }); };
   const field = (id, key, recheck) => {

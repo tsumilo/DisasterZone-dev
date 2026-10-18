@@ -37,6 +37,16 @@ thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["fs", "rt", "macros", "time", "sync"] }
 walkdir = "2.5.0"
 
+# (dev builds: the hashing and unzipping crates optimised, or a check of a few hundred MB takes many seconds)
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.flate2]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
 [profile.release]
 opt-level = "s"
 lto = true
