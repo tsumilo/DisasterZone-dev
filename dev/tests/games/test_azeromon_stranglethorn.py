@@ -463,7 +463,8 @@ def booty_bays_houses_stand_round_the_harbour():
 @case
 def an_old_save_in_the_vale_moves_to_the_nearest_road():
     """Saves from before the redraw (v 3): a spot on the old maps goes to the new map's nearest road, a cave's to the
-    foot of its ladder; the Rebel Camp's revive point moves to Brother Nimetz's fire."""
+    foot of its ladder; the Rebel Camp's revive point moves to Brother Nimetz's fire; a gathered node that is no
+    longer there is forgotten (one still there, and any elsewhere, are kept)."""
     _, c = solo("Alice", tick=2)
     r = c.eval_py(r"""local G = ns.Azero
       local out = {}
@@ -495,6 +496,17 @@ def an_old_save_in_the_vale_moves_to_the_nearest_road():
       G:Data().save = { v = 4, map = 'stvnorth', x = 27, y = 25, face = 'down', party = {}, flags = { starter = 'murkling' } }
       G:Load()""")
     assert c.eval_py("local s = ns.Azero.save return { s.x, s.y }") == [27, 25]
+    nodes = c.eval_py(r"""local G = ns.Azero
+      local n = ns.AzeroMaps.stvnorth.nodes.herb[1]
+      local still = 'stvnorth:' .. n[1] .. ':' .. n[2]
+      G:Data().save = { v = 3, map = 'town', x = 7, y = 23, face = 'down', party = {}, flags = { starter = 'murkling' },
+                        nodes = { ['stvnorth:26:6'] = { t = 1, n = 2 }, [still] = { t = 1, n = 1 }, ['town:3:3'] = { t = 1, n = 1 } } }
+      G:Load()
+      local out = {}
+      for k in pairs(G.save.nodes) do out[#out + 1] = k end
+      table.sort(out)
+      return { out, still }""")
+    assert nodes[0] == sorted([nodes[1], "town:3:3"]), nodes
 
 
 @case

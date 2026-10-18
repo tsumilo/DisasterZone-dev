@@ -371,8 +371,9 @@ function G.MigrateGoldshire(s)
 end
 
 -- Saves from before Stranglethorn was redrawn (0.48) hold spots on the old, boxy maps (MapsStranglethorn.lua, rev 2):
--- a player standing on one goes to its nearest road or boardwalk (in a cave, to the foot of its ladder), and the
--- Rebel Camp's revive point moves to Brother Nimetz's fire.
+-- a player standing on one goes to its nearest road or boardwalk (in a cave, to the foot of its ladder), the Rebel
+-- Camp's revive point moves to Brother Nimetz's fire, and gathered herb / ore nodes (Crafting.lua, saved by
+-- map:x:y) that are no longer there are forgotten.
 G.STV_REDRAWN = { rebelcamp = true, kurzen = true, stvnorth = true, zulmamwe = true, moshogg = true, stvsouth = true,
                   crystalvein = true, wildshore = true, bootybay = true, jaguero = true }
 
@@ -414,6 +415,20 @@ function G.MigrateStranglethorn(s)
     end
     if type(s.respawn) == "table" and s.respawn.map == "rebelcamp" then
         s.respawn.x, s.respawn.y, s.respawn.face = 7, 9, "up"
+    end
+    if type(s.nodes) == "table" then
+        for key in pairs(s.nodes) do
+            local id, x, y = tostring(key):match("^(.-):(%-?%d+):(%-?%d+)$")
+            if id and G.STV_REDRAWN[id] then
+                local here = false
+                for _, spots in pairs(Maps[id].nodes or {}) do
+                    for _, p in ipairs(spots) do
+                        if p[1] == tonumber(x) and p[2] == tonumber(y) then here = true end
+                    end
+                end
+                if not here then s.nodes[key] = nil end
+            end
+        end
     end
 end
 
