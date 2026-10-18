@@ -92,6 +92,15 @@ ns.CHANGELOG = {
               "The spell lab has a Path switch, to try either path of every spell.",
               "Balance: Warriors deal 20% more damage, Mages 10% less; Exorcism hits bosses harder.",
               "Maexxna is tougher (26,000 health) and Thaddius softer (10,000).",
+              "Exorcism reaches a Naxxramas boss half a screen past the edge, and skips one that can't be hurt.",
+          } },
+          { heading = "Hold the Line: a slower start, small encounters", area = "games", kind = "changed", open = "games",
+            lead = "The Plaguelands open with a trickle, and something small happens every minute or so.", lines = {
+              "The dead come a few at a time at first and build up to the full crowd by 2:00.",
+              "A Plagued Courier runs off with a satchel: catch it for gold and runes, an arrow shows it.",
+              "Bones claw out of the earth around you, a tide of rats runs past, a hound pack comes in.",
+              "A Ravener Packleader brings its pack, and a purse.",
+              "They come between the clock's events, never on top of a boss, and grow as the run goes.",
           } },
           { heading = "Hold the Line: fixes", area = "games", kind = "fixed", open = "games", lines = {
               "Circle warnings (the Abomination's slam, the Lich's nova) no longer show a black box.",

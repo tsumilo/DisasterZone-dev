@@ -274,5 +274,7 @@ function Rd.DrawHud(v, run)
     -- arrows to coffers and the boss off screen
     local cx, cy = Rd.Camera(v, run)
     for _, k in ipairs(run.pick) do if k.kind == "chest" then Arrow(v, cx, cy, k.x, k.y, GOLD) end end
+    local cr = run.courier                                   -- (a fleeing courier: Encounters.lua)
+    if cr and not cr.dead then Arrow(v, cx, cy, cr.x, cr.y, GOLD) end
     if b and not b.dead and not (math.abs(b.x - run.p.x) < VW / 2 + 20 and math.abs(b.y - run.p.y) < v.VH / 2 + 20) then Arrow(v, cx, cy, b.x, b.y, BOSSARROW) end
 end

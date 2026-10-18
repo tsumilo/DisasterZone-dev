@@ -1001,7 +1001,7 @@ local function fire(id, s, r, L)
         local n = L and (pa == "a" and 3 or 2) or 3 + r + (pa == "a" and 3 or 0)
         local ox, oy = L and (p.x - PORTAL[p.dir + 1] * 2.6) or p.x, L and p.y - 60 or p.y - 46
         for i = 0, n - 1 do
-            local a = -pi / 2 + (i - (n - 1) / 2) * (pa == "a" and not L and 0.3 or 0.45) + vr(-0.2, 0.2)
+            local a = -pi / 2 + (i - (n - 1) / 2) * (pa == "a" and not L and 0.3 or 0.45) + rr(-0.2, 0.2)       -- (seeded: the missiles' paths decide hits)
             R.proj[#R.proj + 1] = { kind = "arcane", x = ox, y = oy, vx = cos(a) * 230, vy = sin(a) * 230, dmg = 6 + 2 * r, life = pa == "a" and 1.45 or 2.4, delay = i * (pa == "a" and 0.045 or 0.07), ox = ox, oy = oy, trail = {},
                 focus = pa == "b" or nil }
         end

@@ -515,5 +515,68 @@ def a_new_legendary_is_revealed_by_name_and_taken():
     no_errors(w)
 
 
+@case
+def the_plaguelands_start_with_a_trickle_and_small_encounters_come_between_events():
+    w, c = boot("MAGE")
+    r = c.eval_py(r"""
+      local E, D = ns.HTL, ns.HTLData
+      local r = E.New({ cls = 'MAGE', seed = 5, god = true, bot = true })
+      r.ff = true
+      local msgs, enc, at15, at200, last = {}, {}, nil, nil, nil
+      for _, en in pairs(E.ENCOUNTERS) do msgs[en.msg] = true end
+      for i = 1, 600 * 30 do
+        E.Step(r, 1 / 30, 0, 0)
+        r.wantLevelUp, r.chest = nil, nil
+        local n = 0 for _, e in ipairs(r.en) do if not e.dead then n = n + 1 end end
+        if not at15 and r.t >= 15 then at15 = n end
+        if not at200 and r.t >= 200 then at200 = n end
+        if r.warn and r.warn.msg ~= last then last = r.warn.msg if msgs[last] then enc[#enc + 1] = math.floor(r.t) end end
+      end
+      local near = 0      -- (none from 25 s before a clock event to 15 s after it)
+      for _, t in ipairs(enc) do for _, ev in ipairs(D.EVENTS) do if t > ev.t - 25 and t < ev.t + 15 then near = near + 1 end end end
+      return { at15 = at15, at200 = at200, n = #enc, first = enc[1] or -1, near = near }
+    """)
+    no_errors(w)
+    assert r["at15"] <= 16 and r["at200"] >= 100, r       # (a trickle, then the full crowd by 2:00)
+    assert r["n"] >= 4 and 0 < r["first"] <= 70 and r["near"] == 0, r
+
+
+@case
+def every_small_encounter_plays_and_a_caught_courier_spills_its_satchel():
+    w, c = boot()
+    r = c.eval_py(r"""
+      local E = ns.HTL
+      local out = {}
+      local function fresh(t)
+        local r = E.New({ cls = 'PALADIN', seed = 3, god = true })
+        r.calm, r.t, r.evI, r.encT = true, t, 99, nil     -- (no crowd, clock events or own encounters)
+        E.Use(r)
+        return r
+      end
+      for _, id in ipairs({ 'courier', 'bones', 'rats', 'hounds', 'packleader' }) do
+        local r = fresh(200)
+        E.ENCOUNTERS[id].run(r)
+        for _ = 1, 3 * 30 do E.Step(r, 1 / 30, 0, 0) r.wantLevelUp = nil end
+        local n = 0 for _, e in ipairs(r.en) do if not e.dead then n = n + 1 end end
+        out[id] = n
+      end
+      local function gold(r) local g = 0 for _, k in ipairs(r.pick) do if k.kind == 'gold' then g = g + 1 end end return g end
+      local r = fresh(100)
+      E.ENCOUNTERS.courier.run(r)
+      E.Kill(r, r.courier)
+      E.Step(r, 1 / 30, 0, 0)
+      out.caughtGold, out.caughtGems, out.caughtGone = gold(r), #r.gems, r.courier == nil
+      r = fresh(100)
+      E.ENCOUNTERS.courier.run(r)
+      for _ = 1, 20 * 30 do E.Step(r, 1 / 30, 0, 0) r.wantLevelUp = nil end
+      out.fledGold, out.fledGone = gold(r), r.courier == nil
+      return out
+    """)
+    no_errors(w)
+    assert r["courier"] == 1 and r["bones"] >= 6 and r["rats"] >= 18 and r["hounds"] >= 4 and r["packleader"] >= 4, r
+    assert r["caughtGold"] >= 1 and r["caughtGems"] >= 8 and r["caughtGone"], r
+    assert r["fledGold"] == 0 and r["fledGone"], r
+
+
 if __name__ == "__main__":
     run_all(globals())

@@ -2445,6 +2445,10 @@ STATES = [
                                                   "for _ = 1, 5 do ns.HTL.AddSpell(r, 'avenger') end r.spells.avenger.path = 'a' "
                                                   "r.chest = { items = { { kind = 'legend', id = 'avenger' } }, gold = 25 } "
                                                   "for _ = 1, 200 do ns.HTLUI._Tick(1 / 60) end")),
+    ("Games - Hold the Line encounters", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('PALADIN') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
+                                         "local r, E = ns.HTLUI._Run(), ns.HTL r.god, r.t, r.evI, r.encT = true, 140, 2, nil E.Use(r) "
+                                         "E.ENCOUNTERS.packleader.run(r) E.ENCOUNTERS.courier.run(r) for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) end "
+                                         "E.Use(r) E.ENCOUNTERS.bones.run(r) for _ = 1, 50 do ns.HTLUI._Tick(1 / 60) r.wantLevelUp, r.pending = nil, 0 end")),
     ("Games - Hold the Line paragon", opened("games", "ns.GamesUI:Select('holdtheline') ns.HTLUI.Start('MAGE') for _ = 1, 30 do ns.HTLUI._Tick(1 / 60) end "
                                      "local r, E = ns.HTLUI._Run(), ns.HTL r.god = true "
                                      "for _, id in ipairs({ 'arcane', 'nova', 'blizzard' }) do for _ = 1, 5 do E.AddSpell(r, id) end r.spells[id].path = 'b' end "

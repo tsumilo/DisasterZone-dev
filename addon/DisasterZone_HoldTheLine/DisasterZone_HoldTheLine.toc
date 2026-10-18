@@ -17,6 +17,7 @@ Art.lua
 Kit.lua
 Engine.lua
 NaxxBoss.lua
+Encounters.lua
 Render.lua
 HUD.lua
 Game.lua

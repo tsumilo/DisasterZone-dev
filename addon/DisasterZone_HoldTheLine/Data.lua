@@ -24,6 +24,9 @@ D.MOBS = {
     horror   = { name = "Stitched Horror", hp = 700, spd = 40, dmg = 20, r = 24, xp = 40, ichor = "rot", elite = true, mass = 8 },
     abom     = { name = "Unstoppable Abomination", hp = 4200, spd = 42, dmg = 26, r = 34, xp = 120, ichor = "rot", boss = true, mass = 40 },
     lich     = { name = "Lich", hp = 6400, spd = 46, dmg = 24, r = 22, xp = 200, ichor = "spirit", boss = true, mass = 40 },
+    -- the small encounters' own (Encounters.lua): a courier that runs from you, a packleader with a purse
+    courier  = { name = "Plagued Courier", sprite = "ghoul", hp = 45, spd = 1, dmg = 0, r = 12, xp = 2, ichor = "rot", mass = 1, scale = 0.95, tint = { 1, 0.86, 0.5 } },
+    packleader = { name = "Ravener Packleader", sprite = "ghoul2", hp = 240, spd = 58, dmg = 12, r = 18, xp = 10, ichor = "rot", mass = 3, scale = 1.35, tint = { 0.78, 1, 0.66 } },
     reaper   = { name = "The Pale Rider", hp = 1e9, spd = 92, dmg = 9999, r = 22, xp = 0, ichor = "spirit", reaper = true, mass = 99 },
 }
 for k, m in pairs(D.MOBS) do m.key = k end
@@ -59,7 +62,11 @@ D.EVENTS = {
     { t = 840, kind = "dark", msg = "The necropolis darkens the sky..." },
     { t = 900, kind = "reaper", msg = "The Pale Rider comes." },
 }
-function D.Target(t) return math.min(330, 34 + t * 0.5 + (t > 300 and (t - 300) * 0.16 or 0)) end
+-- the crowd the spawner keeps up: a trickle at the start (a fifth of it), the full crowd by 2:00
+function D.Target(t)
+    local k = t < 120 and 0.22 + 0.78 * t / 120 or 1
+    return math.min(330, (34 + t * 0.5 + (t > 300 and (t - 300) * 0.16 or 0)) * k)
+end
 
 -- school colours (tints for the client's white effect textures)
 local function c(r, g, b) return { r / 255, g / 255, b / 255 } end
